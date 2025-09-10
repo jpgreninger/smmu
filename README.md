@@ -35,4 +35,4 @@ See `ARM_SMMU_v3_PRD.md` for complete product requirements and `TASKS.md` for im
 
 ## License
 
-Copyright (c) 2024 John Greninger. All rights reserved.
+Copyright (c) 2025 John Greninger. All rights reserved.
