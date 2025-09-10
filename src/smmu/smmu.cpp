@@ -157,7 +157,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         
         recordFault(fault);
         // No need to record cache miss here - TLBCache handles its own statistics
-        return makeTranslationError(SMMUError::PageNotMapped);
+        return makeTranslationError(SMMUError::StreamNotConfigured);
     }
     
     StreamContext* streamContext = streamIt->second.get();

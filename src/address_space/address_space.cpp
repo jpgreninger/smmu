@@ -113,6 +113,15 @@ TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, 
     
     const PageEntry& entry = it->second;
     
+    // Prefetch hint for likely next sequential page access
+    // This improves performance for sequential memory access patterns common in ARM SMMU v3
+#ifdef __GNUC__
+    auto nextIt = pageTable.find(pageNum + 1);
+    if (nextIt != pageTable.end()) {
+        __builtin_prefetch(&nextIt->second, 0, 1);  // Read prefetch with low temporal locality
+    }
+#endif
+    
     // Verify page entry is valid
     if (!entry.valid) {
         return makeTranslationError(FaultType::TranslationFault);
@@ -324,6 +333,10 @@ VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappin
         return makeVoidError(SMMUError::InvalidPermissions);
     }
     
+    // Optimize hash table capacity for bulk insertion
+    // Reserve space to avoid rehashing during bulk operations
+    pageTable.reserve(pageTable.size() + mappings.size());
+    
     // Validate all mappings before processing any
     for (const auto& mapping : mappings) {
         IOVA iova = mapping.first;
@@ -340,10 +353,18 @@ VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappin
         }
     }
     
-    // All validation passed - now process all mappings
-    for (const auto& mapping : mappings) {
+    // All validation passed - now process all mappings with prefetching
+    for (size_t i = 0; i < mappings.size(); ++i) {
+        const auto& mapping = mappings[i];
         IOVA iova = mapping.first;
         PA pa = mapping.second;
+        
+        // Prefetch next mapping for better cache performance
+#ifdef __GNUC__
+        if (i + 1 < mappings.size()) {
+            __builtin_prefetch(&mappings[i + 1], 0, 1);  // Read prefetch
+        }
+#endif
         
         // Convert to page number and align physical address
         uint64_t pageNum = pageNumber(iova);
@@ -385,8 +406,17 @@ VoidResult AddressSpace::unmapPages(const std::vector<IOVA>& iovas) {
         return makeVoidError(SMMUError::PageNotMapped);
     }
     
-    // All validation passed - now unmap all pages
-    for (IOVA iova : iovas) {
+    // All validation passed - now unmap all pages with prefetching
+    for (size_t i = 0; i < iovas.size(); ++i) {
+        IOVA iova = iovas[i];
+        
+        // Prefetch next IOVA for better cache performance
+#ifdef __GNUC__
+        if (i + 1 < iovas.size()) {
+            __builtin_prefetch(&iovas[i + 1], 0, 1);  // Read prefetch
+        }
+#endif
+        
         uint64_t pageNum = pageNumber(iova);
         pageTable.erase(pageNum);
     }

@@ -1,6 +1,7 @@
 # Performance test executables
 set(PERFORMANCE_TEST_SOURCES
     address_space_performance_test.cpp  # AddressSpace O(1) performance validation
+    optimization_benchmark_test.cpp     # QA.5 Task 1: Comprehensive optimization benchmarks
     # benchmark_cache.cpp               # TODO: Implement for Task 3.2
     # benchmark_scalability.cpp         # TODO: Implement for Task 3.3
     # benchmark_memory_usage.cpp        # TODO: Implement for Task 3.4
@@ -22,5 +23,5 @@ endforeach()
 
 # Custom target for all performance tests
 add_custom_target(performance_tests
-    DEPENDS address_space_performance_test
+    DEPENDS address_space_performance_test optimization_benchmark_test
 )

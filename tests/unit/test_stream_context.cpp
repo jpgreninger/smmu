@@ -4,6 +4,10 @@
 #include <gtest/gtest.h>
 #include "smmu/stream_context.h"
 #include "smmu/types.h"
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <chrono>
 
 namespace smmu {
 namespace test {
@@ -1127,6 +1131,7 @@ TEST_F(StreamContextTest, GetStreamConfiguration) {
     // Test default configuration
     StreamConfig defaultConfig = streamContext->getStreamConfiguration();
     // Verify expected defaults match StreamConfig constructor
+    EXPECT_FALSE(defaultConfig.translationEnabled); // Default: translation disabled
     
     // Set up Stage-2 address space for Stage-2 configuration
     auto stage2Space = std::make_shared<AddressSpace>();
@@ -1558,6 +1563,650 @@ TEST_F(StreamContextTest, FaultHandlerLifecycleManagement) {
     VoidResult clearFinalResult = streamContext->setFaultHandler(nullptr);
     EXPECT_TRUE(clearFinalResult.isOk());
     EXPECT_FALSE(streamContext->hasFaultHandler());
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: Thread Safety and Concurrent Access
+// ======================================================================
+
+// Test concurrent PASID creation and removal
+TEST_F(StreamContextTest, ConcurrentPASIDOperations) {
+    const int NUM_THREADS = 8;
+    const int OPERATIONS_PER_THREAD = 50;
+    std::atomic<int> successCount(0);
+    std::atomic<int> errorCount(0);
+    std::vector<std::thread> threads;
+    
+    // Launch multiple threads performing concurrent PASID operations
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&, t]() {
+            for (int i = 0; i < OPERATIONS_PER_THREAD; ++i) {
+                PASID pasid = (t * OPERATIONS_PER_THREAD + i) % (MAX_PASID / 2) + 1; // Avoid PASID 0
+                
+                // Create PASID
+                VoidResult createResult = streamContext->createPASID(pasid);
+                if (createResult.isOk()) {
+                    successCount++;
+                    
+                    // Try to use the PASID for mapping
+                    PagePermissions perms(true, false, false);
+                    streamContext->mapPage(pasid, TEST_IOVA + i * 0x1000, TEST_PA + i * 0x1000, perms);
+                    
+                    // Remove PASID
+                    VoidResult removeResult = streamContext->removePASID(pasid);
+                    if (!removeResult.isOk()) {
+                        errorCount++;
+                    }
+                } else {
+                    errorCount++;
+                }
+            }
+        });
+    }
+    
+    // Wait for all threads to complete
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    
+    // Verify that operations completed without crashing and state is consistent
+    EXPECT_GT(successCount.load(), 0);
+    EXPECT_EQ(streamContext->getPASIDCount(), 0); // All PASIDs should be removed
+}
+
+// Test concurrent translation operations
+TEST_F(StreamContextTest, ConcurrentTranslationOperations) {
+    // Set up initial state
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    
+    const int NUM_THREADS = 4;
+    const int NUM_PASIDS = 10;
+    
+    // Create multiple PASIDs with mappings
+    for (int i = 1; i <= NUM_PASIDS; ++i) {
+        EXPECT_TRUE(streamContext->createPASID(i));
+        PagePermissions perms(true, true, false);
+        EXPECT_TRUE(streamContext->mapPage(i, TEST_IOVA + i * 0x1000, TEST_PA + i * 0x1000, perms));
+    }
+    
+    std::atomic<int> translationCount(0);
+    std::atomic<int> errorCount(0);
+    std::vector<std::thread> threads;
+    
+    // Launch threads performing concurrent translations
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < 100; ++i) {
+                PASID pasid = (i % NUM_PASIDS) + 1;
+                IOVA iova = TEST_IOVA + pasid * 0x1000;
+                
+                TranslationResult result = streamContext->translate(pasid, iova, AccessType::Read);
+                if (result.isOk()) {
+                    translationCount++;
+                } else {
+                    errorCount++;
+                }
+                
+                // Add small delay to increase concurrency
+                std::this_thread::sleep_for(std::chrono::microseconds(1));
+            }
+        });
+    }
+    
+    // Wait for completion
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    
+    // Verify concurrent operations maintained consistency
+    EXPECT_GT(translationCount.load(), 0);
+    EXPECT_EQ(streamContext->getPASIDCount(), NUM_PASIDS);
+}
+
+// Test concurrent configuration updates
+TEST_F(StreamContextTest, ConcurrentConfigurationUpdates) {
+    auto stage2Space = std::make_shared<AddressSpace>();
+    streamContext->setStage2AddressSpace(stage2Space);
+    
+    const int NUM_THREADS = 4;
+    std::atomic<int> updateCount(0);
+    std::vector<std::thread> threads;
+    
+    // Launch threads performing concurrent configuration updates
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&, t]() {
+            for (int i = 0; i < 20; ++i) {
+                StreamConfig config;
+                config.translationEnabled = (i % 2 == 0);
+                config.stage1Enabled = (i % 3 == 0);
+                config.stage2Enabled = (i % 4 == 0);
+                config.faultMode = ((i + t) % 2 == 0) ? FaultMode::Terminate : FaultMode::Stall;
+                
+                // Skip invalid configurations
+                if (config.translationEnabled && !config.stage1Enabled && !config.stage2Enabled) {
+                    continue;
+                }
+                
+                VoidResult result = streamContext->updateConfiguration(config);
+                if (result.isOk()) {
+                    updateCount++;
+                }
+                
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+        });
+    }
+    
+    // Wait for completion
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    
+    // Verify final state is consistent
+    EXPECT_GT(updateCount.load(), 0);
+    Result<bool> enabledState = streamContext->isStreamEnabled();
+    EXPECT_TRUE(enabledState.isOk()); // State should remain consistent
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: SecurityState Integration
+// ======================================================================
+
+// Test SecurityState parameter in mapPage operations
+TEST_F(StreamContextTest, SecurityStateMapPageIntegration) {
+    streamContext->setStage1Enabled(true);
+    EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
+    
+    PagePermissions perms(true, true, false);
+    
+    // Test mapping with NonSecure state
+    VoidResult nsResult = streamContext->mapPage(TEST_PASID_1, TEST_IOVA, TEST_PA, perms, SecurityState::NonSecure);
+    EXPECT_TRUE(nsResult.isOk());
+    
+    // Test mapping with Secure state
+    VoidResult secResult = streamContext->mapPage(TEST_PASID_1, TEST_IOVA_2, TEST_PA_2, perms, SecurityState::Secure);
+    EXPECT_TRUE(secResult.isOk());
+    
+    // Test mapping with Realm state
+    VoidResult realmResult = streamContext->mapPage(TEST_PASID_1, TEST_IOVA + 0x2000, TEST_PA + 0x2000, perms, SecurityState::Realm);
+    EXPECT_TRUE(realmResult.isOk());
+    
+    // Verify translations work with correct security states
+    streamContext->enableStream();
+    
+    TranslationResult nsTranslation = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(nsTranslation.isOk());
+    EXPECT_EQ(nsTranslation.getValue().securityState, SecurityState::NonSecure);
+    
+    TranslationResult secTranslation = streamContext->translate(TEST_PASID_1, TEST_IOVA_2, AccessType::Read, SecurityState::Secure);
+    EXPECT_TRUE(secTranslation.isOk());
+    EXPECT_EQ(secTranslation.getValue().securityState, SecurityState::Secure);
+}
+
+// Test SecurityState isolation between different security domains
+TEST_F(StreamContextTest, SecurityStateIsolationValidation) {
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
+    
+    PagePermissions perms(true, true, false);
+    
+    // Map same IOVA to different PAs with different security states
+    VoidResult nsMapResult = streamContext->mapPage(TEST_PASID_1, TEST_IOVA, TEST_PA, perms, SecurityState::NonSecure);
+    EXPECT_TRUE(nsMapResult.isOk());
+    
+    // Attempt translation with wrong security state should behave appropriately
+    TranslationResult nsTranslation = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(nsTranslation.isOk());
+    
+    TranslationResult secTranslation = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read, SecurityState::Secure);
+    // Implementation may allow this or may enforce isolation - test current behavior
+    // ARM SMMU v3 implementation specifics determine the exact behavior
+    // For now, we just verify the translation attempts don't crash
+    (void)secTranslation; // Suppress unused variable warning
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: Context Descriptor Validation
+// ======================================================================
+
+// Test validateContextDescriptor with valid configurations
+TEST_F(StreamContextTest, ValidateContextDescriptorValid) {
+    ContextDescriptor validCD;
+    validCD.asid = 0x1234;
+    validCD.ttbr0Valid = true;
+    validCD.ttbr1Valid = false;
+    validCD.ttbr0 = 0x40000000; // 1GB aligned to 4KB
+    validCD.ttbr1 = 0;
+    validCD.tcr.granuleSize = TranslationGranule::Size4KB;
+    validCD.tcr.inputAddressSize = AddressSpaceSize::Size48Bit;
+    validCD.tcr.outputAddressSize = AddressSpaceSize::Size48Bit;
+    validCD.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateContextDescriptor(validCD, TEST_PASID_1, TEST_STREAM_ID);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.getValue());
+}
+
+// Test validateContextDescriptor with invalid PASID
+TEST_F(StreamContextTest, ValidateContextDescriptorInvalidPASID) {
+    ContextDescriptor validCD;
+    validCD.asid = 0x1234;
+    validCD.ttbr0Valid = true;
+    validCD.ttbr0 = 0x40000000;
+    validCD.tcr.granuleSize = TranslationGranule::Size4KB;
+    validCD.tcr.inputAddressSize = AddressSpaceSize::Size48Bit;
+    validCD.tcr.outputAddressSize = AddressSpaceSize::Size48Bit;
+    validCD.securityState = SecurityState::NonSecure;
+    
+    // Test with PASID 0 (reserved)
+    Result<bool> result0 = streamContext->validateContextDescriptor(validCD, 0, TEST_STREAM_ID);
+    EXPECT_TRUE(result0.isOk());
+    EXPECT_FALSE(result0.getValue());
+    
+    // Test with PASID > MAX_PASID
+    Result<bool> resultMax = streamContext->validateContextDescriptor(validCD, MAX_PASID + 1, TEST_STREAM_ID);
+    EXPECT_TRUE(resultMax.isOk());
+    EXPECT_FALSE(resultMax.getValue());
+}
+
+// Test validateContextDescriptor with invalid ASID
+TEST_F(StreamContextTest, ValidateContextDescriptorInvalidASID) {
+    ContextDescriptor invalidCD;
+    invalidCD.asid = 0xFFFF; // This will be maximum valid value, test the validation logic
+    invalidCD.ttbr0Valid = true;
+    invalidCD.ttbr0 = 0x40000000;
+    invalidCD.tcr.granuleSize = TranslationGranule::Size4KB;
+    invalidCD.tcr.inputAddressSize = AddressSpaceSize::Size48Bit;
+    invalidCD.tcr.outputAddressSize = AddressSpaceSize::Size48Bit;
+    invalidCD.securityState = SecurityState::NonSecure;
+    
+    // Test with valid maximum ASID first
+    Result<bool> resultValid = streamContext->validateContextDescriptor(invalidCD, TEST_PASID_1, TEST_STREAM_ID);
+    EXPECT_TRUE(resultValid.isOk());
+    EXPECT_TRUE(resultValid.getValue()); // Should be valid
+    
+    // Note: Since uint16_t cannot exceed 0xFFFF, the validation logic in the implementation
+    // will always see a valid range. The test validates that the implementation correctly
+    // handles the maximum valid value.
+}
+
+// Test validateContextDescriptor with no valid TTBRs
+TEST_F(StreamContextTest, ValidateContextDescriptorNoValidTTBRs) {
+    ContextDescriptor invalidCD;
+    invalidCD.asid = 0x1234;
+    invalidCD.ttbr0Valid = false;
+    invalidCD.ttbr1Valid = false;
+    invalidCD.ttbr0 = 0x40000000;
+    invalidCD.ttbr1 = 0x50000000;
+    invalidCD.tcr.granuleSize = TranslationGranule::Size4KB;
+    invalidCD.tcr.inputAddressSize = AddressSpaceSize::Size48Bit;
+    invalidCD.tcr.outputAddressSize = AddressSpaceSize::Size48Bit;
+    invalidCD.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateContextDescriptor(invalidCD, TEST_PASID_1, TEST_STREAM_ID);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// Test validateContextDescriptor with invalid address space sizes
+TEST_F(StreamContextTest, ValidateContextDescriptorInvalidAddressSpaceSizes) {
+    ContextDescriptor invalidCD;
+    invalidCD.asid = 0x1234;
+    invalidCD.ttbr0Valid = true;
+    invalidCD.ttbr0 = 0x40000000;
+    invalidCD.tcr.granuleSize = TranslationGranule::Size4KB;
+    invalidCD.tcr.inputAddressSize = AddressSpaceSize::Size48Bit;
+    invalidCD.tcr.outputAddressSize = AddressSpaceSize::Size32Bit; // Output smaller than input
+    invalidCD.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateContextDescriptor(invalidCD, TEST_PASID_1, TEST_STREAM_ID);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: Translation Table Base Validation
+// ======================================================================
+
+// Test validateTranslationTableBase with valid configurations
+TEST_F(StreamContextTest, ValidateTranslationTableBaseValid) {
+    // Valid 4KB aligned TTBR
+    Result<bool> result4K = streamContext->validateTranslationTableBase(0x40000000, TranslationGranule::Size4KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result4K.isOk());
+    EXPECT_TRUE(result4K.getValue());
+    
+    // Valid 16KB aligned TTBR
+    Result<bool> result16K = streamContext->validateTranslationTableBase(0x40004000, TranslationGranule::Size16KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result16K.isOk());
+    EXPECT_TRUE(result16K.getValue());
+    
+    // Valid 64KB aligned TTBR
+    Result<bool> result64K = streamContext->validateTranslationTableBase(0x40010000, TranslationGranule::Size64KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result64K.isOk());
+    EXPECT_TRUE(result64K.getValue());
+}
+
+// Test validateTranslationTableBase with null TTBR
+TEST_F(StreamContextTest, ValidateTranslationTableBaseNull) {
+    Result<bool> result = streamContext->validateTranslationTableBase(0, TranslationGranule::Size4KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// Test validateTranslationTableBase with misaligned TTBR
+TEST_F(StreamContextTest, ValidateTranslationTableBaseMisaligned) {
+    // 4KB granule requires 4KB alignment
+    Result<bool> result4K = streamContext->validateTranslationTableBase(0x40000001, TranslationGranule::Size4KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result4K.isOk());
+    EXPECT_FALSE(result4K.getValue());
+    
+    // 16KB granule requires 16KB alignment
+    Result<bool> result16K = streamContext->validateTranslationTableBase(0x40001000, TranslationGranule::Size16KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result16K.isOk());
+    EXPECT_FALSE(result16K.getValue());
+    
+    // 64KB granule requires 64KB alignment
+    Result<bool> result64K = streamContext->validateTranslationTableBase(0x40008000, TranslationGranule::Size64KB, AddressSpaceSize::Size48Bit);
+    EXPECT_TRUE(result64K.isOk());
+    EXPECT_FALSE(result64K.getValue());
+}
+
+// Test validateTranslationTableBase with address out of range
+TEST_F(StreamContextTest, ValidateTranslationTableBaseOutOfRange) {
+    // 32-bit address space with TTBR beyond range
+    Result<bool> result32 = streamContext->validateTranslationTableBase(0x100000000ULL, TranslationGranule::Size4KB, AddressSpaceSize::Size32Bit);
+    EXPECT_TRUE(result32.isOk());
+    EXPECT_FALSE(result32.getValue());
+    
+    // Valid within 32-bit range
+    Result<bool> validResult = streamContext->validateTranslationTableBase(0x80000000, TranslationGranule::Size4KB, AddressSpaceSize::Size32Bit);
+    EXPECT_TRUE(validResult.isOk());
+    EXPECT_TRUE(validResult.getValue());
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: ASID Configuration Validation
+// ======================================================================
+
+// Test validateASIDConfiguration with valid ASID
+TEST_F(StreamContextTest, ValidateASIDConfigurationValid) {
+    Result<bool> result = streamContext->validateASIDConfiguration(0x1234, TEST_PASID_1, SecurityState::NonSecure);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.getValue());
+    
+    // ASID 0 should be valid (may be used for global translations)
+    Result<bool> result0 = streamContext->validateASIDConfiguration(0, TEST_PASID_1, SecurityState::NonSecure);
+    EXPECT_TRUE(result0.isOk());
+    EXPECT_TRUE(result0.getValue());
+}
+
+// Test validateASIDConfiguration with invalid ASID range
+TEST_F(StreamContextTest, ValidateASIDConfigurationInvalidRange) {
+    // Test with maximum valid ASID (since uint16_t cannot exceed 0xFFFF)
+    Result<bool> result = streamContext->validateASIDConfiguration(0xFFFF, TEST_PASID_1, SecurityState::NonSecure);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.getValue()); // Should be valid since 0xFFFF is within range
+    
+    // Note: Since uint16_t cannot exceed 0xFFFF, the validation logic will always
+    // see values within range. The test validates correct handling of maximum value.
+}
+
+// Test validateASIDConfiguration with different security states
+TEST_F(StreamContextTest, ValidateASIDConfigurationSecurityStates) {
+    // Test all valid security states
+    Result<bool> nsResult = streamContext->validateASIDConfiguration(0x1234, TEST_PASID_1, SecurityState::NonSecure);
+    EXPECT_TRUE(nsResult.isOk());
+    EXPECT_TRUE(nsResult.getValue());
+    
+    Result<bool> secResult = streamContext->validateASIDConfiguration(0x1234, TEST_PASID_2, SecurityState::Secure);
+    EXPECT_TRUE(secResult.isOk());
+    EXPECT_TRUE(secResult.getValue());
+    
+    Result<bool> realmResult = streamContext->validateASIDConfiguration(0x1234, TEST_PASID_3, SecurityState::Realm);
+    EXPECT_TRUE(realmResult.isOk());
+    EXPECT_TRUE(realmResult.getValue());
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: Stream Table Entry Validation
+// ======================================================================
+
+// Test validateStreamTableEntry with valid configuration
+TEST_F(StreamContextTest, ValidateStreamTableEntryValid) {
+    StreamTableEntry validSTE;
+    validSTE.translationEnabled = true;
+    validSTE.stage1Enabled = true;
+    validSTE.stage2Enabled = false;
+    validSTE.contextDescriptorTableBase = 0x40000000; // 64-byte aligned
+    validSTE.contextDescriptorTableSize = 1024;
+    validSTE.faultMode = FaultMode::Terminate;
+    validSTE.securityState = SecurityState::NonSecure;
+    validSTE.stage1Granule = TranslationGranule::Size4KB;
+    validSTE.stage2Granule = TranslationGranule::Size4KB;
+    
+    Result<bool> result = streamContext->validateStreamTableEntry(validSTE);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.getValue());
+}
+
+// Test validateStreamTableEntry with translation enabled but no stages
+TEST_F(StreamContextTest, ValidateStreamTableEntryNoStages) {
+    StreamTableEntry invalidSTE;
+    invalidSTE.translationEnabled = true;
+    invalidSTE.stage1Enabled = false;
+    invalidSTE.stage2Enabled = false;
+    invalidSTE.faultMode = FaultMode::Terminate;
+    invalidSTE.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateStreamTableEntry(invalidSTE);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// Test validateStreamTableEntry with Stage-1 enabled but no CD table
+TEST_F(StreamContextTest, ValidateStreamTableEntryNoCDTable) {
+    StreamTableEntry invalidSTE;
+    invalidSTE.translationEnabled = true;
+    invalidSTE.stage1Enabled = true;
+    invalidSTE.stage2Enabled = false;
+    invalidSTE.contextDescriptorTableBase = 0; // Invalid
+    invalidSTE.contextDescriptorTableSize = 1024;
+    invalidSTE.faultMode = FaultMode::Terminate;
+    invalidSTE.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateStreamTableEntry(invalidSTE);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// Test validateStreamTableEntry with misaligned CD table base
+TEST_F(StreamContextTest, ValidateStreamTableEntryMisalignedCDTable) {
+    StreamTableEntry invalidSTE;
+    invalidSTE.translationEnabled = true;
+    invalidSTE.stage1Enabled = true;
+    invalidSTE.stage2Enabled = false;
+    invalidSTE.contextDescriptorTableBase = 0x40000001; // Not 64-byte aligned
+    invalidSTE.contextDescriptorTableSize = 1024;
+    invalidSTE.faultMode = FaultMode::Terminate;
+    invalidSTE.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateStreamTableEntry(invalidSTE);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// Test validateStreamTableEntry with invalid CD table size
+TEST_F(StreamContextTest, ValidateStreamTableEntryInvalidCDTableSize) {
+    StreamTableEntry invalidSTE;
+    invalidSTE.translationEnabled = true;
+    invalidSTE.stage1Enabled = true;
+    invalidSTE.stage2Enabled = false;
+    invalidSTE.contextDescriptorTableBase = 0x40000000;
+    invalidSTE.contextDescriptorTableSize = 0; // Invalid
+    invalidSTE.faultMode = FaultMode::Terminate;
+    invalidSTE.securityState = SecurityState::NonSecure;
+    
+    Result<bool> result = streamContext->validateStreamTableEntry(invalidSTE);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_FALSE(result.getValue());
+}
+
+// ======================================================================
+// COMPREHENSIVE TESTS: Edge Cases and Error Boundaries
+// ======================================================================
+
+// Test maximum PASID operations at boundary
+TEST_F(StreamContextTest, MaximumPASIDBoundaryOperations) {
+    // Test operations with maximum valid PASID
+    EXPECT_TRUE(streamContext->createPASID(MAX_PASID));
+    EXPECT_TRUE(streamContext->hasPASID(MAX_PASID));
+    
+    PagePermissions perms(true, false, false);
+    EXPECT_TRUE(streamContext->mapPage(MAX_PASID, TEST_IOVA, TEST_PA, perms));
+    
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    TranslationResult result = streamContext->translate(MAX_PASID, TEST_IOVA, AccessType::Read);
+    EXPECT_TRUE(result.isOk());
+    
+    EXPECT_TRUE(streamContext->unmapPage(MAX_PASID, TEST_IOVA));
+    EXPECT_TRUE(streamContext->removePASID(MAX_PASID));
+}
+
+// Test operations with large number of PASIDs
+TEST_F(StreamContextTest, LargeNumberOfPASIDs) {
+    const int NUM_PASIDS = 100;
+    
+    // Create many PASIDs
+    for (int i = 1; i <= NUM_PASIDS; ++i) {
+        EXPECT_TRUE(streamContext->createPASID(i));
+    }
+    
+    EXPECT_EQ(streamContext->getPASIDCount(), NUM_PASIDS);
+    
+    // Map pages in all PASIDs
+    PagePermissions perms(true, true, false);
+    for (int i = 1; i <= NUM_PASIDS; ++i) {
+        EXPECT_TRUE(streamContext->mapPage(i, TEST_IOVA + i * 0x1000, TEST_PA + i * 0x1000, perms));
+    }
+    
+    // Test translations
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    
+    for (int i = 1; i <= NUM_PASIDS; ++i) {
+        TranslationResult result = streamContext->translate(i, TEST_IOVA + i * 0x1000, AccessType::Read);
+        EXPECT_TRUE(result.isOk());
+        EXPECT_EQ(result.getValue().physicalAddress, TEST_PA + i * 0x1000);
+    }
+    
+    // Clear all PASIDs
+    VoidResult clearResult = streamContext->clearAllPASIDs();
+    EXPECT_TRUE(clearResult.isOk());
+    EXPECT_EQ(streamContext->getPASIDCount(), 0);
+}
+
+// Test rapid configuration changes
+TEST_F(StreamContextTest, RapidConfigurationChanges) {
+    auto stage2Space = std::make_shared<AddressSpace>();
+    streamContext->setStage2AddressSpace(stage2Space);
+    
+    // Perform rapid configuration changes
+    for (int i = 0; i < 50; ++i) {
+        StreamConfig config;
+        config.translationEnabled = (i % 2 == 0);
+        config.stage1Enabled = (i % 3 != 0);
+        config.stage2Enabled = (i % 4 == 0);
+        config.faultMode = ((i % 2) == 0) ? FaultMode::Terminate : FaultMode::Stall;
+        
+        // Skip invalid configurations
+        if (config.translationEnabled && !config.stage1Enabled && !config.stage2Enabled) {
+            continue;
+        }
+        
+        VoidResult result = streamContext->updateConfiguration(config);
+        EXPECT_TRUE(result.isOk());
+        
+        // Verify configuration was applied
+        StreamConfig retrieved = streamContext->getStreamConfiguration();
+        EXPECT_EQ(retrieved.translationEnabled, config.translationEnabled);
+        EXPECT_EQ(retrieved.stage1Enabled, config.stage1Enabled);
+        EXPECT_EQ(retrieved.stage2Enabled, config.stage2Enabled);
+        EXPECT_EQ(retrieved.faultMode, config.faultMode);
+    }
+    
+    // Verify final state is valid
+    EXPECT_TRUE(streamContext->hasConfigurationChanged());
+    StreamStatistics stats = streamContext->getStreamStatistics();
+    EXPECT_GT(stats.configurationUpdateCount, 0);
+}
+
+// Test error recovery scenarios
+TEST_F(StreamContextTest, ErrorRecoveryScenarios) {
+    // Test recovery from invalid PASID operations
+    EXPECT_FALSE(streamContext->createPASID(0)); // Invalid PASID
+    EXPECT_FALSE(streamContext->createPASID(MAX_PASID + 1)); // Out of range
+    
+    // Verify system state remains consistent
+    EXPECT_EQ(streamContext->getPASIDCount(), 0);
+    
+    // Test recovery from invalid translations
+    TranslationResult invalidResult = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    EXPECT_TRUE(invalidResult.isError());
+    
+    // System should still be able to perform valid operations
+    EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
+    EXPECT_EQ(streamContext->getPASIDCount(), 1);
+    
+    PagePermissions perms(true, false, false);
+    EXPECT_TRUE(streamContext->mapPage(TEST_PASID_1, TEST_IOVA, TEST_PA, perms));
+    
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    
+    TranslationResult validResult = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    EXPECT_TRUE(validResult.isOk());
+}
+
+// Test statistics accuracy under various operations
+TEST_F(StreamContextTest, StatisticsAccuracyValidation) {
+    StreamStatistics initialStats = streamContext->getStreamStatistics();
+    EXPECT_EQ(initialStats.translationCount, 0);
+    EXPECT_EQ(initialStats.faultCount, 0);
+    EXPECT_EQ(initialStats.pasidCount, 0);
+    
+    // Perform operations that should update statistics
+    EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
+    EXPECT_TRUE(streamContext->createPASID(TEST_PASID_2));
+    
+    StreamStatistics afterPASIDStats = streamContext->getStreamStatistics();
+    EXPECT_EQ(afterPASIDStats.pasidCount, 2);
+    
+    // Set up translations
+    streamContext->setStage1Enabled(true);
+    streamContext->enableStream();
+    
+    PagePermissions perms(true, false, false);
+    EXPECT_TRUE(streamContext->mapPage(TEST_PASID_1, TEST_IOVA, TEST_PA, perms));
+    
+    // Perform translations (successful and failed)
+    TranslationResult success = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    EXPECT_TRUE(success.isOk());
+    
+    TranslationResult fault1 = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Write); // Permission fault
+    EXPECT_TRUE(fault1.isError());
+    
+    TranslationResult fault2 = streamContext->translate(TEST_PASID_2, TEST_IOVA, AccessType::Read); // Not mapped
+    EXPECT_TRUE(fault2.isError());
+    
+    // Verify statistics are accurate
+    StreamStatistics finalStats = streamContext->getStreamStatistics();
+    EXPECT_EQ(finalStats.pasidCount, 2);
+    EXPECT_EQ(finalStats.translationCount, 3); // All translation attempts counted
+    EXPECT_EQ(finalStats.faultCount, 2); // Only failed translations counted
+    EXPECT_GT(finalStats.lastAccessTimestamp, initialStats.creationTimestamp);
 }
 
 } // namespace test

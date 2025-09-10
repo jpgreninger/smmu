@@ -8,6 +8,8 @@ set(UNIT_TEST_SOURCES
     test_tlb_cache.cpp
     test_task53_event_command_processing.cpp
     test_configuration.cpp
+    test_edge_cases.cpp
+    optimization_regression_test.cpp
     ../test_thread_safety.cpp
 )
 

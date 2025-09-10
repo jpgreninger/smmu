@@ -4,12 +4,14 @@
 #include "smmu/tlb_cache.h"
 #include <chrono>
 #include <algorithm>
+#include <cstdio>
+#include <vector>
 
 namespace smmu {
 
 // Constructor
 TLBCache::TLBCache(size_t maxSize) 
-    : maxSize(maxSize), hitCount(0), missCount(0) {
+    : maxSize(maxSize > 0 ? maxSize : 1024), hitCount(0), missCount(0) {
 }
 
 // Destructor
@@ -118,7 +120,11 @@ void TLBCache::insert(const TLBEntry& entry) {
     
     // Insert new entry
     tlbCacheList.push_front(std::make_pair(key, entry));
-    tlbCacheMap[key] = tlbCacheList.begin();
+    auto listIt = tlbCacheList.begin();
+    tlbCacheMap[key] = listIt;
+    
+    // Add to secondary indices for fast invalidation
+    addToSecondaryIndices(key, listIt);
 }
 
 bool TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry) {
@@ -153,6 +159,10 @@ void TLBCache::remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState s
     auto it = tlbCacheMap.find(key);
     
     if (it != tlbCacheMap.end()) {
+        // Remove from secondary indices first
+        removeFromSecondaryIndices(key, it->second);
+        
+        // Remove from primary structures
         tlbCacheList.erase(it->second);
         tlbCacheMap.erase(it);
     }
@@ -184,40 +194,74 @@ void TLBCache::invalidateAll() {
 
 void TLBCache::invalidateBySecurityState(SecurityState securityState) {
     std::lock_guard<std::mutex> lock(cacheMutex);
-    auto it = tlbCacheList.begin();
-    while (it != tlbCacheList.end()) {
-        if (it->first.securityState == securityState) {
-            tlbCacheMap.erase(it->first);
-            it = tlbCacheList.erase(it);
-        } else {
-            ++it;
-        }
+    
+    // Use secondary index for O(k) performance instead of O(n)
+    auto range = securityIndex.equal_range(securityState);
+    std::vector<typename TLBCacheList::iterator> toRemove;
+    
+    // Collect iterators to remove (can't modify while iterating)
+    for (auto secIt = range.first; secIt != range.second; ++secIt) {
+        toRemove.push_back(secIt->second);
+    }
+    
+    // Remove entries from all structures
+    for (auto listIt : toRemove) {
+        // Remove from secondary indices
+        removeFromSecondaryIndices(listIt->first, listIt);
+        
+        // Remove from primary structures
+        tlbCacheMap.erase(listIt->first);
+        tlbCacheList.erase(listIt);
     }
 }
 
 void TLBCache::invalidateStream(StreamID streamID) {
     std::lock_guard<std::mutex> lock(cacheMutex);
-    auto it = tlbCacheList.begin();
-    while (it != tlbCacheList.end()) {
-        if (it->first.streamID == streamID) {
-            tlbCacheMap.erase(it->first);
-            it = tlbCacheList.erase(it);
-        } else {
-            ++it;
-        }
+    
+    // Use secondary index for O(k) performance instead of O(n)
+    auto range = streamIndex.equal_range(streamID);
+    std::vector<typename TLBCacheList::iterator> toRemove;
+    
+    // Collect iterators to remove (can't modify while iterating)
+    for (auto streamIt = range.first; streamIt != range.second; ++streamIt) {
+        toRemove.push_back(streamIt->second);
+    }
+    
+    // Remove entries from all structures
+    for (auto listIt : toRemove) {
+        // Remove from secondary indices
+        removeFromSecondaryIndices(listIt->first, listIt);
+        
+        // Remove from primary structures
+        tlbCacheMap.erase(listIt->first);
+        tlbCacheList.erase(listIt);
     }
 }
 
 void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
     std::lock_guard<std::mutex> lock(cacheMutex);
-    auto it = tlbCacheList.begin();
-    while (it != tlbCacheList.end()) {
-        if (it->first.streamID == streamID && it->first.pasid == pasid) {
-            tlbCacheMap.erase(it->first);
-            it = tlbCacheList.erase(it);
-        } else {
-            ++it;
-        }
+    
+    // Use secondary index for O(k) performance instead of O(n)
+    StreamPASIDKey pasidKey;
+    pasidKey.streamID = streamID;
+    pasidKey.pasid = pasid;
+    
+    auto range = pasidIndex.equal_range(pasidKey);
+    std::vector<typename TLBCacheList::iterator> toRemove;
+    
+    // Collect iterators to remove (can't modify while iterating)
+    for (auto pasidIt = range.first; pasidIt != range.second; ++pasidIt) {
+        toRemove.push_back(pasidIt->second);
+    }
+    
+    // Remove entries from all structures
+    for (auto listIt : toRemove) {
+        // Remove from secondary indices
+        removeFromSecondaryIndices(listIt->first, listIt);
+        
+        // Remove from primary structures
+        tlbCacheMap.erase(listIt->first);
+        tlbCacheList.erase(listIt);
     }
 }
 
@@ -229,6 +273,11 @@ void TLBCache::clear() {
     std::lock_guard<std::mutex> lock(cacheMutex);
     tlbCacheMap.clear();
     tlbCacheList.clear();
+    
+    // Clear all secondary indices
+    streamIndex.clear();
+    pasidIndex.clear();
+    securityIndex.clear();
 }
 
 // Statistics
@@ -274,6 +323,12 @@ void TLBCache::reset() {
     std::lock_guard<std::mutex> lock(cacheMutex);
     tlbCacheMap.clear();
     tlbCacheList.clear();
+    
+    // Clear all secondary indices
+    streamIndex.clear();
+    pasidIndex.clear();
+    securityIndex.clear();
+    
     hitCount.store(0, std::memory_order_relaxed);
     missCount.store(0, std::memory_order_relaxed);
 }
@@ -294,6 +349,11 @@ void TLBCache::evictLRU() {
     if (!tlbCacheList.empty()) {
         auto last = tlbCacheList.end();
         --last;
+        
+        // Remove from secondary indices before erasing
+        removeFromSecondaryIndices(last->first, last);
+        
+        // Remove from primary index and list
         tlbCacheMap.erase(last->first);
         tlbCacheList.erase(last);
     }
@@ -302,9 +362,18 @@ void TLBCache::evictLRU() {
 void TLBCache::moveToFront(typename TLBCacheList::iterator it) {
     if (it != tlbCacheList.begin()) {
         auto entry = *it;
+        
+        // Remove from secondary indices with old iterator
+        removeFromSecondaryIndices(entry.first, it);
+        
+        // Move to front in list
         tlbCacheList.erase(it);
         tlbCacheList.push_front(entry);
-        tlbCacheMap[entry.first] = tlbCacheList.begin();
+        auto newIt = tlbCacheList.begin();
+        tlbCacheMap[entry.first] = newIt;
+        
+        // Add back to secondary indices with new iterator
+        addToSecondaryIndices(entry.first, newIt);
     }
 }
 
@@ -320,6 +389,54 @@ CacheKey TLBCache::makeKey(StreamID streamID, PASID pasid, IOVA iova, SecuritySt
     key.iova = iova;
     key.securityState = securityState;
     return key;
+}
+
+// Add entry to all secondary indices for fast invalidation
+void TLBCache::addToSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it) {
+    // Add to StreamID index
+    streamIndex.insert(std::make_pair(key.streamID, it));
+    
+    // Add to StreamID+PASID compound index
+    StreamPASIDKey pasidKey;
+    pasidKey.streamID = key.streamID;
+    pasidKey.pasid = key.pasid;
+    pasidIndex.insert(std::make_pair(pasidKey, it));
+    
+    // Add to SecurityState index
+    securityIndex.insert(std::make_pair(key.securityState, it));
+}
+
+// Remove entry from all secondary indices
+void TLBCache::removeFromSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it) {
+    // Remove from StreamID index
+    auto streamRange = streamIndex.equal_range(key.streamID);
+    for (auto streamIt = streamRange.first; streamIt != streamRange.second; ++streamIt) {
+        if (streamIt->second == it) {
+            streamIndex.erase(streamIt);
+            break;
+        }
+    }
+    
+    // Remove from StreamID+PASID compound index
+    StreamPASIDKey pasidKey;
+    pasidKey.streamID = key.streamID;
+    pasidKey.pasid = key.pasid;
+    auto pasidRange = pasidIndex.equal_range(pasidKey);
+    for (auto pasidIt = pasidRange.first; pasidIt != pasidRange.second; ++pasidIt) {
+        if (pasidIt->second == it) {
+            pasidIndex.erase(pasidIt);
+            break;
+        }
+    }
+    
+    // Remove from SecurityState index
+    auto securityRange = securityIndex.equal_range(key.securityState);
+    for (auto secIt = securityRange.first; secIt != securityRange.second; ++secIt) {
+        if (secIt->second == it) {
+            securityIndex.erase(secIt);
+            break;
+        }
+    }
 }
 
 // Thread-safe atomic statistics snapshot
