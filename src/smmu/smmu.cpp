@@ -10,9 +10,9 @@ namespace smmu {
 
 // Default constructor - Initialize SMMU with default configuration
 SMMU::SMMU() 
-    : configuration(SMMUConfiguration::createDefault()),
-      faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
-      tlbCache(std::unique_ptr<TLBCache>(new TLBCache(configuration.getCacheConfiguration().tlbCacheSize))),
+    : faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
+      tlbCache(std::unique_ptr<TLBCache>(new TLBCache(SMMUConfiguration::createDefault().getCacheConfiguration().tlbCacheSize))),
+      configuration(SMMUConfiguration::createDefault()),
       globalFaultMode(FaultMode::Terminate),
       cachingEnabled(configuration.getCacheConfiguration().enableCaching),
       translationCount(0),
@@ -33,9 +33,9 @@ SMMU::SMMU()
 
 // Constructor with custom configuration
 SMMU::SMMU(const SMMUConfiguration& config)
-    : configuration(config),
-      faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
+    : faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
       tlbCache(std::unique_ptr<TLBCache>(new TLBCache(config.getCacheConfiguration().tlbCacheSize))),
+      configuration(config),
       globalFaultMode(FaultMode::Terminate),
       cachingEnabled(config.getCacheConfiguration().enableCaching),
       translationCount(0),
@@ -1109,6 +1109,31 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::SecurityFault:
             // Security fault - log violation and notify security subsystem
             recordSecurityFault(streamID, pasid, iova, accessType, securityState, securityState);
+            break;
+            
+        // ARM SMMU v3 specific fault types - default handling
+        case FaultType::ContextDescriptorFormatFault:
+        case FaultType::TranslationTableFormatFault:
+        case FaultType::Level0TranslationFault:
+        case FaultType::Level1TranslationFault:
+        case FaultType::Level2TranslationFault:
+        case FaultType::Level3TranslationFault:
+        case FaultType::AccessFlagFault:
+        case FaultType::DirtyBitFault:
+        case FaultType::TLBConflictFault:
+        case FaultType::ExternalAbort:
+        case FaultType::SynchronousExternalAbort:
+        case FaultType::AsynchronousExternalAbort:
+        case FaultType::StreamTableFormatFault:
+        case FaultType::ConfigurationCacheFault:
+        case FaultType::Stage2TranslationFault:
+        case FaultType::Stage2PermissionFault:
+            // Default handling for ARM SMMU v3 specific faults
+            // These would require more sophisticated handling in a full implementation
+            {
+                FaultRecord complexFault(streamID, pasid, iova, faultType, accessType, securityState);
+                recordFault(complexFault);
+            }
             break;
     }
 }

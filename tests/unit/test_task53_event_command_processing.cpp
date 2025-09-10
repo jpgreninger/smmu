@@ -130,6 +130,7 @@ TEST_F(EventQueueManagementTest, EventQueueCapacityLimits) {
     // Generate many translation faults to test capacity
     const int MAX_FAULT_ATTEMPTS = 1000;
     size_t initialQueueSize = smmu->getEventQueueSize();
+    (void)initialQueueSize; // Used for testing - suppress unused warning
     
     for (int i = 0; i < MAX_FAULT_ATTEMPTS; ++i) {
         IOVA faultAddress = 0xEE000000 + (i * 0x1000); // Use unmapped addresses
@@ -542,12 +543,12 @@ TEST_F(PRIQueueTest, PRIQueueCapacityLimits) {
     
     // Try to fill PRI queue beyond reasonable capacity
     const int MAX_PRI_REQUESTS = 1000;
-    int requestsSubmitted = 0;
+    size_t requestsSubmitted = 0;
     
     for (int i = 0; i < MAX_PRI_REQUESTS; ++i) {
         PRIEntry request = createTestPRIEntry(0x1000 * (i + 1));
         smmu->submitPageRequest(request);
-        requestsSubmitted = i + 1;
+        requestsSubmitted = static_cast<size_t>(i + 1);
         
         // Check if we've reached capacity limit
         if (smmu->getPRIQueueSize() < requestsSubmitted) {
@@ -660,6 +661,7 @@ protected:
             
             // Perform translation to populate cache - may or may not succeed depending on setup
             TranslationResult result = smmu->translate(testStreamID, testPASID, iova, AccessType::Read);
+            (void)result; // Used for testing - suppress unused warning
             // Don't require success here - cache behavior is what we're testing
         }
     }
@@ -671,6 +673,7 @@ TEST_F(CacheInvalidationCommandTest, TLBInvalidationCommands) {
     
     // Get initial cache statistics - may or may not have entries depending on cache policy
     auto initialStats = smmu->getCacheStatistics();
+    (void)initialStats; // Used for testing - suppress unused warning
     // Cache may be empty or populated - both are valid initial states
     
     // Test different TLB invalidation command types
@@ -700,6 +703,7 @@ TEST_F(CacheInvalidationCommandTest, TLBInvalidationCommands) {
         // Verify cache invalidation command processed successfully
         // Cache size changes depend on internal cache policy and implementation
         auto postInvalidationStats = smmu->getCacheStatistics();
+        (void)postInvalidationStats; // Used for testing - suppress unused warning
         // Commands should execute without error regardless of cache state changes
     }
 }
@@ -761,6 +765,7 @@ TEST_F(CacheInvalidationCommandTest, InvalidationCommandIntegrationWithCacheSyst
     setupCacheForInvalidation();
     
     auto initialStats = smmu->getCacheStatistics();
+    (void)initialStats; // Used for testing - suppress unused warning
     // Cache may be empty or populated depending on implementation - both states are valid
     
     // Submit comprehensive invalidation sequence
@@ -790,6 +795,7 @@ TEST_F(CacheInvalidationCommandTest, InvalidationCommandIntegrationWithCacheSyst
     
     // Verify cache system handled invalidation commands without error
     auto finalStats = smmu->getCacheStatistics();
+    (void)finalStats; // Used for testing - suppress unused warning
     // Cache state changes depend on implementation - commands should execute successfully
 }
 
@@ -930,7 +936,7 @@ TEST_F(Task53BoundaryConditionTest, PRIQueueOverflowHandling) {
     
     // Submit PRI requests until queue is full
     const int OVERFLOW_TEST_SIZE = 500;
-    int acceptedRequests = 0;
+    size_t acceptedRequests = 0;
     
     for (int i = 0; i < OVERFLOW_TEST_SIZE; ++i) {
         PRIEntry request;
@@ -940,7 +946,7 @@ TEST_F(Task53BoundaryConditionTest, PRIQueueOverflowHandling) {
         request.accessType = AccessType::Read;
         
         smmu->submitPageRequest(request);
-        acceptedRequests = i + 1;
+        acceptedRequests = static_cast<size_t>(i + 1);
         
         // Check if we've reached capacity
         if (smmu->getPRIQueueSize() < acceptedRequests) {

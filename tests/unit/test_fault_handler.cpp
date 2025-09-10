@@ -11,7 +11,7 @@ namespace test {
 class FaultHandlerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        faultHandler = std::make_unique<FaultHandler>();
+        faultHandler = std::unique_ptr<FaultHandler>(new FaultHandler());
     }
 
     void TearDown() override {

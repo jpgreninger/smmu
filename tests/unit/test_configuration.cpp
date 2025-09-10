@@ -290,6 +290,7 @@ TEST_F(ConfigurationTest, ConfigurationAffectsSMMUBehavior) {
     
     // Verify cache statistics are available (implementation dependent)
     CacheStatistics stats = smmu.getCacheStatistics();
+    (void)stats; // Used for testing - suppress unused warning
     // Note: We can't test exact behavior without setting up streams and translations,
     // but we can verify the configuration was applied
     EXPECT_TRUE(config.getCacheConfiguration().enableCaching);

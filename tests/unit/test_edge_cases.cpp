@@ -24,10 +24,10 @@ namespace test {
 class EdgeCaseTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        smmuController = std::make_unique<SMMU>();
-        addressSpace = std::make_unique<AddressSpace>();
-        streamContext = std::make_unique<StreamContext>();
-        tlbCache = std::make_unique<TLBCache>(1024);  // 1KB cache for testing
+        smmuController = std::unique_ptr<SMMU>(new SMMU());
+        addressSpace = std::unique_ptr<AddressSpace>(new AddressSpace());
+        streamContext = std::unique_ptr<StreamContext>(new StreamContext());
+        tlbCache = std::unique_ptr<TLBCache>(new TLBCache(1024));  // 1KB cache for testing
     }
 
     void TearDown() override {

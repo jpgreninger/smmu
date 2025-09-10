@@ -50,7 +50,7 @@ TEST_F(StreamContextTest, DefaultConstruction) {
     // Verify that translation on empty context fails
     TranslationResult result = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
+    EXPECT_EQ(result.getError(), SMMUError::PASIDNotFound);
 }
 
 // Test PASID address space creation
@@ -96,7 +96,7 @@ TEST_F(StreamContextTest, BasicTranslation) {
 TEST_F(StreamContextTest, TranslationNonExistentPASID) {
     TranslationResult result = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
+    EXPECT_EQ(result.getError(), SMMUError::PASIDNotFound);
 }
 
 // Test multiple PASIDs with separate address spaces
@@ -578,9 +578,9 @@ TEST_F(StreamContextTest, Stage2ConfigurationChanges) {
 TEST_F(StreamContextTest, InvalidPASIDOperations) {
     PagePermissions perms(true, true, false);
     
-    // Test operations on PASID 0 (reserved/invalid per ARM SMMU v3 spec)
-    PASID invalidPASID = 0;
-    EXPECT_FALSE(streamContext->createPASID(invalidPASID)); // PASID 0 is reserved
+    // Test operations on PASID exceeding MAX_PASID (invalid per ARM SMMU v3 spec)
+    PASID invalidPASID = MAX_PASID + 1;
+    EXPECT_FALSE(streamContext->createPASID(invalidPASID)); // PASID exceeds specification
     EXPECT_FALSE(streamContext->mapPage(invalidPASID, TEST_IOVA, TEST_PA, perms));
     EXPECT_FALSE(streamContext->unmapPage(invalidPASID, TEST_IOVA));
     EXPECT_FALSE(streamContext->hasPASID(invalidPASID));
@@ -588,6 +588,27 @@ TEST_F(StreamContextTest, InvalidPASIDOperations) {
     TranslationResult result = streamContext->translate(invalidPASID, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
     EXPECT_EQ(result.getError(), SMMUError::InvalidPASID);  // PASID validation fault
+}
+
+// Test PASID 0 operations (valid in ARM SMMU v3 spec for kernel/hypervisor)
+TEST_F(StreamContextTest, PASID0Operations) {
+    PagePermissions perms(true, true, false);
+    
+    // PASID 0 should be valid and commonly used for kernel/hypervisor contexts
+    PASID kernelPASID = 0;
+    EXPECT_TRUE(streamContext->createPASID(kernelPASID));
+    EXPECT_TRUE(streamContext->hasPASID(kernelPASID));
+    
+    // Should be able to map and translate pages with PASID 0
+    EXPECT_TRUE(streamContext->mapPage(kernelPASID, TEST_IOVA, TEST_PA, perms));
+    
+    TranslationResult result = streamContext->translate(kernelPASID, TEST_IOVA, AccessType::Read);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, TEST_PA);
+    
+    // Should be able to unmap pages with PASID 0
+    EXPECT_TRUE(streamContext->unmapPage(kernelPASID, TEST_IOVA));
+    EXPECT_TRUE(streamContext->removePASID(kernelPASID));
 }
 
 // Test MAX_PASID boundary conditions
@@ -1800,10 +1821,10 @@ TEST_F(StreamContextTest, ValidateContextDescriptorInvalidPASID) {
     validCD.tcr.outputAddressSize = AddressSpaceSize::Size48Bit;
     validCD.securityState = SecurityState::NonSecure;
     
-    // Test with PASID 0 (reserved)
+    // Test with PASID 0 (valid in ARM SMMU v3 for kernel/hypervisor contexts)
     Result<bool> result0 = streamContext->validateContextDescriptor(validCD, 0, TEST_STREAM_ID);
     EXPECT_TRUE(result0.isOk());
-    EXPECT_FALSE(result0.getValue());
+    EXPECT_TRUE(result0.getValue());
     
     // Test with PASID > MAX_PASID
     Result<bool> resultMax = streamContext->validateContextDescriptor(validCD, MAX_PASID + 1, TEST_STREAM_ID);
@@ -2145,12 +2166,12 @@ TEST_F(StreamContextTest, RapidConfigurationChanges) {
 
 // Test error recovery scenarios
 TEST_F(StreamContextTest, ErrorRecoveryScenarios) {
-    // Test recovery from invalid PASID operations
-    EXPECT_FALSE(streamContext->createPASID(0)); // Invalid PASID
+    // Test recovery from invalid PASID operations - PASID 0 is now valid
+    EXPECT_TRUE(streamContext->createPASID(0)); // PASID 0 is valid for kernel/hypervisor
     EXPECT_FALSE(streamContext->createPASID(MAX_PASID + 1)); // Out of range
     
     // Verify system state remains consistent
-    EXPECT_EQ(streamContext->getPASIDCount(), 0);
+    EXPECT_EQ(streamContext->getPASIDCount(), 1);
     
     // Test recovery from invalid translations
     TranslationResult invalidResult = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
@@ -2158,7 +2179,7 @@ TEST_F(StreamContextTest, ErrorRecoveryScenarios) {
     
     // System should still be able to perform valid operations
     EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
-    EXPECT_EQ(streamContext->getPASIDCount(), 1);
+    EXPECT_EQ(streamContext->getPASIDCount(), 2);
     
     PagePermissions perms(true, false, false);
     EXPECT_TRUE(streamContext->mapPage(TEST_PASID_1, TEST_IOVA, TEST_PA, perms));

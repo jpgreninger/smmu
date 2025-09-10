@@ -50,9 +50,9 @@ VoidResult StreamContext::createPASID(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // ARM SMMU v3 spec: Validate PASID within 20-bit range (0xFFFFF)
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
-        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds ARM SMMU v3 specification limits or is reserved
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
+        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds ARM SMMU v3 specification limits
     }
     
     // Check if PASID already exists to prevent accidental overwrites
@@ -79,8 +79,8 @@ VoidResult StreamContext::removePASID(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // Validate PASID within specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
         return makeVoidError(SMMUError::InvalidPASID);  // Invalid PASID value
     }
     
@@ -109,8 +109,8 @@ void StreamContext::addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressS
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // ARM SMMU v3 spec: Validate PASID within 20-bit range
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
         return;  // Silently ignore invalid PASID to maintain interface consistency
     }
     
@@ -136,9 +136,9 @@ VoidResult StreamContext::mapPage(PASID pasid, IOVA iova, PA pa, const PagePermi
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // Validate PASID within ARM SMMU v3 specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
-        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds specification limits or is reserved
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
+        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds specification limits
     }
     
     // Find PASID in map
@@ -169,9 +169,9 @@ VoidResult StreamContext::unmapPage(PASID pasid, IOVA iova) {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // Validate PASID within ARM SMMU v3 specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
-        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds specification limits or is reserved
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
+        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds specification limits
     }
     
     // Find PASID in map
@@ -223,8 +223,8 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
     }
     
     // Validate PASID within ARM SMMU v3 specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
         streamStatistics.faultCount++;  // Track fault
         // Note: Fault will be recorded by SMMU controller with proper StreamID
         return makeTranslationError(SMMUError::InvalidPASID);
@@ -237,10 +237,10 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
         // Find PASID in map
         auto it = pasidMap.find(pasid);
         if (it == pasidMap.end()) {
-            // PASID not found - translation fault (page not mapped)
+            // PASID not found - return proper PASID error
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return makeTranslationError(SMMUError::PageNotMapped);
+            return makeTranslationError(SMMUError::PASIDNotFound);
         }
         
         // Get AddressSpace for this PASID
@@ -355,8 +355,8 @@ bool StreamContext::hasPASID(PASID pasid) const {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // Validate PASID within specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
         return false;  // Invalid PASID cannot exist
     }
     
@@ -391,8 +391,8 @@ AddressSpace* StreamContext::getPASIDAddressSpace(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // Validate PASID within specification limits
-    // PASID 0 is reserved and invalid per ARM SMMU v3 specification
-    if (pasid == 0 || pasid > MAX_PASID) {
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
         return nullptr;  // Invalid PASID
     }
     
@@ -561,7 +561,7 @@ Result<bool> StreamContext::isConfigurationValid(const StreamConfig& config) con
             PASID pasid = pasidPair.first;
             
             // Validate PASID is within ARM SMMU v3 specification limits
-            if (pasid == 0 || pasid > MAX_PASID) {
+            if (pasid > MAX_PASID) {
                 return makeSuccess(false);  // Invalid PASID configuration
             }
             
@@ -751,18 +751,15 @@ void StreamContext::clearStreamFaults() {
 // Validate context descriptor format and content
 // ARM SMMU v3 spec: Comprehensive CD format validation
 Result<bool> StreamContext::validateContextDescriptor(const ContextDescriptor& contextDescriptor, 
-                                                     PASID pasid, StreamID streamID) const {
+                                                     PASID pasid, StreamID /* streamID */) const {
     std::lock_guard<std::mutex> lock(contextMutex);
     
     // ARM SMMU v3: Validate PASID within specification limits
-    if (pasid == 0 || pasid > MAX_PASID) {
+    if (pasid > MAX_PASID) {
         return makeSuccess(false);  // Invalid PASID
     }
     
-    // ARM SMMU v3: Validate ASID within 16-bit range
-    if (contextDescriptor.asid > 0xFFFF) {
-        return makeSuccess(false);  // ASID exceeds 16-bit range
-    }
+    // ARM SMMU v3: ASID validation - uint16_t type already enforces 16-bit range
     
     // ARM SMMU v3: At least one TTBR must be valid if CD is valid
     if (!contextDescriptor.ttbr0Valid && !contextDescriptor.ttbr1Valid) {
@@ -873,15 +870,12 @@ Result<bool> StreamContext::validateTranslationTableBase(uint64_t ttbr, Translat
 
 // Validate ASID configuration and detect conflicts
 // ARM SMMU v3 spec: ASID validation and conflict detection
-Result<bool> StreamContext::validateASIDConfiguration(uint16_t asid, PASID pasid, 
+Result<bool> StreamContext::validateASIDConfiguration(uint16_t /* asid */, PASID pasid, 
                                                      SecurityState securityState) const {
     // ARM SMMU v3: ASID 0 is reserved in some contexts but may be valid
     // Allow ASID 0 but validate it doesn't conflict with global translations
     
-    // ARM SMMU v3: Validate ASID within 16-bit range (already done in caller but double-check)
-    if (asid > 0xFFFF) {
-        return makeSuccess(false);  // ASID exceeds 16-bit range
-    }
+    // ARM SMMU v3: ASID validation - uint16_t type already enforces 16-bit range
     
     // ARM SMMU v3: Check for ASID conflicts across different PASIDs in same security state
     // This is a simplified conflict detection - full implementation would require

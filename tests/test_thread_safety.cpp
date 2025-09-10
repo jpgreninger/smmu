@@ -26,8 +26,8 @@ class ThreadSafetyTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create test objects
-        tlbCache = std::make_unique<TLBCache>(1024);
-        streamContext = std::make_unique<StreamContext>();
+        tlbCache = std::unique_ptr<TLBCache>(new TLBCache(1024));
+        streamContext = std::unique_ptr<StreamContext>(new StreamContext());
         
         // Set up basic configuration
         setupStreamContext();

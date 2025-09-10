@@ -15,7 +15,7 @@ namespace test {
 class SMMUTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        smmuController = std::make_unique<SMMU>();
+        smmuController = std::unique_ptr<SMMU>(new SMMU());
     }
 
     void TearDown() override {
@@ -399,7 +399,7 @@ TEST_F(SMMUTest, DestructorCleanup) {
     smmuController.reset(); // Explicit reset to test RAII
     
     // Recreate for TearDown
-    smmuController = std::make_unique<SMMU>();
+    smmuController = std::unique_ptr<SMMU>(new SMMU());
     
     // Verify the new SMMU is clean
     EXPECT_EQ(smmuController->getStreamCount(), 0);
@@ -446,6 +446,7 @@ TEST_F(SMMUTest, StreamLifecycleControl) {
     smmuController->enableStream(999); // Should not crash
     smmuController->disableStream(999); // Should not crash
     Result<bool> enabledResultFalse2 = smmuController->isStreamEnabled(999);
+    (void)enabledResultFalse2; // Used for testing - suppress unused warning
     EXPECT_TRUE(enabledResultFalse.isOk());
     EXPECT_FALSE(enabledResultFalse.getValue());
 }
@@ -495,12 +496,75 @@ TEST_F(SMMUTest, PASIDBoundaryValidation) {
     // Test invalid PASID beyond boundary
     EXPECT_FALSE(smmuController->createStreamPASID(TEST_STREAM_ID_1, MAX_PASID + 1));
     
-    // Test invalid PASID = 0 (reserved per ARM SMMU v3 spec)
-    EXPECT_FALSE(smmuController->createStreamPASID(TEST_STREAM_ID_1, 0));
+    // Test valid PASID = 0 (valid for kernel/hypervisor contexts per ARM SMMU v3 spec)
+    EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_1, 0));
     
     // Test PASID operations with unconfigured stream
     EXPECT_FALSE(smmuController->createStreamPASID(999, TEST_PASID_1));
     EXPECT_FALSE(smmuController->removeStreamPASID(999, TEST_PASID_1));
+}
+
+// Test PASID 0 functionality for kernel/hypervisor contexts
+TEST_F(SMMUTest, PASID0KernelHypervisorContexts) {
+    // Configure stream for testing PASID 0
+    StreamConfig config;
+    config.translationEnabled = true;
+    config.stage1Enabled = true;
+    config.stage2Enabled = false;
+    config.faultMode = FaultMode::Terminate;
+    
+    EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config).isOk());
+    
+    // Enable stream after configuration (ARM SMMU v3 spec: separate operations)
+    EXPECT_TRUE(smmuController->enableStream(TEST_STREAM_ID_1).isOk());
+    
+    // Test PASID 0 creation (kernel/hypervisor context per ARM SMMU v3 spec)
+    EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_1, 0));
+    
+    // Test PASID 0 can be used for page mapping
+    IOVA test_iova = 0x10000;
+    PA test_pa = 0x20000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+    perms.execute = false;
+    
+    auto mapResult = smmuController->mapPage(TEST_STREAM_ID_1, 0, test_iova, test_pa, perms);
+    EXPECT_TRUE(mapResult.isOk()) << "PASID 0 should support page mapping for kernel contexts";
+    
+    // Test PASID 0 translation works correctly
+    auto translateResult = smmuController->translate(TEST_STREAM_ID_1, 0, test_iova, AccessType::Read);
+    EXPECT_TRUE(translateResult.isOk()) << "PASID 0 should support translations for kernel contexts";
+    EXPECT_EQ(translateResult.getValue().physicalAddress, test_pa);
+    
+    // Test PASID 0 can coexist with other PASIDs
+    EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_1, 1));
+    
+    // Map different page for PASID 1
+    IOVA test_iova2 = 0x11000;
+    PA test_pa2 = 0x21000;
+    auto mapResult2 = smmuController->mapPage(TEST_STREAM_ID_1, 1, test_iova2, test_pa2, perms);
+    EXPECT_TRUE(mapResult2.isOk());
+    
+    // Verify both PASIDs work independently
+    auto translate0 = smmuController->translate(TEST_STREAM_ID_1, 0, test_iova, AccessType::Read);
+    auto translate1 = smmuController->translate(TEST_STREAM_ID_1, 1, test_iova2, AccessType::Read);
+    
+    EXPECT_TRUE(translate0.isOk());
+    EXPECT_TRUE(translate1.isOk());
+    EXPECT_EQ(translate0.getValue().physicalAddress, test_pa);
+    EXPECT_EQ(translate1.getValue().physicalAddress, test_pa2);
+    
+    // Test PASID 0 removal
+    EXPECT_TRUE(smmuController->removeStreamPASID(TEST_STREAM_ID_1, 0));
+    
+    // After removal, PASID 0 translations should fail
+    auto translateAfterRemoval = smmuController->translate(TEST_STREAM_ID_1, 0, test_iova, AccessType::Read);
+    EXPECT_FALSE(translateAfterRemoval.isOk()) << "PASID 0 should fail after removal";
+    
+    // But PASID 1 should still work
+    auto translate1AfterRemoval = smmuController->translate(TEST_STREAM_ID_1, 1, test_iova2, AccessType::Read);
+    EXPECT_TRUE(translate1AfterRemoval.isOk()) << "Other PASIDs should remain functional";
 }
 
 // Test comprehensive stream configuration updates
@@ -526,6 +590,7 @@ TEST_F(SMMUTest, StreamConfigurationUpdates) {
     
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config2).isOk());
     Result<bool> configResult2 = smmuController->isStreamConfigured(TEST_STREAM_ID_1);
+    (void)configResult2; // Used for testing - suppress unused warning
     EXPECT_TRUE(configResult.isOk());
     EXPECT_TRUE(configResult.getValue());
     
@@ -1033,6 +1098,7 @@ TEST_F(SMMUTest, ErrorRecoveryAndFaultIsolation) {
     EXPECT_TRUE(enabledResult.isOk());
     EXPECT_TRUE(enabledResult.getValue());
     Result<bool> enabledResult2 = smmuController->isStreamEnabled(TEST_STREAM_ID_2);
+    (void)enabledResult2; // Used for testing - suppress unused warning
     EXPECT_TRUE(enabledResult.isOk());
     EXPECT_TRUE(enabledResult.getValue());
     
@@ -1079,7 +1145,7 @@ TEST_F(SMMUTest, ARMSMMUv3SpecificationCompliance) {
     EXPECT_TRUE(smmuController->configureStream(largeStreamID, config).isOk());
     
     // 3. PASID validation (ARM SMMU v3 spec requirement)
-    EXPECT_FALSE(smmuController->createStreamPASID(0, 0));       // PASID 0 is reserved
+    EXPECT_TRUE(smmuController->createStreamPASID(0, 0));        // PASID 0 is valid for kernel/hypervisor contexts
     EXPECT_TRUE(smmuController->createStreamPASID(0, 1));        // Minimum valid PASID
     EXPECT_TRUE(smmuController->createStreamPASID(0, MAX_PASID)); // Maximum valid
     EXPECT_FALSE(smmuController->createStreamPASID(0, MAX_PASID + 1)); // Invalid
@@ -1259,6 +1325,7 @@ TEST_F(SMMUTest, ComprehensiveEventManagement) {
     
     // Test event clearing
     VoidResult clearResult5 = smmuController->clearEvents();
+    (void)clearResult5; // Used for testing - suppress unused warning
     EXPECT_TRUE(clearResult.isOk());
     Result<std::vector<FaultRecord>> eventsUpdateResult = smmuController->getEvents();
     EXPECT_TRUE(eventsUpdateResult.isOk());
@@ -1899,6 +1966,7 @@ TEST_F(SMMUTest, Task52_FaultRecoveryMechanisms) {
     EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_2, TEST_PASID_1).isOk());
     
     VoidResult clearResult7 = smmuController->clearEvents();
+    (void)clearResult7; // Used for testing - suppress unused warning
     EXPECT_TRUE(clearResult.isOk());
     
     // Generate a fault in Stall mode

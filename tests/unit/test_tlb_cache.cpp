@@ -12,7 +12,7 @@ class TLBCacheTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create TLB cache with reasonable size for testing
-        tlbCache = std::make_unique<TLBCache>(64);  // 64 entries
+        tlbCache = std::unique_ptr<TLBCache>(new TLBCache(64));  // 64 entries
     }
 
     void TearDown() override {
@@ -279,7 +279,7 @@ TEST_F(TLBCacheTest, CacheStatistics) {
 // Test LRU (Least Recently Used) eviction policy
 TEST_F(TLBCacheTest, LRUEvictionPolicy) {
     // Create small cache for testing LRU
-    auto smallCache = std::make_unique<TLBCache>(3);  // Only 3 entries
+    auto smallCache = std::unique_ptr<TLBCache>(new TLBCache(3));  // Only 3 entries
     
     PagePermissions perms(true, true, false);
     

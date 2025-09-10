@@ -37,12 +37,12 @@ AddressSpace& AddressSpace::operator=(const AddressSpace& other) {
 // Implements sparse page table storage for ARM SMMU v3 address translation
 VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
     // Validate IOVA is within supported address space (ARM SMMU v3 supports up to 52-bit)
-    if (iova > 0x000FFFFFFFFFFFFFULL) {  // 52-bit address space limit
+    if (iova > MAX_VIRTUAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
     // Validate physical address is within reasonable bounds (52-bit PA space)
-    if (pa > 0x000FFFFFFFFFFFFFULL) {
+    if (pa > MAX_PHYSICAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
@@ -78,7 +78,7 @@ VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permis
 // Unmap a page and clean up resources
 VoidResult AddressSpace::unmapPage(IOVA iova) {
     // Validate IOVA is within supported address space (ARM SMMU v3 supports up to 52-bit)
-    if (iova > 0x000FFFFFFFFFFFFFULL) {  // 52-bit address space limit
+    if (iova > MAX_VIRTUAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
@@ -150,7 +150,7 @@ TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, 
 // Query if a specific page is mapped
 Result<bool> AddressSpace::isPageMapped(IOVA iova) const {
     // Validate IOVA is within supported address space (ARM SMMU v3 supports up to 52-bit)
-    if (iova > 0x000FFFFFFFFFFFFFULL) {  // 52-bit address space limit
+    if (iova > MAX_VIRTUAL_ADDRESS) {
         return makeError<bool>(SMMUError::InvalidAddress);
     }
     
@@ -167,7 +167,7 @@ Result<bool> AddressSpace::isPageMapped(IOVA iova) const {
 // Get permissions for a mapped page
 Result<PagePermissions> AddressSpace::getPagePermissions(IOVA iova) const {
     // Validate IOVA is within supported address space (ARM SMMU v3 supports up to 52-bit)
-    if (iova > 0x000FFFFFFFFFFFFFULL) {  // 52-bit address space limit
+    if (iova > MAX_VIRTUAL_ADDRESS) {
         return makeError<PagePermissions>(SMMUError::InvalidAddress);
     }
     
@@ -240,12 +240,12 @@ VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, cons
     }
     
     // Validate addresses are within supported address space (ARM SMMU v3 supports up to 52-bit)
-    if (startIova > 0x000FFFFFFFFFFFFFULL || endIova > 0x000FFFFFFFFFFFFFULL) {
+    if (startIova > MAX_VIRTUAL_ADDRESS || endIova > MAX_VIRTUAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
     // Validate physical address is within reasonable bounds
-    if (startPa > 0x000FFFFFFFFFFFFFULL) {
+    if (startPa > MAX_PHYSICAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
@@ -294,7 +294,7 @@ VoidResult AddressSpace::unmapRange(IOVA startIova, IOVA endIova) {
     }
     
     // Validate addresses are within supported address space
-    if (startIova > 0x000FFFFFFFFFFFFFULL || endIova > 0x000FFFFFFFFFFFFFULL) {
+    if (startIova > MAX_VIRTUAL_ADDRESS || endIova > MAX_VIRTUAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
@@ -343,12 +343,12 @@ VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappin
         PA pa = mapping.second;
         
         // Validate IOVA is within supported address space
-        if (iova > 0x000FFFFFFFFFFFFFULL) {
+        if (iova > MAX_VIRTUAL_ADDRESS) {
             return makeVoidError(SMMUError::InvalidAddress);
         }
         
         // Validate physical address is within reasonable bounds
-        if (pa > 0x000FFFFFFFFFFFFFULL) {
+        if (pa > MAX_PHYSICAL_ADDRESS) {
             return makeVoidError(SMMUError::InvalidAddress);
         }
     }
@@ -385,7 +385,7 @@ VoidResult AddressSpace::unmapPages(const std::vector<IOVA>& iovas) {
     // Validate all IOVAs before processing any
     for (IOVA iova : iovas) {
         // Validate IOVA is within supported address space
-        if (iova > 0x000FFFFFFFFFFFFFULL) {
+        if (iova > MAX_VIRTUAL_ADDRESS) {
             return makeVoidError(SMMUError::InvalidAddress);
         }
     }
