@@ -55,7 +55,6 @@ set(SMMU_SOURCES
     src/fault/fault_handler.cpp
     src/cache/tlb_cache.cpp
     src/configuration/configuration.cpp
-    src/memory/memory_pool.cpp
 )
 
 # Create static library
