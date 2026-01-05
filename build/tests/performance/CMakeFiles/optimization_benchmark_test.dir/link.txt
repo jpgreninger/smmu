@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wall -Wextra -Wpedantic -std=c++11 -pedantic-errors -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/optimization_benchmark_test.dir/link.d CMakeFiles/optimization_benchmark_test.dir/optimization_benchmark_test.cpp.o -o optimization_benchmark_test  ../../libsmmu_lib.a ../../lib/libgtest.a ../../lib/libgtest_main.a ../../lib/libgtest.a
