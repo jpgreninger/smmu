@@ -1,0 +1,108 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    SMMU v3 CODE COVERAGE SUMMARY                           ║
+║                         Generated: 2026-01-04                              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ OVERALL COVERAGE                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Total Lines:        2,366                                               │
+│ Lines Covered:      1,746                                               │
+│ Coverage:           73.8%                                               │
+│ Target:             90%+                                                │
+│ Gap:                -16.2%                                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT COVERAGE                                                      │
+├─────────────────────────────────┬────────┬──────────┬──────────┬────────┤
+│ Component                       │ Lines  │ Coverage │ Branches │ Status │
+├─────────────────────────────────┼────────┼──────────┼──────────┼────────┤
+│ AddressSpace                    │   245  │  87.35%  │  86.40%  │   ✓✓   │
+│ StreamContext                   │   431  │  82.83%  │  83.71%  │   ✓    │
+│ SMMU Controller                 │   998  │  62.93%  │  69.91%  │   ⚠⚠   │
+│ FaultHandler                    │   136  │  75.00%  │    N/A   │   ⚠    │
+│ TLBCache                        │   264  │  74.62%  │    N/A   │   ⚠    │
+│ Configuration                   │   292  │  60.96%  │    N/A   │   ⚠⚠   │
+└─────────────────────────────────┴────────┴──────────┴──────────┴────────┘
+
+Legend: ✓✓ = Good (>85%)  ✓ = Moderate (75-85%)  ⚠ = Needs Work (65-75%)  ⚠⚠ = Critical (<65%)
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ COVERAGE VISUALIZATION                                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│ AddressSpace       ████████████████████▌  87.35%                        │
+│ StreamContext      ████████████████▌      82.83%                        │
+│ SMMU Controller    ████████████▌          62.93%  ⚠ PRIMARY GAP         │
+│ FaultHandler       ███████████████        75.00%                        │
+│ TLBCache           ██████████████▊        74.62%                        │
+│ Configuration      ████████████▏          60.96%  ⚠ SECONDARY GAP       │
+│                                                                         │
+│ Target             ██████████████████     90.00%                        │
+│ Current Avg        ██████████████▋        73.80%                        │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ PRIORITY ACTIONS                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│ 🔴 CRITICAL (Priority 1)                                                │
+│    ├─ SMMU Controller: Add 50 test cases for error paths                │
+│    └─ Configuration: Add 25 test cases for validation                   │
+│                                                                         │
+│ 🟡 HIGH (Priority 2)                                                    │
+│    ├─ FaultHandler: Add 10 test cases for fault recording               │
+│    └─ TLBCache: Add 12 test cases for advanced scenarios                │
+│                                                                         │
+│ 🟢 MEDIUM (Priority 3)                                                  │
+│    ├─ StreamContext: Add 15 test cases for error paths                  │
+│    └─ AddressSpace: Add 7 test cases for edge cases                     │
+│                                                                         │
+│ Total New Tests Needed: 119 test cases                                  │
+│ Estimated Effort: 4-5 weeks                                             │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ KEY METRICS                                                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Current Test Cases:         391                                         │
+│ Test Success Rate:          100%                                        │
+│ Test Execution Time:        16 seconds                                  │
+│ Uncovered Lines:            620                                         │
+│ Critical Gap Areas:         2 (SMMU, Configuration)                     │
+│ Components at Target:       0/6                                         │
+│ Components Near Target:     2/6 (AddressSpace, StreamContext)           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TOP UNCOVERED AREAS                                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 1. SMMU error paths & two-stage translation           (370 lines)       │
+│ 2. Configuration validation logic                     (114 lines)       │
+│ 3. StreamContext error handling                       ( 74 lines)       │
+│ 4. TLBCache PASID validation & conversion             ( 67 lines)       │
+│ 5. FaultHandler specific recording methods            ( 34 lines)       │
+│ 6. AddressSpace input validation                      ( 31 lines)       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ROADMAP TO 90% COVERAGE                                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│ Week 1-2: Critical Gaps        → Target: 80% coverage                   │
+│ Week 3:   High Priority        → Target: 85% coverage                   │
+│ Week 4:   Final Push           → Target: 90% coverage                   │
+│ Week 5:   Optimization         → Maintain 90%+                          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+For detailed analysis and test case specifications, see:
+/home/jpgreninger/Work/smmu/COVERAGE_REPORT.md
+
+To regenerate coverage:
+cd /home/jpgreninger/Work/smmu/build
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DENABLE_COVERAGE=ON
+make -j8 && ctest --output-on-failure
