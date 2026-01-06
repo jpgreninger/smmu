@@ -2,6 +2,7 @@
 // Copyright (c) 2024 John Greninger
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include "smmu/address_space.h"
 #include "smmu/types.h"
 

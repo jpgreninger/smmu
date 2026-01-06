@@ -2,11 +2,16 @@
 set(UNIT_TEST_SOURCES
     test_types.cpp
     test_address_space.cpp
+    test_address_space_coverage.cpp
     test_stream_context.cpp
+    test_stream_context_coverage.cpp
     test_smmu.cpp
     test_smmu_coverage.cpp
+    test_smmu_advanced_coverage.cpp
     test_fault_handler.cpp
+    test_fault_handler_coverage.cpp
     test_tlb_cache.cpp
+    test_tlb_cache_coverage.cpp
     test_task53_event_command_processing.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
