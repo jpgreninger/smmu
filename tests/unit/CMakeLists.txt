@@ -4,10 +4,12 @@ set(UNIT_TEST_SOURCES
     test_address_space.cpp
     test_stream_context.cpp
     test_smmu.cpp
+    test_smmu_coverage.cpp
     test_fault_handler.cpp
     test_tlb_cache.cpp
     test_task53_event_command_processing.cpp
     test_configuration.cpp
+    test_configuration_coverage.cpp
     test_edge_cases.cpp
     optimization_regression_test.cpp
     ../test_thread_safety.cpp
