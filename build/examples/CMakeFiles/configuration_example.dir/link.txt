@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wall -Wextra -Wpedantic -std=c++11 -pedantic-errors -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/configuration_example.dir/link.d CMakeFiles/configuration_example.dir/configuration_example.cpp.o -o configuration_example  ../libsmmu_lib.a

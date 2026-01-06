@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wall -Wextra -Wpedantic -std=c++11 -pedantic-errors -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test_minimal_integration.dir/link.d CMakeFiles/test_minimal_integration.dir/test_minimal_integration.cpp.o -o test_minimal_integration  ../../libsmmu_lib.a ../../lib/libgtest.a ../../lib/libgtest_main.a ../../lib/libgtest.a

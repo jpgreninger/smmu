@@ -1,2 +1,0 @@
-/usr/bin/ar qc libsmmu_lib.a CMakeFiles/smmu_lib.dir/src/types/types.cpp.o CMakeFiles/smmu_lib.dir/src/address_space/address_space.cpp.o CMakeFiles/smmu_lib.dir/src/stream_context/stream_context.cpp.o CMakeFiles/smmu_lib.dir/src/smmu/smmu.cpp.o CMakeFiles/smmu_lib.dir/src/fault/fault_handler.cpp.o CMakeFiles/smmu_lib.dir/src/cache/tlb_cache.cpp.o CMakeFiles/smmu_lib.dir/src/configuration/configuration.cpp.o
-/usr/bin/ranlib libsmmu_lib.a

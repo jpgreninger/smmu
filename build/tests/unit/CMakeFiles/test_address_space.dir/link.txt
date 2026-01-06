@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wall -Wextra -Wpedantic -std=c++11 -pedantic-errors -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test_address_space.dir/link.d CMakeFiles/test_address_space.dir/test_address_space.cpp.o -o test_address_space  ../../libsmmu_lib.a ../../lib/libgtest.a ../../lib/libgtest_main.a ../../lib/libgtest.a
