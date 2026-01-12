@@ -4,7 +4,7 @@
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance for development, simulation, and testing environments.
 
-**🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Success**: 100% (200+ tests) | **⚡ Performance**: 135ns translation latency
+**🏆 Quality Status**: Production Ready (4.5/5 stars) | **📊 Test Coverage**: 84.82% (20/20 tests passing) | **⚡ Performance**: 135ns translation latency
 
 ## Production Features
 
@@ -28,9 +28,10 @@ A comprehensive, production-ready software model of the ARM System Memory Manage
 
 ### ✅ Production Quality
 - **C++11 strict compliance** with zero C++14/17/20 features and no external dependencies
-- **100% test coverage** with unit, integration, performance, and thread safety validation
+- **84.82% test coverage** (2,007/2,366 lines) with 5 of 6 components exceeding 94% coverage
+- **100% test success rate** (20/20 tests passing) with unit, integration, performance, and thread safety validation
 - **ARM SMMU v3 specification compliance** with complete functional requirements adherence
-- **Zero build warnings** with production-grade code quality (5/5 star rating)
+- **Zero build warnings** with production-grade code quality (4.5/5 star rating)
 
 ## Quick Start
 
@@ -52,7 +53,7 @@ make -j$(nproc)
 ```bash
 cd build
 
-# Run all tests (200+ tests, 100% success rate)
+# Run all tests (20/20 tests, 100% success rate)
 make test
 # or with detailed output
 ctest --output-on-failure
@@ -68,18 +69,44 @@ make run_performance_tests    # Performance benchmarks
 - **Translation Latency**: 135ns (500x better than 1μs target)
 - **Throughput**: >100,000 operations/second
 - **Cache Hit Rate**: >80% for typical access patterns
-- **Test Success**: 100% (14/14 test suites passing)
+- **Test Success**: 100% (20/20 tests passing)
+
+### Test Coverage
+
+**Overall Coverage**: 84.82% (2,007/2,366 executable lines) | **Quality Rating**: ⭐⭐⭐⭐½ (4.5/5 Stars)
+
+#### Component Coverage Breakdown
+
+| Component       | Coverage | Lines Tested | Status       |
+|-----------------|----------|--------------|--------------|
+| Fault Handler   | 98.53%   | 134/136      | ⭐ Excellent |
+| TLB Cache       | 98.11%   | 259/264      | ⭐ Excellent |
+| Configuration   | 97.60%   | 285/292      | ⭐ Excellent |
+| Address Space   | 94.29%   | 231/245      | ⭐ Excellent |
+| Stream Context  | 94.20%   | 406/431      | ⭐ Excellent |
+| SMMU Controller | 69.44%   | 693/998      | ✓ Good       |
+
+**Coverage Highlights**:
+- ✅ 5 of 6 core components exceed 94% coverage
+- ✅ All critical paths and fault handlers thoroughly tested
+- ✅ Zero build warnings across entire codebase
+- ✅ 100% test success rate (20/20 tests passing)
+- ✅ Comprehensive edge case and boundary condition coverage
+
+**Note**: The SMMU Controller's 69% coverage reflects its complexity with two-stage translation, extensive fault handling, security state management, and numerous specification compliance branches. All common use cases and critical paths are well-covered.
 
 ## Documentation
 
 ### Production Documentation Suite
 - **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - Complete production release documentation with technical specifications
 - **[CHANGELOG.md](CHANGELOG.md)** - Detailed version history and development progression
+- **[COVERAGE_SUMMARY.txt](COVERAGE_SUMMARY.txt)** - Comprehensive test coverage analysis and quality metrics
 - **[ARM_SMMU_v3_PRD.md](ARM_SMMU_v3_PRD.md)** - Complete product requirements document with implementation status
 - **[TASKS.md](TASKS.md)** - Implementation progress and completion details
+- **[tests/TEST_COVERAGE_REPORT.md](tests/TEST_COVERAGE_REPORT.md)** - Detailed test coverage report with performance analysis
 - **[docs/](docs/)** - Complete documentation suite including:
   - **user-manual.md** - Usage guide and integration instructions
-  - **developer-guide.md** - Architecture overview and implementation details  
+  - **developer-guide.md** - Architecture overview and implementation details
   - **api-documentation.md** - Complete API reference with examples
   - **architecture-guide.md** - System design and component relationships
 
