@@ -15,23 +15,24 @@ static uint64_t getCurrentTimestamp() {
 }
 
 // Constructor - initializes stream context with ARM SMMU v3 defaults
-StreamContext::StreamContext() 
+StreamContext::StreamContext()
     : stage1Enabled(true),     // ARM SMMU v3: Stage-1 typically enabled by default
       stage2Enabled(false),    // ARM SMMU v3: Stage-2 disabled until configured
       faultMode(FaultMode::Terminate),  // Default to immediate DMA termination
       streamEnabled(false),    // Stream disabled by default per ARM SMMU v3
-      configurationChanged(false) {  // Configuration initially unchanged
-    
+      configurationChanged(false),  // Configuration initially unchanged
+      maxPASIDsPerStream(1024) {  // Default PASID limit per stream (configurable)
+
     // Initialize default configuration
     currentConfiguration.translationEnabled = false;  // Default: translation disabled
     currentConfiguration.stage1Enabled = stage1Enabled;
     currentConfiguration.stage2Enabled = stage2Enabled;
     currentConfiguration.faultMode = faultMode;
-    
+
     // Initialize statistics with creation timestamp
     streamStatistics.creationTimestamp = getCurrentTimestamp();
     streamStatistics.lastAccessTimestamp = streamStatistics.creationTimestamp;
-    
+
     // Empty PASID map - sparse allocation for efficient memory usage
     // Stage-2 AddressSpace remains null until explicitly configured
     // Fault handler initially null
@@ -48,28 +49,33 @@ StreamContext::~StreamContext() {
 // ARM SMMU v3 spec: PASID creates isolated translation context
 VoidResult StreamContext::createPASID(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    
+
     // ARM SMMU v3 spec: Validate PASID within 20-bit range (0xFFFFF)
     // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
     if (pasid > MAX_PASID) {
         return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds ARM SMMU v3 specification limits
     }
-    
+
     // Check if PASID already exists to prevent accidental overwrites
     if (pasidMap.find(pasid) != pasidMap.end()) {
         return makeVoidError(SMMUError::PASIDAlreadyExists);  // PASID already exists - use addPASID to replace
     }
-    
+
+    // Check if adding this PASID would exceed the configured resource limit
+    if (pasidMap.size() >= maxPASIDsPerStream) {
+        return makeVoidError(SMMUError::PASIDLimitExceeded);  // Maximum PASIDs per stream limit reached
+    }
+
     // Create new AddressSpace for this PASID
     // ARM SMMU v3: Each PASID gets independent Stage-1 address space
     std::shared_ptr<AddressSpace> addressSpace = std::make_shared<AddressSpace>();
-    
+
     // Insert into PASID map with efficient O(1) average case performance
     pasidMap[pasid] = addressSpace;
-    
+
     // Update PASID count statistics
     streamStatistics.pasidCount = pasidMap.size();
-    
+
     return makeVoidSuccess();  // Successful PASID creation
 }
 
@@ -343,10 +349,16 @@ void StreamContext::setStage2AddressSpace(std::shared_ptr<AddressSpace> addressS
 void StreamContext::setFaultMode(FaultMode mode) {
     std::lock_guard<std::mutex> lock(contextMutex);
     faultMode = mode;
-    
+
     // ARM SMMU v3 supports:
     // - Terminate: Abort DMA transaction immediately
     // - Stall: Queue fault for OS/hypervisor handling
+}
+
+// Configure maximum PASIDs per stream resource limit
+void StreamContext::setMaxPASIDsPerStream(uint32_t maxPASIDs) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    maxPASIDsPerStream = maxPASIDs;
 }
 
 // Query if specific PASID exists in this stream context

@@ -36,6 +36,7 @@ public:
     void setStage2Enabled(bool enabled);
     void setStage2AddressSpace(std::shared_ptr<AddressSpace> addressSpace);
     void setFaultMode(FaultMode mode);
+    void setMaxPASIDsPerStream(uint32_t maxPASIDs);
     
     // Query operations
     bool hasPASID(PASID pasid) const;
@@ -212,14 +213,17 @@ private:
     bool stage1Enabled;
     bool stage2Enabled;
     FaultMode faultMode;
-    
+
     // Task 4.2: Stream Operations Support Members
     StreamConfig currentConfiguration;
     StreamStatistics streamStatistics;
     bool streamEnabled;
     bool configurationChanged;
     std::shared_ptr<FaultHandler> faultHandler;
-    
+
+    // Resource limits
+    uint32_t maxPASIDsPerStream;  // Maximum number of PASIDs allowed per stream
+
     // Thread safety synchronization
     mutable std::mutex contextMutex;
     
