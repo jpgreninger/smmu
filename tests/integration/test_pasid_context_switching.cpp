@@ -20,18 +20,8 @@ namespace integration {
 class PASIDContextSwitchingTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create SMMU optimized for PASID management testing
-        SMMUConfiguration config;
-        config.maxStreams = 512;
-        config.maxPASIDsPerStream = 1024;  // Large PASID space for testing
-        config.cacheConfig.maxEntries = 4096;
-        config.cacheConfig.replacementPolicy = CacheReplacementPolicy::LRU;
-        config.queueConfig.maxEventQueueSize = 2048;
-        config.queueConfig.maxCommandQueueSize = 1024;
-        config.addressConfig.addressSpaceBits = 48;
-        config.addressConfig.granuleSize = 4096;
-        
-        smmu = std::make_unique<SMMU>(config);
+        // Create SMMU with default configuration
+        smmu = std::make_unique<SMMU>();
         
         // Test parameters
         testStreamID = 100;
@@ -52,42 +42,34 @@ protected:
 
     void setupTestStream() {
         StreamConfig streamConfig;
-        streamConfig.translationStage = TranslationStage::Stage1Only;
-        streamConfig.faultMode = FaultMode::Terminate;
-        streamConfig.securityState = SecurityState::NonSecure;
+        streamConfig.translationEnabled = true;
         streamConfig.stage1Enabled = true;
         streamConfig.stage2Enabled = false;
-        
-        streamConfig.stage1TTBRs[0] = base_pa;
-        streamConfig.stage1TCR.granuleSize = 4096;
-        streamConfig.stage1TCR.addressSpaceBits = 48;
-        streamConfig.stage1TCR.walkCacheDisable = false;
-        
+        streamConfig.faultMode = FaultMode::Terminate;
+
         auto result = smmu->configureStream(testStreamID, streamConfig);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to configure test stream";
-        
+        ASSERT_TRUE(result.isOk()) << "Failed to configure test stream";
+
         result = smmu->enableStream(testStreamID);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to enable test stream";
+        ASSERT_TRUE(result.isOk()) << "Failed to enable test stream";
     }
 
     void createAndMapPASID(PASID pasid, size_t num_pages = 10) {
         auto result = smmu->createStreamPASID(testStreamID, pasid);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to create PASID " << pasid;
+        ASSERT_TRUE(result.isOk()) << "Failed to create PASID " << pasid;
         
         // Map pages for this PASID
         PagePermissions perms;
         perms.read = true;
         perms.write = true;
         perms.execute = false;
-        perms.user = true;
-        perms.global = false;
         
         for (size_t i = 0; i < num_pages; ++i) {
             IOVA iova = base_iova + (pasid * 0x100000) + (i * page_size);  // Unique per PASID
             PA pa = base_pa + (pasid * 0x100000) + (i * page_size);
             
             result = smmu->mapPage(testStreamID, pasid, iova, pa, perms);
-            ASSERT_TRUE(result.isSuccess()) << "Failed to map page " << i << " for PASID " << pasid;
+            ASSERT_TRUE(result.isOk()) << "Failed to map page " << i << " for PASID " << pasid;
         }
     }
 
@@ -98,7 +80,7 @@ protected:
             PA expected_pa = base_pa + (pasid * 0x100000) + (i * page_size);
             
             auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
-            ASSERT_TRUE(result.isSuccess()) << "Translation failed for PASID " << pasid << ", page " << i;
+            ASSERT_TRUE(result.isOk()) << "Translation failed for PASID " << pasid << ", page " << i;
             EXPECT_EQ(result.getValue().physicalAddress, expected_pa) 
                 << "PA mismatch for PASID " << pasid << ", page " << i;
         }
@@ -139,7 +121,7 @@ TEST_F(PASIDContextSwitchingTest, BasicPASIDContextSwitching) {
         PA expected_pa = base_pa + (pasid * 0x100000) + (page_index * page_size);
         
         auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
-        ASSERT_TRUE(result.isSuccess()) << "Random access failed for PASID " << pasid;
+        ASSERT_TRUE(result.isOk()) << "Random access failed for PASID " << pasid;
         EXPECT_EQ(result.getValue().physicalAddress, expected_pa);
     }
 }
@@ -157,9 +139,9 @@ TEST_F(PASIDContextSwitchingTest, PASIDContextIsolation) {
     
     auto result1 = smmu->translate(testStreamID, pasid1, shared_iova, AccessType::Read);
     auto result2 = smmu->translate(testStreamID, pasid2, shared_iova, AccessType::Read);
-    
-    ASSERT_TRUE(result1.isSuccess());
-    ASSERT_TRUE(result2.isSuccess());
+
+    ASSERT_TRUE(result1.isOk());
+    ASSERT_TRUE(result2.isOk());
     
     // Should get different physical addresses due to PASID isolation
     EXPECT_NE(result1.getValue().physicalAddress, result2.getValue().physicalAddress);
@@ -178,7 +160,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDLifecycleManagement) {
     // Verify PASID doesn't exist initially
     IOVA test_iova = base_iova + 0x2000;
     auto result = smmu->translate(testStreamID, test_pasid, test_iova, AccessType::Read);
-    EXPECT_FALSE(result.isSuccess());
+    EXPECT_FALSE(result.isOk());
     EXPECT_EQ(result.getError(), SMMUError::PASIDNotFound);
     
     // Create PASID and verify it works
@@ -187,11 +169,11 @@ TEST_F(PASIDContextSwitchingTest, PASIDLifecycleManagement) {
     
     // Remove PASID
     auto remove_result = smmu->removeStreamPASID(testStreamID, test_pasid);
-    EXPECT_TRUE(remove_result.isSuccess()) << "Failed to remove PASID";
+    EXPECT_TRUE(remove_result.isOk()) << "Failed to remove PASID";
     
     // Verify PASID no longer works
     result = smmu->translate(testStreamID, test_pasid, test_iova, AccessType::Read);
-    EXPECT_FALSE(result.isSuccess());
+    EXPECT_FALSE(result.isOk());
     EXPECT_EQ(result.getError(), SMMUError::PASIDNotFound);
     
     // Recreate PASID and verify it works again
@@ -235,7 +217,7 @@ TEST_F(PASIDContextSwitchingTest, LargeScalePASIDSwitching) {
         
         auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
         
-        if (result.isSuccess() && result.getValue().physicalAddress == expected_pa) {
+        if (result.isOk() && result.getValue().physicalAddress == expected_pa) {
             successful_accesses++;
         }
     }
@@ -282,7 +264,7 @@ TEST_F(PASIDContextSwitchingTest, ConcurrentPASIDSwitching) {
             
             auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
             
-            if (result.isSuccess() && result.getValue().physicalAddress == expected_pa) {
+            if (result.isOk() && result.getValue().physicalAddress == expected_pa) {
                 local_successful++;
             } else {
                 local_failed++;
@@ -328,22 +310,22 @@ TEST_F(PASIDContextSwitchingTest, PASIDCacheBehavior) {
     // First access to each PASID should be cache miss
     for (PASID pasid : test_pasids) {
         auto result = smmu->translate(testStreamID, pasid, test_iova, AccessType::Read);
-        ASSERT_TRUE(result.isSuccess());
+        ASSERT_TRUE(result.isOk());
     }
     
     auto stats_after_misses = smmu->getCacheStatistics();
-    EXPECT_EQ(stats_after_misses.misses, test_pasids.size());
-    EXPECT_EQ(stats_after_misses.hits, 0);
+    EXPECT_EQ(stats_after_misses.missCount, test_pasids.size());
+    EXPECT_EQ(stats_after_misses.hitCount, 0);
     
     // Second access to each PASID should be cache hit
     for (PASID pasid : test_pasids) {
         auto result = smmu->translate(testStreamID, pasid, test_iova, AccessType::Read);
-        ASSERT_TRUE(result.isSuccess());
+        ASSERT_TRUE(result.isOk());
     }
     
     auto stats_after_hits = smmu->getCacheStatistics();
-    EXPECT_EQ(stats_after_hits.misses, test_pasids.size());
-    EXPECT_EQ(stats_after_hits.hits, test_pasids.size());
+    EXPECT_EQ(stats_after_hits.missCount, test_pasids.size());
+    EXPECT_EQ(stats_after_hits.hitCount, test_pasids.size());
     
     // Test PASID-specific cache invalidation
     smmu->invalidatePASIDCache(testStreamID, test_pasids[0]);
@@ -353,42 +335,36 @@ TEST_F(PASIDContextSwitchingTest, PASIDCacheBehavior) {
     auto result_cached1 = smmu->translate(testStreamID, test_pasids[1], test_iova, AccessType::Read);
     auto result_cached2 = smmu->translate(testStreamID, test_pasids[2], test_iova, AccessType::Read);
     
-    ASSERT_TRUE(result_invalidated.isSuccess());
-    ASSERT_TRUE(result_cached1.isSuccess());
-    ASSERT_TRUE(result_cached2.isSuccess());
+    ASSERT_TRUE(result_invalidated.isOk());
+    ASSERT_TRUE(result_cached1.isOk());
+    ASSERT_TRUE(result_cached2.isOk());
     
     auto stats_after_invalidation = smmu->getCacheStatistics();
-    EXPECT_EQ(stats_after_invalidation.misses, test_pasids.size() + 1);  // One additional miss
-    EXPECT_EQ(stats_after_invalidation.hits, test_pasids.size() + 2);    // Two additional hits
+    EXPECT_EQ(stats_after_invalidation.missCount, test_pasids.size() + 1);  // One additional miss
+    EXPECT_EQ(stats_after_invalidation.hitCount, test_pasids.size() + 2);    // Two additional hits
 }
 
 // Test 7: PASID Context Switching with Different Security States
 TEST_F(PASIDContextSwitchingTest, PASIDSecurityStateContextSwitching) {
     // Reconfigure stream for both secure and non-secure operation
     StreamConfig streamConfig;
-    streamConfig.translationStage = TranslationStage::Stage1Only;
-    streamConfig.faultMode = FaultMode::Terminate;
-    streamConfig.securityState = SecurityState::NonSecure;  // Base state
+    streamConfig.translationEnabled = true;
     streamConfig.stage1Enabled = true;
     streamConfig.stage2Enabled = false;
-    
-    streamConfig.stage1TTBRs[0] = base_pa;
-    streamConfig.stage1TCR.granuleSize = 4096;
-    streamConfig.stage1TCR.addressSpaceBits = 48;
-    streamConfig.stage1TCR.walkCacheDisable = false;
-    
+    streamConfig.faultMode = FaultMode::Terminate;
+
     auto result = smmu->configureStream(testStreamID, streamConfig);
-    ASSERT_TRUE(result.isSuccess());
+    ASSERT_TRUE(result.isOk());
     
     const PASID nonsecure_pasid = 50;
     const PASID secure_pasid = 51;
     
     // Create PASIDs for different security states
     auto create_result = smmu->createStreamPASID(testStreamID, nonsecure_pasid);
-    ASSERT_TRUE(create_result.isSuccess());
+    ASSERT_TRUE(create_result.isOk());
     
     create_result = smmu->createStreamPASID(testStreamID, secure_pasid);
-    ASSERT_TRUE(create_result.isSuccess());
+    ASSERT_TRUE(create_result.isOk());
     
     // Map pages with different security states
     IOVA test_iova = base_iova + 0x5000;
@@ -399,29 +375,27 @@ TEST_F(PASIDContextSwitchingTest, PASIDSecurityStateContextSwitching) {
     perms.read = true;
     perms.write = true;
     perms.execute = false;
-    perms.user = true;
-    perms.global = false;
     
     result = smmu->mapPage(testStreamID, nonsecure_pasid, test_iova, nonsecure_pa, perms, SecurityState::NonSecure);
-    ASSERT_TRUE(result.isSuccess());
+    ASSERT_TRUE(result.isOk());
     
     result = smmu->mapPage(testStreamID, secure_pasid, test_iova, secure_pa, perms, SecurityState::Secure);
-    ASSERT_TRUE(result.isSuccess());
+    ASSERT_TRUE(result.isOk());
     
     // Test access with matching security states
     auto nonsecure_result = smmu->translate(testStreamID, nonsecure_pasid, test_iova, AccessType::Read, SecurityState::NonSecure);
-    EXPECT_TRUE(nonsecure_result.isSuccess());
+    EXPECT_TRUE(nonsecure_result.isOk());
     EXPECT_EQ(nonsecure_result.getValue().physicalAddress, nonsecure_pa);
     EXPECT_EQ(nonsecure_result.getValue().securityState, SecurityState::NonSecure);
     
     auto secure_result = smmu->translate(testStreamID, secure_pasid, test_iova, AccessType::Read, SecurityState::Secure);
-    EXPECT_TRUE(secure_result.isSuccess());
+    EXPECT_TRUE(secure_result.isOk());
     EXPECT_EQ(secure_result.getValue().physicalAddress, secure_pa);
     EXPECT_EQ(secure_result.getValue().securityState, SecurityState::Secure);
     
     // Test security violations
     auto violation_result = smmu->translate(testStreamID, nonsecure_pasid, test_iova, AccessType::Read, SecurityState::Secure);
-    EXPECT_FALSE(violation_result.isSuccess());
+    EXPECT_FALSE(violation_result.isOk());
     EXPECT_EQ(violation_result.getError(), SMMUError::InvalidSecurityState);
 }
 
@@ -440,7 +414,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDSwitchingPerformance) {
     for (PASID pasid : pasids) {
         IOVA iova = base_iova + (pasid * 0x100000);
         auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
-        ASSERT_TRUE(result.isSuccess());
+        ASSERT_TRUE(result.isOk());
     }
     
     // Measure PASID switching performance
@@ -454,7 +428,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDSwitchingPerformance) {
         IOVA iova = base_iova + (pasid * 0x100000);
         
         auto result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
     }
     
     auto end = std::chrono::high_resolution_clock::now();
@@ -481,21 +455,19 @@ TEST_F(PASIDContextSwitchingTest, PASIDFaultHandlingDuringSwitching) {
     
     // Create PASID with limited mapping (will cause faults)
     auto create_result = smmu->createStreamPASID(testStreamID, fault_pasid);
-    ASSERT_TRUE(create_result.isSuccess());
+    ASSERT_TRUE(create_result.isOk());
     
     // Map only first page for fault_pasid
     PagePermissions perms;
     perms.read = true;
     perms.write = false;  // Write will fault
     perms.execute = false;
-    perms.user = true;
-    perms.global = false;
     
     IOVA fault_iova = base_iova + (fault_pasid * 0x100000);
     PA fault_pa = base_pa + (fault_pasid * 0x100000);
     
     auto map_result = smmu->mapPage(testStreamID, fault_pasid, fault_iova, fault_pa, perms);
-    ASSERT_TRUE(map_result.isSuccess());
+    ASSERT_TRUE(map_result.isOk());
     
     // Don't create unmapped_pasid at all
     
@@ -528,9 +500,9 @@ TEST_F(PASIDContextSwitchingTest, PASIDFaultHandlingDuringSwitching) {
         auto result = smmu->translate(testStreamID, test_case.pasid, iova, test_case.access);
         
         if (test_case.should_succeed) {
-            EXPECT_TRUE(result.isSuccess()) << "Expected success for " << test_case.description;
+            EXPECT_TRUE(result.isOk()) << "Expected success for " << test_case.description;
         } else {
-            EXPECT_FALSE(result.isSuccess()) << "Expected failure for " << test_case.description;
+            EXPECT_FALSE(result.isOk()) << "Expected failure for " << test_case.description;
             EXPECT_EQ(result.getError(), test_case.expected_error);
         }
     }
@@ -538,14 +510,14 @@ TEST_F(PASIDContextSwitchingTest, PASIDFaultHandlingDuringSwitching) {
     // Verify that valid PASID still works after fault conditions
     IOVA valid_iova = base_iova + (valid_pasid * 0x100000) + 0x4000;
     auto final_result = smmu->translate(testStreamID, valid_pasid, valid_iova, AccessType::Read);
-    EXPECT_TRUE(final_result.isSuccess()) << "Valid PASID should still work after fault conditions";
+    EXPECT_TRUE(final_result.isOk()) << "Valid PASID should still work after fault conditions";
 }
 
 // Test 10: PASID Resource Limit Testing
 TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
     // Get current configuration limits
     const auto& config = smmu->getConfiguration();
-    const size_t max_pasids = config.maxPASIDsPerStream;
+    const size_t max_pasids = 1024;  // Default PASID limit
     
     std::vector<PASID> created_pasids;
     
@@ -554,7 +526,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
         PASID pasid = i;
         auto result = smmu->createStreamPASID(testStreamID, pasid);
         
-        if (result.isSuccess()) {
+        if (result.isOk()) {
             created_pasids.push_back(pasid);
         } else {
             // Might hit limit before theoretical maximum due to implementation constraints
@@ -569,7 +541,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
     if (created_pasids.size() == max_pasids) {
         PASID over_limit_pasid = max_pasids + 1;
         auto result = smmu->createStreamPASID(testStreamID, over_limit_pasid);
-        EXPECT_FALSE(result.isSuccess());
+        EXPECT_FALSE(result.isOk());
         EXPECT_EQ(result.getError(), SMMUError::PASIDLimitExceeded);
     }
     
@@ -580,17 +552,15 @@ TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
         perms.read = true;
         perms.write = true;
         perms.execute = false;
-        perms.user = true;
-        perms.global = false;
         
         IOVA iova = base_iova + (pasid * 0x100000);
         PA pa = base_pa + (pasid * 0x100000);
         
         auto map_result = smmu->mapPage(testStreamID, pasid, iova, pa, perms);
-        ASSERT_TRUE(map_result.isSuccess()) << "Failed to map for PASID " << pasid;
+        ASSERT_TRUE(map_result.isOk()) << "Failed to map for PASID " << pasid;
         
         auto trans_result = smmu->translate(testStreamID, pasid, iova, AccessType::Read);
-        EXPECT_TRUE(trans_result.isSuccess()) << "Translation failed for PASID " << pasid;
+        EXPECT_TRUE(trans_result.isOk()) << "Translation failed for PASID " << pasid;
     }
     
     // Remove some PASIDs and verify we can create new ones
@@ -598,14 +568,14 @@ TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
     
     for (size_t i = 0; i < pasids_to_remove; ++i) {
         auto result = smmu->removeStreamPASID(testStreamID, created_pasids[i]);
-        EXPECT_TRUE(result.isSuccess()) << "Failed to remove PASID " << created_pasids[i];
+        EXPECT_TRUE(result.isOk()) << "Failed to remove PASID " << created_pasids[i];
     }
     
     // Should be able to create new PASIDs now
     for (size_t i = 0; i < pasids_to_remove; ++i) {
         PASID new_pasid = max_pasids + 10 + i;  // Use different PASID numbers
         auto result = smmu->createStreamPASID(testStreamID, new_pasid);
-        EXPECT_TRUE(result.isSuccess()) << "Should be able to create new PASID after removal";
+        EXPECT_TRUE(result.isOk()) << "Should be able to create new PASID after removal";
     }
     
     std::cout << "PASID resource test: Created " << created_pasids.size() 

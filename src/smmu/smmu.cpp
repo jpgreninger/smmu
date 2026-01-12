@@ -868,8 +868,14 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
     if (stage1Result.isError()) {
         // Stage-1 translation failed - record fault with comprehensive syndrome
-        // Convert SMMUError back to FaultType for fault recording
-        FaultType faultType = (stage1Result.getError() == SMMUError::PageNotMapped) ? FaultType::TranslationFault : FaultType::AccessFault;
+        // ARM SMMU v3 spec Section 7.3.2: Use level-specific fault classification
+        FaultType faultType;
+        if (stage1Result.getError() == SMMUError::PageNotMapped) {
+            // Use level-specific fault classification (ARM SMMU v3 Section 7.3.2)
+            faultType = classifyDetailedTranslationFault(iova, 1, false);
+        } else {
+            faultType = FaultType::AccessFault;
+        }
         recordComprehensiveFault(streamID, pasid, iova, faultType,
                                accessType, securityState, FaultStage::Stage1Only, 1, 0);
         return stage1Result;
@@ -887,8 +893,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     }
     
     // Stage 2: IPA -> PA translation (using stream's Stage-2 address space)
-    // ARM SMMU v3 spec: Stage-2 uses shared address space across stream
-    AddressSpace* stage2AddressSpace = streamContext->getStage2AddressSpace();
+    // ARM SMMU v3 spec: Stage-2 uses PASID 0 for hypervisor address space (Section 3.4.5)
+    AddressSpace* stage2AddressSpace = streamContext->getPASIDAddressSpace(0);
     if (!stage2AddressSpace) {
         // Stage-2 address space not configured - Stage-2 translation fault
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
@@ -900,12 +906,18 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // ARM SMMU v3 spec: Stage-2 translates the IPA from Stage-1 to final PA
     TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
     if (stage2Result.isError()) {
-        // Stage-2 translation failed - record fault with comprehensive syndrome
-        FaultType stage2FaultType = (stage2Result.getError() == SMMUError::PageNotMapped) ? 
-                                   FaultType::Stage2TranslationFault : FaultType::Stage2PermissionFault;
-        
-        recordComprehensiveFault(streamID, pasid, iova, stage2FaultType,
-                               accessType, securityState, FaultStage::Stage2Only, 2, 0);
+        // ARM SMMU v3 spec Section 7.3.3: Stage-2 fault attribution
+        FaultType stage2FaultType;
+        if (stage2Result.getError() == SMMUError::PageNotMapped) {
+            // Use level-specific fault classification
+            stage2FaultType = classifyDetailedTranslationFault(intermediatePA, 1, false);
+        } else {
+            stage2FaultType = FaultType::Stage2PermissionFault;
+        }
+
+        // ARM SMMU v3 spec: Stage-2 faults use PASID 0 (hypervisor) and IPA as fault address
+        recordComprehensiveFault(streamID, 0, intermediatePA, stage2FaultType,
+                               accessType, securityState, FaultStage::Stage2Only, 1, 0);
         return stage2Result;
     }
     

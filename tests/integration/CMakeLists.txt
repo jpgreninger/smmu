@@ -1,10 +1,10 @@
 # Integration test executables - Task 8.2 Implementation Complete
 set(INTEGRATION_TEST_SOURCES
     test_minimal_integration.cpp          # Task 8.2: Minimal integration tests with correct API usage
-    # test_two_stage_translation.cpp       # TODO: Fix API usage
-    # test_stream_isolation.cpp            # TODO: Fix API usage
-    # test_pasid_context_switching.cpp     # TODO: Fix API usage
-    # test_large_scale_scalability.cpp     # TODO: Fix API usage
+    test_two_stage_translation.cpp        # Task 8.2: Two-stage translation tests with correct API usage
+    test_stream_isolation.cpp             # Task 8.2: Stream isolation tests with correct API usage
+    test_pasid_context_switching.cpp      # Task 8.2: PASID context switching tests with fixed API usage
+    test_large_scale_scalability.cpp      # Task 8.2.4: Large-scale scalability tests with fixed API usage
 )
 
 foreach(test_source ${INTEGRATION_TEST_SOURCES})

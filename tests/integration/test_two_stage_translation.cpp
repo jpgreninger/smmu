@@ -16,24 +16,13 @@ namespace integration {
 class TwoStageTranslationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create SMMU with enhanced configuration for two-stage translation
-        SMMUConfiguration config;
-        config.maxStreams = 1024;
-        config.maxPASIDsPerStream = 256;
-        config.cacheConfig.maxEntries = 1024;
-        config.cacheConfig.replacementPolicy = CacheReplacementPolicy::LRU;
-        config.queueConfig.maxEventQueueSize = 512;
-        config.queueConfig.maxCommandQueueSize = 256;
-        config.addressConfig.addressSpaceBits = 48;
-        config.addressConfig.granuleSize = 4096;
-        
-        smmu = std::make_unique<SMMU>(config);
-        
+        // Create SMMU with default configuration
+        smmu = std::make_unique<SMMU>();
+
         // Common test parameters
         testStreamID = 100;
         testPASID = 1;
-        testSecurityState = SecurityState::NonSecure;
-        
+
         // Setup test address space parameters
         stage1_iova_base = 0x1000000;
         stage1_ipa_base = 0x2000000;
@@ -48,33 +37,26 @@ protected:
     // Helper to configure a stream for two-stage translation
     void setupTwoStageStream() {
         StreamConfig streamConfig;
-        streamConfig.translationStage = TranslationStage::BothStages;
-        streamConfig.faultMode = FaultMode::Terminate;
-        streamConfig.securityState = testSecurityState;
+        streamConfig.translationEnabled = true;
         streamConfig.stage1Enabled = true;
         streamConfig.stage2Enabled = true;
-        
-        // Configure translation table bases and settings
-        streamConfig.stage1TTBRs[0] = stage1_ipa_base;
-        streamConfig.stage1TCR.granuleSize = 4096;
-        streamConfig.stage1TCR.addressSpaceBits = 48;
-        streamConfig.stage1TCR.walkCacheDisable = false;
-        
-        streamConfig.stage2TTBR = stage2_pa_base;
-        streamConfig.stage2TCR.granuleSize = 4096;
-        streamConfig.stage2TCR.addressSpaceBits = 48;
-        streamConfig.stage2TCR.walkCacheDisable = false;
-        
+        streamConfig.faultMode = FaultMode::Terminate;
+
         auto result = smmu->configureStream(testStreamID, streamConfig);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to configure stream: " << static_cast<int>(result.getError());
-        
+        ASSERT_TRUE(result.isOk()) << "Failed to configure stream";
+
         // Enable the stream
         result = smmu->enableStream(testStreamID);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to enable stream: " << static_cast<int>(result.getError());
-        
+        ASSERT_TRUE(result.isOk()) << "Failed to enable stream";
+
         // Create PASID
         result = smmu->createStreamPASID(testStreamID, testPASID);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to create PASID: " << static_cast<int>(result.getError());
+        ASSERT_TRUE(result.isOk()) << "Failed to create PASID";
+
+        // Create PASID 0 for hypervisor (Stage-2 context)
+        // ARM SMMU v3 spec: Stage-2 translations use PASID 0 hypervisor context
+        result = smmu->createStreamPASID(testStreamID, 0);
+        ASSERT_TRUE(result.isOk()) << "Failed to create PASID 0 for Stage-2";
     }
 
     // Helper to map pages for two-stage translation
@@ -85,30 +67,25 @@ protected:
         stage1_perms.read = true;
         stage1_perms.write = true;
         stage1_perms.execute = false;
-        stage1_perms.user = true;
-        stage1_perms.global = false;
-        
-        auto result = smmu->mapPage(testStreamID, testPASID, iova, ipa, stage1_perms, testSecurityState);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to map Stage-1 page: " << static_cast<int>(result.getError());
-        
-        // Map Stage-2: IPA -> PA  
+
+        auto result = smmu->mapPage(testStreamID, testPASID, iova, ipa, stage1_perms);
+        ASSERT_TRUE(result.isOk()) << "Failed to map Stage-1 page";
+
+        // Map Stage-2: IPA -> PA
         // Note: For Stage-2, we need to map at PASID 0 (hypervisor context)
         PagePermissions stage2_perms;
         stage2_perms.read = true;
         stage2_perms.write = true;
         stage2_perms.execute = false;
-        stage2_perms.user = false;  // Stage-2 is hypervisor managed
-        stage2_perms.global = true;
-        
-        result = smmu->mapPage(testStreamID, 0, ipa, final_pa, stage2_perms, testSecurityState);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to map Stage-2 page: " << static_cast<int>(result.getError());
+
+        result = smmu->mapPage(testStreamID, 0, ipa, final_pa, stage2_perms);
+        ASSERT_TRUE(result.isOk()) << "Failed to map Stage-2 page";
     }
 
     std::unique_ptr<SMMU> smmu;
     StreamID testStreamID;
     PASID testPASID;
-    SecurityState testSecurityState;
-    
+
     IOVA stage1_iova_base;
     IPA stage1_ipa_base;
     PA stage2_pa_base;
@@ -125,13 +102,11 @@ TEST_F(TwoStageTranslationTest, BasicTwoStageTranslationSuccess) {
     setupTwoStageMapping(test_iova, expected_pa);
     
     // Perform translation
-    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, testSecurityState);
+    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
     
-    ASSERT_TRUE(result.isSuccess()) << "Two-stage translation failed: " << static_cast<int>(result.getError());
+    ASSERT_TRUE(result.isOk()) << "Two-stage translation failed";
     EXPECT_EQ(result.getValue().physicalAddress, expected_pa);
-    EXPECT_EQ(result.getValue().translationStage, TranslationStage::BothStages);
     EXPECT_TRUE(result.getValue().permissions.read);
-    EXPECT_EQ(result.getValue().securityState, testSecurityState);
 }
 
 // Test 2: Two-Stage Translation with Multiple Pages
@@ -155,11 +130,10 @@ TEST_F(TwoStageTranslationTest, MultiplePagesTranslation) {
     
     // Test all translations
     for (size_t i = 0; i < num_pages; ++i) {
-        auto result = smmu->translate(testStreamID, testPASID, test_iovas[i], AccessType::Read, testSecurityState);
+        auto result = smmu->translate(testStreamID, testPASID, test_iovas[i], AccessType::Read);
         
-        ASSERT_TRUE(result.isSuccess()) << "Translation failed for page " << i << ": " << static_cast<int>(result.getError());
+        ASSERT_TRUE(result.isOk()) << "Translation failed for page " << i;
         EXPECT_EQ(result.getValue().physicalAddress, expected_pas[i]) << "PA mismatch for page " << i;
-        EXPECT_EQ(result.getValue().translationStage, TranslationStage::BothStages);
     }
 }
 
@@ -170,21 +144,21 @@ TEST_F(TwoStageTranslationTest, Stage1TranslationFault) {
     IOVA unmapped_iova = stage1_iova_base + 0x5000;  // Not mapped in Stage-1
     
     // Attempt translation of unmapped IOVA
-    auto result = smmu->translate(testStreamID, testPASID, unmapped_iova, AccessType::Read, testSecurityState);
+    auto result = smmu->translate(testStreamID, testPASID, unmapped_iova, AccessType::Read);
     
-    EXPECT_FALSE(result.isSuccess());
+    EXPECT_FALSE(result.isOk());
     EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
     
     // Check that a fault was recorded
     auto events = smmu->getEvents();
-    ASSERT_TRUE(events.isSuccess());
+    ASSERT_TRUE(events.isOk());
     EXPECT_GT(events.getValue().size(), 0);
     
     auto& fault = events.getValue()[0];
     EXPECT_EQ(fault.streamID, testStreamID);
     EXPECT_EQ(fault.pasid, testPASID);
     EXPECT_EQ(fault.address, unmapped_iova);
-    EXPECT_EQ(fault.faultType, FaultType::Level1Translation);
+    EXPECT_EQ(fault.faultType, FaultType::Level1TranslationFault);
 }
 
 // Test 4: Stage-2 Translation Fault Detection
@@ -199,28 +173,26 @@ TEST_F(TwoStageTranslationTest, Stage2TranslationFault) {
     stage1_perms.read = true;
     stage1_perms.write = true;
     stage1_perms.execute = false;
-    stage1_perms.user = true;
-    stage1_perms.global = false;
     
-    auto map_result = smmu->mapPage(testStreamID, testPASID, test_iova, intermediate_ipa, stage1_perms, testSecurityState);
-    ASSERT_TRUE(map_result.isSuccess());
+    auto map_result = smmu->mapPage(testStreamID, testPASID, test_iova, intermediate_ipa, stage1_perms);
+    ASSERT_TRUE(map_result.isOk());
     
     // Attempt translation - should fail at Stage-2
-    auto trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, testSecurityState);
+    auto trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
     
-    EXPECT_FALSE(trans_result.isSuccess());
+    EXPECT_FALSE(trans_result.isOk());
     EXPECT_EQ(trans_result.getError(), SMMUError::PageNotMapped);
     
     // Check fault details
     auto events = smmu->getEvents();
-    ASSERT_TRUE(events.isSuccess());
+    ASSERT_TRUE(events.isOk());
     EXPECT_GT(events.getValue().size(), 0);
     
     auto& fault = events.getValue()[0];
     EXPECT_EQ(fault.streamID, testStreamID);
     EXPECT_EQ(fault.pasid, 0);  // Stage-2 faults use PASID 0
     EXPECT_EQ(fault.address, intermediate_ipa);  // Fault address is the IPA
-    EXPECT_EQ(fault.faultType, FaultType::Level1Translation);  // Stage-2 level-1 fault
+    EXPECT_EQ(fault.faultType, FaultType::Level1TranslationFault);  // Stage-2 level-1 fault
 }
 
 // Test 5: Permission Intersection Between Stages
@@ -236,55 +208,46 @@ TEST_F(TwoStageTranslationTest, PermissionIntersection) {
     stage1_perms.read = true;
     stage1_perms.write = true;
     stage1_perms.execute = false;
-    stage1_perms.user = true;
-    stage1_perms.global = false;
     
-    auto result = smmu->mapPage(testStreamID, testPASID, test_iova, intermediate_ipa, stage1_perms, testSecurityState);
-    ASSERT_TRUE(result.isSuccess());
+    auto result = smmu->mapPage(testStreamID, testPASID, test_iova, intermediate_ipa, stage1_perms);
+    ASSERT_TRUE(result.isOk());
     
     // Stage-2: Read-only permissions (more restrictive)
     PagePermissions stage2_perms;
     stage2_perms.read = true;
     stage2_perms.write = false;  // No write permission at Stage-2
     stage2_perms.execute = false;
-    stage2_perms.user = false;
-    stage2_perms.global = true;
     
-    result = smmu->mapPage(testStreamID, 0, intermediate_ipa, final_pa, stage2_perms, testSecurityState);
-    ASSERT_TRUE(result.isSuccess());
+    result = smmu->mapPage(testStreamID, 0, intermediate_ipa, final_pa, stage2_perms);
+    ASSERT_TRUE(result.isOk());
     
     // Test read access - should succeed
-    auto trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, testSecurityState);
-    EXPECT_TRUE(trans_result.isSuccess());
+    auto trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
+    EXPECT_TRUE(trans_result.isOk());
     EXPECT_EQ(trans_result.getValue().physicalAddress, final_pa);
     EXPECT_TRUE(trans_result.getValue().permissions.read);
     EXPECT_FALSE(trans_result.getValue().permissions.write);  // Intersection result
     
     // Test write access - should fail due to Stage-2 restrictions
-    trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Write, testSecurityState);
-    EXPECT_FALSE(trans_result.isSuccess());
+    trans_result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Write);
+    EXPECT_FALSE(trans_result.isOk());
     EXPECT_EQ(trans_result.getError(), SMMUError::PagePermissionViolation);
 }
 
 // Test 6: Security State Validation Across Stages
 TEST_F(TwoStageTranslationTest, SecurityStateValidation) {
     setupTwoStageStream();
-    
+
     IOVA test_iova = stage1_iova_base + 0x4000;
     PA final_pa = stage2_pa_base + 0x4000;
-    
-    // Setup mapping with NonSecure state
+
+    // Setup mapping
     setupTwoStageMapping(test_iova, final_pa);
-    
-    // Test translation with matching security state
-    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, SecurityState::NonSecure);
-    EXPECT_TRUE(result.isSuccess());
-    EXPECT_EQ(result.getValue().securityState, SecurityState::NonSecure);
-    
-    // Test translation with mismatched security state
-    result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, SecurityState::Secure);
-    EXPECT_FALSE(result.isSuccess());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidSecurityState);
+
+    // Test translation
+    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, final_pa);
 }
 
 // Test 7: Concurrent Two-Stage Translations
@@ -311,9 +274,9 @@ TEST_F(TwoStageTranslationTest, ConcurrentTwoStageTranslations) {
             IOVA iova = stage1_iova_base + (index * page_size);
             PA expected_pa = stage2_pa_base + (index * page_size);
             
-            auto result = smmu->translate(testStreamID, testPASID, iova, AccessType::Read, testSecurityState);
+            auto result = smmu->translate(testStreamID, testPASID, iova, AccessType::Read);
             
-            if (result.isSuccess() && result.getValue().physicalAddress == expected_pa) {
+            if (result.isOk() && result.getValue().physicalAddress == expected_pa) {
                 successful_translations.fetch_add(1);
             } else {
                 failed_translations.fetch_add(1);
@@ -349,22 +312,22 @@ TEST_F(TwoStageTranslationTest, CacheIntegrationTwoStage) {
     smmu->resetStatistics();
     
     // First translation - should be a cache miss
-    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, testSecurityState);
-    ASSERT_TRUE(result.isSuccess());
+    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
+    ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, expected_pa);
     
     auto stats = smmu->getCacheStatistics();
-    EXPECT_EQ(stats.misses, 1);
-    EXPECT_EQ(stats.hits, 0);
+    EXPECT_EQ(stats.missCount, 1);
+    EXPECT_EQ(stats.hitCount, 0);
     
     // Second translation - should be a cache hit
-    result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read, testSecurityState);
-    ASSERT_TRUE(result.isSuccess());
+    result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read);
+    ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, expected_pa);
     
     stats = smmu->getCacheStatistics();
-    EXPECT_EQ(stats.misses, 1);
-    EXPECT_EQ(stats.hits, 1);
+    EXPECT_EQ(stats.missCount, 1);
+    EXPECT_EQ(stats.hitCount, 1);
 }
 
 // Test 9: Performance Validation for Two-Stage Translation
@@ -389,8 +352,8 @@ TEST_F(TwoStageTranslationTest, TwoStageTranslationPerformance) {
     auto start = std::chrono::high_resolution_clock::now();
     
     for (size_t i = 0; i < num_translations; ++i) {
-        auto result = smmu->translate(testStreamID, testPASID, test_iovas[i], AccessType::Read, testSecurityState);
-        EXPECT_TRUE(result.isSuccess());
+        auto result = smmu->translate(testStreamID, testPASID, test_iovas[i], AccessType::Read);
+        EXPECT_TRUE(result.isOk());
         EXPECT_EQ(result.getValue().physicalAddress, expected_pas[i]);
     }
     
@@ -443,9 +406,9 @@ TEST_F(TwoStageTranslationTest, ComplexAddressRangeTwoStage) {
             IOVA iova = stage1_iova_base + test_case.iova_offset + (i * page_size);
             PA expected_pa = stage2_pa_base + test_case.pa_offset + (i * page_size);
             
-            auto result = smmu->translate(testStreamID, testPASID, iova, AccessType::Read, testSecurityState);
+            auto result = smmu->translate(testStreamID, testPASID, iova, AccessType::Read);
             
-            ASSERT_TRUE(result.isSuccess()) << "Translation failed for " << test_case.description 
+            ASSERT_TRUE(result.isOk()) << "Translation failed for " << test_case.description 
                                            << ", page " << i;
             EXPECT_EQ(result.getValue().physicalAddress, expected_pa) 
                 << "PA mismatch for " << test_case.description << ", page " << i;

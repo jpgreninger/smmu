@@ -22,25 +22,8 @@ namespace integration {
 class LargeScaleScalabilityTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create SMMU with maximum configuration for scalability testing
-        SMMUConfiguration config;
-        config.maxStreams = 4096;           // Maximum stream capacity
-        config.maxPASIDsPerStream = 2048;   // Large PASID space
-        config.cacheConfig.maxEntries = 16384;  // Large cache for scalability
-        config.cacheConfig.replacementPolicy = CacheReplacementPolicy::LRU;
-        config.queueConfig.maxEventQueueSize = 8192;
-        config.queueConfig.maxCommandQueueSize = 4096;
-        config.queueConfig.maxPRIQueueSize = 2048;
-        config.addressConfig.addressSpaceBits = 48;
-        config.addressConfig.granuleSize = 4096;
-        
-        // Resource limits for large-scale testing
-        config.resourceLimits.maxActiveStreams = 4096;
-        config.resourceLimits.maxTotalPASIDs = 100000;
-        config.resourceLimits.maxCacheEntries = 16384;
-        config.resourceLimits.maxEventQueueEntries = 8192;
-        
-        smmu = std::make_unique<SMMU>(config);
+        // Use default SMMU configuration for scalability testing
+        smmu = std::make_unique<SMMU>();
         
         // Test parameters
         page_size = 4096;
@@ -61,47 +44,31 @@ protected:
     }
 
     // Helper to configure a stream efficiently
-    void configureStream(StreamID streamID, TranslationStage stage = TranslationStage::Stage1Only,
+    void configureStream(StreamID streamID, bool enableStage2 = false,
                         SecurityState securityState = SecurityState::NonSecure) {
         StreamConfig streamConfig;
-        streamConfig.translationStage = stage;
+        streamConfig.translationEnabled = true;
+        streamConfig.stage1Enabled = true;
+        streamConfig.stage2Enabled = enableStage2;
         streamConfig.faultMode = FaultMode::Terminate;
-        streamConfig.securityState = securityState;
-        streamConfig.stage1Enabled = (stage == TranslationStage::Stage1Only || stage == TranslationStage::BothStages);
-        streamConfig.stage2Enabled = (stage == TranslationStage::Stage2Only || stage == TranslationStage::BothStages);
-        
-        // Use unique translation table base per stream
-        streamConfig.stage1TTBRs[0] = base_pa + (static_cast<uint64_t>(streamID) * 0x1000000ULL);
-        streamConfig.stage1TCR.granuleSize = 4096;
-        streamConfig.stage1TCR.addressSpaceBits = 48;
-        streamConfig.stage1TCR.walkCacheDisable = false;
-        
-        if (stage == TranslationStage::BothStages || stage == TranslationStage::Stage2Only) {
-            streamConfig.stage2TTBR = base_pa + (static_cast<uint64_t>(streamID) * 0x1000000ULL) + 0x800000;
-            streamConfig.stage2TCR.granuleSize = 4096;
-            streamConfig.stage2TCR.addressSpaceBits = 48;
-            streamConfig.stage2TCR.walkCacheDisable = false;
-        }
-        
+
         auto result = smmu->configureStream(streamID, streamConfig);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to configure stream " << streamID;
-        
+        ASSERT_TRUE(result.isOk()) << "Failed to configure stream " << streamID;
+
         result = smmu->enableStream(streamID);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to enable stream " << streamID;
+        ASSERT_TRUE(result.isOk()) << "Failed to enable stream " << streamID;
     }
 
     // Helper to create PASID and basic mappings
     void createPASIDWithMappings(StreamID streamID, PASID pasid, size_t num_pages = 100) {
         auto result = smmu->createStreamPASID(streamID, pasid);
-        ASSERT_TRUE(result.isSuccess()) << "Failed to create PASID " << pasid 
+        ASSERT_TRUE(result.isOk()) << "Failed to create PASID " << pasid
                                        << " for stream " << streamID;
-        
+
         PagePermissions perms;
         perms.read = true;
         perms.write = true;
         perms.execute = false;
-        perms.user = true;
-        perms.global = false;
         
         uint64_t stream_base = static_cast<uint64_t>(streamID) * 0x10000000ULL;
         uint64_t pasid_base = static_cast<uint64_t>(pasid) * 0x1000000ULL;
@@ -111,7 +78,7 @@ protected:
             PA pa = base_pa + stream_base + pasid_base + (i * page_size);
             
             result = smmu->mapPage(streamID, pasid, iova, pa, perms);
-            ASSERT_TRUE(result.isSuccess()) << "Failed to map page " << i 
+            ASSERT_TRUE(result.isOk()) << "Failed to map page " << i 
                                            << " for stream " << streamID << ", PASID " << pasid;
         }
     }
@@ -163,7 +130,7 @@ TEST_F(LargeScaleScalabilityTest, LargeScaleStreamConfiguration) {
         for (size_t j = 1; j <= pasids_per_stream; ++j) {
             PASID pasid = j;
             auto result = smmu->createStreamPASID(streamID, pasid);
-            ASSERT_TRUE(result.isSuccess()) << "Failed to create PASID " << pasid 
+            ASSERT_TRUE(result.isOk()) << "Failed to create PASID " << pasid 
                                            << " for stream " << streamID;
         }
     }
@@ -174,16 +141,17 @@ TEST_F(LargeScaleScalabilityTest, LargeScaleStreamConfiguration) {
     // Verify all streams are properly configured
     for (StreamID streamID : stream_ids) {
         auto result = smmu->isStreamConfigured(streamID);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
         EXPECT_TRUE(result.getValue());
         
         result = smmu->isStreamEnabled(streamID);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
         EXPECT_TRUE(result.getValue());
     }
     
     // Verify total counts
-    EXPECT_EQ(smmu->getStreamCount(), num_streams);
+    size_t stream_count = smmu->getStreamCount();
+    EXPECT_EQ(stream_count, num_streams);
     
     std::cout << "Large-scale configuration: " << num_streams << " streams with " 
               << pasids_per_stream << " PASIDs each in " << setup_duration.count() 
@@ -245,7 +213,7 @@ TEST_F(LargeScaleScalabilityTest, MassiveTranslationLoad) {
         
         auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
         
-        if (result.isSuccess()) {
+        if (result.isOk()) {
             successful_translations++;
         } else {
             failed_translations++;
@@ -274,7 +242,7 @@ TEST_F(LargeScaleScalabilityTest, MassiveTranslationLoad) {
     
     // Check cache efficiency
     auto stats = smmu->getCacheStatistics();
-    double cache_hit_rate = static_cast<double>(stats.hits) / (stats.hits + stats.misses);
+    double cache_hit_rate = static_cast<double>(stats.hitCount) / (stats.hitCount + stats.missCount);
     EXPECT_GT(cache_hit_rate, 0.8) << "Cache hit rate should be >80% for good performance";
     
     std::cout << "Massive load results:" << std::endl;
@@ -329,7 +297,7 @@ TEST_F(LargeScaleScalabilityTest, ConcurrentHighLoadScalability) {
             
             auto result = smmu->translate(streamID, 1, iova, AccessType::Read);
             
-            if (result.isSuccess()) {
+            if (result.isOk()) {
                 local_successful++;
             } else {
                 local_failed++;
@@ -436,7 +404,7 @@ TEST_F(LargeScaleScalabilityTest, MemoryScalabilityUnderLoad) {
             IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
             
             auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-            EXPECT_TRUE(result.isSuccess()) << "Translation should succeed in batch " << batch;
+            EXPECT_TRUE(result.isOk()) << "Translation should succeed in batch " << batch;
         }
         
         auto perf_end = std::chrono::high_resolution_clock::now();
@@ -472,7 +440,7 @@ TEST_F(LargeScaleScalabilityTest, MemoryScalabilityUnderLoad) {
         IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
         
         auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-        if (result.isSuccess()) {
+        if (result.isOk()) {
             final_successful++;
         }
     }
@@ -526,15 +494,15 @@ TEST_F(LargeScaleScalabilityTest, CacheScalabilityAndEfficiency) {
         IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
         
         auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
     }
     
     auto sequential_stats = smmu->getCacheStatistics();
-    double sequential_hit_rate = static_cast<double>(sequential_stats.hits) / 
-                                (sequential_stats.hits + sequential_stats.misses);
+    double sequential_hit_rate = static_cast<double>(sequential_stats.hitCount) / 
+                                (sequential_stats.hitCount + sequential_stats.missCount);
     
-    std::cout << "Sequential access: " << sequential_stats.hits << " hits, " 
-              << sequential_stats.misses << " misses, " 
+    std::cout << "Sequential access: " << sequential_stats.hitCount << " hits, " 
+              << sequential_stats.missCount << " misses, " 
               << (sequential_hit_rate * 100.0) << "% hit rate" << std::endl;
     
     // Phase 2: Random access pattern (lower cache hit rate expected)
@@ -556,15 +524,15 @@ TEST_F(LargeScaleScalabilityTest, CacheScalabilityAndEfficiency) {
         IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
         
         auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
     }
     
     auto random_stats = smmu->getCacheStatistics();
-    double random_hit_rate = static_cast<double>(random_stats.hits) / 
-                            (random_stats.hits + random_stats.misses);
+    double random_hit_rate = static_cast<double>(random_stats.hitCount) / 
+                            (random_stats.hitCount + random_stats.missCount);
     
-    std::cout << "Random access: " << random_stats.hits << " hits, " 
-              << random_stats.misses << " misses, " 
+    std::cout << "Random access: " << random_stats.hitCount << " hits, " 
+              << random_stats.missCount << " misses, " 
               << (random_hit_rate * 100.0) << "% hit rate" << std::endl;
     
     // Phase 3: Locality-based access pattern (medium cache hit rate)
@@ -585,15 +553,15 @@ TEST_F(LargeScaleScalabilityTest, CacheScalabilityAndEfficiency) {
         IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
         
         auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-        EXPECT_TRUE(result.isSuccess());
+        EXPECT_TRUE(result.isOk());
     }
     
     auto locality_stats = smmu->getCacheStatistics();
-    double locality_hit_rate = static_cast<double>(locality_stats.hits) / 
-                              (locality_stats.hits + locality_stats.misses);
+    double locality_hit_rate = static_cast<double>(locality_stats.hitCount) / 
+                              (locality_stats.hitCount + locality_stats.missCount);
     
-    std::cout << "Locality access: " << locality_stats.hits << " hits, " 
-              << locality_stats.misses << " misses, " 
+    std::cout << "Locality access: " << locality_stats.hitCount << " hits, " 
+              << locality_stats.missCount << " misses, " 
               << (locality_hit_rate * 100.0) << "% hit rate" << std::endl;
     
     // Verify cache behavior is reasonable
@@ -631,7 +599,8 @@ TEST_F(LargeScaleScalabilityTest, MixedWorkloadStressTesting) {
     std::atomic<size_t> total_errors(0);
     
     auto reader_worker = [&]() {
-        std::mt19937 local_rng(std::this_thread::get_id().hash());
+        std::hash<std::thread::id> hasher;
+        std::mt19937 local_rng(hasher(std::this_thread::get_id()));
         std::uniform_int_distribution<size_t> stream_dist(0, stream_ids.size() - 1);
         
         while (!stop_test.load()) {
@@ -644,7 +613,7 @@ TEST_F(LargeScaleScalabilityTest, MixedWorkloadStressTesting) {
             IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
             
             auto result = smmu->translate(streamID, pasid, iova, AccessType::Read);
-            if (result.isSuccess()) {
+            if (result.isOk()) {
                 read_operations.fetch_add(1);
             } else {
                 total_errors.fetch_add(1);
@@ -653,7 +622,8 @@ TEST_F(LargeScaleScalabilityTest, MixedWorkloadStressTesting) {
     };
     
     auto writer_worker = [&]() {
-        std::mt19937 local_rng(std::this_thread::get_id().hash());
+        std::hash<std::thread::id> hasher;
+        std::mt19937 local_rng(hasher(std::this_thread::get_id()));
         std::uniform_int_distribution<size_t> stream_dist(0, stream_ids.size() - 1);
         
         while (!stop_test.load()) {
@@ -666,7 +636,7 @@ TEST_F(LargeScaleScalabilityTest, MixedWorkloadStressTesting) {
             IOVA iova = base_iova + stream_base + pasid_base + (page_index * page_size);
             
             auto result = smmu->translate(streamID, pasid, iova, AccessType::Write);
-            if (result.isSuccess()) {
+            if (result.isOk()) {
                 write_operations.fetch_add(1);
             } else {
                 total_errors.fetch_add(1);
@@ -675,7 +645,8 @@ TEST_F(LargeScaleScalabilityTest, MixedWorkloadStressTesting) {
     };
     
     auto mgmt_worker = [&]() {
-        std::mt19937 local_rng(std::this_thread::get_id().hash());
+        std::hash<std::thread::id> hasher;
+        std::mt19937 local_rng(hasher(std::this_thread::get_id()));
         std::uniform_int_distribution<size_t> stream_dist(0, stream_ids.size() - 1);
         
         while (!stop_test.load()) {
