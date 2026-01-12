@@ -6,6 +6,7 @@ set(UNIT_TEST_SOURCES
     test_stream_context.cpp
     test_stream_context_coverage.cpp
     test_stream_context_extended.cpp
+    test_stream_context_coverage_70pct.cpp
     test_smmu.cpp
     test_smmu_coverage.cpp
     test_smmu_advanced_coverage.cpp
