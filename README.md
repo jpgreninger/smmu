@@ -4,7 +4,7 @@
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance for development, simulation, and testing environments.
 
-**🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Coverage**: 85.8% (26/26 tests passing) | **⚡ Performance**: 135ns translation latency
+**🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Coverage**: 88.1% (27/27 tests passing) | **⚡ Performance**: 135ns translation latency
 
 ## Production Features
 
