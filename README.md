@@ -142,4 +142,4 @@ if (result.success) {
 
 ## License
 
-Copyright (c) 2025 John Greninger. All rights reserved.
+Copyright (c) 2025-2026 John Greninger. All rights reserved.
