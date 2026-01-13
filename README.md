@@ -84,7 +84,7 @@ make run_performance_tests    # Performance benchmarks (2 tests)
 | Configuration   | 97%      | 285/292      | ⭐ Excellent | - |
 | Address Space   | 94%      | 231/245      | ⭐ Excellent | - |
 | Stream Context  | 94%      | 414/438      | ⭐ Excellent | ⬆️ +67 pp |
-| SMMU Controller | 76%      | 770/1001     | ✓ Good       | +5 pp |
+| SMMU Controller | 76%      | 770/1001     | ✓ Good       | ⬆️ +5 pp |
 
 **Coverage Highlights**:
 - ✅ 5 of 6 core components exceed 94% coverage
