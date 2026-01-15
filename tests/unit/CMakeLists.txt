@@ -13,6 +13,8 @@ set(UNIT_TEST_SOURCES
     test_smmu_advanced_coverage.cpp
     test_smmu_priority2_coverage.cpp
     test_smmu_priority2_phase2.cpp
+    test_smmu_phase4_coverage.cpp
+    test_smmu_phase4b_coverage.cpp
     test_fault_handler.cpp
     test_fault_handler_coverage.cpp
     test_tlb_cache.cpp
