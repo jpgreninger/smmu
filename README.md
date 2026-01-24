@@ -4,7 +4,7 @@
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance for development, simulation, and testing environments.
 
-**🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Coverage**: 88.51% (33/33 tests passing) | **⚡ Performance**: 135ns translation latency
+**🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Coverage**: 88.51% (51/51 tests passing) | **⚡ Performance**: 135ns translation latency
 
 ## Production Features
 
@@ -29,7 +29,7 @@ A comprehensive, production-ready software model of the ARM System Memory Manage
 ### ✅ Production Quality
 - **C++11 strict compliance** with zero C++14/17/20 features and no external dependencies
 - **88.51% test coverage** (2,103/2,376 lines) with 5 of 6 components exceeding 94% coverage
-- **100% test success rate** (30/30 tests passing) with unit, integration, performance, and thread safety validation
+- **100% test success rate** (51/51 tests passing) with unit, integration, performance, and thread safety validation
 - **ARM SMMU v3 specification compliance** with complete functional requirements adherence
 - **Zero build warnings** with production-grade code quality (5/5 star rating)
 
@@ -53,13 +53,13 @@ make -j$(nproc)
 ```bash
 cd build
 
-# Run all tests (30/30 tests, 100% success rate)
+# Run all tests (51/51 tests, 100% success rate)
 make test
 # or with detailed output
 ctest --output-on-failure
 
 # Run specific test suites
-make run_unit_tests           # Unit tests (23 tests)
+make run_unit_tests           # Unit tests (45 tests)
 make run_integration_tests    # Integration tests (4 tests)
 make run_performance_tests    # Performance benchmarks (2 tests)
 ```
@@ -69,7 +69,7 @@ make run_performance_tests    # Performance benchmarks (2 tests)
 - **Translation Latency**: 135ns (500x better than 1μs target)
 - **Throughput**: >100,000 operations/second
 - **Cache Hit Rate**: >80% for typical access patterns
-- **Test Success**: 100% (30/30 tests passing)
+- **Test Success**: 100% (51/51 tests passing)
 
 ### Test Coverage
 
@@ -90,7 +90,7 @@ make run_performance_tests    # Performance benchmarks (2 tests)
 - ✅ 5 of 6 core components exceed 94% coverage
 - ✅ All critical paths and fault handlers thoroughly tested
 - ✅ Zero build warnings across entire codebase
-- ✅ 100% test success rate (30/30 tests passing)
+- ✅ 100% test success rate (51/51 tests passing)
 - ✅ Comprehensive edge case and boundary condition coverage
 - 🎉 **Phase 3: StreamContext improved from 27% to 95%** with 154 new test cases
   - PASID management error paths (15 tests)
@@ -164,7 +164,7 @@ if (result.success) {
 
   test_stream_context_extended: ✅ 66/66 tests passing (100%)
   test_stream_context_phase3_coverage: ✅ 154/154 tests passing (100%)
-  Full Test Suite: ✅ 30/30 tests passing (100%)
+  Full Test Suite: ✅ 51/51 tests passing (100%)
   Execution Time: ~45 seconds
 
   ---                                                                                                                                                                                        
