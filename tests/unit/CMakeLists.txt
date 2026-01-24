@@ -22,6 +22,8 @@ set(UNIT_TEST_SOURCES
     test_smmu_phase5_errors.cpp
     test_smmu_two_stage_comprehensive.cpp
     test_smmu_controller_advanced.cpp
+    test_smmu_phase1_two_stage_errors.cpp
+    test_smmu_phase1_address_size_validation.cpp
     test_fault_handler.cpp
     test_fault_handler_coverage.cpp
     test_tlb_cache.cpp
