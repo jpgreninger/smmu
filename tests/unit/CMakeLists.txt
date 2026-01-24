@@ -3,11 +3,15 @@ set(UNIT_TEST_SOURCES
     test_types.cpp
     test_address_space.cpp
     test_address_space_coverage.cpp
+    test_address_space_edge_cases.cpp
     test_stream_context.cpp
     test_stream_context_coverage.cpp
     test_stream_context_extended.cpp
     test_stream_context_coverage_70pct.cpp
     test_stream_context_phase3_coverage.cpp
+    test_stream_context_phase5_errors.cpp
+    test_stream_context_two_stage_comprehensive.cpp
+    test_stream_context_two_stage_advanced.cpp
     test_smmu.cpp
     test_smmu_coverage.cpp
     test_smmu_advanced_coverage.cpp
@@ -15,6 +19,9 @@ set(UNIT_TEST_SOURCES
     test_smmu_priority2_phase2.cpp
     test_smmu_phase4_coverage.cpp
     test_smmu_phase4b_coverage.cpp
+    test_smmu_phase5_errors.cpp
+    test_smmu_two_stage_comprehensive.cpp
+    test_smmu_controller_advanced.cpp
     test_fault_handler.cpp
     test_fault_handler_coverage.cpp
     test_tlb_cache.cpp
@@ -22,6 +29,7 @@ set(UNIT_TEST_SOURCES
     test_task53_event_command_processing.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
+    test_configuration_validation.cpp
     test_edge_cases.cpp
     optimization_regression_test.cpp
     ../test_thread_safety.cpp
