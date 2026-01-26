@@ -1,0 +1,25 @@
+[package]
+name = "smmu-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "Command-line interface for ARM SMMU v3 simulation and testing"
+keywords = ["smmu", "iommu", "cli", "simulation"]
+categories = ["command-line-utilities"]
+readme = "../README.md"
+
+[[bin]]
+name = "smmu-cli"
+path = "src/main.rs"
+
+[dependencies]
+smmu = { path = "../smmu" }
+# CLI dependencies will be added as needed
+
+[lints]
+workspace = true

@@ -1,0 +1,86 @@
+[workspace]
+members = ["smmu", "smmu-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
+authors = ["ARM SMMU v3 Implementation Team"]
+edition = "2021"
+rust-version = "1.75.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jpgreninger/smmu"
+homepage = "https://github.com/jpgreninger/smmu"
+documentation = "https://docs.rs/smmu"
+
+[workspace.dependencies]
+# Core dependencies - minimal and well-audited only
+# No external dependencies for now - stdlib only for maximum safety
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
+
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+rust_2018_idioms = "warn"
+
+[workspace.lints.clippy]
+# Specific clippy lint levels
+correctness = { level = "deny", priority = 10 }
+suspicious = { level = "deny", priority = 10 }
+complexity = { level = "warn", priority = 5 }
+perf = { level = "warn", priority = 5 }
+style = { level = "warn", priority = 5 }
+pedantic = { level = "warn", priority = 1 }
+nursery = { level = "warn", priority = 1 }
+cargo = { level = "warn", priority = 1 }
+
+# Specific high-priority lints
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_sign_loss = "warn"
+checked_conversions = "warn"
+cloned_instead_of_copied = "warn"
+explicit_deref_methods = "warn"
+explicit_into_iter_loop = "warn"
+explicit_iter_loop = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+fn_params_excessive_bools = "warn"
+implicit_clone = "warn"
+inefficient_to_string = "warn"
+invalid_upcast_comparisons = "warn"
+large_digit_groups = "warn"
+large_stack_arrays = "warn"
+large_types_passed_by_value = "warn"
+manual_ok_or = "warn"
+map_unwrap_or = "warn"
+match_same_arms = "warn"
+match_wildcard_for_single_variants = "warn"
+must_use_candidate = "warn"
+needless_continue = "warn"
+needless_pass_by_value = "warn"
+semicolon_if_nothing_returned = "warn"
+single_match_else = "warn"
+too_many_lines = "warn"
+trivially_copy_pass_by_ref = "warn"
+unreadable_literal = "warn"
+unused_self = "warn"
+used_underscore_binding = "warn"
+
+# Allow some pedantic lints that conflict with our style
+module_name_repetitions = "allow"

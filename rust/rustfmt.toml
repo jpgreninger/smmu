@@ -1,0 +1,66 @@
+# Rust code formatting configuration
+# Matches C++ project style: 4 spaces, 120 chars, K&R braces
+
+edition = "2021"
+
+# Indentation and spacing
+indent_style = "Block"
+tab_spaces = 4
+hard_tabs = false
+
+# Line length
+max_width = 120
+comment_width = 100
+wrap_comments = true
+
+# Brace style - K&R (opening brace on same line)
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"
+
+# Import organization
+imports_granularity = "Crate"
+imports_indent = "Block"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Formatting preferences
+use_small_heuristics = "Default"
+fn_single_line = false
+where_single_line = false
+force_explicit_abi = true
+format_code_in_doc_comments = true
+format_macro_matchers = true
+format_macro_bodies = true
+format_strings = true
+normalize_comments = true
+normalize_doc_attributes = true
+
+# Trailing elements
+trailing_comma = "Vertical"
+trailing_semicolon = true
+match_block_trailing_comma = true
+
+# Function and type formatting
+fn_params_layout = "Tall"
+fn_call_width = 80
+struct_lit_width = 40
+array_width = 80
+chain_width = 80
+
+# Control flow
+overflow_delimited_expr = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+force_multiline_blocks = false
+indent_style = "Block"
+match_arm_blocks = true
+match_arm_leading_pipes = "Never"
+
+# Misc
+remove_nested_parens = true
+reorder_impl_items = true
+type_punctuation_density = "Wide"
+space_before_colon = false
+space_after_colon = true
+spaces_around_ranges = false
+binop_separator = "Front"

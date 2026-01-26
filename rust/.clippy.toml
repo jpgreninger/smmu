@@ -1,0 +1,41 @@
+# Clippy configuration for ARM SMMU v3 implementation
+# Enforce strict linting for production-grade code
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 15
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Too many arguments threshold
+too-many-arguments-threshold = 7
+
+# Too many lines threshold
+too-many-lines-threshold = 200
+
+# Large error types threshold
+large-error-threshold = 128
+
+# Enum variant size difference threshold
+enum-variant-size-threshold = 200
+
+# Verbose bit mask threshold
+verbose-bit-mask-threshold = 1
+
+# Literal representation threshold
+literal-representation-threshold = 10
+
+# Array size threshold for large arrays
+array-size-threshold = 512000
+
+# Vec box size threshold
+vec-box-size-threshold = 4096
+
+# Max struct bools
+max-struct-bools = 3
+
+# Max fn params bools
+max-fn-params-bools = 2
+
+# Documentation requirements
+missing-docs-in-crate-items = true

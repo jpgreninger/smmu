@@ -1,0 +1,37 @@
+{
+  "description": "Fault test scenarios for ARM SMMU v3",
+  "version": "1.0",
+  "fault_scenarios": [
+    {
+      "name": "unmapped_address",
+      "stream_id": 0,
+      "pasid": 0,
+      "access": { "va": "0x99999000", "type": "read" },
+      "expected_fault": "translation_fault"
+    },
+    {
+      "name": "permission_violation_write_to_readonly",
+      "stream_id": 0,
+      "pasid": 0,
+      "setup": [
+        { "va": "0x1000", "pa": "0x80000000", "size": "4K", "permissions": "R" }
+      ],
+      "access": { "va": "0x1000", "type": "write" },
+      "expected_fault": "permission_fault"
+    },
+    {
+      "name": "invalid_stream_id",
+      "stream_id": 999999,
+      "pasid": 0,
+      "access": { "va": "0x1000", "type": "read" },
+      "expected_fault": "stream_fault"
+    },
+    {
+      "name": "invalid_pasid",
+      "stream_id": 0,
+      "pasid": 1048576,
+      "access": { "va": "0x1000", "type": "read" },
+      "expected_fault": "pasid_fault"
+    }
+  ]
+}

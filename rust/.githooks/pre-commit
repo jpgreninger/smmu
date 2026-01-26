@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Pre-commit hook for Rust project
+# Validates code quality before allowing commits
+
+set -e
+
+echo "========================================="
+echo "Pre-commit Hook - Code Quality Checks"
+echo "========================================="
+echo ""
+
+# Get the project root (where .git is located)
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+cd "${PROJECT_ROOT}/rust"
+
+# Track if any check fails
+CHECKS_FAILED=0
+
+# 1. Formatting Check
+echo "1. Checking code formatting with rustfmt..."
+if cargo fmt --all -- --check; then
+    echo "   ✓ Formatting check passed"
+else
+    echo "   ✗ Formatting check failed"
+    echo "   Run: cargo fmt --all"
+    CHECKS_FAILED=1
+fi
+echo ""
+
+# 2. Clippy Linting Check
+echo "2. Running clippy lints..."
+if cargo clippy --all-targets --all-features -- \
+    -W clippy::pedantic \
+    -W clippy::nursery \
+    -W clippy::cargo \
+    -D warnings; then
+    echo "   ✓ Clippy check passed"
+else
+    echo "   ✗ Clippy check failed"
+    echo "   Fix warnings or run: cargo clippy --fix"
+    CHECKS_FAILED=1
+fi
+echo ""
+
+# 3. Compilation Check
+echo "3. Checking compilation..."
+if cargo check --all-targets --all-features; then
+    echo "   ✓ Compilation check passed"
+else
+    echo "   ✗ Compilation check failed"
+    echo "   Fix compilation errors before committing"
+    CHECKS_FAILED=1
+fi
+echo ""
+
+# 4. Test Execution (optional - can be disabled for speed)
+# Uncomment to enable test execution in pre-commit hook
+# echo "4. Running tests..."
+# if cargo test --all-targets --all-features; then
+#     echo "   ✓ Tests passed"
+# else
+#     echo "   ✗ Tests failed"
+#     echo "   Fix test failures before committing"
+#     CHECKS_FAILED=1
+# fi
+# echo ""
+
+# 5. Security Audit (if cargo-deny is installed)
+if command -v cargo-deny &> /dev/null; then
+    echo "4. Running security audit..."
+    if cargo deny check advisories -q 2>/dev/null; then
+        echo "   ✓ Security audit passed"
+    else
+        echo "   ⚠ Security audit found issues"
+        echo "   Review with: ./scripts/audit.sh"
+        # Don't fail commit on security issues, just warn
+    fi
+    echo ""
+fi
+
+# Summary
+echo "========================================="
+if [ $CHECKS_FAILED -eq 0 ]; then
+    echo "All pre-commit checks passed! ✓"
+    echo "========================================="
+    echo ""
+    exit 0
+else
+    echo "Pre-commit checks failed! ✗"
+    echo "========================================="
+    echo ""
+    echo "Please fix the issues above before committing."
+    echo "To bypass this hook (not recommended):"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+fi

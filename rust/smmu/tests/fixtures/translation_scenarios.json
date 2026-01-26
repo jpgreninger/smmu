@@ -1,0 +1,41 @@
+{
+  "description": "Test translation scenarios for ARM SMMU v3",
+  "version": "1.0",
+  "scenarios": [
+    {
+      "name": "simple_identity_mapping",
+      "stream_id": 0,
+      "pasid": 0,
+      "mappings": [
+        { "va": "0x1000", "pa": "0x1000", "size": "4K", "permissions": "RW" },
+        { "va": "0x2000", "pa": "0x2000", "size": "4K", "permissions": "RW" }
+      ]
+    },
+    {
+      "name": "large_page_mapping",
+      "stream_id": 1,
+      "pasid": 0,
+      "mappings": [
+        { "va": "0x200000", "pa": "0x80000000", "size": "2M", "permissions": "RWX" }
+      ]
+    },
+    {
+      "name": "multi_pasid_scenario",
+      "stream_id": 2,
+      "contexts": [
+        {
+          "pasid": 0,
+          "mappings": [
+            { "va": "0x10000", "pa": "0x90000000", "size": "4K", "permissions": "RW" }
+          ]
+        },
+        {
+          "pasid": 1,
+          "mappings": [
+            { "va": "0x10000", "pa": "0xA0000000", "size": "4K", "permissions": "RW" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# Configuration for cargo-llvm-cov
+#
+# This file configures code coverage generation for the ARM SMMU v3 Rust implementation.
+# Coverage target: >95% line coverage
+
+[coverage]
+# Minimum coverage percentage to pass
+target = 95.0
+
+# Files/directories to exclude from coverage
+exclude = [
+    "tests/*",
+    "benches/*",
+    "examples/*",
+]
+
+# Generate branch coverage (in addition to line coverage)
+branch-coverage = true
+
+# Show instantiation coverage
+instantiation-coverage = false
+
+# Show region coverage
+region-coverage = false
+
+[report]
+# Format for coverage reports
+# Options: text, html, lcov, json
+format = "text"
+
+# Show files with 100% coverage
+show-instantiations = false
+
+# Use color in terminal output
+use-color = true

@@ -1,0 +1,26 @@
+# Rust build artifacts
+target/
+Cargo.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage and profiling
+*.profdata
+*.profraw
+lcov.info
+coverage/
+
+# Benchmark results
+criterion/
+
+# Documentation build
+doc/

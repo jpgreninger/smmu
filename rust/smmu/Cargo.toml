@@ -1,0 +1,56 @@
+[package]
+name = "smmu"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "ARM SMMU v3 (System Memory Management Unit) implementation - Production-grade translation engine"
+keywords = ["smmu", "iommu", "memory-management", "arm", "translation"]
+categories = ["embedded", "hardware-support", "no-std"]
+readme = "../README.md"
+
+[lib]
+name = "smmu"
+path = "src/lib.rs"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Minimal dependencies - stdlib only for maximum safety and auditability
+# Error handling with thiserror for custom error types
+thiserror = "2.0"
+# Stack-based small vector optimization for batched operations
+smallvec = "1.11"
+
+[dev-dependencies]
+# Testing and benchmarking dependencies only
+criterion = "0.5"
+# Serialization for testing and debugging
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = []
+# Future feature flags for optional functionality
+# pasid = []
+# two-stage = []
+# cache = []
+
+[[bench]]
+name = "translation"
+harness = false
+
+[[bench]]
+name = "address_space"
+harness = false
+
+[[bench]]
+name = "cache"
+harness = false
