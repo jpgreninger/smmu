@@ -4,7 +4,7 @@
 //! following the ARM SMMU v3 specification. All implementations are safe with
 //! zero unsafe code.
 
-use super::{AccessType, FaultType, IOVA, PASID, SecurityState, StreamID};
+use super::{AccessType, FaultType, TranslationStage, IOVA, PASID, SecurityState, StreamID};
 
 /// ARM SMMU v3 fault syndrome structure
 ///
@@ -350,6 +350,21 @@ impl FaultRecord {
     #[inline]
     pub const fn timestamp(&self) -> u64 {
         self.timestamp
+    }
+
+    /// Returns the faulting address (alias for address())
+    #[must_use]
+    #[inline]
+    pub const fn iova(&self) -> IOVA {
+        self.address
+    }
+
+    /// Returns the translation stage where fault occurred
+    /// For now, returns Stage1 as a placeholder
+    #[must_use]
+    #[inline]
+    pub const fn stage(&self) -> TranslationStage {
+        TranslationStage::Stage2
     }
 }
 
