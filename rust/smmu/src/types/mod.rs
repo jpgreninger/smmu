@@ -32,6 +32,10 @@ mod translation_result;
 mod stream_context_error;
 mod smmu_error;
 pub mod config;
+mod event_entry;
+mod command_entry;
+mod pri_entry;
+mod queue_statistics;
 
 pub use validation_error::ValidationError;
 pub use stream_id::StreamID;
@@ -48,6 +52,10 @@ pub use translation_result::{
 };
 pub use stream_context_error::StreamContextError;
 pub use smmu_error::SMMUError;
+pub use event_entry::{EventEntry, EventType};
+pub use command_entry::{CommandEntry, CommandType};
+pub use pri_entry::PRIEntry;
+pub use queue_statistics::QueueStatistics;
 
 // Export configuration types - note StreamConfig from config module
 pub use config::{

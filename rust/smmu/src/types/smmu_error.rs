@@ -54,6 +54,22 @@ pub enum SMMUError {
     /// Address space error (forwarded from address space operations)
     #[error("Address space error: {0}")]
     AddressSpaceError(#[from] AddressSpaceError),
+
+    /// Event queue is full
+    #[error("Event queue is full")]
+    EventQueueFull,
+
+    /// Command queue is full
+    #[error("Command queue is full")]
+    CommandQueueFull,
+
+    /// PRI queue is full
+    #[error("PRI queue is full")]
+    PriQueueFull,
+
+    /// Invalid command parameters
+    #[error("Invalid command parameters: {0}")]
+    InvalidCommandParameters(String),
 }
 
 impl SMMUError {
