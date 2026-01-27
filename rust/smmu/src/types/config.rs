@@ -1353,6 +1353,20 @@ impl SMMUConfig {
         Ok(())
     }
 
+    /// Set maximum streams (builder-style)
+    #[must_use]
+    pub fn with_max_streams(mut self, max_streams: usize) -> Self {
+        self.address_config.max_stream_count = max_streams as u32;
+        self
+    }
+
+    /// Get maximum streams
+    #[inline]
+    #[must_use]
+    pub const fn max_streams(&self) -> usize {
+        self.address_config.max_stream_count as usize
+    }
+
     /// Validate with detailed results
     #[must_use]
     pub fn validate_detailed(&self) -> ValidationResult {

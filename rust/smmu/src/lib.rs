@@ -80,7 +80,7 @@ pub use types::{
     AccessType, SecurityState, FaultType, FaultSeverity, FaultContext,
     TranslationStep, AddressType, TranslationStage, StreamConfig,
     PageEntry, PagePermissions, FaultRecord, FaultSyndrome,
-    TranslationData, TranslationError, TranslationResult,
+    TranslationData, TranslationError, TranslationResult, StreamContextError,
 };
 
 // Version information

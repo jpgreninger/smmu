@@ -29,6 +29,8 @@ pub mod translation_stage;
 mod page_entry;
 mod fault_record;
 mod translation_result;
+mod stream_context_error;
+mod smmu_error;
 pub mod config;
 
 pub use validation_error::ValidationError;
@@ -44,6 +46,8 @@ pub use fault_record::{FaultRecord, FaultSyndrome, FaultRecordBuilder, FaultSynd
 pub use translation_result::{
     TranslationData, TranslationDataBuilder, TranslationError, TranslationResult,
 };
+pub use stream_context_error::StreamContextError;
+pub use smmu_error::SMMUError;
 
 // Export configuration types - note StreamConfig from config module
 pub use config::{

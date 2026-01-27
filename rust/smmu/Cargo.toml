@@ -24,6 +24,8 @@ crate-type = ["lib", "staticlib", "cdylib"]
 thiserror = "2.0"
 # Stack-based small vector optimization for batched operations
 smallvec = "1.11"
+# Lock-free concurrent hash map for PASID management
+dashmap = "5.5"
 
 [dev-dependencies]
 # Testing and benchmarking dependencies only

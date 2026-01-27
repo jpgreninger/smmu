@@ -48,6 +48,10 @@ pub enum TranslationError {
     #[error("Invalid PASID")]
     InvalidPASID,
 
+    /// PASID not found in stream context
+    #[error("PASID not found")]
+    PASIDNotFound,
+
     /// Stream not configured
     #[error("Stream not configured")]
     StreamNotConfigured,
