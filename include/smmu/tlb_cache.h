@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <mutex>
 #include <atomic>
+#include <array>
 
 namespace smmu {
 
@@ -159,40 +160,57 @@ public:
     void setMaxSize(size_t maxSize);
     
 private:
+    // Thread safety - per-bucket lock striping for parallel access
+    // 16 stripes provides good parallelism while allowing smaller cache sizes
+    static constexpr size_t NUM_LOCK_STRIPES = 16;
+
     // Cache storage using LRU policy with TLBEntry
     using TLBCacheMap = std::unordered_map<CacheKey, std::list<std::pair<CacheKey, TLBEntry>>::iterator, CacheKeyHash>;
     using TLBCacheList = std::list<std::pair<CacheKey, TLBEntry>>;
-    
+
     // Legacy cache storage for backward compatibility
     using CacheMap = std::unordered_map<CacheKey, std::list<std::pair<CacheKey, CacheEntry>>::iterator, CacheKeyHash>;
     using CacheList = std::list<std::pair<CacheKey, CacheEntry>>;
-    
-    TLBCacheMap tlbCacheMap;
-    TLBCacheList tlbCacheList;
+
+    // Per-stripe cache storage for lock striping
+    struct CacheStripe {
+        TLBCacheMap map;
+        TLBCacheList list;
+        size_t maxEntriesPerStripe;
+
+        CacheStripe() : maxEntriesPerStripe(0) {
+        }
+    };
+
+    std::array<CacheStripe, NUM_LOCK_STRIPES> stripes;
     size_t maxSize;
-    
-    // Secondary indices for O(1) invalidation operations
-    // These enable fast invalidation by StreamID, PASID, or SecurityState
-    std::unordered_multimap<StreamID, typename TLBCacheList::iterator> streamIndex;
-    std::unordered_multimap<StreamPASIDKey, typename TLBCacheList::iterator, StreamPASIDKeyHash> pasidIndex;
-    std::unordered_multimap<SecurityState, typename TLBCacheList::iterator> securityIndex;
-    
+
     // Statistics - atomic for thread safety
     mutable std::atomic<uint64_t> hitCount;
     mutable std::atomic<uint64_t> missCount;
-    
-    // Thread safety
-    mutable std::mutex cacheMutex;
-    
+
+    mutable std::array<std::mutex, NUM_LOCK_STRIPES> lockStripes;
+
+    // RAII helper for acquiring all locks in order
+    class AllLocksGuard {
+    public:
+        explicit AllLocksGuard(const TLBCache& cache);
+        ~AllLocksGuard();
+
+        AllLocksGuard(const AllLocksGuard&) = delete;
+        AllLocksGuard& operator=(const AllLocksGuard&) = delete;
+
+    private:
+        const TLBCache& cache_;
+    };
+
     // Helper methods
-    void evictLRU();
-    void moveToFront(typename TLBCacheList::iterator it);
     uint64_t getCurrentTimestamp() const;
     CacheKey makeKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure) const;
-    
-    // Secondary index maintenance helpers
-    void addToSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it);
-    void removeFromSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it);
+
+    // Lock striping helpers
+    size_t getLockStripeIndex(const CacheKey& key) const;
+    std::mutex& getLockStripe(const CacheKey& key) const;
 };
 
 } // namespace smmu

@@ -10,8 +10,23 @@
 namespace smmu {
 
 // Constructor
-TLBCache::TLBCache(size_t maxSize) 
+TLBCache::TLBCache(size_t maxSize)
     : maxSize(maxSize > 0 ? maxSize : 1024), hitCount(0), missCount(0) {
+    // For small caches, use fewer effective stripes to ensure each stripe can hold multiple entries
+    // Minimum 4 entries per active stripe for reasonable LRU behavior
+    size_t effectiveStripes = NUM_LOCK_STRIPES;
+    if (this->maxSize < NUM_LOCK_STRIPES * 4) {
+        effectiveStripes = (this->maxSize + 3) / 4;  // At least 4 entries per stripe
+        if (effectiveStripes < 1) {
+            effectiveStripes = 1;
+        }
+    }
+
+    // Initialize per-stripe max sizes
+    size_t entriesPerStripe = (this->maxSize + effectiveStripes - 1) / effectiveStripes;
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        stripes[i].maxEntriesPerStripe = entriesPerStripe;
+    }
 }
 
 // Destructor
@@ -21,33 +36,40 @@ TLBCache::~TLBCache() {
 
 // Cache operations - Result<T> error handling pattern
 Result<TLBEntry> TLBCache::lookupEntry(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    
-    // Validate input parameters
+    // Validate input parameters before acquiring lock
     if (streamID > MAX_STREAM_ID) {
         missCount.fetch_add(1, std::memory_order_relaxed);
         return makeError<TLBEntry>(SMMUError::InvalidStreamID);
     }
-    
+
     if (pasid > MAX_PASID) {
         missCount.fetch_add(1, std::memory_order_relaxed);
         return makeError<TLBEntry>(SMMUError::InvalidPASID);
     }
-    
+
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
-    auto it = tlbCacheMap.find(key);
-    
-    if (it == tlbCacheMap.end()) {
+    size_t stripeIndex = getLockStripeIndex(key);
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+
+    CacheStripe& stripe = stripes[stripeIndex];
+    auto it = stripe.map.find(key);
+
+    if (it == stripe.map.end()) {
         missCount.fetch_add(1, std::memory_order_relaxed);
         return makeError<TLBEntry>(SMMUError::CacheEntryNotFound);
     }
-    
-    // Move to front (LRU)
-    moveToFront(it->second);
+
+    // Move to front (LRU) within this stripe
+    auto listIt = it->second;
+    if (listIt != stripe.list.begin()) {
+        stripe.list.splice(stripe.list.begin(), stripe.list, listIt);
+        stripe.map[key] = stripe.list.begin();
+    }
+
     hitCount.fetch_add(1, std::memory_order_relaxed);
-    
+
     // Create a copy of the TLBEntry to avoid reference issues
-    TLBEntry entryCopy = it->second->second;
+    TLBEntry entryCopy = stripe.list.begin()->second;
     return Result<TLBEntry>(entryCopy);
 }
 
@@ -57,19 +79,19 @@ Result<CacheEntry> TLBCache::lookupCacheEntry(StreamID streamID, PASID pasid, IO
         missCount.fetch_add(1, std::memory_order_relaxed);
         return makeError<CacheEntry>(SMMUError::InvalidStreamID);
     }
-    
+
     if (pasid > MAX_PASID) {
         missCount.fetch_add(1, std::memory_order_relaxed);
         return makeError<CacheEntry>(SMMUError::InvalidPASID);
     }
-    
+
     // Use lookupEntry which handles its own statistics - avoid double counting
     Result<TLBEntry> tlbResult = lookupEntry(streamID, pasid, iova, securityState);
     if (tlbResult.isError()) {
         // Don't count miss again - lookupEntry already did
         return makeError<CacheEntry>(tlbResult.getError());
     }
-    
+
     const TLBEntry& tlbEntry = tlbResult.getValue();
     CacheEntry entry;
     entry.iova = tlbEntry.iova;
@@ -77,54 +99,72 @@ Result<CacheEntry> TLBCache::lookupCacheEntry(StreamID streamID, PASID pasid, IO
     entry.permissions = tlbEntry.permissions;
     entry.securityState = tlbEntry.securityState;
     entry.timestamp = tlbEntry.timestamp;
-    
+
     // Return a copy of the CacheEntry
     return Result<CacheEntry>(std::move(entry));
 }
 
 // Legacy interfaces for backward compatibility - deprecated
 TLBEntry* TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
-    auto it = tlbCacheMap.find(key);
-    
-    if (it == tlbCacheMap.end()) {
+    size_t stripeIndex = getLockStripeIndex(key);
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+
+    CacheStripe& stripe = stripes[stripeIndex];
+    auto it = stripe.map.find(key);
+
+    if (it == stripe.map.end()) {
         missCount.fetch_add(1, std::memory_order_relaxed);
         return nullptr;
     }
-    
-    // Move to front (LRU)
-    moveToFront(it->second);
+
+    // Move to front (LRU) within this stripe
+    auto listIt = it->second;
+    if (listIt != stripe.list.begin()) {
+        stripe.list.splice(stripe.list.begin(), stripe.list, listIt);
+        stripe.map[key] = stripe.list.begin();
+    }
+
     hitCount.fetch_add(1, std::memory_order_relaxed);
-    
-    return &(it->second->second);
+
+    return &(stripe.list.begin()->second);
 }
 
 void TLBCache::insert(const TLBEntry& entry) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
     CacheKey key = makeKey(entry.streamID, entry.pasid, entry.iova, entry.securityState);
-    
+    size_t stripeIndex = getLockStripeIndex(key);
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+
+    CacheStripe& stripe = stripes[stripeIndex];
+
     // Check if entry already exists
-    auto it = tlbCacheMap.find(key);
-    if (it != tlbCacheMap.end()) {
+    auto it = stripe.map.find(key);
+    if (it != stripe.map.end()) {
         // Update existing entry
         it->second->second = entry;
-        moveToFront(it->second);
+        // Move to front (LRU)
+        auto listIt = it->second;
+        if (listIt != stripe.list.begin()) {
+            stripe.list.splice(stripe.list.begin(), stripe.list, listIt);
+            stripe.map[key] = stripe.list.begin();
+        }
         return;
     }
-    
-    // Check if cache is full
-    if (tlbCacheList.size() >= maxSize) {
-        evictLRU();
+
+    // Check if stripe is full
+    if (stripe.list.size() >= stripe.maxEntriesPerStripe) {
+        // Evict LRU entry from this stripe
+        if (!stripe.list.empty()) {
+            auto last = stripe.list.end();
+            --last;
+            stripe.map.erase(last->first);
+            stripe.list.erase(last);
+        }
     }
-    
+
     // Insert new entry
-    tlbCacheList.push_front(std::make_pair(key, entry));
-    auto listIt = tlbCacheList.begin();
-    tlbCacheMap[key] = listIt;
-    
-    // Add to secondary indices for fast invalidation
-    addToSecondaryIndices(key, listIt);
+    stripe.list.push_front(std::make_pair(key, entry));
+    stripe.map[key] = stripe.list.begin();
 }
 
 bool TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry) {
@@ -149,35 +189,27 @@ void TLBCache::insert(StreamID streamID, PASID pasid, const CacheEntry& entry) {
     tlbEntry.permissions = entry.permissions;
     tlbEntry.valid = true;
     tlbEntry.timestamp = entry.timestamp;
-    
+
     insert(tlbEntry);
 }
 
 void TLBCache::remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
-    auto it = tlbCacheMap.find(key);
-    
-    if (it != tlbCacheMap.end()) {
-        // Remove from secondary indices first
-        removeFromSecondaryIndices(key, it->second);
-        
-        // Remove from primary structures
-        tlbCacheList.erase(it->second);
-        tlbCacheMap.erase(it);
+    size_t stripeIndex = getLockStripeIndex(key);
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+
+    CacheStripe& stripe = stripes[stripeIndex];
+    auto it = stripe.map.find(key);
+
+    if (it != stripe.map.end()) {
+        stripe.list.erase(it->second);
+        stripe.map.erase(it);
     }
 }
 
 // Invalidation operations
 void TLBCache::invalidate(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    CacheKey key = makeKey(streamID, pasid, iova, securityState);
-    auto it = tlbCacheMap.find(key);
-    
-    if (it != tlbCacheMap.end()) {
-        tlbCacheList.erase(it->second);
-        tlbCacheMap.erase(it);
-    }
+    remove(streamID, pasid, iova, securityState);
 }
 
 void TLBCache::invalidateByStream(StreamID streamID) {
@@ -193,75 +225,59 @@ void TLBCache::invalidateAll() {
 }
 
 void TLBCache::invalidateBySecurityState(SecurityState securityState) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    
-    // Use secondary index for O(k) performance instead of O(n)
-    auto range = securityIndex.equal_range(securityState);
-    std::vector<typename TLBCacheList::iterator> toRemove;
-    
-    // Collect iterators to remove (can't modify while iterating)
-    for (auto secIt = range.first; secIt != range.second; ++secIt) {
-        toRemove.push_back(secIt->second);
-    }
-    
-    // Remove entries from all structures
-    for (auto listIt : toRemove) {
-        // Remove from secondary indices
-        removeFromSecondaryIndices(listIt->first, listIt);
-        
-        // Remove from primary structures
-        tlbCacheMap.erase(listIt->first);
-        tlbCacheList.erase(listIt);
+    // Acquire all locks for bulk invalidation
+    AllLocksGuard allLocks(*this);
+
+    // Iterate through all stripes and remove matching entries
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->first.securityState == securityState) {
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 }
 
 void TLBCache::invalidateStream(StreamID streamID) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    
-    // Use secondary index for O(k) performance instead of O(n)
-    auto range = streamIndex.equal_range(streamID);
-    std::vector<typename TLBCacheList::iterator> toRemove;
-    
-    // Collect iterators to remove (can't modify while iterating)
-    for (auto streamIt = range.first; streamIt != range.second; ++streamIt) {
-        toRemove.push_back(streamIt->second);
-    }
-    
-    // Remove entries from all structures
-    for (auto listIt : toRemove) {
-        // Remove from secondary indices
-        removeFromSecondaryIndices(listIt->first, listIt);
-        
-        // Remove from primary structures
-        tlbCacheMap.erase(listIt->first);
-        tlbCacheList.erase(listIt);
+    // Acquire all locks for bulk invalidation
+    AllLocksGuard allLocks(*this);
+
+    // Iterate through all stripes and remove matching entries
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->first.streamID == streamID) {
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 }
 
 void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    
-    // Use secondary index for O(k) performance instead of O(n)
-    StreamPASIDKey pasidKey;
-    pasidKey.streamID = streamID;
-    pasidKey.pasid = pasid;
-    
-    auto range = pasidIndex.equal_range(pasidKey);
-    std::vector<typename TLBCacheList::iterator> toRemove;
-    
-    // Collect iterators to remove (can't modify while iterating)
-    for (auto pasidIt = range.first; pasidIt != range.second; ++pasidIt) {
-        toRemove.push_back(pasidIt->second);
-    }
-    
-    // Remove entries from all structures
-    for (auto listIt : toRemove) {
-        // Remove from secondary indices
-        removeFromSecondaryIndices(listIt->first, listIt);
-        
-        // Remove from primary structures
-        tlbCacheMap.erase(listIt->first);
-        tlbCacheList.erase(listIt);
+    // Acquire all locks for bulk invalidation
+    AllLocksGuard allLocks(*this);
+
+    // Iterate through all stripes and remove matching entries
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->first.streamID == streamID && it->first.pasid == pasid) {
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 }
 
@@ -270,14 +286,13 @@ void TLBCache::invalidatePage(StreamID streamID, PASID pasid, IOVA iova) {
 }
 
 void TLBCache::clear() {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    tlbCacheMap.clear();
-    tlbCacheList.clear();
-    
-    // Clear all secondary indices
-    streamIndex.clear();
-    pasidIndex.clear();
-    securityIndex.clear();
+    // Acquire all locks for full cache clear
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        stripes[i].map.clear();
+        stripes[i].list.clear();
+    }
 }
 
 // Statistics
@@ -301,12 +316,19 @@ double TLBCache::getHitRate() const {
 }
 
 size_t TLBCache::getSize() const {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    return tlbCacheList.size();
+    // Acquire all locks for accurate count
+    AllLocksGuard allLocks(*this);
+
+    size_t totalSize = 0;
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        totalSize += stripes[i].list.size();
+    }
+    return totalSize;
 }
 
 size_t TLBCache::getCapacity() const {
-    std::lock_guard<std::mutex> lock(cacheMutex);
+    // maxSize is only modified under all locks, so we need all locks to read it safely
+    AllLocksGuard allLocks(*this);
     return maxSize;
 }
 
@@ -320,63 +342,71 @@ void TLBCache::resetStatistics() {
 }
 
 void TLBCache::reset() {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    tlbCacheMap.clear();
-    tlbCacheList.clear();
-    
-    // Clear all secondary indices
-    streamIndex.clear();
-    pasidIndex.clear();
-    securityIndex.clear();
-    
+    {
+        // Acquire all locks for full reset
+        AllLocksGuard allLocks(*this);
+
+        for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+            stripes[i].map.clear();
+            stripes[i].list.clear();
+        }
+    }
+
+    // Reset statistics (atomic operations don't need locks)
     hitCount.store(0, std::memory_order_relaxed);
     missCount.store(0, std::memory_order_relaxed);
 }
 
 // Configuration
 void TLBCache::setMaxSize(size_t newMaxSize) {
-    std::lock_guard<std::mutex> lock(cacheMutex);
+    // Acquire all locks for configuration change
+    AllLocksGuard allLocks(*this);
+
     maxSize = newMaxSize;
-    
-    // Evict entries if current size exceeds new limit
-    while (tlbCacheList.size() > maxSize) {
-        evictLRU();
+
+    // Calculate total current size
+    size_t totalSize = 0;
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        totalSize += stripes[i].list.size();
+    }
+
+    // Evict LRU entries across all stripes to meet global limit
+    while (totalSize > maxSize) {
+        // Find the stripe with the oldest (LRU) entry
+        size_t oldestStripe = 0;
+        uint64_t oldestTimestamp = UINT64_MAX;
+
+        for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+            if (!stripes[i].list.empty()) {
+                auto last = stripes[i].list.end();
+                --last;
+                if (last->second.timestamp < oldestTimestamp) {
+                    oldestTimestamp = last->second.timestamp;
+                    oldestStripe = i;
+                }
+            }
+        }
+
+        // Evict from stripe with oldest entry
+        if (!stripes[oldestStripe].list.empty()) {
+            auto last = stripes[oldestStripe].list.end();
+            --last;
+            stripes[oldestStripe].map.erase(last->first);
+            stripes[oldestStripe].list.erase(last);
+            --totalSize;
+        } else {
+            break;  // Safety: no more entries to evict
+        }
+    }
+
+    // Recalculate per-stripe max sizes
+    size_t entriesPerStripe = (maxSize + NUM_LOCK_STRIPES - 1) / NUM_LOCK_STRIPES;
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        stripes[i].maxEntriesPerStripe = entriesPerStripe;
     }
 }
 
-// Helper methods (Note: These are called from already-locked contexts)
-void TLBCache::evictLRU() {
-    if (!tlbCacheList.empty()) {
-        auto last = tlbCacheList.end();
-        --last;
-        
-        // Remove from secondary indices before erasing
-        removeFromSecondaryIndices(last->first, last);
-        
-        // Remove from primary index and list
-        tlbCacheMap.erase(last->first);
-        tlbCacheList.erase(last);
-    }
-}
-
-void TLBCache::moveToFront(typename TLBCacheList::iterator it) {
-    if (it != tlbCacheList.begin()) {
-        auto entry = *it;
-        
-        // Remove from secondary indices with old iterator
-        removeFromSecondaryIndices(entry.first, it);
-        
-        // Move to front in list
-        tlbCacheList.erase(it);
-        tlbCacheList.push_front(entry);
-        auto newIt = tlbCacheList.begin();
-        tlbCacheMap[entry.first] = newIt;
-        
-        // Add back to secondary indices with new iterator
-        addToSecondaryIndices(entry.first, newIt);
-    }
-}
-
+// Helper methods
 uint64_t TLBCache::getCurrentTimestamp() const {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -391,58 +421,10 @@ CacheKey TLBCache::makeKey(StreamID streamID, PASID pasid, IOVA iova, SecuritySt
     return key;
 }
 
-// Add entry to all secondary indices for fast invalidation
-void TLBCache::addToSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it) {
-    // Add to StreamID index
-    streamIndex.insert(std::make_pair(key.streamID, it));
-    
-    // Add to StreamID+PASID compound index
-    StreamPASIDKey pasidKey;
-    pasidKey.streamID = key.streamID;
-    pasidKey.pasid = key.pasid;
-    pasidIndex.insert(std::make_pair(pasidKey, it));
-    
-    // Add to SecurityState index
-    securityIndex.insert(std::make_pair(key.securityState, it));
-}
-
-// Remove entry from all secondary indices
-void TLBCache::removeFromSecondaryIndices(const CacheKey& key, typename TLBCacheList::iterator it) {
-    // Remove from StreamID index
-    auto streamRange = streamIndex.equal_range(key.streamID);
-    for (auto streamIt = streamRange.first; streamIt != streamRange.second; ++streamIt) {
-        if (streamIt->second == it) {
-            streamIndex.erase(streamIt);
-            break;
-        }
-    }
-    
-    // Remove from StreamID+PASID compound index
-    StreamPASIDKey pasidKey;
-    pasidKey.streamID = key.streamID;
-    pasidKey.pasid = key.pasid;
-    auto pasidRange = pasidIndex.equal_range(pasidKey);
-    for (auto pasidIt = pasidRange.first; pasidIt != pasidRange.second; ++pasidIt) {
-        if (pasidIt->second == it) {
-            pasidIndex.erase(pasidIt);
-            break;
-        }
-    }
-    
-    // Remove from SecurityState index
-    auto securityRange = securityIndex.equal_range(key.securityState);
-    for (auto secIt = securityRange.first; secIt != securityRange.second; ++secIt) {
-        if (secIt->second == it) {
-            securityIndex.erase(secIt);
-            break;
-        }
-    }
-}
-
 // Thread-safe atomic statistics snapshot
 TLBCache::CacheStatistics TLBCache::getAtomicStatistics() const {
     CacheStatistics stats;
-    
+
     // Use a loop to ensure consistent snapshot of hit/miss counters
     // This addresses the race condition where counters can be modified between individual reads
     uint64_t currentHits, currentMisses;
@@ -451,23 +433,54 @@ TLBCache::CacheStatistics TLBCache::getAtomicStatistics() const {
         currentMisses = missCount.load(std::memory_order_relaxed);
         // Verify that the values haven't changed during our reads
         // If they have, retry until we get a consistent snapshot
-    } while (currentHits != hitCount.load(std::memory_order_relaxed) || 
+    } while (currentHits != hitCount.load(std::memory_order_relaxed) ||
              currentMisses != missCount.load(std::memory_order_relaxed));
-    
+
     stats.hitCount = currentHits;
     stats.missCount = currentMisses;
     stats.totalLookups = stats.hitCount + stats.missCount;
-    stats.hitRate = stats.totalLookups > 0 ? 
+    stats.hitRate = stats.totalLookups > 0 ?
         static_cast<double>(stats.hitCount) / static_cast<double>(stats.totalLookups) : 0.0;
-    
-    // For size and maxSize, we need the mutex briefly
+
+    // For size and maxSize, we need all locks briefly for accurate count
     {
-        std::lock_guard<std::mutex> lock(cacheMutex);
-        stats.currentSize = tlbCacheList.size();
+        AllLocksGuard allLocks(*this);
+        stats.currentSize = 0;
+        for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+            stats.currentSize += stripes[i].list.size();
+        }
         stats.maxSize = maxSize;
     }
-    
+
     return stats;
+}
+
+// Lock striping helper methods
+size_t TLBCache::getLockStripeIndex(const CacheKey& key) const {
+    // Use the existing CacheKeyHash for consistent hashing
+    CacheKeyHash hasher;
+    size_t hash = hasher(key);
+    return hash % NUM_LOCK_STRIPES;
+}
+
+std::mutex& TLBCache::getLockStripe(const CacheKey& key) const {
+    size_t index = getLockStripeIndex(key);
+    return const_cast<std::mutex&>(lockStripes[index]);
+}
+
+// RAII guard for acquiring all locks in order
+TLBCache::AllLocksGuard::AllLocksGuard(const TLBCache& cache) : cache_(cache) {
+    // Acquire locks in strict order to prevent deadlock
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        const_cast<std::mutex&>(cache_.lockStripes[i]).lock();
+    }
+}
+
+TLBCache::AllLocksGuard::~AllLocksGuard() {
+    // Release in reverse order (not strictly necessary but good practice)
+    for (size_t i = NUM_LOCK_STRIPES; i > 0; --i) {
+        const_cast<std::mutex&>(cache_.lockStripes[i - 1]).unlock();
+    }
 }
 
 }

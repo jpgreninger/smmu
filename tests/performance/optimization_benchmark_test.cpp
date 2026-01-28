@@ -38,18 +38,18 @@ private:
     void benchmarkTLBCacheHashFunction() {
         std::cout << "1. TLB Cache Hash Function Performance Test\n";
         std::cout << "-------------------------------------------\n";
-        
-        TLBCache cache(4096);  // Large cache for collision testing
+
+        // Configure cache and test parameters
+        const int numEntries = 10000;
+        TLBCache cache(numEntries * 2);  // 2x headroom to prevent eviction during testing
         std::vector<TLBEntry> entries;
-        
+
         // Generate diverse test entries to stress hash function
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<uint32_t> streamDis(0, 65535);
         std::uniform_int_distribution<uint32_t> pasidDis(0, 1048575);
         std::uniform_int_distribution<uint64_t> iovaDis(0x1000, 0xFFFFFFFFF000ULL);
-        
-        const int numEntries = 10000;
         for (int i = 0; i < numEntries; ++i) {
             TLBEntry entry;
             entry.streamID = streamDis(gen);
