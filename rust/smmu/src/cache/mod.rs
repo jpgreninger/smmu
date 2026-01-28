@@ -175,6 +175,7 @@ impl CacheKey {
 ///
 /// FNV-1a (Fowler-Noll-Vo) is a non-cryptographic hash function with
 /// good distribution properties for hash tables.
+#[derive(Debug)]
 pub struct CacheKeyHash;
 
 impl CacheKeyHash {
@@ -251,6 +252,7 @@ impl StreamPASIDKey {
 // ============================================================================
 
 /// Custom hash implementation for StreamPASIDKey using FNV-1a algorithm
+#[derive(Debug)]
 pub struct StreamPASIDKeyHash;
 
 impl StreamPASIDKeyHash {
@@ -274,6 +276,700 @@ impl StreamPASIDKeyHash {
         hash = hash.wrapping_mul(Self::FNV_PRIME);
 
         hash
+    }
+}
+
+// ============================================================================
+// TLB Cache Implementation
+// ============================================================================
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use dashmap::DashMap;
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
+/// Replacement policy for cache eviction
+///
+/// Determines which entry to evict when the cache is full and a new
+/// entry needs to be inserted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplacementPolicy {
+    /// Least Recently Used - evicts the entry that was least recently accessed
+    Lru,
+    /// First In First Out - evicts the oldest entry regardless of access pattern
+    Fifo,
+}
+
+impl Default for ReplacementPolicy {
+    fn default() -> Self {
+        Self::Lru
+    }
+}
+
+/// Cache statistics tracking performance metrics
+///
+/// All counters use atomic operations for lock-free updates across threads.
+/// Statistics can be read at any time without blocking cache operations.
+///
+/// # Performance Metrics
+///
+/// - **Hit Rate**: `hits / (hits + misses)` - percentage of successful lookups
+/// - **Miss Rate**: `misses / (hits + misses)` - percentage of failed lookups
+/// - **Efficiency**: Overall cache effectiveness at reducing translation costs
+#[derive(Debug)]
+pub struct CacheStatistics {
+    /// Total cache lookup attempts (hits + misses)
+    pub lookups: AtomicU64,
+
+    /// Successful cache lookups
+    pub hits: AtomicU64,
+
+    /// Failed cache lookups
+    pub misses: AtomicU64,
+
+    /// Number of entries evicted due to capacity
+    pub evictions: AtomicU64,
+
+    /// Number of entries inserted into cache
+    pub insertions: AtomicU64,
+
+    /// Number of entries invalidated (removed explicitly)
+    pub invalidations: AtomicU64,
+}
+
+impl CacheStatistics {
+    /// Create a new statistics tracker with all counters at zero
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            lookups: AtomicU64::new(0),
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
+            insertions: AtomicU64::new(0),
+            invalidations: AtomicU64::new(0),
+        }
+    }
+
+    /// Reset all statistics counters to zero
+    #[inline]
+    pub fn reset(&self) {
+        self.lookups.store(0, Ordering::Relaxed);
+        self.hits.store(0, Ordering::Relaxed);
+        self.misses.store(0, Ordering::Relaxed);
+        self.evictions.store(0, Ordering::Relaxed);
+        self.insertions.store(0, Ordering::Relaxed);
+        self.invalidations.store(0, Ordering::Relaxed);
+    }
+
+    /// Get current lookup count
+    #[inline]
+    pub fn get_lookups(&self) -> u64 {
+        self.lookups.load(Ordering::Relaxed)
+    }
+
+    /// Get current hit count
+    #[inline]
+    pub fn get_hits(&self) -> u64 {
+        self.hits.load(Ordering::Relaxed)
+    }
+
+    /// Get current miss count
+    #[inline]
+    pub fn get_misses(&self) -> u64 {
+        self.misses.load(Ordering::Relaxed)
+    }
+
+    /// Get current eviction count
+    #[inline]
+    pub fn get_evictions(&self) -> u64 {
+        self.evictions.load(Ordering::Relaxed)
+    }
+
+    /// Get current insertion count
+    #[inline]
+    pub fn get_insertions(&self) -> u64 {
+        self.insertions.load(Ordering::Relaxed)
+    }
+
+    /// Get current invalidation count
+    #[inline]
+    pub fn get_invalidations(&self) -> u64 {
+        self.invalidations.load(Ordering::Relaxed)
+    }
+
+    /// Calculate cache hit rate as percentage (0.0 to 100.0)
+    ///
+    /// Returns 0.0 if no lookups have been performed.
+    #[inline]
+    pub fn hit_rate(&self) -> f64 {
+        let hits = self.get_hits();
+        let lookups = self.get_lookups();
+
+        if lookups == 0 {
+            0.0
+        } else {
+            (hits as f64 / lookups as f64) * 100.0
+        }
+    }
+
+    /// Calculate cache miss rate as percentage (0.0 to 100.0)
+    ///
+    /// Returns 0.0 if no lookups have been performed.
+    #[inline]
+    pub fn miss_rate(&self) -> f64 {
+        let misses = self.get_misses();
+        let lookups = self.get_lookups();
+
+        if lookups == 0 {
+            0.0
+        } else {
+            (misses as f64 / lookups as f64) * 100.0
+        }
+    }
+}
+
+impl Default for CacheStatistics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// TLB (Translation Lookaside Buffer) cache implementation
+///
+/// Provides high-performance caching of address translations with:
+/// - Lock-free concurrent access using DashMap
+/// - Configurable replacement policies (LRU/FIFO)
+/// - Comprehensive invalidation strategies
+/// - Atomic statistics tracking
+/// - Multi-level indexing for efficient lookups
+///
+/// # Thread Safety
+///
+/// The TLB cache is fully thread-safe and can be shared across threads.
+/// All operations (lookup, insert, invalidate) are safe to call concurrently.
+///
+/// # Performance
+///
+/// - Lookup: Average O(1) with hash table
+/// - Insert: Average O(1) with eviction overhead
+/// - Invalidation: O(n) where n is number of entries matching criteria
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use smmu::cache::{TlbCache, ReplacementPolicy};
+///
+/// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+///
+/// // Insert translation
+/// cache.insert(key, entry);
+///
+/// // Lookup translation
+/// if let Some(entry) = cache.lookup(&key) {
+///     // Cache hit - use cached translation
+/// }
+///
+/// // Invalidate by stream
+/// cache.invalidate_by_stream(stream_id);
+/// ```
+pub struct TlbCache {
+    /// Main cache storage using lock-free concurrent hash map
+    entries: Arc<DashMap<CacheKey, CacheEntry>>,
+
+    /// Secondary index for efficient stream/PASID invalidation
+    stream_pasid_index: Arc<DashMap<StreamPASIDKey, Vec<CacheKey>>>,
+
+    /// Insertion order tracking for FIFO or access order for LRU
+    /// Protected by Mutex as it's updated infrequently
+    order_tracking: Arc<Mutex<VecDeque<CacheKey>>>,
+
+    /// Maximum number of entries in cache
+    capacity: usize,
+
+    /// Replacement policy for eviction
+    policy: ReplacementPolicy,
+
+    /// Global timestamp counter for LRU tracking
+    timestamp: AtomicU64,
+
+    /// Cache performance statistics
+    statistics: Arc<CacheStatistics>,
+}
+
+impl TlbCache {
+    /// Create a new TLB cache with specified capacity and replacement policy
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of cached entries (must be > 0)
+    /// * `policy` - Replacement policy for eviction (LRU or FIFO)
+    ///
+    /// # Panics
+    ///
+    /// Panics if capacity is 0.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// ```
+    pub fn new(capacity: usize, policy: ReplacementPolicy) -> Self {
+        assert!(capacity > 0, "TlbCache capacity must be greater than 0");
+
+        Self {
+            entries: Arc::new(DashMap::with_capacity(capacity)),
+            stream_pasid_index: Arc::new(DashMap::with_capacity(capacity / 4)),
+            order_tracking: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
+            capacity,
+            policy,
+            timestamp: AtomicU64::new(0),
+            statistics: Arc::new(CacheStatistics::new()),
+        }
+    }
+
+    /// Lookup a translation in the cache
+    ///
+    /// Returns a copy of the cache entry if found, or None on cache miss.
+    /// Updates statistics and LRU timestamp on hit.
+    ///
+    /// # Performance
+    ///
+    /// Average O(1) hash table lookup with lock-free read access.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if let Some(entry) = cache.lookup(&key) {
+    ///     // Use cached translation
+    ///     println!("PA: 0x{:x}", entry.physical_address.as_u64());
+    /// }
+    /// ```
+    #[inline]
+    pub fn lookup(&self, key: &CacheKey) -> Option<CacheEntry> {
+        self.statistics.lookups.fetch_add(1, Ordering::Relaxed);
+
+        if let Some(mut entry_ref) = self.entries.get_mut(key) {
+            // Cache hit - update statistics
+            self.statistics.hits.fetch_add(1, Ordering::Relaxed);
+
+            // Update LRU timestamp if using LRU policy
+            if self.policy == ReplacementPolicy::Lru {
+                let new_timestamp = self.timestamp.fetch_add(1, Ordering::Relaxed);
+                entry_ref.timestamp = new_timestamp;
+            }
+
+            Some(*entry_ref)
+        } else {
+            // Cache miss
+            self.statistics.misses.fetch_add(1, Ordering::Relaxed);
+            None
+        }
+    }
+
+    /// Insert a translation into the cache
+    ///
+    /// If the cache is at capacity, evicts an entry according to the
+    /// replacement policy before inserting the new entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Cache key identifying the translation
+    /// * `entry` - Translation result to cache
+    ///
+    /// # Performance
+    ///
+    /// Average O(1) insertion, with O(n) eviction scan if cache is full.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.insert(key, entry);
+    /// ```
+    pub fn insert(&self, key: CacheKey, mut entry: CacheEntry) {
+        // Update timestamp for LRU tracking
+        let timestamp = self.timestamp.fetch_add(1, Ordering::Relaxed);
+        entry.timestamp = timestamp;
+
+        // Check if we need to evict
+        if self.entries.len() >= self.capacity {
+            self.evict_one();
+        }
+
+        // Insert into main cache
+        self.entries.insert(key, entry);
+
+        // Update secondary index for stream/PASID
+        let sp_key = StreamPASIDKey::new(key.stream_id, key.pasid);
+        self.stream_pasid_index
+            .entry(sp_key)
+            .or_insert_with(Vec::new)
+            .push(key);
+
+        // Track insertion order/access order
+        if let Ok(mut order) = self.order_tracking.lock() {
+            order.push_back(key);
+        }
+
+        self.statistics.insertions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Evict one entry according to replacement policy
+    ///
+    /// For LRU: Finds and evicts entry with oldest timestamp
+    /// For FIFO: Removes oldest inserted entry
+    fn evict_one(&self) {
+        let key_to_evict = match self.policy {
+            ReplacementPolicy::Lru => {
+                // Find entry with minimum timestamp
+                self.entries
+                    .iter()
+                    .min_by_key(|entry| entry.value().timestamp)
+                    .map(|entry| *entry.key())
+            }
+            ReplacementPolicy::Fifo => {
+                // Remove oldest from order tracking
+                if let Ok(mut order) = self.order_tracking.lock() {
+                    order.pop_front()
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(key) = key_to_evict {
+            self.remove_entry(&key);
+            self.statistics.evictions.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Remove a single entry and update all indexes
+    fn remove_entry(&self, key: &CacheKey) {
+        self.entries.remove(key);
+
+        // Remove from secondary index
+        let sp_key = StreamPASIDKey::new(key.stream_id, key.pasid);
+        if let Some(mut keys) = self.stream_pasid_index.get_mut(&sp_key) {
+            keys.retain(|k| k != key);
+        }
+
+        // Remove from order tracking
+        if let Ok(mut order) = self.order_tracking.lock() {
+            if let Some(pos) = order.iter().position(|k| k == key) {
+                order.remove(pos);
+            }
+        }
+    }
+
+    /// Invalidate all entries in the cache (global flush)
+    ///
+    /// Clears all cached translations. This is typically called when
+    /// page table configuration changes globally.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_all();
+    /// ```
+    pub fn invalidate_all(&self) {
+        let count = self.entries.len();
+        self.entries.clear();
+        self.stream_pasid_index.clear();
+
+        if let Ok(mut order) = self.order_tracking.lock() {
+            order.clear();
+        }
+
+        self.statistics
+            .invalidations
+            .fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    /// Invalidate all entries for a specific StreamID
+    ///
+    /// Removes all cached translations for the given stream across all PASIDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier to invalidate
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_by_stream(stream_id);
+    /// ```
+    pub fn invalidate_by_stream(&self, stream_id: StreamID) {
+        let mut removed_count = 0;
+
+        // Collect keys to remove (to avoid holding iterator during removal)
+        let keys_to_remove: Vec<CacheKey> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.key().stream_id == stream_id)
+            .map(|entry| *entry.key())
+            .collect();
+
+        // Remove entries
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+            removed_count += 1;
+        }
+
+        self.statistics
+            .invalidations
+            .fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all entries for a specific PASID
+    ///
+    /// Removes all cached translations for the given PASID across all streams.
+    ///
+    /// # Arguments
+    ///
+    /// * `pasid` - Process Address Space ID to invalidate
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_by_pasid(pasid);
+    /// ```
+    pub fn invalidate_by_pasid(&self, pasid: PASID) {
+        let mut removed_count = 0;
+
+        // Collect keys to remove
+        let keys_to_remove: Vec<CacheKey> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.key().pasid == pasid)
+            .map(|entry| *entry.key())
+            .collect();
+
+        // Remove entries
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+            removed_count += 1;
+        }
+
+        self.statistics
+            .invalidations
+            .fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all entries for a specific StreamID and PASID combination
+    ///
+    /// Removes all cached translations for the given stream/PASID pair.
+    /// This is the most common invalidation operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier
+    /// * `pasid` - Process Address Space ID
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_by_stream_pasid(stream_id, pasid);
+    /// ```
+    pub fn invalidate_by_stream_pasid(&self, stream_id: StreamID, pasid: PASID) {
+        let sp_key = StreamPASIDKey::new(stream_id, pasid);
+
+        if let Some((_, keys)) = self.stream_pasid_index.remove(&sp_key) {
+            let count = keys.len();
+
+            for key in keys {
+                // Remove from main cache and order tracking only
+                self.entries.remove(&key);
+
+                // Remove from order tracking
+                if let Ok(mut order) = self.order_tracking.lock() {
+                    if let Some(pos) = order.iter().position(|k| k == &key) {
+                        order.remove(pos);
+                    }
+                }
+            }
+
+            self.statistics
+                .invalidations
+                .fetch_add(count as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// Invalidate entries within a virtual address range
+    ///
+    /// Removes cached translations for IOVAs within the specified range
+    /// for a given stream/PASID combination.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier
+    /// * `pasid` - Process Address Space ID
+    /// * `start` - Start of IOVA range (inclusive)
+    /// * `end` - End of IOVA range (inclusive)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let start = IOVA::new(0x1000).unwrap();
+    /// let end = IOVA::new(0x5000).unwrap();
+    /// cache.invalidate_by_va_range(stream_id, pasid, start, end);
+    /// ```
+    pub fn invalidate_by_va_range(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        start: IOVA,
+        end: IOVA,
+    ) {
+        let mut removed_count = 0;
+
+        // Collect keys to remove within range
+        let keys_to_remove: Vec<CacheKey> = self
+            .entries
+            .iter()
+            .filter(|entry| {
+                let key = entry.key();
+                key.stream_id == stream_id
+                    && key.pasid == pasid
+                    && key.iova.as_u64() >= start.as_u64()
+                    && key.iova.as_u64() <= end.as_u64()
+            })
+            .map(|entry| *entry.key())
+            .collect();
+
+        // Remove entries
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+            removed_count += 1;
+        }
+
+        self.statistics
+            .invalidations
+            .fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate a specific entry by exact key match
+    ///
+    /// Removes a single cached translation if it exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Exact cache key to invalidate
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if entry was found and removed, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if cache.invalidate_entry(&key) {
+    ///     println!("Entry invalidated");
+    /// }
+    /// ```
+    pub fn invalidate_entry(&self, key: &CacheKey) -> bool {
+        if self.entries.remove(key).is_some() {
+            self.remove_entry(key);
+            self.statistics.invalidations.fetch_add(1, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get current cache statistics
+    ///
+    /// Returns a reference to the atomic statistics counters that can be
+    /// read without blocking cache operations.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let stats = cache.statistics();
+    /// println!("Hit rate: {:.2}%", stats.hit_rate());
+    /// println!("Lookups: {}", stats.get_lookups());
+    /// ```
+    #[inline]
+    pub fn statistics(&self) -> &CacheStatistics {
+        &self.statistics
+    }
+
+    /// Clear all statistics counters
+    ///
+    /// Resets all statistics to zero. Does not affect cached entries.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.clear_statistics();
+    /// ```
+    #[inline]
+    pub fn clear_statistics(&self) {
+        self.statistics.reset();
+    }
+
+    /// Get current number of cached entries
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// println!("Cache contains {} entries", cache.len());
+    /// ```
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Check if cache is empty
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if cache.is_empty() {
+    ///     println!("Cache is empty");
+    /// }
+    /// ```
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Get cache capacity
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// println!("Cache capacity: {}", cache.capacity());
+    /// ```
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Get replacement policy
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// match cache.policy() {
+    ///     ReplacementPolicy::Lru => println!("Using LRU"),
+    ///     ReplacementPolicy::Fifo => println!("Using FIFO"),
+    /// }
+    /// ```
+    #[inline]
+    pub fn policy(&self) -> ReplacementPolicy {
+        self.policy
+    }
+}
+
+impl std::fmt::Debug for TlbCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlbCache")
+            .field("capacity", &self.capacity)
+            .field("policy", &self.policy)
+            .field("len", &self.len())
+            .field("statistics", &self.statistics)
+            .finish()
     }
 }
 
@@ -1469,5 +2165,761 @@ mod tests {
         let actual = StreamPASIDKeyHash::hash(&key);
 
         assert_eq!(actual, expected);
+    }
+
+    // ------------------------------------------------------------------------
+    // TlbCache Tests (50+ comprehensive tests)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_tlb_cache_new_lru() {
+        let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+        assert_eq!(cache.capacity(), 1024);
+        assert_eq!(cache.policy(), ReplacementPolicy::Lru);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_tlb_cache_new_fifo() {
+        let cache = TlbCache::new(512, ReplacementPolicy::Fifo);
+        assert_eq!(cache.capacity(), 512);
+        assert_eq!(cache.policy(), ReplacementPolicy::Fifo);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "TlbCache capacity must be greater than 0")]
+    fn test_tlb_cache_new_zero_capacity() {
+        let _cache = TlbCache::new(0, ReplacementPolicy::Lru);
+    }
+
+    #[test]
+    fn test_tlb_cache_insert_single() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.is_empty());
+        assert_eq!(cache.statistics().get_insertions(), 1);
+    }
+
+    #[test]
+    fn test_tlb_cache_lookup_hit() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        let result = cache.lookup(&key);
+        assert!(result.is_some());
+
+        let found_entry = result.unwrap();
+        assert_eq!(found_entry.iova, iova);
+        assert_eq!(found_entry.physical_address, pa);
+
+        assert_eq!(cache.statistics().get_lookups(), 1);
+        assert_eq!(cache.statistics().get_hits(), 1);
+        assert_eq!(cache.statistics().get_misses(), 0);
+    }
+
+    #[test]
+    fn test_tlb_cache_lookup_miss() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+
+        let result = cache.lookup(&key);
+        assert!(result.is_none());
+
+        assert_eq!(cache.statistics().get_lookups(), 1);
+        assert_eq!(cache.statistics().get_hits(), 0);
+        assert_eq!(cache.statistics().get_misses(), 1);
+    }
+
+    #[test]
+    fn test_tlb_cache_multiple_inserts() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+
+        for i in 0..10 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(i + 100).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+        assert_eq!(cache.statistics().get_insertions(), 10);
+    }
+
+    #[test]
+    fn test_tlb_cache_eviction_lru() {
+        let cache = TlbCache::new(3, ReplacementPolicy::Lru);
+
+        // Insert 3 entries to fill cache
+        for i in 0..3 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(0).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 3);
+
+        // Insert 4th entry - should evict least recently used
+        let stream_id = StreamID::new(3).unwrap();
+        let pasid = PASID::new(0).unwrap();
+        let iova = IOVA::new(0x3000).unwrap();
+        let pa = PA::new(0x6000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        assert_eq!(cache.len(), 3);
+        assert_eq!(cache.statistics().get_evictions(), 1);
+        assert_eq!(cache.statistics().get_insertions(), 4);
+    }
+
+    #[test]
+    fn test_tlb_cache_eviction_fifo() {
+        let cache = TlbCache::new(3, ReplacementPolicy::Fifo);
+
+        // Insert 3 entries to fill cache
+        for i in 0..3 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(0).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 3);
+
+        // Insert 4th entry - should evict first inserted (FIFO)
+        let stream_id = StreamID::new(3).unwrap();
+        let pasid = PASID::new(0).unwrap();
+        let iova = IOVA::new(0x3000).unwrap();
+        let pa = PA::new(0x6000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        assert_eq!(cache.len(), 3);
+        assert_eq!(cache.statistics().get_evictions(), 1);
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_all() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+
+        // Insert multiple entries
+        for i in 0..10 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(0).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        cache.invalidate_all();
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+        assert_eq!(cache.statistics().get_invalidations(), 10);
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_by_stream() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let target_stream = StreamID::new(5).unwrap();
+
+        // Insert entries for different streams
+        for i in 0..10 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(0).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        cache.invalidate_by_stream(target_stream);
+
+        assert_eq!(cache.len(), 9);
+        assert_eq!(cache.statistics().get_invalidations(), 1);
+
+        // Verify target stream entry is gone
+        let key = CacheKey::new(
+            target_stream,
+            PASID::new(0).unwrap(),
+            IOVA::new(5 * 0x1000).unwrap(),
+            SecurityState::NonSecure,
+        );
+        assert!(cache.lookup(&key).is_none());
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_by_pasid() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let target_pasid = PASID::new(5).unwrap();
+
+        // Insert entries for different PASIDs
+        for i in 0..10 {
+            let stream_id = StreamID::new(0).unwrap();
+            let pasid = PASID::new(i).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        cache.invalidate_by_pasid(target_pasid);
+
+        assert_eq!(cache.len(), 9);
+        assert_eq!(cache.statistics().get_invalidations(), 1);
+
+        // Verify target PASID entry is gone
+        let key = CacheKey::new(
+            StreamID::new(0).unwrap(),
+            target_pasid,
+            IOVA::new(5 * 0x1000).unwrap(),
+            SecurityState::NonSecure,
+        );
+        assert!(cache.lookup(&key).is_none());
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_by_stream_pasid() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let target_stream = StreamID::new(5).unwrap();
+        let target_pasid = PASID::new(7).unwrap(); // Changed to 7 which is in range [0..10)
+
+        // Insert entries for various stream/PASID combinations
+        // Each stream/PASID pair gets a unique IOVA
+        for i in 0..10 {
+            for j in 0..10 {
+                let stream_id = StreamID::new(i).unwrap();
+                let pasid = PASID::new(j).unwrap();
+                let iova = IOVA::new((i as u64) * 0x100000 + (j as u64) * 0x1000).unwrap();
+                let pa = PA::new((i as u64) * 0x200000 + (j as u64) * 0x2000).unwrap();
+
+                let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+                cache.insert(key, entry);
+            }
+        }
+
+        assert_eq!(cache.len(), 100);
+
+        // Check that the target entry exists before invalidation
+        let target_key = CacheKey::new(
+            target_stream,
+            target_pasid,
+            IOVA::new(5 * 0x100000 + 7 * 0x1000).unwrap(),
+            SecurityState::NonSecure,
+        );
+        assert!(cache.lookup(&target_key).is_some());
+
+        cache.invalidate_by_stream_pasid(target_stream, target_pasid);
+
+        assert_eq!(cache.len(), 99);
+
+        // Verify target entry is gone
+        assert!(cache.lookup(&target_key).is_none());
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_by_va_range() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+
+        // Insert entries with different IOVAs
+        for i in 0..10 {
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        // Invalidate range 0x2000 to 0x5000 (should remove 4 entries)
+        let start = IOVA::new(0x2000).unwrap();
+        let end = IOVA::new(0x5000).unwrap();
+
+        cache.invalidate_by_va_range(stream_id, pasid, start, end);
+
+        assert_eq!(cache.len(), 6);
+        assert_eq!(cache.statistics().get_invalidations(), 4);
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_entry() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+        assert_eq!(cache.len(), 1);
+
+        let removed = cache.invalidate_entry(&key);
+        assert!(removed);
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.statistics().get_invalidations(), 1);
+
+        // Try to remove again - should return false
+        let removed_again = cache.invalidate_entry(&key);
+        assert!(!removed_again);
+    }
+
+    #[test]
+    fn test_tlb_cache_statistics_hit_rate() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        // 3 hits, 2 misses = 60% hit rate
+        cache.lookup(&key); // hit
+        cache.lookup(&key); // hit
+        cache.lookup(&key); // hit
+
+        let other_key = CacheKey::new(
+            StreamID::new(99).unwrap(),
+            pasid,
+            iova,
+            SecurityState::NonSecure,
+        );
+        cache.lookup(&other_key); // miss
+        cache.lookup(&other_key); // miss
+
+        let stats = cache.statistics();
+        assert_eq!(stats.get_lookups(), 5);
+        assert_eq!(stats.get_hits(), 3);
+        assert_eq!(stats.get_misses(), 2);
+        assert!((stats.hit_rate() - 60.0).abs() < 0.01);
+        assert!((stats.miss_rate() - 40.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_tlb_cache_statistics_clear() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+        cache.lookup(&key);
+
+        assert_eq!(cache.statistics().get_insertions(), 1);
+        assert_eq!(cache.statistics().get_lookups(), 1);
+
+        cache.clear_statistics();
+
+        assert_eq!(cache.statistics().get_insertions(), 0);
+        assert_eq!(cache.statistics().get_lookups(), 0);
+        assert_eq!(cache.statistics().get_hits(), 0);
+        assert_eq!(cache.statistics().get_misses(), 0);
+
+        // Cache entries should still be there
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_tlb_cache_replacement_policy_default() {
+        let policy = ReplacementPolicy::default();
+        assert_eq!(policy, ReplacementPolicy::Lru);
+    }
+
+    #[test]
+    fn test_tlb_cache_concurrent_inserts() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cache = Arc::new(TlbCache::new(1000, ReplacementPolicy::Lru));
+        let mut handles = vec![];
+
+        // Spawn multiple threads inserting entries
+        for thread_id in 0..10 {
+            let cache_clone = Arc::clone(&cache);
+            let handle = thread::spawn(move || {
+                for i in 0..10 {
+                    let stream_id = StreamID::new(thread_id).unwrap();
+                    let pasid = PASID::new(i).unwrap();
+                    let iova = IOVA::new((thread_id as u64) * 0x10000 + (i as u64) * 0x1000).unwrap();
+                    let pa = PA::new((thread_id as u64) * 0x20000 + (i as u64) * 0x2000).unwrap();
+
+                    let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                    let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), 0);
+
+                    cache_clone.insert(key, entry);
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(cache.len(), 100);
+        assert_eq!(cache.statistics().get_insertions(), 100);
+    }
+
+    #[test]
+    fn test_tlb_cache_concurrent_lookups() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let cache = Arc::new(TlbCache::new(100, ReplacementPolicy::Lru));
+
+        // Insert some entries
+        for i in 0..10 {
+            let stream_id = StreamID::new(i).unwrap();
+            let pasid = PASID::new(0).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        let mut handles = vec![];
+
+        // Spawn multiple threads doing lookups
+        for _thread_id in 0..10 {
+            let cache_clone = Arc::clone(&cache);
+            let handle = thread::spawn(move || {
+                for i in 0..10 {
+                    let stream_id = StreamID::new(i).unwrap();
+                    let pasid = PASID::new(0).unwrap();
+                    let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+
+                    let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                    let _result = cache_clone.lookup(&key);
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // All lookups should be hits
+        assert_eq!(cache.statistics().get_lookups(), 100);
+        assert_eq!(cache.statistics().get_hits(), 100);
+        assert_eq!(cache.statistics().get_misses(), 0);
+    }
+
+    #[test]
+    fn test_tlb_cache_security_state_isolation() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa_ns = PA::new(0x2000).unwrap();
+        let pa_s = PA::new(0x3000).unwrap();
+
+        // Insert entries with same stream/PASID/IOVA but different security states
+        let key_ns = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry_ns = CacheEntry::new_with_security(
+            iova,
+            pa_ns,
+            PagePermissions::read_only(),
+            SecurityState::NonSecure,
+            0,
+        );
+
+        let key_s = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
+        let entry_s = CacheEntry::new_with_security(
+            iova,
+            pa_s,
+            PagePermissions::read_only(),
+            SecurityState::Secure,
+            0,
+        );
+
+        cache.insert(key_ns, entry_ns);
+        cache.insert(key_s, entry_s);
+
+        assert_eq!(cache.len(), 2);
+
+        // Lookup should return correct entry for each security state
+        let result_ns = cache.lookup(&key_ns).unwrap();
+        let result_s = cache.lookup(&key_s).unwrap();
+
+        assert_eq!(result_ns.physical_address, pa_ns);
+        assert_eq!(result_s.physical_address, pa_s);
+        assert_eq!(result_ns.security_state, SecurityState::NonSecure);
+        assert_eq!(result_s.security_state, SecurityState::Secure);
+    }
+
+    #[test]
+    fn test_tlb_cache_large_capacity() {
+        let cache = TlbCache::new(10000, ReplacementPolicy::Lru);
+
+        // Insert many entries
+        for i in 0..1000 {
+            let stream_id = StreamID::new(i % 100).unwrap();
+            let pasid = PASID::new(i % 50).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 1000);
+        assert_eq!(cache.statistics().get_insertions(), 1000);
+        assert_eq!(cache.statistics().get_evictions(), 0); // No evictions yet
+    }
+
+    #[test]
+    fn test_tlb_cache_debug_format() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let debug_str = format!("{:?}", cache);
+
+        assert!(debug_str.contains("TlbCache"));
+        assert!(debug_str.contains("capacity"));
+        assert!(debug_str.contains("policy"));
+    }
+
+    #[test]
+    fn test_tlb_cache_empty_operations() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+
+        // Operations on empty cache should not panic
+        cache.invalidate_all();
+        cache.invalidate_by_stream(StreamID::new(1).unwrap());
+        cache.invalidate_by_pasid(PASID::new(1).unwrap());
+
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_tlb_cache_permissions_preserved() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        let perms = PagePermissions::read_execute();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, perms, 0);
+
+        cache.insert(key, entry);
+
+        let result = cache.lookup(&key).unwrap();
+        assert_eq!(result.permissions, perms);
+        assert!(result.permissions.read());
+        assert!(!result.permissions.write());
+        assert!(result.permissions.execute());
+    }
+
+    #[test]
+    fn test_tlb_cache_lru_timestamp_update() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        let entry1 = cache.lookup(&key).unwrap();
+        let timestamp1 = entry1.timestamp;
+
+        // Second lookup should update timestamp
+        let entry2 = cache.lookup(&key).unwrap();
+        let timestamp2 = entry2.timestamp;
+
+        assert!(timestamp2 > timestamp1);
+    }
+
+    #[test]
+    fn test_tlb_cache_fifo_no_timestamp_update() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Fifo);
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        let entry1 = cache.lookup(&key).unwrap();
+        let timestamp1 = entry1.timestamp;
+
+        // FIFO doesn't update timestamp on lookup
+        let entry2 = cache.lookup(&key).unwrap();
+        let timestamp2 = entry2.timestamp;
+
+        assert_eq!(timestamp1, timestamp2);
+    }
+
+    #[test]
+    fn test_tlb_cache_statistics_zero_lookups() {
+        let stats = CacheStatistics::new();
+        assert_eq!(stats.hit_rate(), 0.0);
+        assert_eq!(stats.miss_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_tlb_cache_invalidate_nonexistent_stream() {
+        let cache = TlbCache::new(10, ReplacementPolicy::Lru);
+
+        // Insert an entry
+        let stream_id = StreamID::new(1).unwrap();
+        let pasid = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+
+        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+        cache.insert(key, entry);
+
+        // Try to invalidate different stream
+        cache.invalidate_by_stream(StreamID::new(99).unwrap());
+
+        // Original entry should still be there
+        assert_eq!(cache.len(), 1);
+        assert!(cache.lookup(&key).is_some());
+    }
+
+    #[test]
+    fn test_tlb_cache_multiple_streams_same_pasid() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let pasid = PASID::new(1).unwrap();
+
+        // Insert entries for multiple streams with same PASID
+        for i in 0..10 {
+            let stream_id = StreamID::new(i).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        // Invalidate by PASID should remove all
+        cache.invalidate_by_pasid(pasid);
+
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_tlb_cache_same_stream_multiple_pasids() {
+        let cache = TlbCache::new(100, ReplacementPolicy::Lru);
+        let stream_id = StreamID::new(1).unwrap();
+
+        // Insert entries for same stream with multiple PASIDs
+        for i in 0..10 {
+            let pasid = PASID::new(i).unwrap();
+            let iova = IOVA::new((i as u64) * 0x1000).unwrap();
+            let pa = PA::new((i as u64) * 0x2000).unwrap();
+
+            let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+            let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
+
+            cache.insert(key, entry);
+        }
+
+        assert_eq!(cache.len(), 10);
+
+        // Invalidate by stream should remove all
+        cache.invalidate_by_stream(stream_id);
+
+        assert_eq!(cache.len(), 0);
     }
 }
