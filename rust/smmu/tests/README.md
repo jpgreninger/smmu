@@ -17,6 +17,12 @@ Unit tests are co-located with the source code in each module:
 Located in `tests/`:
 - `integration_test.rs` - Cross-component interaction tests
 - `compliance_test.rs` - ARM SMMU v3 specification compliance tests
+- `test_fault_detection.rs` - Section 6.1: Fault detection and classification (30 tests)
+- `test_smmu_section_5_1.rs` - Section 5.1: SMMU controller and translation (30 tests)
+- `test_queues_section_5_3.rs` - Section 5.3: Event and command queues (51 tests)
+- `test_stream_context_section_4_1.rs` - Section 4.1: Stream context management (41 tests)
+- `test_stream_context_section_4_2.rs` - Section 4.2: Stream operations (26 tests)
+- `test_address_space_section_3_2.rs` - Section 3.2: Address space operations (40 tests)
 
 ### Test Utilities
 Located in `tests/common/`:
@@ -48,6 +54,12 @@ cargo test --lib
 ```bash
 cargo test --test integration_test
 cargo test --test compliance_test
+cargo test --test test_fault_detection         # Section 6.1 (30 tests)
+cargo test --test test_smmu_section_5_1        # Section 5.1 (30 tests)
+cargo test --test test_queues_section_5_3      # Section 5.3 (51 tests)
+cargo test --test test_stream_context_section_4_1  # Section 4.1 (41 tests)
+cargo test --test test_stream_context_section_4_2  # Section 4.2 (26 tests)
+cargo test --test test_address_space_section_3_2   # Section 3.2 (40 tests)
 ```
 
 ### Specific Test
