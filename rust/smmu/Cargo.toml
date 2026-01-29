@@ -33,6 +33,15 @@ criterion = "0.5"
 # Serialization for testing and debugging
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Property-based testing for finding edge cases
+proptest = "1.5"
+# Concurrency testing for finding race conditions
+loom = "0.7"
+# Fast randomness for fuzzing tests
+rand = "0.8"
+# Testing utilities
+quickcheck = "1.0"
+quickcheck_macros = "1.0"
 
 [lints]
 workspace = true
