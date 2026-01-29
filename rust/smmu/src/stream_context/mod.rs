@@ -580,6 +580,91 @@ impl StreamContext {
         space.unmap_page(iova)
     }
 
+    /// Create and initialize Stage-2 address space
+    ///
+    /// Creates a new address space for Stage-2 translation (IPA → PA).
+    /// Required for two-stage translation setup.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if Stage-2 address space already exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::stream_context::StreamContext;
+    ///
+    /// let mut stream_context = StreamContext::new();
+    /// stream_context.set_stage2_enabled(true);
+    /// assert!(stream_context.create_stage2_address_space().is_ok());
+    /// ```
+    pub fn create_stage2_address_space(&mut self) -> Result<(), StreamContextError> {
+        let mut stage2_guard = self.stage2_address_space.write().unwrap();
+
+        // Check if Stage-2 already exists
+        if stage2_guard.is_some() {
+            return Err(StreamContextError::InternalError("Stage-2 address space already exists".to_string()));
+        }
+
+        // Create new Stage-2 address space
+        *stage2_guard = Some(Arc::new(AddressSpace::new()));
+        Ok(())
+    }
+
+    /// Map a page in the Stage-2 address space (IPA → PA)
+    ///
+    /// For two-stage translation, this maps Intermediate Physical Addresses
+    /// (output of Stage-1) to final Physical Addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `ipa` - Intermediate Physical Address
+    /// * `pa` - Physical Address
+    /// * `permissions` - Page permissions
+    /// * `security_state` - Security state
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Stage-2 address space not initialized
+    /// - Mapping fails
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    ///
+    /// let mut stream_context = StreamContext::new();
+    /// stream_context.set_stage2_enabled(true);
+    /// stream_context.create_stage2_address_space().unwrap();
+    ///
+    /// let ipa = IOVA::new(0x2000).unwrap();
+    /// let pa = PA::new(0x3000).unwrap();
+    /// let perms = PagePermissions::read_write();
+    ///
+    /// assert!(stream_context.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure).is_ok());
+    /// ```
+    pub fn map_stage2_page(
+        &mut self,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        // Need write lock to modify Stage-2 address space
+        let mut stage2_guard = self.stage2_address_space.write().unwrap();
+        let stage2 = stage2_guard
+            .as_mut()
+            .ok_or(AddressSpaceError::InternalError)?;
+
+        // Get mutable reference to the AddressSpace
+        // Since AddressSpace doesn't implement interior mutability,
+        // we need to use Arc::get_mut or Arc::make_mut
+        let space = Arc::make_mut(stage2);
+        space.map_page(ipa, pa, permissions, security_state)
+    }
+
     // ========================================================================
     // Translation Operations
     // ========================================================================

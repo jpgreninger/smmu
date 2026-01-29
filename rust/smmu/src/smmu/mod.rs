@@ -560,6 +560,46 @@ impl SMMU {
         ctx.create_pasid(pasid).map_err(SMMUError::from)
     }
 
+    /// Remove a PASID from a stream
+    ///
+    /// Removes a Process Address Space ID (PASID) from a stream context,
+    /// cleaning up all associated resources (address space, mappings, etc.).
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier
+    /// * `pasid` - Process Address Space ID to remove
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - Stream not found (`StreamNotFound`)
+    /// - PASID removal fails (`StreamContextError`)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, StreamConfig, PASID};
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1).unwrap();
+    /// smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
+    ///
+    /// let pasid = PASID::new(1).unwrap();
+    /// smmu.create_pasid(stream_id, pasid).unwrap();
+    ///
+    /// // Later, remove the PASID
+    /// smmu.remove_pasid(stream_id, pasid).unwrap();
+    /// ```
+    pub fn remove_pasid(&self, stream_id: StreamID, pasid: PASID) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        let ctx = stream_context.read().unwrap();
+        ctx.remove_pasid(pasid).map_err(SMMUError::from)
+    }
+
     /// Map a page in a stream's address space
     ///
     /// Creates a virtual-to-physical mapping for Stage-1 translation.
@@ -611,6 +651,105 @@ impl SMMU {
         let stream_context = self.get_stream_context(stream_id)?;
         let ctx = stream_context.read().unwrap();
         ctx.map_page(pasid, iova, pa, permissions, security_state)
+            .map_err(SMMUError::from)
+    }
+
+    /// Map a page in the Stage-2 address space (IPA → PA)
+    ///
+    /// For two-stage translation, Stage-2 maps Intermediate Physical Addresses (IPA)
+    /// to Physical Addresses (PA). This is separate from Stage-1 PASID-based mappings.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier
+    /// * `ipa` - Intermediate Physical Address (from Stage-1 output)
+    /// * `pa` - Final Physical Address
+    /// * `permissions` - Page permissions for Stage-2
+    /// * `security_state` - Security state
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SMMU is shutdown
+    /// - Stream not found
+    /// - Stage-2 address space not initialized
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, StreamConfig, IOVA, PA, PagePermissions, SecurityState};
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1).unwrap();
+    ///
+    /// // Configure for two-stage translation
+    /// let mut config = StreamConfig::default();
+    /// config.stage1_enabled = true;
+    /// config.stage2_enabled = true;
+    /// smmu.configure_stream(stream_id, config).unwrap();
+    ///
+    /// // Create Stage-2 address space
+    /// smmu.create_stage2_address_space(stream_id).unwrap();
+    ///
+    /// // Map Stage-2: IPA → PA
+    /// let ipa = IOVA::new(0x2000).unwrap(); // IPA from Stage-1
+    /// let pa = PA::new(0x3000).unwrap();
+    /// smmu.map_stage2_page(stream_id, ipa, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// ```
+    pub fn map_stage2_page(
+        &self,
+        stream_id: StreamID,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        let mut ctx = stream_context.write().unwrap();
+        ctx.map_stage2_page(ipa, pa, permissions, security_state)
+            .map_err(SMMUError::from)
+    }
+
+    /// Create and initialize Stage-2 address space for a stream
+    ///
+    /// Required for two-stage translation. Creates a new address space
+    /// for Stage-2 IPA → PA mappings.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SMMU is shutdown
+    /// - Stream not found
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, StreamConfig};
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1).unwrap();
+    ///
+    /// // Configure stream for two-stage translation
+    /// let mut config = StreamConfig::default();
+    /// config.stage1_enabled = true;
+    /// config.stage2_enabled = true;
+    /// smmu.configure_stream(stream_id, config).unwrap();
+    ///
+    /// // Create Stage-2 address space
+    /// smmu.create_stage2_address_space(stream_id).unwrap();
+    /// ```
+    pub fn create_stage2_address_space(&self, stream_id: StreamID) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        let mut ctx = stream_context.write().unwrap();
+        ctx.create_stage2_address_space()
             .map_err(SMMUError::from)
     }
 
@@ -1001,6 +1140,30 @@ impl SMMU {
             .ok_or_else(|| SMMUError::stream_not_found(stream_id))
     }
 
+    /// Map ARM SMMU v3 fault type to event type
+    ///
+    /// Converts `FaultType` to `EventType` for event queue recording.
+    ///
+    /// # Arguments
+    ///
+    /// * `fault_type` - Fault type to map
+    ///
+    /// # Returns
+    ///
+    /// Corresponding event type.
+    fn map_fault_type_to_event_type(fault_type: FaultType) -> EventType {
+        match fault_type {
+            FaultType::TranslationFault | FaultType::BadSTE | FaultType::BadCD
+            | FaultType::BadStreamID | FaultType::AddressSizeFault
+            | FaultType::AlignmentFault | FaultType::ExternalAbort
+            | FaultType::TLBConflictAbort | FaultType::CDFetchFault
+            | FaultType::STEFetchFault | FaultType::WalkEABT
+            | FaultType::OutputAddressRangeFault | FaultType::UnsupportedAtomicUpdate
+            | FaultType::AccessFlagFault => EventType::TranslationFault,
+            FaultType::PermissionFault => EventType::PermissionFault,
+        }
+    }
+
     /// Map translation error to ARM SMMU v3 fault type
     ///
     /// Converts `TranslationError` to appropriate `FaultType` per ARM SMMU v3
@@ -1069,6 +1232,25 @@ impl SMMU {
             .build();
 
         self.record_fault(fault);
+
+        // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
+        let event_type = Self::map_fault_type_to_event_type(fault_type);
+        let event = EventEntry {
+            event_type,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            address: iova.as_u64(),
+            security_state: SecurityState::NonSecure,
+            error_code: 0,
+            timestamp,
+        };
+
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                queue.push_back(event);
+                self.event_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Record stream not found fault event
@@ -1104,6 +1286,24 @@ impl SMMU {
             .build();
 
         self.record_fault(fault);
+
+        // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
+        let event = EventEntry {
+            event_type: EventType::TranslationFault,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            address: iova.as_u64(),
+            security_state: SecurityState::NonSecure,
+            error_code: 0,
+            timestamp,
+        };
+
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                queue.push_back(event);
+                self.event_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Check if SMMU is shutdown and return error if so
