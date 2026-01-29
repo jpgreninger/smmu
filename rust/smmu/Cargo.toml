@@ -56,3 +56,11 @@ harness = false
 [[bench]]
 name = "cache"
 harness = false
+
+[[bench]]
+name = "algorithm_optimization"
+harness = false
+
+[[bench]]
+name = "memory_usage"
+harness = false
