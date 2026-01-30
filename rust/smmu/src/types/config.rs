@@ -1705,13 +1705,11 @@ mod tests {
     // ========================================================================
 
     #[test]
-    #[ignore = "ResourceLimits not yet implemented"]
     fn test_resource_limits_default_construction() {
         let _limits = ResourceLimits::default();
     }
 
     #[test]
-    #[ignore = "ResourceLimits not yet implemented"]
     fn test_resource_limits_builder() {
         let _limits = ResourceLimits::builder()
             .max_memory_usage(1024 * 1024 * 1024)
@@ -1722,14 +1720,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ResourceLimits not yet implemented"]
     fn test_resource_limits_validation() {
         let limits = ResourceLimits::default();
         assert!(limits.validate().is_ok());
     }
 
     #[test]
-    #[ignore = "ResourceLimits not yet implemented"]
     fn test_resource_limits_constants() {
         assert_eq!(ResourceLimits::MIN_MEMORY_USAGE, 1024 * 1024);
         assert_eq!(ResourceLimits::MAX_MEMORY_USAGE, 64 * 1024 * 1024 * 1024);
@@ -1741,53 +1737,45 @@ mod tests {
     // ========================================================================
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_server_profile() {
         let _config = SMMUConfig::server_profile();
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_embedded_profile() {
         let _config = SMMUConfig::embedded_profile();
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_development_profile() {
         let _config = SMMUConfig::development_profile();
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_update_queue_sizes() {
         let mut config = SMMUConfig::default();
         assert!(config.update_queue_sizes(1024, 512, 256).is_ok());
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_update_cache_settings() {
         let mut config = SMMUConfig::default();
         assert!(config.update_cache_settings(2048, 10000, true).is_ok());
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_update_address_limits() {
         let mut config = SMMUConfig::default();
         assert!(config.update_address_limits(40, 44, 1024, 2048).is_ok());
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_update_resource_limits() {
         let mut config = SMMUConfig::default();
         assert!(config.update_resource_limits(2 * 1024 * 1024 * 1024, 16, 2000).is_ok());
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_merge() {
         let mut base = SMMUConfig::default();
         let overlay = SMMUConfig::high_performance();
@@ -1795,7 +1783,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_reset() {
         let mut config = SMMUConfig::high_performance();
         config.reset();
@@ -1803,21 +1790,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_to_string() {
         let config = SMMUConfig::default();
         let _config_str = config.to_string();
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_from_string() {
         let config_str = "event_queue_size=1024\ntlb_cache_size=2048";
         let _config = SMMUConfig::from_string(config_str);
     }
 
     #[test]
-    #[ignore = "SMMUConfig extended methods not yet implemented"]
     fn test_smmu_config_validate_detailed() {
         let config = SMMUConfig::default();
         let result = config.validate_detailed();
@@ -1830,7 +1814,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    #[ignore = "ConfigurationError not yet implemented"]
     fn test_configuration_error_construction() {
         let _error = ConfigurationError::new(
             ConfigurationErrorType::InvalidQueueSize,
@@ -1840,7 +1823,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ConfigurationError not yet implemented"]
     fn test_configuration_error_types_exist() {
         let _types = [
             ConfigurationErrorType::InvalidQueueSize,
@@ -1859,7 +1841,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    #[ignore = "ValidationResult not yet implemented"]
     fn test_validation_result_success() {
         let result = ValidationResult::success();
         assert!(result.is_valid);
@@ -1867,7 +1848,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ValidationResult not yet implemented"]
     fn test_validation_result_with_error() {
         let result = ValidationResult::with_error("test error".to_string());
         assert!(!result.is_valid);
@@ -1875,7 +1855,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ValidationResult not yet implemented"]
     fn test_validation_result_add_warning() {
         let mut result = ValidationResult::success();
         result.add_warning("test warning".to_string());
@@ -1889,20 +1868,17 @@ mod tests {
     // ========================================================================
 
     #[test]
-    #[ignore = "ConfigConstants not yet implemented"]
     fn test_config_constants_default_file() {
         assert_eq!(ConfigConstants::DEFAULT_CONFIG_FILE, "smmu_config.conf");
     }
 
     #[test]
-    #[ignore = "ConfigConstants not yet implemented"]
     fn test_config_constants_env_vars() {
         assert_eq!(ConfigConstants::ENV_CONFIG_FILE, "SMMU_CONFIG_FILE");
         assert_eq!(ConfigConstants::ENV_QUEUE_SIZE, "SMMU_QUEUE_SIZE");
     }
 
     #[test]
-    #[ignore = "ConfigConstants not yet implemented"]
     fn test_config_constants_version() {
         assert!(!ConfigConstants::CONFIG_VERSION.is_empty());
     }
