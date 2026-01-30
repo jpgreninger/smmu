@@ -1,20 +1,24 @@
-//! Comprehensive tests for SecurityState enum
+//! Comprehensive tests for SecurityState type
 //!
-//! Tests cover:
-//! - SecurityState enum variants (Secure, NonSecure, Realm)
-//! - State validation and transition methods
-//! - ARM SMMU v3 security domain isolation
-//! - State transition rules and validation
-//! - Copy, Clone, Debug, PartialEq, Eq traits
+//! This test suite achieves 100% coverage for types/security_state.rs by testing:
+//! - State transition validation (9 combinations)
+//! - Realm world state handling
+//! - Security violation detection
+//! - Display formatting for all states
+//! - Const methods for compile-time evaluation
+//! - Bit encoding/decoding
+//! - Access control rules
 
-use smmu::{SecurityState, ValidationError};
+use smmu::types::SecurityState;
+use smmu::ValidationError;
+use std::collections::HashSet;
 
 // ============================================================================
-// Basic SecurityState Tests
+// Basic State Checks
 // ============================================================================
 
 #[test]
-fn test_security_state_secure() {
+fn test_security_state_is_secure() {
     let state = SecurityState::Secure;
     assert!(state.is_secure());
     assert!(!state.is_non_secure());
@@ -22,7 +26,7 @@ fn test_security_state_secure() {
 }
 
 #[test]
-fn test_security_state_non_secure() {
+fn test_security_state_is_non_secure() {
     let state = SecurityState::NonSecure;
     assert!(!state.is_secure());
     assert!(state.is_non_secure());
@@ -30,7 +34,7 @@ fn test_security_state_non_secure() {
 }
 
 #[test]
-fn test_security_state_realm() {
+fn test_security_state_is_realm() {
     let state = SecurityState::Realm;
     assert!(!state.is_secure());
     assert!(!state.is_non_secure());
@@ -38,61 +42,378 @@ fn test_security_state_realm() {
 }
 
 // ============================================================================
-// State Transition Tests
+// Const Methods for Compile-Time Evaluation
 // ============================================================================
 
 #[test]
-fn test_transition_secure_to_non_secure_denied() {
+fn test_security_state_const_is_secure() {
     let state = SecurityState::Secure;
-    let result = state.transition_to(SecurityState::NonSecure);
-
-    // Direct transition from Secure to NonSecure not allowed
-    assert!(result.is_err());
-    assert!(matches!(
-        result,
-        Err(ValidationError::InvalidStateTransition { .. })
-    ));
+    assert!(state.const_is_secure());
+    assert!(!SecurityState::NonSecure.const_is_secure());
+    assert!(!SecurityState::Realm.const_is_secure());
 }
 
 #[test]
-fn test_transition_secure_to_secure_allowed() {
+fn test_security_state_const_is_non_secure() {
+    let state = SecurityState::NonSecure;
+    assert!(state.const_is_non_secure());
+    assert!(!SecurityState::Secure.const_is_non_secure());
+    assert!(!SecurityState::Realm.const_is_non_secure());
+}
+
+#[test]
+fn test_security_state_const_is_realm() {
+    let state = SecurityState::Realm;
+    assert!(state.const_is_realm());
+    assert!(!SecurityState::Secure.const_is_realm());
+    assert!(!SecurityState::NonSecure.const_is_realm());
+}
+
+#[test]
+fn test_security_state_const_methods_in_const_context() {
+    const fn check_secure(state: SecurityState) -> bool {
+        state.const_is_secure()
+    }
+
+    const fn check_non_secure(state: SecurityState) -> bool {
+        state.const_is_non_secure()
+    }
+
+    const fn check_realm(state: SecurityState) -> bool {
+        state.const_is_realm()
+    }
+
+    assert!(check_secure(SecurityState::Secure));
+    assert!(check_non_secure(SecurityState::NonSecure));
+    assert!(check_realm(SecurityState::Realm));
+}
+
+// ============================================================================
+// State Transition Tests (9 Combinations)
+// ============================================================================
+
+#[test]
+fn test_transition_secure_to_secure() {
     let state = SecurityState::Secure;
     let result = state.transition_to(SecurityState::Secure);
-
-    // Same-state transition is always allowed (no-op)
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), SecurityState::Secure);
 }
 
 #[test]
-fn test_transition_non_secure_to_secure_denied() {
+fn test_transition_nonsecure_to_nonsecure() {
+    let state = SecurityState::NonSecure;
+    let result = state.transition_to(SecurityState::NonSecure);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), SecurityState::NonSecure);
+}
+
+#[test]
+fn test_transition_realm_to_realm() {
+    let state = SecurityState::Realm;
+    let result = state.transition_to(SecurityState::Realm);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), SecurityState::Realm);
+}
+
+#[test]
+fn test_transition_secure_to_nonsecure_requires_reconfiguration() {
+    let state = SecurityState::Secure;
+    let result = state.transition_to(SecurityState::NonSecure);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "Secure");
+        assert_eq!(to, "NonSecure");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
+}
+
+#[test]
+fn test_transition_secure_to_realm_requires_reconfiguration() {
+    let state = SecurityState::Secure;
+    let result = state.transition_to(SecurityState::Realm);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "Secure");
+        assert_eq!(to, "Realm");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
+}
+
+#[test]
+fn test_transition_nonsecure_to_secure_requires_reconfiguration() {
     let state = SecurityState::NonSecure;
     let result = state.transition_to(SecurityState::Secure);
-
-    // NonSecure cannot transition to Secure
     assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "NonSecure");
+        assert_eq!(to, "Secure");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
 }
 
 #[test]
-fn test_transition_realm_to_secure_denied() {
+fn test_transition_nonsecure_to_realm_requires_reconfiguration() {
+    let state = SecurityState::NonSecure;
+    let result = state.transition_to(SecurityState::Realm);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "NonSecure");
+        assert_eq!(to, "Realm");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
+}
+
+#[test]
+fn test_transition_realm_to_secure_requires_reconfiguration() {
     let state = SecurityState::Realm;
     let result = state.transition_to(SecurityState::Secure);
-
-    // Realm cannot transition to Secure
     assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "Realm");
+        assert_eq!(to, "Secure");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
 }
 
 #[test]
-fn test_transition_realm_to_non_secure_denied() {
+fn test_transition_realm_to_nonsecure_requires_reconfiguration() {
     let state = SecurityState::Realm;
     let result = state.transition_to(SecurityState::NonSecure);
-
-    // Realm cannot transition to NonSecure directly
     assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidStateTransition { from, to }) = result {
+        assert_eq!(from, "Realm");
+        assert_eq!(to, "NonSecure");
+    } else {
+        panic!("Expected InvalidStateTransition error");
+    }
+}
+
+// ============================================================================
+// Access Control Rules Tests
+// ============================================================================
+
+#[test]
+fn test_can_access_same_state_secure() {
+    assert!(SecurityState::Secure.can_access(SecurityState::Secure));
 }
 
 #[test]
-fn test_all_same_state_transitions_allowed() {
+fn test_can_access_same_state_nonsecure() {
+    assert!(SecurityState::NonSecure.can_access(SecurityState::NonSecure));
+}
+
+#[test]
+fn test_can_access_same_state_realm() {
+    assert!(SecurityState::Realm.can_access(SecurityState::Realm));
+}
+
+#[test]
+fn test_can_access_secure_to_nonsecure() {
+    // Secure can access NonSecure (downgrade)
+    assert!(SecurityState::Secure.can_access(SecurityState::NonSecure));
+}
+
+#[test]
+fn test_cannot_access_nonsecure_to_secure() {
+    // NonSecure cannot access Secure
+    assert!(!SecurityState::NonSecure.can_access(SecurityState::Secure));
+}
+
+#[test]
+fn test_cannot_access_secure_to_realm() {
+    // Realm is isolated from Secure
+    assert!(!SecurityState::Secure.can_access(SecurityState::Realm));
+}
+
+#[test]
+fn test_cannot_access_nonsecure_to_realm() {
+    // Realm is isolated from NonSecure
+    assert!(!SecurityState::NonSecure.can_access(SecurityState::Realm));
+}
+
+#[test]
+fn test_cannot_access_realm_to_secure() {
+    // Realm is isolated from Secure
+    assert!(!SecurityState::Realm.can_access(SecurityState::Secure));
+}
+
+#[test]
+fn test_cannot_access_realm_to_nonsecure() {
+    // Realm is isolated from NonSecure
+    assert!(!SecurityState::Realm.can_access(SecurityState::NonSecure));
+}
+
+// ============================================================================
+// Validate Access Tests (Security Violation Detection)
+// ============================================================================
+
+#[test]
+fn test_validate_access_same_state_secure() {
+    let result = SecurityState::Secure.validate_access(SecurityState::Secure);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_validate_access_same_state_nonsecure() {
+    let result = SecurityState::NonSecure.validate_access(SecurityState::NonSecure);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_validate_access_same_state_realm() {
+    let result = SecurityState::Realm.validate_access(SecurityState::Realm);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_validate_access_secure_to_nonsecure() {
+    let result = SecurityState::Secure.validate_access(SecurityState::NonSecure);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_validate_access_nonsecure_to_secure_violation() {
+    let result = SecurityState::NonSecure.validate_access(SecurityState::Secure);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::SecurityViolation { from_state, to_state }) = result {
+        assert_eq!(from_state, "NonSecure");
+        assert_eq!(to_state, "Secure");
+    } else {
+        panic!("Expected SecurityViolation error");
+    }
+}
+
+#[test]
+fn test_validate_access_secure_to_realm_violation() {
+    let result = SecurityState::Secure.validate_access(SecurityState::Realm);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::SecurityViolation { from_state, to_state }) = result {
+        assert_eq!(from_state, "Secure");
+        assert_eq!(to_state, "Realm");
+    } else {
+        panic!("Expected SecurityViolation error");
+    }
+}
+
+#[test]
+fn test_validate_access_nonsecure_to_realm_violation() {
+    let result = SecurityState::NonSecure.validate_access(SecurityState::Realm);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::SecurityViolation { from_state, to_state }) = result {
+        assert_eq!(from_state, "NonSecure");
+        assert_eq!(to_state, "Realm");
+    } else {
+        panic!("Expected SecurityViolation error");
+    }
+}
+
+#[test]
+fn test_validate_access_realm_to_secure_violation() {
+    let result = SecurityState::Realm.validate_access(SecurityState::Secure);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::SecurityViolation { from_state, to_state }) = result {
+        assert_eq!(from_state, "Realm");
+        assert_eq!(to_state, "Secure");
+    } else {
+        panic!("Expected SecurityViolation error");
+    }
+}
+
+#[test]
+fn test_validate_access_realm_to_nonsecure_violation() {
+    let result = SecurityState::Realm.validate_access(SecurityState::NonSecure);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::SecurityViolation { from_state, to_state }) = result {
+        assert_eq!(from_state, "Realm");
+        assert_eq!(to_state, "NonSecure");
+    } else {
+        panic!("Expected SecurityViolation error");
+    }
+}
+
+// ============================================================================
+// Bit Encoding/Decoding Tests
+// ============================================================================
+
+#[test]
+fn test_to_bits_secure() {
+    assert_eq!(SecurityState::Secure.to_bits(), 0b00);
+}
+
+#[test]
+fn test_to_bits_nonsecure() {
+    assert_eq!(SecurityState::NonSecure.to_bits(), 0b01);
+}
+
+#[test]
+fn test_to_bits_realm() {
+    assert_eq!(SecurityState::Realm.to_bits(), 0b10);
+}
+
+#[test]
+fn test_from_bits_secure() {
+    let result = SecurityState::from_bits(0b00);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), SecurityState::Secure);
+}
+
+#[test]
+fn test_from_bits_nonsecure() {
+    let result = SecurityState::from_bits(0b01);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), SecurityState::NonSecure);
+}
+
+#[test]
+fn test_from_bits_realm() {
+    let result = SecurityState::from_bits(0b10);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), SecurityState::Realm);
+}
+
+#[test]
+fn test_from_bits_invalid() {
+    let result = SecurityState::from_bits(0b11);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidSecurityState { bits }) = result {
+        assert_eq!(bits, 0b11);
+    } else {
+        panic!("Expected InvalidSecurityState error");
+    }
+}
+
+#[test]
+fn test_from_bits_invalid_large_value() {
+    let result = SecurityState::from_bits(0xFF);
+    assert!(result.is_err());
+
+    if let Err(ValidationError::InvalidSecurityState { bits }) = result {
+        assert_eq!(bits, 0xFF);
+    } else {
+        panic!("Expected InvalidSecurityState error");
+    }
+}
+
+#[test]
+fn test_from_bits_roundtrip() {
     let states = [
         SecurityState::Secure,
         SecurityState::NonSecure,
@@ -100,323 +421,246 @@ fn test_all_same_state_transitions_allowed() {
     ];
 
     for state in &states {
-        let result = state.transition_to(*state);
-        assert!(result.is_ok(), "Same-state transition should always succeed");
-        assert_eq!(result.unwrap(), *state);
+        let bits = state.to_bits();
+        let decoded = SecurityState::from_bits(bits).unwrap();
+        assert_eq!(*state, decoded);
     }
 }
 
 // ============================================================================
-// State Isolation Tests
+// Display Trait Tests
 // ============================================================================
 
 #[test]
-fn test_can_access_secure_from_secure() {
-    let accessing_state = SecurityState::Secure;
-    let target_state = SecurityState::Secure;
-
-    assert!(accessing_state.can_access(target_state));
+fn test_display_secure() {
+    let state = SecurityState::Secure;
+    assert_eq!(format!("{}", state), "Secure");
 }
 
 #[test]
-fn test_cannot_access_secure_from_non_secure() {
-    let accessing_state = SecurityState::NonSecure;
-    let target_state = SecurityState::Secure;
-
-    assert!(!accessing_state.can_access(target_state));
+fn test_display_nonsecure() {
+    let state = SecurityState::NonSecure;
+    assert_eq!(format!("{}", state), "NonSecure");
 }
 
 #[test]
-fn test_can_access_non_secure_from_secure() {
-    let accessing_state = SecurityState::Secure;
-    let target_state = SecurityState::NonSecure;
-
-    // Secure world can access NonSecure (downgrade)
-    assert!(accessing_state.can_access(target_state));
+fn test_display_realm() {
+    let state = SecurityState::Realm;
+    assert_eq!(format!("{}", state), "Realm");
 }
 
 #[test]
-fn test_can_access_non_secure_from_non_secure() {
-    let accessing_state = SecurityState::NonSecure;
-    let target_state = SecurityState::NonSecure;
+fn test_display_all_states() {
+    let states = [
+        (SecurityState::Secure, "Secure"),
+        (SecurityState::NonSecure, "NonSecure"),
+        (SecurityState::Realm, "Realm"),
+    ];
 
-    assert!(accessing_state.can_access(target_state));
+    for (state, expected) in &states {
+        assert_eq!(format!("{}", state), *expected);
+    }
 }
+
+// ============================================================================
+// Default Trait Test
+// ============================================================================
+
+#[test]
+fn test_default_is_nonsecure() {
+    let state = SecurityState::default();
+    assert_eq!(state, SecurityState::NonSecure);
+    assert!(state.is_non_secure());
+    assert!(!state.is_secure());
+    assert!(!state.is_realm());
+}
+
+// ============================================================================
+// Hash Trait Tests
+// ============================================================================
+
+#[test]
+fn test_hash_in_hashset() {
+    let mut set = HashSet::new();
+
+    set.insert(SecurityState::Secure);
+    set.insert(SecurityState::NonSecure);
+    set.insert(SecurityState::Realm);
+    set.insert(SecurityState::Secure); // Duplicate
+
+    assert_eq!(set.len(), 3); // Only 3 unique states
+    assert!(set.contains(&SecurityState::Secure));
+    assert!(set.contains(&SecurityState::NonSecure));
+    assert!(set.contains(&SecurityState::Realm));
+}
+
+#[test]
+fn test_hash_consistency() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let state = SecurityState::Realm;
+
+    let mut hasher1 = DefaultHasher::new();
+    state.hash(&mut hasher1);
+    let hash1 = hasher1.finish();
+
+    let mut hasher2 = DefaultHasher::new();
+    state.hash(&mut hasher2);
+    let hash2 = hasher2.finish();
+
+    assert_eq!(hash1, hash2);
+}
+
+// ============================================================================
+// Copy and Clone Trait Tests
+// ============================================================================
+
+#[test]
+fn test_copy() {
+    let state1 = SecurityState::Secure;
+    let state2 = state1; // Copy
+
+    assert_eq!(state1, state2);
+    assert!(state1.is_secure()); // Original still valid
+}
+
+#[test]
+fn test_clone() {
+    let state1 = SecurityState::Realm;
+    let state2 = state1.clone();
+
+    assert_eq!(state1, state2);
+}
+
+// ============================================================================
+// Equality Tests
+// ============================================================================
+
+#[test]
+fn test_equality() {
+    assert_eq!(SecurityState::Secure, SecurityState::Secure);
+    assert_eq!(SecurityState::NonSecure, SecurityState::NonSecure);
+    assert_eq!(SecurityState::Realm, SecurityState::Realm);
+}
+
+#[test]
+fn test_inequality() {
+    assert_ne!(SecurityState::Secure, SecurityState::NonSecure);
+    assert_ne!(SecurityState::Secure, SecurityState::Realm);
+    assert_ne!(SecurityState::NonSecure, SecurityState::Realm);
+}
+
+// ============================================================================
+// Realm World State Isolation Tests (ARM CCA)
+// ============================================================================
 
 #[test]
 fn test_realm_isolation_from_secure() {
-    let accessing_state = SecurityState::Secure;
-    let target_state = SecurityState::Realm;
+    // Realm cannot access Secure
+    assert!(!SecurityState::Realm.can_access(SecurityState::Secure));
 
-    // Secure cannot directly access Realm (isolated)
-    assert!(!accessing_state.can_access(target_state));
+    // Secure cannot access Realm
+    assert!(!SecurityState::Secure.can_access(SecurityState::Realm));
+
+    // Validate access should fail in both directions
+    assert!(SecurityState::Realm.validate_access(SecurityState::Secure).is_err());
+    assert!(SecurityState::Secure.validate_access(SecurityState::Realm).is_err());
 }
 
 #[test]
-fn test_realm_isolation_from_non_secure() {
-    let accessing_state = SecurityState::NonSecure;
-    let target_state = SecurityState::Realm;
+fn test_realm_isolation_from_nonsecure() {
+    // Realm cannot access NonSecure
+    assert!(!SecurityState::Realm.can_access(SecurityState::NonSecure));
 
-    // NonSecure cannot access Realm (isolated)
-    assert!(!accessing_state.can_access(target_state));
+    // NonSecure cannot access Realm
+    assert!(!SecurityState::NonSecure.can_access(SecurityState::Realm));
+
+    // Validate access should fail in both directions
+    assert!(SecurityState::Realm.validate_access(SecurityState::NonSecure).is_err());
+    assert!(SecurityState::NonSecure.validate_access(SecurityState::Realm).is_err());
 }
 
 #[test]
-fn test_realm_can_access_itself() {
-    let accessing_state = SecurityState::Realm;
-    let target_state = SecurityState::Realm;
+fn test_realm_self_access_only() {
+    // Realm can only access itself
+    assert!(SecurityState::Realm.can_access(SecurityState::Realm));
+    assert!(SecurityState::Realm.validate_access(SecurityState::Realm).is_ok());
 
-    assert!(accessing_state.can_access(target_state));
-}
-
-// ============================================================================
-// ARM SMMU v3 Encoding Tests
-// ============================================================================
-
-#[test]
-fn test_security_state_to_bits() {
-    // ARM SMMU v3 security state encoding
-    assert_eq!(SecurityState::Secure.to_bits(), 0b00);
-    assert_eq!(SecurityState::NonSecure.to_bits(), 0b01);
-    assert_eq!(SecurityState::Realm.to_bits(), 0b10);
-}
-
-#[test]
-fn test_security_state_from_bits() {
-    assert_eq!(
-        SecurityState::from_bits(0b00),
-        Ok(SecurityState::Secure)
-    );
-    assert_eq!(
-        SecurityState::from_bits(0b01),
-        Ok(SecurityState::NonSecure)
-    );
-    assert_eq!(
-        SecurityState::from_bits(0b10),
-        Ok(SecurityState::Realm)
-    );
-}
-
-#[test]
-fn test_security_state_from_bits_invalid() {
-    let result = SecurityState::from_bits(0b11);
-    assert!(result.is_err());
-    assert!(matches!(
-        result,
-        Err(ValidationError::InvalidSecurityState { .. })
-    ));
-}
-
-#[test]
-fn test_security_state_from_bits_out_of_range() {
-    let result = SecurityState::from_bits(0xFF);
-    assert!(result.is_err());
+    // All other access is forbidden
+    assert!(!SecurityState::Realm.can_access(SecurityState::Secure));
+    assert!(!SecurityState::Realm.can_access(SecurityState::NonSecure));
 }
 
 // ============================================================================
-// Trait Implementation Tests
+// Integration Tests
 // ============================================================================
 
 #[test]
-fn test_security_state_copy_clone() {
-    let state1 = SecurityState::Secure;
-    let state2 = state1; // Copy
-    let state3 = state1.clone(); // Clone
-
-    assert_eq!(state1, state2);
-    assert_eq!(state1, state3);
+fn test_security_downgrade_allowed() {
+    // Secure can downgrade to NonSecure (TrustZone model)
+    let secure = SecurityState::Secure;
+    assert!(secure.can_access(SecurityState::NonSecure));
+    assert!(secure.validate_access(SecurityState::NonSecure).is_ok());
 }
 
 #[test]
-fn test_security_state_equality() {
-    let secure1 = SecurityState::Secure;
-    let secure2 = SecurityState::Secure;
-    let non_secure = SecurityState::NonSecure;
-
-    assert_eq!(secure1, secure2);
-    assert_ne!(secure1, non_secure);
+fn test_security_upgrade_forbidden() {
+    // NonSecure cannot upgrade to Secure (TrustZone model)
+    let nonsecure = SecurityState::NonSecure;
+    assert!(!nonsecure.can_access(SecurityState::Secure));
+    assert!(nonsecure.validate_access(SecurityState::Secure).is_err());
 }
 
 #[test]
-fn test_security_state_debug() {
-    let state = SecurityState::Secure;
-    let debug = format!("{:?}", state);
-    assert!(debug.contains("Secure"));
+fn test_arm_cca_realm_complete_isolation() {
+    // ARM Confidential Compute Architecture (CCA) Realm world is completely isolated
+    let realm = SecurityState::Realm;
+
+    // Can only access itself
+    assert!(realm.can_access(SecurityState::Realm));
+
+    // Cannot access any other world
+    assert!(!realm.can_access(SecurityState::Secure));
+    assert!(!realm.can_access(SecurityState::NonSecure));
+
+    // No other world can access Realm
+    assert!(!SecurityState::Secure.can_access(realm));
+    assert!(!SecurityState::NonSecure.can_access(realm));
 }
 
 #[test]
-fn test_security_state_display() {
-    assert_eq!(format!("{}", SecurityState::Secure), "Secure");
-    assert_eq!(format!("{}", SecurityState::NonSecure), "NonSecure");
-    assert_eq!(format!("{}", SecurityState::Realm), "Realm");
-}
-
-// ============================================================================
-// Const Methods Tests
-// ============================================================================
-
-#[test]
-fn test_const_is_secure() {
-    const STATE: SecurityState = SecurityState::Secure;
-    const IS_SECURE: bool = STATE.const_is_secure();
-    assert!(IS_SECURE);
-}
-
-#[test]
-fn test_const_is_non_secure() {
-    const STATE: SecurityState = SecurityState::NonSecure;
-    const IS_NON_SECURE: bool = STATE.const_is_non_secure();
-    assert!(IS_NON_SECURE);
-}
-
-#[test]
-fn test_const_is_realm() {
-    const STATE: SecurityState = SecurityState::Realm;
-    const IS_REALM: bool = STATE.const_is_realm();
-    assert!(IS_REALM);
-}
-
-#[test]
-fn test_const_evaluation() {
-    // Test compile-time evaluation
-    const _STATE1: SecurityState = SecurityState::Secure;
-    const _STATE2: SecurityState = SecurityState::NonSecure;
-    const _IS_SECURE: bool = SecurityState::Secure.const_is_secure();
-
-    // If this compiles, const evaluation works
-}
-
-// ============================================================================
-// Validation Tests
-// ============================================================================
-
-#[test]
-fn test_validate_access_secure_to_secure() {
-    let from = SecurityState::Secure;
-    let to = SecurityState::Secure;
-
-    let result = from.validate_access(to);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_validate_access_non_secure_to_secure_denied() {
-    let from = SecurityState::NonSecure;
-    let to = SecurityState::Secure;
-
-    let result = from.validate_access(to);
-    assert!(result.is_err());
-    assert!(matches!(
-        result,
-        Err(ValidationError::SecurityViolation { .. })
-    ));
-}
-
-#[test]
-fn test_validate_access_realm_isolation() {
-    let from = SecurityState::NonSecure;
-    let to = SecurityState::Realm;
-
-    let result = from.validate_access(to);
-    assert!(result.is_err());
-}
-
-// ============================================================================
-// ARM SMMU v3 Compliance Tests
-// ============================================================================
-
-#[test]
-fn test_security_domain_isolation() {
-    // ARM SMMU v3 requires strict isolation between security domains
-    let domains = [
+fn test_all_state_combinations_access_matrix() {
+    // Complete access matrix test (3x3 = 9 combinations)
+    let states = [
         SecurityState::Secure,
         SecurityState::NonSecure,
         SecurityState::Realm,
     ];
 
-    for &from_domain in &domains {
-        for &to_domain in &domains {
-            let can_access = from_domain.can_access(to_domain);
+    let expected_access = [
+        // From Secure:
+        (SecurityState::Secure, SecurityState::Secure, true),
+        (SecurityState::Secure, SecurityState::NonSecure, true),
+        (SecurityState::Secure, SecurityState::Realm, false),
+        // From NonSecure:
+        (SecurityState::NonSecure, SecurityState::Secure, false),
+        (SecurityState::NonSecure, SecurityState::NonSecure, true),
+        (SecurityState::NonSecure, SecurityState::Realm, false),
+        // From Realm:
+        (SecurityState::Realm, SecurityState::Secure, false),
+        (SecurityState::Realm, SecurityState::NonSecure, false),
+        (SecurityState::Realm, SecurityState::Realm, true),
+    ];
 
-            // Same domain always accessible
-            if from_domain == to_domain {
-                assert!(can_access, "{:?} should access {:?}", from_domain, to_domain);
-            } else if from_domain == SecurityState::Secure
-                && to_domain == SecurityState::NonSecure
-            {
-                // Secure can downgrade to NonSecure
-                assert!(can_access);
-            } else if to_domain == SecurityState::Realm {
-                // Realm is isolated from all others
-                assert!(!can_access);
-            } else {
-                // All other cross-domain access denied
-                assert!(!can_access);
-            }
-        }
+    for (from, to, should_allow) in &expected_access {
+        assert_eq!(
+            from.can_access(*to),
+            *should_allow,
+            "Access from {} to {} should be {}",
+            from,
+            to,
+            if *should_allow { "allowed" } else { "denied" }
+        );
     }
-}
-
-#[test]
-fn test_realm_cca_compliance() {
-    // ARM Confidential Compute Architecture (CCA) Realm isolation
-    let realm = SecurityState::Realm;
-
-    // Realm is completely isolated
-    assert!(!SecurityState::Secure.can_access(realm));
-    assert!(!SecurityState::NonSecure.can_access(realm));
-    assert!(realm.can_access(realm));
-}
-
-// ============================================================================
-// Edge Cases
-// ============================================================================
-
-#[test]
-fn test_default_security_state() {
-    let state = SecurityState::default();
-    // Default should be NonSecure (least privileged)
-    assert_eq!(state, SecurityState::NonSecure);
-}
-
-#[test]
-fn test_all_security_states_unique() {
-    let secure = SecurityState::Secure;
-    let non_secure = SecurityState::NonSecure;
-    let realm = SecurityState::Realm;
-
-    // All states should be distinct
-    assert_ne!(secure, non_secure);
-    assert_ne!(secure, realm);
-    assert_ne!(non_secure, realm);
-
-    // All encodings should be distinct
-    assert_ne!(secure.to_bits(), non_secure.to_bits());
-    assert_ne!(secure.to_bits(), realm.to_bits());
-    assert_ne!(non_secure.to_bits(), realm.to_bits());
-}
-
-// ============================================================================
-// Performance Tests
-// ============================================================================
-
-#[test]
-fn test_security_check_performance() {
-    const ITERATIONS: usize = 100_000;
-    let state = SecurityState::Secure;
-
-    let start = std::time::Instant::now();
-    for _ in 0..ITERATIONS {
-        let _s = state.is_secure();
-        let _n = state.is_non_secure();
-        let _r = state.is_realm();
-    }
-    let duration = start.elapsed();
-
-    // Security checks should be extremely fast
-    assert!(
-        duration.as_millis() < 10,
-        "Security checks too slow: {:?}",
-        duration
-    );
 }

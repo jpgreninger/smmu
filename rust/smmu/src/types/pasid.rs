@@ -39,7 +39,7 @@ pub const PASID_MAX: u32 = 0xFFFFF;
 ///
 /// Wraps a 32-bit unsigned integer with validation to ensure it is a valid 20-bit
 /// PASID value (0-0xFFFFF) as required by ARM SMMU v3 specification.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PASID(u32);
 
 impl PASID {

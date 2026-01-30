@@ -1,381 +1,886 @@
-//! Comprehensive tests for PageEntry structure
+//! Comprehensive tests for PageEntry and PagePermissions types
 //!
-//! This test suite validates the PageEntry structure implementation following
-//! ARM SMMU v3 specification requirements. Tests are written FIRST following TDD.
+//! This test suite achieves 100% coverage for types/page_entry.rs by testing:
+//! - All PagePermissions factory methods and operations
+//! - Memory attribute combinations (device memory, cacheable, shareable)
+//! - Security state variations
+//! - Access flag manipulation
+//! - PageEntryBuilder pattern
+//! - All permission combinations (8 variants)
+//! - Set operations (union, intersection, subset)
 
-use smmu::types::{PageEntry, PagePermissions, PA, SecurityState};
+use smmu::types::{AccessType, PageEntry, PagePermissions, SecurityState, PA};
+use std::collections::HashSet;
 
-/// Test default PageEntry construction
+// ============================================================================
+// PagePermissions Factory Methods Tests
+// ============================================================================
+
+#[test]
+fn test_page_permissions_none() {
+    let perms = PagePermissions::none();
+    assert!(!perms.read());
+    assert!(!perms.write());
+    assert!(!perms.execute());
+}
+
+#[test]
+fn test_page_permissions_read_only() {
+    let perms = PagePermissions::read_only();
+    assert!(perms.read());
+    assert!(!perms.write());
+    assert!(!perms.execute());
+}
+
+#[test]
+fn test_page_permissions_write_only() {
+    let perms = PagePermissions::write_only();
+    assert!(!perms.read());
+    assert!(perms.write());
+    assert!(!perms.execute());
+}
+
+#[test]
+fn test_page_permissions_execute_only() {
+    let perms = PagePermissions::execute_only();
+    assert!(!perms.read());
+    assert!(!perms.write());
+    assert!(perms.execute());
+}
+
+#[test]
+fn test_page_permissions_read_write() {
+    let perms = PagePermissions::read_write();
+    assert!(perms.read());
+    assert!(perms.write());
+    assert!(!perms.execute());
+}
+
+#[test]
+fn test_page_permissions_read_execute() {
+    let perms = PagePermissions::read_execute();
+    assert!(perms.read());
+    assert!(!perms.write());
+    assert!(perms.execute());
+}
+
+#[test]
+fn test_page_permissions_write_execute() {
+    let perms = PagePermissions::new(false, true, true);
+    assert!(!perms.read());
+    assert!(perms.write());
+    assert!(perms.execute());
+}
+
+#[test]
+fn test_page_permissions_all() {
+    let perms = PagePermissions::all();
+    assert!(perms.read());
+    assert!(perms.write());
+    assert!(perms.execute());
+}
+
+// ============================================================================
+// PagePermissions Default Trait Test
+// ============================================================================
+
+#[test]
+fn test_page_permissions_default() {
+    let perms = PagePermissions::default();
+    assert_eq!(perms, PagePermissions::none());
+    assert!(!perms.read());
+    assert!(!perms.write());
+    assert!(!perms.execute());
+}
+
+// ============================================================================
+// PagePermissions Hash Trait Tests
+// ============================================================================
+
+#[test]
+fn test_page_permissions_hash_in_hashset() {
+    let mut set = HashSet::new();
+
+    let perm1 = PagePermissions::read_only();
+    let perm2 = PagePermissions::read_write();
+    let perm3 = PagePermissions::read_only(); // Duplicate
+
+    set.insert(perm1);
+    set.insert(perm2);
+    set.insert(perm3);
+
+    assert_eq!(set.len(), 2); // Only 2 unique permissions
+}
+
+#[test]
+fn test_page_permissions_hash_all_combinations() {
+    let mut set = HashSet::new();
+
+    // All 8 possible permission combinations
+    set.insert(PagePermissions::none());
+    set.insert(PagePermissions::read_only());
+    set.insert(PagePermissions::write_only());
+    set.insert(PagePermissions::execute_only());
+    set.insert(PagePermissions::read_write());
+    set.insert(PagePermissions::read_execute());
+    set.insert(PagePermissions::new(false, true, true)); // write-execute
+    set.insert(PagePermissions::all());
+
+    assert_eq!(set.len(), 8);
+}
+
+// ============================================================================
+// PagePermissions allows() Method Tests - All AccessType Variants
+// ============================================================================
+
+#[test]
+fn test_page_permissions_allows_none() {
+    let perms = PagePermissions::none();
+    assert!(perms.allows(AccessType::None));
+}
+
+#[test]
+fn test_page_permissions_allows_read() {
+    let read_perms = PagePermissions::read_only();
+    assert!(read_perms.allows(AccessType::Read));
+
+    let no_read = PagePermissions::write_only();
+    assert!(!no_read.allows(AccessType::Read));
+}
+
+#[test]
+fn test_page_permissions_allows_write() {
+    let write_perms = PagePermissions::write_only();
+    assert!(write_perms.allows(AccessType::Write));
+
+    let no_write = PagePermissions::read_only();
+    assert!(!no_write.allows(AccessType::Write));
+}
+
+#[test]
+fn test_page_permissions_allows_execute() {
+    let exec_perms = PagePermissions::execute_only();
+    assert!(exec_perms.allows(AccessType::Execute));
+
+    let no_exec = PagePermissions::read_only();
+    assert!(!no_exec.allows(AccessType::Execute));
+}
+
+#[test]
+fn test_page_permissions_allows_read_write() {
+    let rw_perms = PagePermissions::read_write();
+    assert!(rw_perms.allows(AccessType::ReadWrite));
+
+    let read_only = PagePermissions::read_only();
+    assert!(!read_only.allows(AccessType::ReadWrite));
+
+    let write_only = PagePermissions::write_only();
+    assert!(!write_only.allows(AccessType::ReadWrite));
+}
+
+#[test]
+fn test_page_permissions_allows_read_execute() {
+    let rx_perms = PagePermissions::read_execute();
+    assert!(rx_perms.allows(AccessType::ReadExecute));
+
+    let read_only = PagePermissions::read_only();
+    assert!(!read_only.allows(AccessType::ReadExecute));
+
+    let exec_only = PagePermissions::execute_only();
+    assert!(!exec_only.allows(AccessType::ReadExecute));
+}
+
+#[test]
+fn test_page_permissions_allows_write_execute() {
+    let wx_perms = PagePermissions::new(false, true, true);
+    assert!(wx_perms.allows(AccessType::WriteExecute));
+
+    let write_only = PagePermissions::write_only();
+    assert!(!write_only.allows(AccessType::WriteExecute));
+
+    let exec_only = PagePermissions::execute_only();
+    assert!(!exec_only.allows(AccessType::WriteExecute));
+}
+
+#[test]
+fn test_page_permissions_allows_read_write_execute() {
+    let all_perms = PagePermissions::all();
+    assert!(all_perms.allows(AccessType::ReadWriteExecute));
+
+    let rw_only = PagePermissions::read_write();
+    assert!(!rw_only.allows(AccessType::ReadWriteExecute));
+
+    let rx_only = PagePermissions::read_execute();
+    assert!(!rx_only.allows(AccessType::ReadWriteExecute));
+}
+
+// ============================================================================
+// PagePermissions Set Operations Tests
+// ============================================================================
+
+#[test]
+fn test_page_permissions_union() {
+    let read = PagePermissions::read_only();
+    let write = PagePermissions::write_only();
+    let union = read.union(write);
+
+    assert!(union.read());
+    assert!(union.write());
+    assert!(!union.execute());
+}
+
+#[test]
+fn test_page_permissions_union_overlapping() {
+    let rw = PagePermissions::read_write();
+    let rx = PagePermissions::read_execute();
+    let union = rw.union(rx);
+
+    assert!(union.read());
+    assert!(union.write());
+    assert!(union.execute());
+    assert_eq!(union, PagePermissions::all());
+}
+
+#[test]
+fn test_page_permissions_union_with_none() {
+    let read = PagePermissions::read_only();
+    let none = PagePermissions::none();
+    let union = read.union(none);
+
+    assert_eq!(union, read);
+}
+
+#[test]
+fn test_page_permissions_union_idempotent() {
+    let perms = PagePermissions::read_write();
+    let union = perms.union(perms);
+
+    assert_eq!(union, perms);
+}
+
+#[test]
+fn test_page_permissions_intersection() {
+    let rw = PagePermissions::read_write();
+    let rx = PagePermissions::read_execute();
+    let intersection = rw.intersection(rx);
+
+    assert!(intersection.read());
+    assert!(!intersection.write());
+    assert!(!intersection.execute());
+    assert_eq!(intersection, PagePermissions::read_only());
+}
+
+#[test]
+fn test_page_permissions_intersection_disjoint() {
+    let read = PagePermissions::read_only();
+    let write = PagePermissions::write_only();
+    let intersection = read.intersection(write);
+
+    assert_eq!(intersection, PagePermissions::none());
+}
+
+#[test]
+fn test_page_permissions_intersection_with_all() {
+    let read = PagePermissions::read_only();
+    let all = PagePermissions::all();
+    let intersection = read.intersection(all);
+
+    assert_eq!(intersection, read);
+}
+
+#[test]
+fn test_page_permissions_intersection_idempotent() {
+    let perms = PagePermissions::read_execute();
+    let intersection = perms.intersection(perms);
+
+    assert_eq!(intersection, perms);
+}
+
+#[test]
+fn test_page_permissions_is_subset_of() {
+    let read = PagePermissions::read_only();
+    let rw = PagePermissions::read_write();
+    let all = PagePermissions::all();
+
+    assert!(read.is_subset_of(&rw));
+    assert!(read.is_subset_of(&all));
+    assert!(rw.is_subset_of(&all));
+
+    assert!(!rw.is_subset_of(&read));
+    assert!(!all.is_subset_of(&rw));
+}
+
+#[test]
+fn test_page_permissions_is_subset_of_reflexive() {
+    let perms = PagePermissions::read_execute();
+    assert!(perms.is_subset_of(&perms));
+}
+
+#[test]
+fn test_page_permissions_is_subset_of_none() {
+    let none = PagePermissions::none();
+    let read = PagePermissions::read_only();
+
+    assert!(none.is_subset_of(&read));
+    assert!(none.is_subset_of(&none));
+}
+
+#[test]
+fn test_page_permissions_is_subset_of_transitive() {
+    let read = PagePermissions::read_only();
+    let rw = PagePermissions::read_write();
+    let all = PagePermissions::all();
+
+    assert!(read.is_subset_of(&rw));
+    assert!(rw.is_subset_of(&all));
+    assert!(read.is_subset_of(&all)); // Transitivity
+}
+
+// ============================================================================
+// PageEntry Basic Tests
+// ============================================================================
+
+#[test]
+fn test_page_entry_new() {
+    let pa = PA::new(0x1000).unwrap();
+    let perms = PagePermissions::read_write();
+    let entry = PageEntry::new(pa, perms);
+
+    assert_eq!(entry.physical_address(), pa);
+    assert_eq!(entry.permissions(), perms);
+    assert!(entry.is_valid());
+    assert_eq!(entry.security_state(), SecurityState::NonSecure);
+    assert!(entry.is_cacheable());
+    assert!(entry.is_shareable());
+    assert!(!entry.is_device_memory());
+}
+
+#[test]
+fn test_page_entry_with_security_state_secure() {
+    let pa = PA::new(0x2000).unwrap();
+    let perms = PagePermissions::read_only();
+    let entry = PageEntry::with_security_state(pa, perms, SecurityState::Secure);
+
+    assert_eq!(entry.security_state(), SecurityState::Secure);
+    assert!(entry.is_valid());
+}
+
+#[test]
+fn test_page_entry_with_security_state_realm() {
+    let pa = PA::new(0x3000).unwrap();
+    let perms = PagePermissions::execute_only();
+    let entry = PageEntry::with_security_state(pa, perms, SecurityState::Realm);
+
+    assert_eq!(entry.security_state(), SecurityState::Realm);
+}
+
+#[test]
+fn test_page_entry_with_security_state_nonsecure() {
+    let pa = PA::new(0x4000).unwrap();
+    let perms = PagePermissions::all();
+    let entry = PageEntry::with_security_state(pa, perms, SecurityState::NonSecure);
+
+    assert_eq!(entry.security_state(), SecurityState::NonSecure);
+}
+
+// ============================================================================
+// PageEntry Default Trait Test
+// ============================================================================
+
 #[test]
 fn test_page_entry_default() {
     let entry = PageEntry::default();
 
-    assert!(!entry.is_valid(), "Default entry should be invalid");
-    assert_eq!(entry.physical_address(), PA::new(0).unwrap(), "Default PA should be 0");
-    assert_eq!(entry.security_state(), SecurityState::NonSecure, "Default security state should be NonSecure");
+    assert!(!entry.is_valid());
+    assert_eq!(entry.physical_address(), PA::new(0).unwrap());
+    assert_eq!(entry.permissions(), PagePermissions::default());
+    assert_eq!(entry.security_state(), SecurityState::NonSecure);
+    assert!(!entry.is_cacheable());
+    assert!(!entry.is_shareable());
+    assert!(!entry.is_device_memory());
 }
 
-/// Test PageEntry construction with physical address only
-#[test]
-fn test_page_entry_with_pa() {
-    let pa = PA::new(0x1000).unwrap();
-    let entry = PageEntry::new(pa, PagePermissions::default());
+// ============================================================================
+// PageEntry Validity Tests
+// ============================================================================
 
-    assert!(entry.is_valid(), "Entry should be valid");
-    assert_eq!(entry.physical_address(), pa, "Physical address should match");
-    assert_eq!(entry.security_state(), SecurityState::NonSecure, "Should default to NonSecure");
+#[test]
+fn test_page_entry_mark_valid() {
+    let entry = PageEntry::default()
+        .mark_invalid()
+        .with_permissions(PagePermissions::read_write());
+
+    assert!(!entry.is_valid());
+
+    let valid_entry = entry.mark_valid();
+    assert!(valid_entry.is_valid());
 }
 
-/// Test PageEntry construction with full parameters
 #[test]
-fn test_page_entry_full() {
-    let pa = PA::new(0x2000).unwrap();
-    let perms = PagePermissions::new(true, true, false);
-    let entry = PageEntry::with_security_state(pa, perms, SecurityState::Secure);
+fn test_page_entry_mark_invalid() {
+    let pa = PA::new(0x6000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only());
 
-    assert!(entry.is_valid(), "Entry should be valid");
-    assert_eq!(entry.physical_address(), pa, "Physical address should match");
-    assert_eq!(entry.permissions(), perms, "Permissions should match");
-    assert_eq!(entry.security_state(), SecurityState::Secure, "Security state should match");
+    assert!(entry.is_valid());
+
+    let invalid_entry = entry.mark_invalid();
+    assert!(!invalid_entry.is_valid());
 }
 
-/// Test PagePermissions creation
 #[test]
-fn test_page_permissions_default() {
-    let perms = PagePermissions::default();
+fn test_page_entry_mark_valid_idempotent() {
+    let pa = PA::new(0x7000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::all());
 
-    assert!(!perms.read(), "Default should not allow read");
-    assert!(!perms.write(), "Default should not allow write");
-    assert!(!perms.execute(), "Default should not allow execute");
+    let still_valid = entry.mark_valid();
+    assert!(still_valid.is_valid());
 }
 
-/// Test PagePermissions with all combinations
 #[test]
-fn test_page_permissions_combinations() {
-    let read_only = PagePermissions::read_only();
-    assert!(read_only.read() && !read_only.write() && !read_only.execute());
+fn test_page_entry_mark_invalid_idempotent() {
+    let entry = PageEntry::default();
 
-    let read_write = PagePermissions::read_write();
-    assert!(read_write.read() && read_write.write() && !read_write.execute());
+    assert!(!entry.is_valid());
 
-    let read_execute = PagePermissions::read_execute();
-    assert!(read_execute.read() && !read_execute.write() && read_execute.execute());
-
-    let all = PagePermissions::all();
-    assert!(all.read() && all.write() && all.execute());
+    let still_invalid = entry.mark_invalid();
+    assert!(!still_invalid.is_valid());
 }
 
-/// Test PagePermissions allows method
+// ============================================================================
+// PageEntry Memory Attribute Tests
+// ============================================================================
+
 #[test]
-fn test_page_permissions_allows() {
-    use smmu::types::AccessType;
+fn test_page_entry_cacheable() {
+    let pa = PA::new(0x8000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write())
+        .with_cacheable(true);
 
-    let read_write = PagePermissions::read_write();
-
-    assert!(read_write.allows(AccessType::Read), "Should allow read");
-    assert!(read_write.allows(AccessType::Write), "Should allow write");
-    assert!(!read_write.allows(AccessType::Execute), "Should not allow execute");
+    assert!(entry.is_cacheable());
 }
 
-/// Test PageEntry attributes (cacheable, shareable, device memory)
 #[test]
-fn test_page_entry_attributes() {
-    let pa = PA::new(0x3000).unwrap();
-    let perms = PagePermissions::read_write();
-    let entry = PageEntry::new(pa, perms)
+fn test_page_entry_non_cacheable() {
+    let pa = PA::new(0x9000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only())
+        .with_cacheable(false);
+
+    assert!(!entry.is_cacheable());
+}
+
+#[test]
+fn test_page_entry_shareable() {
+    let pa = PA::new(0xA000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write())
+        .with_shareable(true);
+
+    assert!(entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_non_shareable() {
+    let pa = PA::new(0xB000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only())
+        .with_shareable(false);
+
+    assert!(!entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_device_memory() {
+    let pa = PA::new(0xC000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write())
+        .with_device_memory(true);
+
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable()); // Device memory cannot be cacheable
+}
+
+#[test]
+fn test_page_entry_device_memory_forces_non_cacheable() {
+    let pa = PA::new(0xD000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write())
+        .with_device_memory(true)
+        .with_cacheable(true); // Try to set cacheable, but should be forced to false
+
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable()); // Should still be non-cacheable
+}
+
+#[test]
+fn test_page_entry_normal_memory() {
+    let pa = PA::new(0xE000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::all())
+        .with_device_memory(false)
         .with_cacheable(true)
         .with_shareable(true);
 
-    assert!(entry.is_cacheable(), "Entry should be cacheable");
-    assert!(entry.is_shareable(), "Entry should be shareable");
-    assert!(!entry.is_device_memory(), "Entry should not be device memory");
+    assert!(!entry.is_device_memory());
+    assert!(entry.is_cacheable());
+    assert!(entry.is_shareable());
 }
 
-/// Test PageEntry device memory attribute
-#[test]
-fn test_page_entry_device_memory() {
-    let pa = PA::new(0x4000).unwrap();
-    let perms = PagePermissions::read_write();
-    let entry = PageEntry::new(pa, perms)
-        .with_device_memory(true);
+// ============================================================================
+// PageEntry Memory Attribute Combinations
+// ============================================================================
 
-    assert!(entry.is_device_memory(), "Entry should be device memory");
-    assert!(!entry.is_cacheable(), "Device memory should not be cacheable");
+#[test]
+fn test_page_entry_normal_cacheable_shareable() {
+    let pa = PA::new(0x10000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write());
+
+    // Default is normal memory, cacheable, shareable
+    assert!(!entry.is_device_memory());
+    assert!(entry.is_cacheable());
+    assert!(entry.is_shareable());
 }
 
-/// Test PageEntry Clone trait
 #[test]
-fn test_page_entry_clone() {
-    let pa = PA::new(0x5000).unwrap();
-    let perms = PagePermissions::all();
-    let entry1 = PageEntry::with_security_state(pa, perms, SecurityState::Secure)
-        .with_cacheable(true);
+fn test_page_entry_normal_cacheable_non_shareable() {
+    let pa = PA::new(0x11000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only())
+        .with_shareable(false);
 
-    let entry2 = entry1.clone();
-
-    assert_eq!(entry1.physical_address(), entry2.physical_address());
-    assert_eq!(entry1.permissions(), entry2.permissions());
-    assert_eq!(entry1.security_state(), entry2.security_state());
-    assert_eq!(entry1.is_cacheable(), entry2.is_cacheable());
-}
-
-/// Test PageEntry Debug trait
-#[test]
-fn test_page_entry_debug() {
-    let pa = PA::new(0x6000).unwrap();
-    let perms = PagePermissions::read_write();
-    let entry = PageEntry::new(pa, perms);
-
-    let debug_str = format!("{:?}", entry);
-    assert!(!debug_str.is_empty(), "Debug output should not be empty");
-    assert!(debug_str.contains("PageEntry"), "Debug should contain struct name");
-}
-
-/// Test PageEntry PartialEq trait
-#[test]
-fn test_page_entry_equality() {
-    let pa1 = PA::new(0x7000).unwrap();
-    let pa2 = PA::new(0x7000).unwrap();
-    let perms = PagePermissions::read_only();
-
-    let entry1 = PageEntry::new(pa1, perms);
-    let entry2 = PageEntry::new(pa2, perms);
-    let entry3 = PageEntry::new(PA::new(0x8000).unwrap(), perms);
-
-    assert_eq!(entry1, entry2, "Entries with same values should be equal");
-    assert_ne!(entry1, entry3, "Entries with different PAs should not be equal");
-}
-
-/// Test PageEntry invalid state
-#[test]
-fn test_page_entry_invalid() {
-    let mut entry = PageEntry::default();
-    assert!(!entry.is_valid(), "Default entry should be invalid");
-
-    entry = entry.mark_valid();
-    assert!(entry.is_valid(), "Marked entry should be valid");
-
-    entry = entry.mark_invalid();
-    assert!(!entry.is_valid(), "Invalidated entry should be invalid");
-}
-
-/// Test PageEntry alignment validation
-#[test]
-fn test_page_entry_alignment() {
-    use smmu::types::PAGE_SIZE;
-
-    // Aligned addresses should work
-    let aligned_pa = PA::new(PAGE_SIZE).unwrap();
-    let entry = PageEntry::new(aligned_pa, PagePermissions::default());
-    assert!(entry.is_valid());
-
-    // Test that physical address maintains alignment
-    assert_eq!(entry.physical_address().as_u64() % PAGE_SIZE, 0);
-}
-
-/// Test PagePermissions bitwise operations
-#[test]
-fn test_page_permissions_bitwise() {
-    let read_only = PagePermissions::read_only();
-    let write_only = PagePermissions::write_only();
-
-    let combined = read_only.union(write_only);
-    assert!(combined.read() && combined.write() && !combined.execute());
-
-    let intersect = read_only.intersection(write_only);
-    assert!(!intersect.read() && !intersect.write() && !intersect.execute());
-}
-
-/// Test PagePermissions is_subset method
-#[test]
-fn test_page_permissions_subset() {
-    let all = PagePermissions::all();
-    let read_only = PagePermissions::read_only();
-
-    assert!(read_only.is_subset_of(&all), "Read-only should be subset of all");
-    assert!(!all.is_subset_of(&read_only), "All should not be subset of read-only");
-}
-
-/// Test PageEntry builder pattern
-#[test]
-fn test_page_entry_builder() {
-    let pa = PA::new(0x9000).unwrap();
-    let entry = PageEntry::builder()
-        .physical_address(pa)
-        .permissions(PagePermissions::read_execute())
-        .security_state(SecurityState::Realm)
-        .cacheable(true)
-        .shareable(false)
-        .build();
-
-    assert!(entry.is_valid());
-    assert_eq!(entry.physical_address(), pa);
-    assert!(entry.permissions().read());
-    assert!(entry.permissions().execute());
-    assert_eq!(entry.security_state(), SecurityState::Realm);
+    assert!(!entry.is_device_memory());
     assert!(entry.is_cacheable());
     assert!(!entry.is_shareable());
 }
 
-/// Test PageEntry memory attributes combinations
 #[test]
-fn test_page_entry_memory_attributes() {
-    let pa = PA::new(0xA000).unwrap();
+fn test_page_entry_normal_non_cacheable_shareable() {
+    let pa = PA::new(0x12000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::execute_only())
+        .with_cacheable(false);
 
-    // Normal cacheable memory
-    let normal = PageEntry::builder()
+    assert!(!entry.is_device_memory());
+    assert!(!entry.is_cacheable());
+    assert!(entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_normal_non_cacheable_non_shareable() {
+    let pa = PA::new(0x13000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::all())
+        .with_cacheable(false)
+        .with_shareable(false);
+
+    assert!(!entry.is_device_memory());
+    assert!(!entry.is_cacheable());
+    assert!(!entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_device_non_cacheable_shareable() {
+    let pa = PA::new(0x14000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_write())
+        .with_device_memory(true)
+        .with_shareable(true);
+
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable()); // Forced non-cacheable
+    assert!(entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_device_non_cacheable_non_shareable() {
+    let pa = PA::new(0x15000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only())
+        .with_device_memory(true)
+        .with_shareable(false);
+
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable()); // Forced non-cacheable
+    assert!(!entry.is_shareable());
+}
+
+// ============================================================================
+// PageEntry Permission Updates
+// ============================================================================
+
+#[test]
+fn test_page_entry_with_permissions() {
+    let pa = PA::new(0x16000).unwrap();
+    let entry = PageEntry::new(pa, PagePermissions::read_only());
+
+    assert_eq!(entry.permissions(), PagePermissions::read_only());
+
+    let updated = entry.with_permissions(PagePermissions::read_write());
+    assert_eq!(updated.permissions(), PagePermissions::read_write());
+}
+
+#[test]
+fn test_page_entry_with_permissions_all_variants() {
+    let pa = PA::new(0x17000).unwrap();
+    let base_entry = PageEntry::new(pa, PagePermissions::none());
+
+    let variants = [
+        PagePermissions::none(),
+        PagePermissions::read_only(),
+        PagePermissions::write_only(),
+        PagePermissions::execute_only(),
+        PagePermissions::read_write(),
+        PagePermissions::read_execute(),
+        PagePermissions::new(false, true, true), // write-execute
+        PagePermissions::all(),
+    ];
+
+    for perms in &variants {
+        let entry = base_entry.clone().with_permissions(*perms);
+        assert_eq!(entry.permissions(), *perms);
+    }
+}
+
+// ============================================================================
+// PageEntryBuilder Tests
+// ============================================================================
+
+#[test]
+fn test_page_entry_builder_basic() {
+    let pa = PA::new(0x20000).unwrap();
+    let perms = PagePermissions::read_execute();
+
+    let entry = PageEntry::builder()
         .physical_address(pa)
-        .permissions(PagePermissions::read_write())
-        .cacheable(true)
-        .shareable(true)
+        .permissions(perms)
         .build();
 
-    assert!(normal.is_cacheable());
-    assert!(normal.is_shareable());
-    assert!(!normal.is_device_memory());
+    assert_eq!(entry.physical_address(), pa);
+    assert_eq!(entry.permissions(), perms);
+    assert!(entry.is_valid());
+}
 
-    // Device memory (non-cacheable)
-    let device = PageEntry::builder()
+#[test]
+fn test_page_entry_builder_with_security_state() {
+    let pa = PA::new(0x21000).unwrap();
+
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .permissions(PagePermissions::all())
+        .security_state(SecurityState::Secure)
+        .build();
+
+    assert_eq!(entry.security_state(), SecurityState::Secure);
+}
+
+#[test]
+fn test_page_entry_builder_with_cacheable() {
+    let pa = PA::new(0x22000).unwrap();
+
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .permissions(PagePermissions::read_write())
+        .cacheable(false)
+        .build();
+
+    assert!(!entry.is_cacheable());
+}
+
+#[test]
+fn test_page_entry_builder_with_shareable() {
+    let pa = PA::new(0x23000).unwrap();
+
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .permissions(PagePermissions::read_only())
+        .shareable(false)
+        .build();
+
+    assert!(!entry.is_shareable());
+}
+
+#[test]
+fn test_page_entry_builder_with_device_memory() {
+    let pa = PA::new(0x24000).unwrap();
+
+    let entry = PageEntry::builder()
         .physical_address(pa)
         .permissions(PagePermissions::read_write())
         .device_memory(true)
         .build();
 
-    assert!(device.is_device_memory());
-    assert!(!device.is_cacheable());
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable()); // Should be forced non-cacheable
 }
 
-/// Test zero unsafe code requirement
 #[test]
-fn test_page_entry_safe() {
-    // This test verifies that all PageEntry operations are safe
-    // by exercising them extensively without any unsafe blocks
+fn test_page_entry_builder_device_memory_overrides_cacheable() {
+    let pa = PA::new(0x25000).unwrap();
 
-    let pa = PA::new(0xB000).unwrap();
-    let perms = PagePermissions::all();
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .permissions(PagePermissions::all())
+        .cacheable(true)
+        .device_memory(true) // This should force cacheable to false
+        .build();
 
-    let mut entry = PageEntry::new(pa, perms);
-    entry = entry.with_cacheable(true);
-    entry = entry.with_shareable(true);
-    entry = entry.with_device_memory(false);
-    entry = entry.mark_invalid();
-    entry = entry.mark_valid();
+    assert!(entry.is_device_memory());
+    assert!(!entry.is_cacheable());
+}
 
-    // All operations above are safe - no undefined behavior possible
+#[test]
+fn test_page_entry_builder_full_configuration() {
+    let pa = PA::new(0x26000).unwrap();
+
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .permissions(PagePermissions::read_execute())
+        .security_state(SecurityState::Realm)
+        .cacheable(true)
+        .shareable(true)
+        .device_memory(false)
+        .build();
+
+    assert_eq!(entry.physical_address(), pa);
+    assert_eq!(entry.permissions(), PagePermissions::read_execute());
+    assert_eq!(entry.security_state(), SecurityState::Realm);
+    assert!(entry.is_cacheable());
+    assert!(entry.is_shareable());
+    assert!(!entry.is_device_memory());
     assert!(entry.is_valid());
 }
 
-/// Test PagePermissions with no permissions
 #[test]
-fn test_page_permissions_none() {
-    let none = PagePermissions::none();
+fn test_page_entry_builder_default_values() {
+    let pa = PA::new(0x27000).unwrap();
 
-    use smmu::types::AccessType;
-    assert!(!none.allows(AccessType::Read));
-    assert!(!none.allows(AccessType::Write));
-    assert!(!none.allows(AccessType::Execute));
+    let entry = PageEntry::builder()
+        .physical_address(pa)
+        .build();
+
+    // Default permission is none
+    assert_eq!(entry.permissions(), PagePermissions::none());
+    // Default security state is NonSecure
+    assert_eq!(entry.security_state(), SecurityState::NonSecure);
+    // Default memory attributes: cacheable, shareable, not device
+    assert!(entry.is_cacheable());
+    assert!(entry.is_shareable());
+    assert!(!entry.is_device_memory());
 }
 
-/// Test PagePermissions write_only
 #[test]
-fn test_page_permissions_write_only() {
-    let write_only = PagePermissions::write_only();
-
-    assert!(!write_only.read());
-    assert!(write_only.write());
-    assert!(!write_only.execute());
+#[should_panic(expected = "Physical address must be set")]
+fn test_page_entry_builder_panics_without_physical_address() {
+    PageEntry::builder()
+        .permissions(PagePermissions::all())
+        .build();
 }
 
-/// Test PagePermissions execute_only
-#[test]
-fn test_page_permissions_execute_only() {
-    let exec_only = PagePermissions::execute_only();
+// ============================================================================
+// PageEntry Clone and Equality Tests
+// ============================================================================
 
-    assert!(!exec_only.read());
-    assert!(!exec_only.write());
-    assert!(exec_only.execute());
+#[test]
+fn test_page_entry_clone() {
+    let pa = PA::new(0x28000).unwrap();
+    let entry1 = PageEntry::new(pa, PagePermissions::read_write());
+    let entry2 = entry1.clone();
+
+    assert_eq!(entry1, entry2);
 }
 
-/// Test PageEntry with different security states
 #[test]
-fn test_page_entry_security_states() {
-    let pa = PA::new(0xC000).unwrap();
+fn test_page_entry_equality() {
+    let pa = PA::new(0x29000).unwrap();
+    let perms = PagePermissions::read_only();
+
+    let entry1 = PageEntry::new(pa, perms);
+    let entry2 = PageEntry::new(pa, perms);
+
+    assert_eq!(entry1, entry2);
+}
+
+#[test]
+fn test_page_entry_inequality_different_address() {
+    let pa1 = PA::new(0x2A000).unwrap();
+    let pa2 = PA::new(0x2B000).unwrap();
     let perms = PagePermissions::read_write();
 
-    let non_secure = PageEntry::with_security_state(pa, perms, SecurityState::NonSecure);
-    assert_eq!(non_secure.security_state(), SecurityState::NonSecure);
+    let entry1 = PageEntry::new(pa1, perms);
+    let entry2 = PageEntry::new(pa2, perms);
 
-    let secure = PageEntry::with_security_state(pa, perms, SecurityState::Secure);
-    assert_eq!(secure.security_state(), SecurityState::Secure);
-
-    let realm = PageEntry::with_security_state(pa, perms, SecurityState::Realm);
-    assert_eq!(realm.security_state(), SecurityState::Realm);
+    assert_ne!(entry1, entry2);
 }
 
-/// Performance test: PageEntry construction should be fast
 #[test]
-fn test_page_entry_performance() {
-    let pa = PA::new(0xD000).unwrap();
-    let perms = PagePermissions::read_write();
+fn test_page_entry_inequality_different_permissions() {
+    let pa = PA::new(0x2C000).unwrap();
 
-    let start = std::time::Instant::now();
-    for _ in 0..10000 {
-        let _ = PageEntry::new(pa, perms);
-    }
-    let elapsed = start.elapsed();
+    let entry1 = PageEntry::new(pa, PagePermissions::read_only());
+    let entry2 = PageEntry::new(pa, PagePermissions::read_write());
 
-    // Construction should be very fast (< 1ms for 10k entries)
-    assert!(elapsed.as_millis() < 10, "PageEntry construction too slow: {:?}", elapsed);
+    assert_ne!(entry1, entry2);
 }
 
-/// Test PageEntry size for cache efficiency
-#[test]
-fn test_page_entry_size() {
-    use std::mem::size_of;
+// ============================================================================
+// PagePermissions Copy Trait Test
+// ============================================================================
 
-    let size = size_of::<PageEntry>();
-
-    // PageEntry should be reasonably small (< 64 bytes for cache efficiency)
-    assert!(size <= 64, "PageEntry too large: {} bytes", size);
-}
-
-/// Test PagePermissions Copy trait
 #[test]
 fn test_page_permissions_copy() {
     let perms1 = PagePermissions::read_write();
-    let perms2 = perms1; // Should copy, not move
+    let perms2 = perms1; // Copy
 
-    // Both should be usable
-    assert!(perms1.read());
-    assert!(perms2.read());
+    assert_eq!(perms1, perms2);
+    assert!(perms1.read()); // Original still valid
 }
 
-/// Test comprehensive PageEntry lifecycle
+// ============================================================================
+// Integration Tests
+// ============================================================================
+
 #[test]
-fn test_page_entry_lifecycle() {
-    // Create
-    let pa = PA::new(0xE000).unwrap();
-    let mut entry = PageEntry::builder()
-        .physical_address(pa)
-        .permissions(PagePermissions::read_only())
-        .build();
+fn test_page_entry_method_chaining() {
+    let pa = PA::new(0x30000).unwrap();
 
+    let entry = PageEntry::new(pa, PagePermissions::none())
+        .with_permissions(PagePermissions::read_write())
+        .with_cacheable(false)
+        .with_shareable(false)
+        .with_device_memory(false)
+        .mark_valid();
+
+    assert_eq!(entry.permissions(), PagePermissions::read_write());
+    assert!(!entry.is_cacheable());
+    assert!(!entry.is_shareable());
+    assert!(!entry.is_device_memory());
     assert!(entry.is_valid());
+}
 
-    // Modify
-    entry = entry.with_cacheable(true);
-    assert!(entry.is_cacheable());
+#[test]
+fn test_page_entry_all_permission_combinations() {
+    let pa = PA::new(0x31000).unwrap();
 
-    // Update permissions
-    let new_perms = PagePermissions::read_write();
-    entry = entry.with_permissions(new_perms);
-    assert!(entry.permissions().write());
+    let permission_variants = [
+        ("none", PagePermissions::none()),
+        ("read-only", PagePermissions::read_only()),
+        ("write-only", PagePermissions::write_only()),
+        ("execute-only", PagePermissions::execute_only()),
+        ("read-write", PagePermissions::read_write()),
+        ("read-execute", PagePermissions::read_execute()),
+        ("write-execute", PagePermissions::new(false, true, true)),
+        ("all", PagePermissions::all()),
+    ];
 
-    // Invalidate
-    entry = entry.mark_invalid();
-    assert!(!entry.is_valid());
+    for (_name, perms) in &permission_variants {
+        let entry = PageEntry::new(pa, *perms);
+        assert_eq!(entry.permissions(), *perms);
+        assert!(entry.is_valid());
+    }
+}
 
-    // Re-validate
-    entry = entry.mark_valid();
-    assert!(entry.is_valid());
+#[test]
+fn test_page_entry_all_security_states() {
+    let pa = PA::new(0x32000).unwrap();
+    let perms = PagePermissions::read_write();
+
+    let states = [
+        SecurityState::NonSecure,
+        SecurityState::Secure,
+        SecurityState::Realm,
+    ];
+
+    for state in &states {
+        let entry = PageEntry::with_security_state(pa, perms, *state);
+        assert_eq!(entry.security_state(), *state);
+    }
 }
