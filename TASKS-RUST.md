@@ -2463,6 +2463,61 @@ All tests written before implementation and verified to fail, then pass after im
 - Update overall test documentation
 - Commit progress with comprehensive changelog
 
+##### 8.4.15 types/command_entry.rs ✅ **COMPLETE** (January 30, 2026)
+- [x] Create CommandType variant tests (12 tests) - 1 hour
+- [x] Create CommandType trait tests (8 tests) - 1 hour
+- [x] Create CommandEntry construction tests (4 tests) - 30 minutes
+- [x] Create CommandEntry field access tests (2 tests) - 30 minutes
+- [x] Create CommandEntry trait tests (6 tests) - 1 hour
+- [x] Create const context tests (1 test) - 15 minutes
+- [x] Create ARM SMMU v3 command scenario tests (11 tests) - 1.5 hours
+- [x] Create realistic usage tests (6 tests) - 1 hour
+- [x] Create edge case tests (4 tests) - 30 minutes
+- [x] Create collection usage tests (2 tests) - 30 minutes
+- [x] Create compliance tests (2 tests) - 30 minutes
+
+**Coverage Achievement**:
+- **Before**: 57.14% line coverage (3/7 lines uncovered)
+- **After**: 100.00% line coverage (7/7 lines covered)
+- **Region Coverage**: 100.00% (2/2 regions)
+- **Function Coverage**: 100.00% (14/14 functions)
+- **Improvement**: +42.86%
+- **Tests**: 59 comprehensive tests
+- **Time**: ~2 hours (vs. 4-5 hours estimated - 125% efficiency gain)
+
+**Deliverables**:
+- Created: `tests/test_command_entry.rs` - 701 lines, 59 tests
+
+**Key Features**:
+- All 11 CommandType variants tested (ARM SMMU v3 Section 6.4):
+  * PrefetchConfig (0), PrefetchAddr (1), CfgiSte (2), CfgiAll (3)
+  * TlbiNhAll (4), TlbiEl2All (5), TlbiS12Vmall (6)
+  * AtcInv (7), PriResp (8), Resume (9), Sync (10)
+- CommandType traits: Copy, Clone, Debug, PartialEq, Eq, Hash, Default (Sync)
+- CommandEntry construction with all parameters
+- Field access and modification (7 fields)
+- CommandEntry traits: Copy, Clone, Debug, PartialEq, Eq
+- Const constructor validation
+- Discriminant value verification (repr(u8))
+- ARM SMMU v3 command scenarios per Section 6.4
+- Realistic command queue sequences
+- Edge cases: zero/maximum ranges, inverted ranges, all flags
+- Collection usage (Vec, command queues)
+- Test-to-source ratio: 100.1:1 (excellent)
+
+**Phase 3 Partial Achievement (Sections 3.1-3.4)**:
+- **Modules Completed**: 4 modules (event_entry, fault_type, queue_statistics, command_entry)
+- **Total Tests Added**: 233 tests (~3,133 lines)
+- **All Tests Passing**: ✅ All tests passing (100%)
+- **Time**: ~10.5 hours actual vs. 24-33 hours estimated (185% efficiency gain)
+- **Coverage Impact**: All 4 modules achieved 100% line coverage
+
+**Next Steps**:
+- Continue with Phase 3 sections 3.5-3.6 (pri_entry, remaining modules)
+- Target: Reach 98% overall coverage
+- Update overall test documentation
+- Commit progress with comprehensive changelog
+
 
 ### 9. API and Documentation (Estimated: 16-22 hours)
 
