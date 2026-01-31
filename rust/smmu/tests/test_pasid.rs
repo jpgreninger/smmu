@@ -103,7 +103,7 @@ fn test_pasid_display_max() {
 fn test_pasid_display_formatting() {
     let pasid = PASID::new(999).unwrap();
     assert_eq!(format!("{}", pasid), "PASID(999)");
-    assert_eq!(format!("{:?}", pasid), "PASID(999)"); // Debug uses derived format
+    assert_eq!(format!("{pasid:?}"), "PASID(999)"); // Debug uses derived format
 }
 
 // ============================================================================
@@ -113,7 +113,7 @@ fn test_pasid_display_formatting() {
 #[test]
 fn test_pasid_debug() {
     let pasid = PASID::new(42).unwrap();
-    let debug_str = format!("{:?}", pasid);
+    let debug_str = format!("{pasid:?}");
     assert!(debug_str.contains("PASID"));
     assert!(debug_str.contains("42"));
 }
@@ -121,7 +121,7 @@ fn test_pasid_debug() {
 #[test]
 fn test_pasid_debug_zero() {
     let pasid = PASID::default();
-    let debug_str = format!("{:?}", pasid);
+    let debug_str = format!("{pasid:?}");
     assert!(debug_str.contains("PASID"));
     assert!(debug_str.contains("0"));
 }
@@ -129,7 +129,7 @@ fn test_pasid_debug_zero() {
 #[test]
 fn test_pasid_debug_max() {
     let pasid = PASID::new(PASID_MAX).unwrap();
-    let debug_str = format!("{:?}", pasid);
+    let debug_str = format!("{pasid:?}");
     assert!(debug_str.contains("PASID"));
     assert!(debug_str.contains(&format!("{}", PASID_MAX)));
 }

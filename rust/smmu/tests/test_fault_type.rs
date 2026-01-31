@@ -852,7 +852,7 @@ fn test_fault_context_debug() {
     let fault_type = FaultType::TranslationFault;
 
     let context = FaultContext::new(fault_type, stream_id, pasid, address);
-    let debug_str = format!("{:?}", context);
+    let debug_str = format!("{context:?}");
 
     assert!(!debug_str.is_empty());
     assert!(debug_str.contains("FaultContext"));

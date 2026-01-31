@@ -1,10 +1,10 @@
-//! Fault processing and recovery for ARM SMMU v3 Section 6.2
+//! Fault processing and recovery for ARM `SMMU` v3 Section 6.2
 //!
 //! This module implements comprehensive fault processing including:
 //! - Terminate mode with immediate reporting
 //! - Stall mode with fault queuing
 //! - Recovery mechanisms for transient faults
-//! - ARM SMMU v3 compliant event generation
+//! - ARM `SMMU` v3 compliant event generation
 //!
 //! # Fault Modes
 //!
@@ -20,16 +20,16 @@
 //!
 //! ```
 //! use smmu::fault::processing::{FaultProcessor, FaultMode};
-//! use smmu::types::{FaultRecordBuilder, FaultType, AccessType, StreamID, PASID, IOVA};
+//! use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
 //!
 //! let processor = FaultProcessor::new(FaultMode::Terminate);
 //!
 //! let fault = FaultRecordBuilder::new()
-//!     .stream_id(StreamID::new(0x100).unwrap())
-//!     .pasid(PASID::new(1).unwrap())
-//!     .address(IOVA::new(0x1000_0000).unwrap())
-//!     .fault_type(FaultType::TranslationFault)
-//!     .access_type(AccessType::Read)
+//!     .stream_id(`StreamID`::new(0x100).unwrap())
+//!     .pasid(`PASID`::new(1).unwrap())
+//!     .address(`IOVA`::new(0x1000_0000).unwrap())
+//!     .fault_type(`FaultType`::TranslationFault)
+//!     .access_type(`AccessType`::Read)
 //!     .build();
 //!
 //! // In Terminate mode, this returns an error
@@ -70,14 +70,14 @@ impl std::fmt::Display for FaultProcessingError {
             Self::QueueFull => write!(f, "Fault queue is full"),
             Self::NoStalledFault => write!(f, "No stalled fault available"),
             Self::InvalidResume => write!(f, "Invalid fault resume"),
-            Self::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            Self::SerializationError(msg) => write!(f, "Serialization error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for FaultProcessingError {}
 
-/// Fault processor implementing ARM SMMU v3 Section 6.2
+/// Fault processor implementing ARM `SMMU` v3 Section 6.2
 ///
 /// Handles fault processing in both Terminate and Stall modes with
 /// comprehensive statistics tracking and event generation.
@@ -103,6 +103,7 @@ pub struct FaultProcessor {
     max_events: usize,
 
     /// Maximum stall queue size
+    #[allow(dead_code)]
     max_stall_queue: usize,
 }
 
@@ -184,15 +185,15 @@ impl FaultProcessor {
     ///
     /// ```
     /// use smmu::fault::processing::{FaultProcessor, FaultMode};
-    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
     ///
     /// let processor = FaultProcessor::new(FaultMode::Terminate);
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(0x100).unwrap())
-    ///     .pasid(PASID::new(1).unwrap())
-    ///     .address(IOVA::new(0x1000_0000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(0x100).unwrap())
+    ///     .pasid(`PASID`::new(1).unwrap())
+    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
     ///     .build();
     ///
     /// let result = processor.process_fault(fault);
@@ -247,15 +248,15 @@ impl FaultProcessor {
     ///
     /// ```
     /// use smmu::fault::processing::{FaultProcessor, FaultMode};
-    /// use smmu::types::{FaultRecordBuilder, FaultType, AccessType, StreamID, PASID, IOVA};
+    /// use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
     ///
     /// let processor = FaultProcessor::new(FaultMode::Stall);
     /// let fault = FaultRecordBuilder::new()
-    ///     .stream_id(StreamID::new(0x100).unwrap())
-    ///     .pasid(PASID::new(1).unwrap())
-    ///     .address(IOVA::new(0x1000_0000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
+    ///     .stream_id(`StreamID`::new(0x100).unwrap())
+    ///     .pasid(`PASID`::new(1).unwrap())
+    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
     ///     .build();
     ///
     /// let _ = processor.process_fault(fault);
@@ -278,15 +279,15 @@ impl FaultProcessor {
     ///
     /// ```
     /// use smmu::fault::processing::{FaultProcessor, FaultMode};
-    /// use smmu::types::{FaultRecordBuilder, FaultType, AccessType, StreamID, PASID, IOVA};
+    /// use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
     ///
     /// let processor = FaultProcessor::new(FaultMode::Stall);
     /// let fault = FaultRecordBuilder::new()
-    ///     .stream_id(StreamID::new(0x100).unwrap())
-    ///     .pasid(PASID::new(1).unwrap())
-    ///     .address(IOVA::new(0x1000_0000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
+    ///     .stream_id(`StreamID`::new(0x100).unwrap())
+    ///     .pasid(`PASID`::new(1).unwrap())
+    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
     ///     .build();
     ///
     /// let _ = processor.process_fault(fault.clone());
@@ -313,15 +314,15 @@ impl FaultProcessor {
     ///
     /// ```
     /// use smmu::fault::processing::{FaultProcessor, FaultMode};
-    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
     ///
     /// let processor = FaultProcessor::new(FaultMode::Terminate);
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(0x100).unwrap())
-    ///     .pasid(PASID::new(1).unwrap())
-    ///     .address(IOVA::new(0x1000_0000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(0x100).unwrap())
+    ///     .pasid(`PASID`::new(1).unwrap())
+    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
     ///     .build();
     ///
     /// let _ = processor.process_fault(fault);
@@ -343,19 +344,19 @@ impl FaultProcessor {
     ///
     /// ```
     /// use smmu::fault::processing::{FaultProcessor, FaultMode};
-    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
     ///
     /// let processor = FaultProcessor::new(FaultMode::Terminate);
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(0x100).unwrap())
-    ///     .pasid(PASID::new(1).unwrap())
-    ///     .address(IOVA::new(0x1000_0000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(0x100).unwrap())
+    ///     .pasid(`PASID`::new(1).unwrap())
+    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
     ///     .build();
     ///
     /// let _ = processor.process_fault(fault);
-    /// let filtered = processor.get_events_by_stream(StreamID::new(0x100).unwrap());
+    /// let filtered = processor.get_events_by_stream(`StreamID`::new(0x100).unwrap());
     /// assert_eq!(filtered.len(), 1);
     /// ```
     #[must_use]
@@ -369,11 +370,11 @@ impl FaultProcessor {
             .collect()
     }
 
-    /// Gets events filtered by PASID
+    /// Gets events filtered by `PASID`
     ///
     /// # Arguments
     ///
-    /// * `pasid` - PASID to filter by
+    /// * `pasid` - `PASID` to filter by
     #[must_use]
     pub fn get_events_by_pasid(&self, pasid: PASID) -> Vec<FaultRecord> {
         self.events
@@ -409,7 +410,8 @@ impl FaultProcessor {
     /// * `window` - Time window duration
     #[must_use]
     pub fn get_events_in_window(&self, current_time: u64, window: Duration) -> Vec<FaultRecord> {
-        let window_us = window.as_micros() as u64;
+        #[allow(clippy::cast_possible_truncation)]
+        let window_us = window.as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
         let start_time = current_time.saturating_sub(window_us);
 
         self.events
@@ -480,7 +482,7 @@ impl FaultProcessor {
     pub fn serialize_events(&self, events: &[FaultRecord]) -> Vec<u8> {
         // Simple serialization: convert to debug string
         // In production, would use proper serialization (bincode, serde, etc.)
-        format!("{:?}", events).into_bytes()
+        format!("{events:?}").into_bytes()
     }
 
     /// Deserializes events from bytes
@@ -509,7 +511,7 @@ impl FaultProcessor {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_micros() as u64
+            .as_micros() as u64 // Truncation acceptable: would require 584K+ years to overflow
     }
 
     /// Records an event in the event queue

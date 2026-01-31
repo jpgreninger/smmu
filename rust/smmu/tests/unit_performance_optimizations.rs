@@ -19,8 +19,8 @@ fn test_hash_function_distribution() {
 
     // Map 1000 pages with sequential addresses
     for i in 0..1000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -30,7 +30,7 @@ fn test_hash_function_distribution() {
 
     // All translations should be O(1) average case
     for i in 0..1000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
         assert!(result.is_ok());
     }
@@ -70,8 +70,8 @@ fn test_o1_lookup_complexity() {
 
     // Map 10,000 pages
     for i in 0..10000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -79,7 +79,7 @@ fn test_o1_lookup_complexity() {
 
     // Measure lookup time for first and last entries
     let iova_first = IOVA::new(0x1000).unwrap();
-    let iova_last = IOVA::new(0x1000 + 9999 * PAGE_SIZE as u64).unwrap();
+    let iova_last = IOVA::new(0x1000 + 9999 * PAGE_SIZE).unwrap();
 
     let start = Instant::now();
     let _ = addr_space.translate_page(iova_first, AccessType::Read, SecurityState::NonSecure);
@@ -102,8 +102,8 @@ fn test_scalability_10_to_10000() {
 
         let start = Instant::now();
         for i in 0..*count {
-            let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-            let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
             addr_space
                 .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
                 .unwrap();
@@ -112,7 +112,7 @@ fn test_scalability_10_to_10000() {
 
         let start = Instant::now();
         for i in 0..*count {
-            let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
             let _ = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
         }
         let translate_time = start.elapsed();
@@ -122,7 +122,7 @@ fn test_scalability_10_to_10000() {
             count, map_time, translate_time
         );
 
-        assert_eq!(addr_space.get_page_count().unwrap(), *count as usize);
+        assert_eq!(addr_space.get_page_count().unwrap(), *usize::try_from(count).unwrap());
     }
 }
 
@@ -136,8 +136,8 @@ fn test_sequential_access_pattern() {
 
     // Map 1000 sequential pages
     for i in 0..1000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -146,7 +146,7 @@ fn test_sequential_access_pattern() {
     // Access sequentially (cache-friendly)
     let start = Instant::now();
     for i in 0..1000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let _ = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
     }
     let sequential_time = start.elapsed();
@@ -160,8 +160,8 @@ fn test_random_access_pattern() {
 
     // Map 1000 pages
     for i in 0..1000 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -171,7 +171,7 @@ fn test_random_access_pattern() {
     let start = Instant::now();
     for i in 0..1000 {
         let index = (i * 317) % 1000; // Simple pseudo-random
-        let iova = IOVA::new(0x1000 + index * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + index * PAGE_SIZE).unwrap();
         let _ = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
     }
     let random_time = start.elapsed();
@@ -214,7 +214,7 @@ fn test_multi_pasid_translation_performance() {
         stream_context.create_pasid(pasid).unwrap();
 
         let iova = IOVA::new(0x1000).unwrap();
-        let pa = PA::new(0x2000 + i as u64 * 0x1000).unwrap();
+        let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
         stream_context
             .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -250,7 +250,7 @@ fn test_multi_stream_performance() {
         smmu.create_pasid(stream_id, pasid).unwrap();
 
         let iova = IOVA::new(0x1000).unwrap();
-        let pa = PA::new(0x2000 + i as u64 * 0x1000).unwrap();
+        let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
         smmu.map_page(
             stream_id,
             pasid,
@@ -313,8 +313,8 @@ fn test_mapping_throughput() {
     let iterations = 10000;
     let start = Instant::now();
     for i in 0..iterations {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -337,8 +337,8 @@ fn test_batch_operation_efficiency() {
     let count = 1000;
     let mappings: Vec<(IOVA, PA)> = (0..count)
         .map(|i| {
-            let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-            let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
             (iova, pa)
         })
         .collect();
@@ -352,5 +352,5 @@ fn test_batch_operation_efficiency() {
 
     println!("Batch mapping time (1000 pages): {:?}", batch_time);
 
-    assert_eq!(addr_space.get_page_count().unwrap(), count as usize);
+    assert_eq!(addr_space.get_page_count().unwrap(), usize::try_from(count).unwrap());
 }

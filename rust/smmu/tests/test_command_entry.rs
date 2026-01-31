@@ -146,7 +146,7 @@ fn test_command_type_clone() {
 #[test]
 fn test_command_type_debug() {
     let cmd = CommandType::PrefetchConfig;
-    let debug_string = format!("{:?}", cmd);
+    let debug_string = format!("{cmd:?}");
     assert!(debug_string.contains("PrefetchConfig"));
 }
 
@@ -167,7 +167,7 @@ fn test_command_type_debug_all_variants() {
     ];
 
     for (cmd, expected_name) in commands {
-        let debug_string = format!("{:?}", cmd);
+        let debug_string = format!("{cmd:?}");
         assert!(debug_string.contains(expected_name));
     }
 }
@@ -377,7 +377,7 @@ fn test_command_entry_clone() {
 #[test]
 fn test_command_entry_debug() {
     let entry = CommandEntry::new(CommandType::Sync, 42, 57);
-    let debug_string = format!("{:?}", entry);
+    let debug_string = format!("{entry:?}");
 
     assert!(debug_string.contains("CommandEntry"));
     assert!(debug_string.contains("cmd_type"));
@@ -393,7 +393,7 @@ fn test_command_entry_debug_with_all_fields() {
     entry.flags = 0x1;
     entry.timestamp = 12345;
 
-    let debug_string = format!("{:?}", entry);
+    let debug_string = format!("{entry:?}");
     assert!(debug_string.contains("CommandEntry"));
 }
 

@@ -257,7 +257,7 @@ fn test_iova_display_format() {
 #[test]
 fn test_iova_debug_format() {
     let iova = IOVA::new(0x1234).unwrap();
-    let formatted = format!("{:?}", iova);
+    let formatted = format!("{iova:?}");
 
     // Debug format should include type name
     assert!(formatted.starts_with("IOVA("));
@@ -464,7 +464,7 @@ fn test_ipa_display_format() {
 #[test]
 fn test_ipa_debug_format() {
     let ipa = IPA::new(0x5678).unwrap();
-    let formatted = format!("{:?}", ipa);
+    let formatted = format!("{ipa:?}");
     assert!(formatted.starts_with("IPA("));
     assert!(formatted.contains("0x"));
 }
@@ -724,7 +724,7 @@ fn test_pa_display_format() {
 #[test]
 fn test_pa_debug_format() {
     let pa = PA::new(0x9ABC).unwrap();
-    let formatted = format!("{:?}", pa);
+    let formatted = format!("{pa:?}");
     assert!(formatted.starts_with("PA("));
     assert!(formatted.contains("0x"));
     assert!(formatted.contains("9abc"));

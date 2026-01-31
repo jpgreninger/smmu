@@ -1,11 +1,11 @@
-//! StreamContext error types for ARM SMMU v3
+//! `StreamContext` error types for ARM `SMMU` v3
 //!
-//! This module defines error types for StreamContext operations, including
-//! PASID management, configuration, and resource limit errors.
+//! This module defines error types for `StreamContext` operations, including
+//! `PASID` management, configuration, and resource limit errors.
 
 use thiserror::Error;
 
-/// StreamContext operation error types
+/// `StreamContext` operation error types
 ///
 /// Comprehensive error enumeration for all stream context operation failure cases.
 ///
@@ -15,23 +15,23 @@ use thiserror::Error;
 /// use smmu::types::StreamContextError;
 ///
 /// let error = StreamContextError::PASIDAlreadyExists(1);
-/// println!("StreamContext error: {}", error);
+/// println!("`StreamContext` error: {}", error);
 /// ```
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum StreamContextError {
-    /// PASID already exists in stream context
+    /// `PASID` already exists in stream context
     #[error("PASID {0} already exists")]
     PASIDAlreadyExists(u32),
 
-    /// PASID not found in stream context
+    /// `PASID` not found in stream context
     #[error("PASID {0} not found")]
     PASIDNotFound(u32),
 
-    /// PASID limit exceeded
+    /// `PASID` limit exceeded
     #[error("PASID limit exceeded: {0} > {1}")]
     PASIDLimitExceeded(usize, usize),
 
-    /// Invalid PASID value
+    /// Invalid `PASID` value
     #[error("Invalid PASID: {0}")]
     InvalidPASID(u32),
 
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn test_stream_context_error_display() {
         let error = StreamContextError::PASIDAlreadyExists(1);
-        let msg = format!("{}", error);
+        let msg = format!("{error}");
         assert!(msg.contains("PASID 1 already exists"));
     }
 

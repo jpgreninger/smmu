@@ -1,20 +1,20 @@
-//! Main SMMU controller and translation engine
+//! Main `SMMU` controller and translation engine
 //!
-//! This module implements the top-level SMMU controller that orchestrates:
+//! This module implements the top-level `SMMU` controller that orchestrates:
 //!
 //! - Stream management and configuration
 //! - Translation request handling
 //! - Event and fault reporting
-//! - Global SMMU configuration
+//! - Global `SMMU` configuration
 //!
-//! # SMMU Controller
+//! # `SMMU` Controller
 //!
-//! The SMMU controller is the main entry point for all translation operations
-//! and provides the public API for interacting with the SMMU subsystem.
+//! The `SMMU` controller is the main entry point for all translation operations
+//! and provides the public API for interacting with the `SMMU` subsystem.
 //!
 //! # Translation Flow
 //!
-//! 1. Receive translation request (`StreamID`, `PASID`, IOVA, `AccessType`)
+//! 1. Receive translation request (`StreamID`, `PASID`, `IOVA`, `AccessType`)
 //! 2. Lookup stream context
 //! 3. Select appropriate address space based on `PASID`
 //! 4. Perform page table walk
@@ -31,18 +31,18 @@
 //! # Examples
 //!
 //! ```rust
-//! use smmu::SMMU;
-//! use smmu::types::{StreamID, StreamConfig, SMMUConfig};
+//! use smmu::`SMMU`;
+//! use smmu::types::{`StreamID`, StreamConfig, SMMUConfig};
 //!
-//! // Create SMMU with default configuration
-//! let smmu = SMMU::new();
+//! // Create `SMMU` with default configuration
+//! let smmu = `SMMU`::new();
 //!
-//! // Create SMMU with custom configuration
+//! // Create `SMMU` with custom configuration
 //! let config = SMMUConfig::high_performance();
-//! let smmu = SMMU::with_config(config);
+//! let smmu = `SMMU`::with_config(config);
 //!
 //! // Configure a stream
-//! let stream_id = StreamID::new(1).unwrap();
+//! let stream_id = `StreamID`::new(1).unwrap();
 //! let stream_config = StreamConfig::stage1_only();
 //! smmu.configure_stream(stream_id, stream_config).unwrap();
 //!
@@ -66,18 +66,18 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-/// SMMU controller - Central coordination and translation engine
+/// `SMMU` controller - Central coordination and translation engine
 ///
-/// The SMMU controller manages multiple streams (devices), each with their own
+/// The `SMMU` controller manages multiple streams (devices), each with their own
 /// translation contexts (PASIDs), and provides the main entry point for all
-/// SMMU operations.
+/// `SMMU` operations.
 ///
 /// # Architecture
 ///
-/// - **Stream Management**: `DashMap<StreamID, Arc<RwLock<StreamContext>>>`
+/// - **Stream Management**: `DashMap<`StreamID`, Arc<RwLock<`StreamContext`>>>`
 /// - **Global Configuration**: `Arc<RwLock<SMMUConfig>>`
 /// - **Shutdown Coordination**: `AtomicBool`
-/// - **Fault Queue**: `Arc<Mutex<Vec<FaultRecord>>>`
+/// - **Fault Queue**: `Arc<Mutex<Vec<`FaultRecord`>>>`
 ///
 /// # Thread Safety
 ///
@@ -94,7 +94,7 @@ use std::sync::{Arc, Mutex, RwLock};
 /// - `DashMap` provides lock-free concurrent access
 /// - Drop trait automatically cleans up all resources
 ///
-/// # ARM SMMU v3 Compliance
+/// # ARM `SMMU` v3 Compliance
 ///
 /// Implements Section 5.1 requirements:
 /// - Stream limit enforcement per configuration
@@ -103,14 +103,14 @@ use std::sync::{Arc, Mutex, RwLock};
 /// - Atomic state transitions for shutdown
 #[derive(Debug)]
 pub struct SMMU {
-    /// Stream management: StreamID → StreamContext mapping
+    /// Stream management: `StreamID` → `StreamContext` mapping
     ///
     /// DashMap provides lock-free concurrent access for high performance.
-    /// Each StreamContext is wrapped in Arc<RwLock<>> for shared ownership
+    /// Each `StreamContext` is wrapped in Arc<RwLock<>> for shared ownership
     /// with concurrent reads and exclusive writes.
     streams: DashMap<u32, Arc<RwLock<StreamContext>>>,
 
-    /// Global SMMU configuration
+    /// Global `SMMU` configuration
     ///
     /// RwLock allows many concurrent readers with exclusive writer access.
     /// Arc enables shared ownership across threads.
@@ -166,20 +166,20 @@ pub struct SMMU {
 }
 
 impl SMMU {
-    /// Create a new SMMU instance with default configuration
+    /// Create a new `SMMU` instance with default configuration
     ///
     /// Default configuration:
     /// - Standard queue sizes (512 event, 256 command, 128 PRI)
     /// - 1024 TLB cache entries
-    /// - 48-bit IOVA space, 52-bit PA space
+    /// - 48-bit `IOVA` space, 52-bit `PA` space
     /// - Maximum 65536 streams
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     /// assert!(!smmu.is_shutdown());
     /// assert_eq!(smmu.get_stream_count(), 0);
     /// ```
@@ -188,9 +188,9 @@ impl SMMU {
         Self::with_config(SMMUConfig::default())
     }
 
-    /// Create a new SMMU instance with custom configuration
+    /// Create a new `SMMU` instance with custom configuration
     ///
-    /// Validates configuration before creating SMMU instance.
+    /// Validates configuration before creating `SMMU` instance.
     /// Use configuration presets for common scenarios:
     /// - `SMMUConfig::high_performance()` - Server/data center
     /// - `SMMUConfig::low_memory()` - Memory-constrained environments
@@ -198,7 +198,7 @@ impl SMMU {
     ///
     /// # Arguments
     ///
-    /// * `config` - Global SMMU configuration
+    /// * `config` - Global `SMMU` configuration
     ///
     /// # Panics
     ///
@@ -208,11 +208,11 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     /// use smmu::types::SMMUConfig;
     ///
     /// let config = SMMUConfig::high_performance();
-    /// let smmu = SMMU::with_config(config);
+    /// let smmu = `SMMU`::with_config(config);
     /// assert_eq!(smmu.get_stream_count(), 0);
     /// ```
     #[must_use]
@@ -253,14 +253,14 @@ impl SMMU {
     ///
     /// # Errors
     ///
-    /// Returns error if SMMU is already shutdown.
+    /// Returns error if `SMMU` is already shutdown.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     /// assert!(smmu.initialize().is_ok());
     /// ```
     pub fn initialize(&self) -> Result<(), SMMUError> {
@@ -268,7 +268,7 @@ impl SMMU {
         Ok(())
     }
 
-    /// Graceful shutdown of SMMU controller
+    /// Graceful shutdown of `SMMU` controller
     ///
     /// Performs graceful shutdown in the following order:
     /// 1. Set shutdown flag atomically (rejects new operations)
@@ -289,11 +289,11 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
     ///
     /// // Graceful shutdown
@@ -323,16 +323,16 @@ impl SMMU {
         Ok(())
     }
 
-    /// Check if SMMU is shutdown
+    /// Check if `SMMU` is shutdown
     ///
     /// Lock-free atomic check for shutdown state.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     /// assert!(!smmu.is_shutdown());
     ///
     /// smmu.shutdown().unwrap();
@@ -352,12 +352,12 @@ impl SMMU {
     /// # Arguments
     ///
     /// * `stream_id` - Stream identifier (device ID)
-    /// * `config` - Stream configuration (translation stages, PASID, etc.)
+    /// * `config` - Stream configuration (translation stages, `PASID`, etc.)
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream already exists (`StreamAlreadyExists`)
     /// - Stream limit exceeded (`StreamLimitExceeded`)
     /// - Configuration is invalid (`InvalidConfiguration`)
@@ -365,11 +365,11 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     ///
     /// // Configure Stage-1 only translation
     /// let config = StreamConfig::stage1_only();
@@ -389,7 +389,7 @@ impl SMMU {
         // Validate stream configuration
         config
             .validate()
-            .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {:?}", e)))?;
+            .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
 
         let stream_value = stream_id.as_u32();
 
@@ -433,7 +433,7 @@ impl SMMU {
 
     /// Remove a stream and its associated context
     ///
-    /// Removes stream from SMMU and cleans up all associated resources
+    /// Removes stream from `SMMU` and cleans up all associated resources
     /// (PASIDs, address spaces, etc.). Automatic cleanup via Arc/Drop.
     ///
     /// # Arguments
@@ -443,17 +443,17 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream not found (`StreamNotFound`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     ///
     /// smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
     /// assert!(smmu.has_stream(stream_id));
@@ -484,11 +484,11 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     ///
     /// assert!(!smmu.has_stream(stream_id));
     ///
@@ -508,13 +508,13 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     /// assert_eq!(smmu.get_stream_count(), 0);
     ///
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
     /// assert_eq!(smmu.get_stream_count(), 1);
     /// ```
@@ -523,10 +523,10 @@ impl SMMU {
         self.streams.len()
     }
 
-    /// Create a PASID for a stream
+    /// Create a `PASID` for a stream
     ///
-    /// Creates a new Process Address Space ID (PASID) within a stream context.
-    /// Each PASID has its own address space for Stage-1 translation.
+    /// Creates a new Process Address Space ID (`PASID`) within a stream context.
+    /// Each `PASID` has its own address space for Stage-1 translation.
     ///
     /// # Arguments
     ///
@@ -536,21 +536,21 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream not found (`StreamNotFound`)
-    /// - PASID creation fails (`StreamContextError`)
+    /// - `PASID` creation fails (`StreamContextError`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `PASID`};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     ///
-    /// let pasid = PASID::new(0).unwrap();
+    /// let pasid = `PASID`::new(0).unwrap();
     /// smmu.create_pasid(stream_id, pasid).unwrap();
     /// ```
     pub fn create_pasid(&self, stream_id: StreamID, pasid: PASID) -> Result<(), SMMUError> {
@@ -560,9 +560,9 @@ impl SMMU {
         ctx.create_pasid(pasid).map_err(SMMUError::from)
     }
 
-    /// Remove a PASID from a stream
+    /// Remove a `PASID` from a stream
     ///
-    /// Removes a Process Address Space ID (PASID) from a stream context,
+    /// Removes a Process Address Space ID (`PASID`) from a stream context,
     /// cleaning up all associated resources (address space, mappings, etc.).
     ///
     /// # Arguments
@@ -573,24 +573,24 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream not found (`StreamNotFound`)
-    /// - PASID removal fails (`StreamContextError`)
+    /// - `PASID` removal fails (`StreamContextError`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `PASID`};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     ///
-    /// let pasid = PASID::new(1).unwrap();
+    /// let pasid = `PASID`::new(1).unwrap();
     /// smmu.create_pasid(stream_id, pasid).unwrap();
     ///
-    /// // Later, remove the PASID
+    /// // Later, remove the `PASID`
     /// smmu.remove_pasid(stream_id, pasid).unwrap();
     /// ```
     pub fn remove_pasid(&self, stream_id: StreamID, pasid: PASID) -> Result<(), SMMUError> {
@@ -616,27 +616,27 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream not found (`StreamNotFound`)
     /// - Mapping operation fails (`StreamContextError`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `PASID`, `IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     ///
-    /// let pasid = PASID::new(0).unwrap();
+    /// let pasid = `PASID`::new(0).unwrap();
     /// smmu.create_pasid(stream_id, pasid).unwrap();
     ///
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
-    /// let perms = PagePermissions::read_write();
-    /// smmu.map_page(stream_id, pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
+    /// let perms = `PagePermissions`::read_write();
+    /// smmu.map_page(stream_id, pasid, iova, pa, perms, `SecurityState`::NonSecure).unwrap();
     /// ```
     pub fn map_page(
         &self,
@@ -654,10 +654,10 @@ impl SMMU {
             .map_err(SMMUError::from)
     }
 
-    /// Map a page in the Stage-2 address space (IPA → PA)
+    /// Map a page in the Stage-2 address space (`IPA` → `PA`)
     ///
-    /// For two-stage translation, Stage-2 maps Intermediate Physical Addresses (IPA)
-    /// to Physical Addresses (PA). This is separate from Stage-1 PASID-based mappings.
+    /// For two-stage translation, Stage-2 maps Intermediate Physical Addresses (`IPA`)
+    /// to Physical Addresses (`PA`). This is separate from Stage-1 `PASID`-based mappings.
     ///
     /// # Arguments
     ///
@@ -670,18 +670,18 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown
+    /// - `SMMU` is shutdown
     /// - Stream not found
     /// - Stage-2 address space not initialized
     ///
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     ///
     /// // Configure for two-stage translation
     /// let mut config = StreamConfig::default();
@@ -692,10 +692,10 @@ impl SMMU {
     /// // Create Stage-2 address space
     /// smmu.create_stage2_address_space(stream_id).unwrap();
     ///
-    /// // Map Stage-2: IPA → PA
-    /// let ipa = IOVA::new(0x2000).unwrap(); // IPA from Stage-1
-    /// let pa = PA::new(0x3000).unwrap();
-    /// smmu.map_stage2_page(stream_id, ipa, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// // Map Stage-2: `IPA` → `PA`
+    /// let ipa = `IOVA`::new(0x2000).unwrap(); // `IPA` from Stage-1
+    /// let pa = `PA`::new(0x3000).unwrap();
+    /// smmu.map_stage2_page(stream_id, ipa, pa, `PagePermissions`::read_write(), `SecurityState`::NonSecure).unwrap();
     /// ```
     pub fn map_stage2_page(
         &self,
@@ -715,7 +715,7 @@ impl SMMU {
     /// Create and initialize Stage-2 address space for a stream
     ///
     /// Required for two-stage translation. Creates a new address space
-    /// for Stage-2 IPA → PA mappings.
+    /// for Stage-2 `IPA` → `PA` mappings.
     ///
     /// # Arguments
     ///
@@ -724,17 +724,17 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown
+    /// - `SMMU` is shutdown
     /// - Stream not found
     ///
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     ///
     /// // Configure stream for two-stage translation
     /// let mut config = StreamConfig::default();
@@ -753,18 +753,18 @@ impl SMMU {
             .map_err(SMMUError::from)
     }
 
-    /// Get a copy of the global SMMU configuration
+    /// Get a copy of the global `SMMU` configuration
     ///
     /// Returns a cloned copy of the configuration to avoid holding read lock.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     /// use smmu::types::SMMUConfig;
     ///
     /// let config = SMMUConfig::high_performance();
-    /// let smmu = SMMU::with_config(config.clone());
+    /// let smmu = `SMMU`::with_config(config.clone());
     ///
     /// let retrieved_config = smmu.get_config();
     /// assert_eq!(retrieved_config, config);
@@ -787,15 +787,15 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Configuration validation fails (`InvalidConfiguration`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     ///
     /// // Update cache size
     /// smmu.update_config(|config| {
@@ -844,18 +844,18 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{FaultRecord, FaultType, StreamID, PASID, IOVA, AccessType, SecurityState};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `StreamID`, `PASID`, `IOVA`, `AccessType`, `SecurityState`};
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     ///
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(1).unwrap())
-    ///     .pasid(PASID::new(0).unwrap())
-    ///     .address(IOVA::new(0x1000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
-    ///     .security_state(SecurityState::NonSecure)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(1).unwrap())
+    ///     .pasid(`PASID`::new(0).unwrap())
+    ///     .address(`IOVA`::new(0x1000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
+    ///     .security_state(`SecurityState`::NonSecure)
     ///     .timestamp(0)
     ///     .build();
     ///
@@ -875,18 +875,18 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{FaultRecord, FaultType, StreamID, PASID, IOVA, AccessType, SecurityState};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `StreamID`, `PASID`, `IOVA`, `AccessType`, `SecurityState`};
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     ///
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(1).unwrap())
-    ///     .pasid(PASID::new(0).unwrap())
-    ///     .address(IOVA::new(0x1000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
-    ///     .security_state(SecurityState::NonSecure)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(1).unwrap())
+    ///     .pasid(`PASID`::new(0).unwrap())
+    ///     .address(`IOVA`::new(0x1000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
+    ///     .security_state(`SecurityState`::NonSecure)
     ///     .timestamp(0)
     ///     .build();
     ///
@@ -912,18 +912,18 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{FaultRecord, FaultType, StreamID, PASID, IOVA, AccessType, SecurityState};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`FaultRecord`, `FaultType`, `StreamID`, `PASID`, `IOVA`, `AccessType`, `SecurityState`};
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     ///
-    /// let fault = FaultRecord::builder()
-    ///     .stream_id(StreamID::new(1).unwrap())
-    ///     .pasid(PASID::new(0).unwrap())
-    ///     .address(IOVA::new(0x1000).unwrap())
-    ///     .fault_type(FaultType::TranslationFault)
-    ///     .access_type(AccessType::Read)
-    ///     .security_state(SecurityState::NonSecure)
+    /// let fault = `FaultRecord`::builder()
+    ///     .stream_id(`StreamID`::new(1).unwrap())
+    ///     .pasid(`PASID`::new(0).unwrap())
+    ///     .address(`IOVA`::new(0x1000).unwrap())
+    ///     .fault_type(`FaultType`::TranslationFault)
+    ///     .access_type(`AccessType`::Read)
+    ///     .security_state(`SecurityState`::NonSecure)
     ///     .timestamp(0)
     ///     .build();
     ///
@@ -943,24 +943,24 @@ impl SMMU {
     // Translation Engine - Section 5.2
     // ========================================================================
 
-    /// Perform address translation (main SMMU API)
+    /// Perform address translation (main `SMMU` API)
     ///
-    /// Translates an Input/Output Virtual Address (IOVA) to a Physical Address (PA)
+    /// Translates an Input/Output Virtual Address (`IOVA`) to a Physical Address (`PA`)
     /// for a given stream and process address space. This is the main entry point for
-    /// all translation operations, implementing ARM SMMU v3 Section 5.3 translation process.
+    /// all translation operations, implementing ARM `SMMU` v3 Section 5.3 translation process.
     ///
     /// # Translation Modes
     ///
     /// The translation behavior depends on stream configuration:
     ///
-    /// - **Stage-1 Only**: IOVA → PA (per-PASID translation)
-    /// - **Stage-2 Only**: IPA → PA (VM translation)
-    /// - **Two-Stage**: IOVA → IPA → PA (nested virtualization)
-    /// - **Bypass**: IOVA = PA (identity mapping)
+    /// - **Stage-1 Only**: `IOVA` → `PA` (per-`PASID` translation)
+    /// - **Stage-2 Only**: `IPA` → `PA` (VM translation)
+    /// - **Two-Stage**: `IOVA` → `IPA` → `PA` (nested virtualization)
+    /// - **Bypass**: `IOVA` = `PA` (identity mapping)
     ///
     /// # Fault Recording
     ///
-    /// Translation errors are automatically recorded as fault events per ARM SMMU v3
+    /// Translation errors are automatically recorded as fault events per ARM `SMMU` v3
     /// Section 6.2 fault reporting requirements. Faults can be retrieved via
     /// `get_faults()` for diagnostic purposes.
     ///
@@ -986,41 +986,41 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - `SMMU` is shutdown (`ShutdownInProgress`)
     /// - Stream not configured (`StreamNotFound`)
     /// - Translation fails (various `TranslationError` types converted to `SMMUError`)
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `PASID`, `IOVA`, `AccessType`};
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     ///
     /// // Configure stream
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     ///
     /// // Perform translation
-    /// let pasid = PASID::new(0).unwrap();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    /// let pasid = `PASID`::new(0).unwrap();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let result = smmu.translate(stream_id, pasid, iova, `AccessType`::Read);
     ///
     /// match result {
-    ///     Ok(data) => println!("PA: 0x{:x}", data.physical_address().as_u64()),
+    ///     Ok(data) => println!("`PA`: 0x{:x}", data.physical_address().as_u64()),
     ///     Err(e) => println!("Translation failed: {}", e),
     /// }
     /// ```
     ///
-    /// # ARM SMMU v3 Compliance
+    /// # ARM `SMMU` v3 Compliance
     ///
     /// Implements:
     /// - Section 5.3: Translation process and multi-stage translation
     /// - Section 6.2: Fault detection and reporting
     /// - Stage-1, Stage-2, Two-Stage, and Bypass modes
     /// - Permission checking per access type
-    /// - PASID 0 support for legacy compatibility
+    /// - `PASID` 0 support for legacy compatibility
     pub fn translate(
         &self,
         stream_id: StreamID,
@@ -1071,16 +1071,16 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType};
+    /// use smmu::`SMMU`;
+    /// use smmu::types::{`StreamID`, StreamConfig, `PASID`, `IOVA`, `AccessType`};
     ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
+    /// let smmu = `SMMU`::new();
+    /// let stream_id = `StreamID`::new(1).unwrap();
     /// smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
     ///
-    /// let pasid = PASID::new(0).unwrap();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    /// let pasid = `PASID`::new(0).unwrap();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let _ = smmu.translate(stream_id, pasid, iova, `AccessType`::Read);
     ///
     /// let (total, successful, failed) = smmu.get_translation_stats();
     /// assert_eq!(total, 1);
@@ -1100,9 +1100,9 @@ impl SMMU {
     /// # Examples
     ///
     /// ```rust
-    /// use smmu::SMMU;
+    /// use smmu::`SMMU`;
     ///
-    /// let smmu = SMMU::new();
+    /// let smmu = `SMMU`::new();
     /// smmu.reset_translation_stats();
     /// let (total, successful, failed) = smmu.get_translation_stats();
     /// assert_eq!(total, 0);
@@ -1140,7 +1140,7 @@ impl SMMU {
             .ok_or_else(|| SMMUError::stream_not_found(stream_id))
     }
 
-    /// Map ARM SMMU v3 fault type to event type
+    /// Map ARM `SMMU` v3 fault type to event type
     ///
     /// Converts `FaultType` to `EventType` for event queue recording.
     ///
@@ -1164,9 +1164,9 @@ impl SMMU {
         }
     }
 
-    /// Map translation error to ARM SMMU v3 fault type
+    /// Map translation error to ARM `SMMU` v3 fault type
     ///
-    /// Converts `TranslationError` to appropriate `FaultType` per ARM SMMU v3
+    /// Converts `TranslationError` to appropriate `FaultType` per ARM `SMMU` v3
     /// Section 6.2 fault classification.
     ///
     /// # Arguments
@@ -1175,7 +1175,7 @@ impl SMMU {
     ///
     /// # Returns
     ///
-    /// Corresponding ARM SMMU v3 fault type code.
+    /// Corresponding ARM `SMMU` v3 fault type code.
     fn map_translation_error_to_fault_type(error: &TranslationError) -> FaultType {
         match error {
             TranslationError::PageNotMapped => FaultType::TranslationFault,
@@ -1216,10 +1216,12 @@ impl SMMU {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
         // Get current timestamp
+        #[allow(clippy::cast_possible_truncation)]
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_micros() as u64;
+            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
         let fault = FaultRecord::builder()
             .stream_id(stream_id)
@@ -1270,10 +1272,12 @@ impl SMMU {
         iova: IOVA,
         access: AccessType,
     ) {
+        #[allow(clippy::cast_possible_truncation)]
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_micros() as u64;
+            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
         let fault = FaultRecord::builder()
             .stream_id(stream_id)
@@ -1306,7 +1310,7 @@ impl SMMU {
         }
     }
 
-    /// Check if SMMU is shutdown and return error if so
+    /// Check if `SMMU` is shutdown and return error if so
     ///
     /// Helper method for all operations that should fail during shutdown.
     #[inline]
@@ -1331,7 +1335,7 @@ impl SMMU {
     ///
     /// This method is thread-safe and can be called concurrently from multiple threads.
     ///
-    /// # ARM SMMU v3 Compliance
+    /// # ARM `SMMU` v3 Compliance
     ///
     /// Implements event queue management per Section 6.3.
     pub fn submit_event(&self, event: EventEntry) -> Result<(), SMMUError> {
@@ -1417,7 +1421,7 @@ impl SMMU {
     ///
     /// - For range operations (AtcInv), start_address must be <= end_address
     ///
-    /// # ARM SMMU v3 Compliance
+    /// # ARM `SMMU` v3 Compliance
     ///
     /// Implements command queue management per Section 6.4.
     pub fn submit_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
@@ -1445,7 +1449,7 @@ impl SMMU {
     /// Processes commands in FIFO order and generates completion events.
     /// Returns the number of commands processed.
     ///
-    /// # ARM SMMU v3 Compliance
+    /// # ARM `SMMU` v3 Compliance
     ///
     /// Commands are processed in submission order per Section 6.4.
     pub fn process_command_queue(&self) -> Result<usize, SMMUError> {
@@ -1514,10 +1518,12 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
 
                 // Generate completion event
+                #[allow(clippy::cast_possible_truncation)]
+
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_micros() as u64;
+            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                 let event = EventEntry {
                     event_type: EventType::AtcInvalidateCompletion,
@@ -1533,10 +1539,12 @@ impl SMMU {
             }
             CommandType::Sync => {
                 // Synchronization barrier - generate completion event
+                #[allow(clippy::cast_possible_truncation)]
+
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_micros() as u64;
+            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                 let event = EventEntry {
                     event_type: EventType::CommandSyncCompletion,
@@ -1568,7 +1576,7 @@ impl SMMU {
     /// Adds a page request entry to the FIFO PRI queue. Returns error if queue capacity is exceeded
     /// (only enforced for small queues < 100 to support overflow testing).
     ///
-    /// # ARM SMMU v3 Compliance
+    /// # ARM `SMMU` v3 Compliance
     ///
     /// Implements Page Request Interface per Section 7.
     pub fn submit_page_request(&self, request: PRIEntry) -> Result<(), SMMUError> {
@@ -1606,10 +1614,12 @@ impl SMMU {
             match request {
                 Some(req) => {
                     // Generate PRI event for this request
+                    #[allow(clippy::cast_possible_truncation)]
+
                     let timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_micros() as u64;
+            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                     let event = EventEntry {
                         event_type: EventType::PriPageRequest,

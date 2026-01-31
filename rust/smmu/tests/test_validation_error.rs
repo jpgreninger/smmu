@@ -527,7 +527,7 @@ fn test_validation_error_inequality() {
 #[test]
 fn test_validation_error_debug() {
     let error = ValidationError::InvalidPASID { value: 999 };
-    let debug_str = format!("{:?}", error);
+    let debug_str = format!("{error:?}");
 
     // Debug should show the variant and fields
     assert!(debug_str.contains("InvalidPASID"));
@@ -541,7 +541,7 @@ fn test_validation_error_debug_generic() {
         value: "val".to_string(),
         constraint: "constraint".to_string(),
     };
-    let debug_str = format!("{:?}", error);
+    let debug_str = format!("{error:?}");
 
     assert!(debug_str.contains("Generic"));
     assert!(debug_str.contains("test"));

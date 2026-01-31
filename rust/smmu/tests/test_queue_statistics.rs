@@ -312,7 +312,7 @@ fn test_clone_trait() {
 #[test]
 fn test_debug_trait() {
     let stats = QueueStatistics::new(10, 20, 30, 100, 200, 300);
-    let debug_string = format!("{:?}", stats);
+    let debug_string = format!("{stats:?}");
 
     assert!(debug_string.contains("QueueStatistics"));
     assert!(debug_string.contains("event_queue_size"));
@@ -323,7 +323,7 @@ fn test_debug_trait() {
 #[test]
 fn test_debug_trait_default() {
     let stats = QueueStatistics::default();
-    let debug_string = format!("{:?}", stats);
+    let debug_string = format!("{stats:?}");
 
     assert!(debug_string.contains("QueueStatistics"));
 }

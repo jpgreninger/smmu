@@ -427,7 +427,7 @@ fn test_error_equality() {
 #[test]
 fn test_error_debug() {
     let error = FaultQueueError::QueueFull;
-    let debug = format!("{:?}", error);
+    let debug = format!("{error:?}");
     assert!(debug.contains("QueueFull"));
 }
 

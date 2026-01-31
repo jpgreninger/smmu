@@ -131,7 +131,7 @@ fn stress_concurrent_smmu_operations() {
             let stream_id = StreamID::new(i).unwrap();
             let pasid = PASID::new(1).unwrap();
             let iova = IOVA::new(0x1000).unwrap();
-            let pa = PA::new(0x2000 + i as u64 * 0x1000).unwrap();
+            let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
 
             smmu_clone
                 .configure_stream(stream_id, Default::default())
@@ -282,8 +282,8 @@ fn stress_mixed_operations() {
 
             let stream_id = StreamID::new(i % 5).unwrap();
             let pasid = PASID::new((i / 5) as u32).unwrap();
-            let iova = IOVA::new(0x1000 + i as u64 * 0x1000).unwrap();
-            let pa = PA::new(0x2000 + i as u64 * 0x1000).unwrap();
+            let iova = IOVA::new(0x1000 + u64::from(i) * 0x1000).unwrap();
+            let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
 
             // Create PASID if not exists
             let _ = smmu_clone.create_pasid(stream_id, pasid);

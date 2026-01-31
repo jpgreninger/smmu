@@ -165,7 +165,7 @@ fn test_stream_id_display_maximum() {
 #[test]
 fn test_stream_id_debug() {
     let stream_id = StreamID::new(42).unwrap();
-    let debug_str = format!("{:?}", stream_id);
+    let debug_str = format!("{stream_id:?}");
     assert!(debug_str.contains("StreamID"));
     assert!(debug_str.contains("42"));
 }
@@ -173,7 +173,7 @@ fn test_stream_id_debug() {
 #[test]
 fn test_stream_id_debug_formatting() {
     let stream_id = StreamID::new(1234).unwrap();
-    let debug_str = format!("{:?}", stream_id);
+    let debug_str = format!("{stream_id:?}");
     // Debug should show the inner value
     assert!(debug_str.contains("1234"));
 }

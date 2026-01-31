@@ -390,7 +390,7 @@ fn test_error_clone() {
 #[test]
 fn test_error_debug() {
     let error = TranslationError::PageNotMapped;
-    let debug = format!("{:?}", error);
+    let debug = format!("{error:?}");
     assert!(debug.contains("PageNotMapped"));
 }
 
@@ -543,7 +543,7 @@ fn test_translation_data_debug() {
     let perms = PagePermissions::read_write();
     let data = TranslationData::new(pa, perms, SecurityState::NonSecure);
 
-    let debug = format!("{:?}", data);
+    let debug = format!("{data:?}");
     assert!(!debug.is_empty());
 }
 
@@ -600,7 +600,7 @@ fn test_builder_clone() {
 #[test]
 fn test_builder_debug() {
     let builder = TranslationData::builder();
-    let debug = format!("{:?}", builder);
+    let debug = format!("{builder:?}");
     assert!(!debug.is_empty());
 }
 

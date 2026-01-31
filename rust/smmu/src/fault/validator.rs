@@ -1,7 +1,7 @@
-//! Address and Permission Validation for ARM SMMU v3
+//! Address and Permission Validation for ARM `SMMU` v3
 //!
 //! This module provides specialized validators for address ranges and permissions
-//! following ARM SMMU v3 specification requirements.
+//! following ARM `SMMU` v3 specification requirements.
 
 use crate::types::{
     AccessType, FaultRecord, FaultSyndrome, FaultType, IOVA, PASID, PagePermissions,
@@ -176,7 +176,7 @@ impl AddressRangeValidator {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if valid, `Err(FaultRecord)` with address size fault otherwise
+    /// `Ok(())` if valid, `Err(`FaultRecord`)` with address size fault otherwise
     pub fn validate_range(
         &mut self,
         stream_id: StreamID,
@@ -236,7 +236,7 @@ impl AddressRangeValidator {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if aligned, `Err(FaultRecord)` with alignment fault otherwise
+    /// `Ok(())` if aligned, `Err(`FaultRecord`)` with alignment fault otherwise
     pub fn validate_page_alignment(
         &mut self,
         stream_id: StreamID,
@@ -288,10 +288,15 @@ impl Default for AddressRangeValidator {
 /// Captures all validation failures with comprehensive context.
 #[derive(Debug, Clone)]
 pub struct ValidationContext {
+    /// Stream identifier for the translation request
     pub stream_id: StreamID,
+    /// Process Address Space ID
     pub pasid: PASID,
+    /// Virtual address being accessed
     pub address: IOVA,
+    /// Type of memory access (Read/Write/Execute)
     pub access_type: AccessType,
+    /// Security state of the access
     pub security_state: SecurityState,
 }
 

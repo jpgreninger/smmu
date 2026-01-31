@@ -1,12 +1,12 @@
-//! Command queue types for ARM SMMU v3
+//! Command queue types for ARM `SMMU` v3
 //!
-//! Command queue processing per ARM SMMU v3 specification Section 6.4.
+//! Command queue processing per ARM `SMMU` v3 specification Section 6.4.
 
-use crate::types::{StreamID, IOVA, PASID};
+// Note: StreamID, IOVA, PASID types not currently used but available for future expansion
 
 /// Command type enumeration
 ///
-/// Defines all ARM SMMU v3 command types supported by the command queue.
+/// Defines all ARM `SMMU` v3 command types supported by the command queue.
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CommandType {
@@ -43,7 +43,7 @@ impl Default for CommandType {
 /// Command entry structure
 ///
 /// Contains all information about a single command in the command queue.
-/// Follows ARM SMMU v3 command format.
+/// Follows ARM `SMMU` v3 command format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct CommandEntry {
     /// Command type
@@ -64,6 +64,7 @@ pub struct CommandEntry {
 
 impl CommandEntry {
     /// Create a new command entry
+    #[must_use]
     pub const fn new(cmd_type: CommandType, stream_id: u32, pasid: u32) -> Self {
         Self {
             cmd_type,

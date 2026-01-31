@@ -26,6 +26,8 @@ thiserror = "2.0"
 smallvec = "1.11"
 # Lock-free concurrent hash map for PASID management
 dashmap = "5.5"
+# Optional serialization support
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 # Testing and benchmarking dependencies only
@@ -49,6 +51,7 @@ workspace = true
 [features]
 default = ["std"]
 std = []
+serde = ["dep:serde"]
 # Future feature flags for optional functionality
 # pasid = []
 # two-stage = []

@@ -213,7 +213,7 @@ fn test_pri_entry_clone() {
 #[test]
 fn test_pri_entry_debug() {
     let entry = PRIEntry::new(42, 57, 0x1000, AccessType::Read);
-    let debug_string = format!("{:?}", entry);
+    let debug_string = format!("{entry:?}");
 
     assert!(debug_string.contains("PRIEntry"));
     assert!(debug_string.contains("stream_id"));
@@ -228,7 +228,7 @@ fn test_pri_entry_debug_with_all_fields() {
     entry.is_last_request = true;
     entry.timestamp = 12345;
 
-    let debug_string = format!("{:?}", entry);
+    let debug_string = format!("{entry:?}");
     assert!(debug_string.contains("PRIEntry"));
 }
 

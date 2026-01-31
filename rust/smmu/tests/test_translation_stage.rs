@@ -474,7 +474,7 @@ fn test_default_is_bypass() {
 fn test_debug_format() {
     // Test that Debug is implemented (via derive)
     let stage = TranslationStage::Stage1;
-    let debug_str = format!("{:?}", stage);
+    let debug_str = format!("{stage:?}");
     assert!(debug_str.contains("Stage1"));
 }
 

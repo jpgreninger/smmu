@@ -1,13 +1,13 @@
-//! Page Request Interface types for ARM SMMU v3
+//! Page Request Interface types for ARM `SMMU` v3
 //!
-//! PRI queue management per ARM SMMU v3 specification Section 7.
+//! PRI queue management per ARM `SMMU` v3 specification Section 7.
 
-use crate::types::{AccessType, StreamID, IOVA, PASID};
+use crate::types::AccessType;
 
 /// Page Request Interface entry
 ///
 /// Contains information about a page request in the PRI queue.
-/// Follows ARM SMMU v3 PRI format.
+/// Follows ARM `SMMU` v3 PRI format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PRIEntry {
     /// Source stream identifier (raw u32 for simpler access)
@@ -26,6 +26,7 @@ pub struct PRIEntry {
 
 impl PRIEntry {
     /// Create a new PRI entry
+    #[must_use]
     pub const fn new(
         stream_id: u32,
         pasid: u32,

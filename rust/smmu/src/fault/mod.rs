@@ -1,9 +1,9 @@
 //! Fault detection, classification, handling, and recovery
 //!
-//! This module implements comprehensive fault handling for the SMMU per ARM SMMU v3 Sections 6.1 and 6.2:
+//! This module implements comprehensive fault handling for the `SMMU` per ARM `SMMU` v3 Sections 6.1 and 6.2:
 //!
 //! - Translation faults (unmapped addresses, permission violations)
-//! - Configuration faults (invalid stream or PASID configuration)
+//! - Configuration faults (invalid stream or `PASID` configuration)
 //! - Hardware faults (internal errors, parity errors)
 //! - Event recording and reporting
 //! - Fault processing in Terminate and Stall modes
@@ -11,9 +11,9 @@
 //!
 //! # Fault Types
 //!
-//! The SMMU specification defines 15 fault types that must be properly
+//! The `SMMU` specification defines 15 fault types that must be properly
 //! detected, classified, and reported. This module implements all required
-//! fault handling per ARM SMMU v3 specification.
+//! fault handling per ARM `SMMU` v3 specification.
 //!
 //! # Fault Detection (Section 6.1)
 //!
@@ -21,7 +21,7 @@
 //! - Translation fault detection with full context capture
 //! - Permission fault checking with bitwise operations
 //! - Address range validation (32/48/52-bit support)
-//! - Fault syndrome generation per ARM SMMU v3 specification
+//! - Fault syndrome generation per ARM `SMMU` v3 specification
 //!
 //! # Validation
 //!

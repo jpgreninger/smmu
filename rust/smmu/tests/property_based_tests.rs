@@ -70,7 +70,7 @@ proptest! {
 
         // Map multiple pages
         for i in 0..count {
-            let iova = IOVA::new((0x1000 + i as u64 * PAGE_SIZE as u64) & !0xFFF).unwrap();
+            let iova = IOVA::new((0x1000 + u64::from(i) * PAGE_SIZE) & !0xFFF).unwrap();
             let pa = PA::new(0x2000).unwrap();
             addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
         }
@@ -85,8 +85,8 @@ proptest! {
 
         // Map multiple pages
         for i in 0..count {
-            let iova = IOVA::new(0x1000 + i as u64 * PAGE_SIZE as u64).unwrap();
-            let pa = PA::new(0x2000 + i as u64 * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + u64::from(i) * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x2000 + u64::from(i) * PAGE_SIZE).unwrap();
             addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
         }
 
@@ -94,9 +94,9 @@ proptest! {
 
         // Verify each translation
         for i in 0..count {
-            let iova = IOVA::new(0x1000 + i as u64 * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + u64::from(i) * PAGE_SIZE).unwrap();
             let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
-            let expected_pa = 0x2000 + i as u64 * PAGE_SIZE as u64;
+            let expected_pa = 0x2000 + u64::from(i) * PAGE_SIZE;
             assert_eq!(result.physical_address().as_u64(), expected_pa);
         }
     }
@@ -254,7 +254,7 @@ proptest! {
         let mut addr_space = AddressSpace::new();
 
         for i in 0..count {
-            let iova = IOVA::new(0x1000 + i as u64 * PAGE_SIZE as u64).unwrap();
+            let iova = IOVA::new(0x1000 + u64::from(i) * PAGE_SIZE).unwrap();
             let pa = PA::new(0x2000).unwrap();
             addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
         }

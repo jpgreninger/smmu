@@ -83,7 +83,7 @@ impl StandardTestFixture {
     #[must_use]
     pub fn generate_test_vas(&self, count: usize) -> Vec<u64> {
         (0..count)
-            .map(|i| self.base_va + (i as u64 * self.page_size))
+            .map(|i| self.base_va + (u64::from(i) * self.page_size))
             .collect()
     }
 
@@ -91,7 +91,7 @@ impl StandardTestFixture {
     #[must_use]
     pub fn generate_test_pas(&self, count: usize) -> Vec<u64> {
         (0..count)
-            .map(|i| self.base_pa + (i as u64 * self.page_size))
+            .map(|i| self.base_pa + (u64::from(i) * self.page_size))
             .collect()
     }
 
@@ -100,7 +100,7 @@ impl StandardTestFixture {
     pub fn generate_identity_mappings(&self, count: usize) -> Vec<(u64, u64)> {
         (0..count)
             .map(|i| {
-                let addr = self.base_va + (i as u64 * self.page_size);
+                let addr = self.base_va + (u64::from(i) * self.page_size);
                 (addr, addr)
             })
             .collect()

@@ -1,8 +1,8 @@
-//! Event queue types for ARM SMMU v3
+//! Event queue types for ARM `SMMU` v3
 //!
-//! Event queue management per ARM SMMU v3 specification Section 6.3.
+//! Event queue management per ARM `SMMU` v3 specification Section 6.3.
 
-use crate::types::{SecurityState, StreamID, IOVA, PASID};
+use crate::types::SecurityState;
 
 /// Event type enumeration
 ///
@@ -35,7 +35,7 @@ impl Default for EventType {
 /// Event entry structure
 ///
 /// Contains all information about a single event in the event queue.
-/// Follows ARM SMMU v3 event record format.
+/// Follows ARM `SMMU` v3 event record format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EventEntry {
     /// Type of event
@@ -56,6 +56,7 @@ pub struct EventEntry {
 
 impl EventEntry {
     /// Create a new event entry
+    #[must_use]
     pub const fn new(
         event_type: EventType,
         stream_id: u32,

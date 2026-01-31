@@ -128,9 +128,9 @@ fn test_two_stage_multiple_pages() {
 
     // Setup multiple two-stage mappings
     for i in 0..NUM_PAGES {
-        let iova = IOVA::new(0x1000000 + i as u64 * PAGE_SIZE).unwrap();
-        let ipa = PA::new(0x2000000 + i as u64 * PAGE_SIZE).unwrap();
-        let pa = PA::new(0x3000000 + i as u64 * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let ipa = PA::new(0x2000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
 
         // Stage 1: IOVA -> IPA
         smmu.map_page(
@@ -157,8 +157,8 @@ fn test_two_stage_multiple_pages() {
 
     // Test all translations
     for i in 0..NUM_PAGES {
-        let iova = IOVA::new(0x1000000 + i as u64 * PAGE_SIZE).unwrap();
-        let expected_pa = PA::new(0x3000000 + i as u64 * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let expected_pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
 
         let result =
             smmu.translate(stream_id, pasid, iova, AccessType::Read);
@@ -362,9 +362,9 @@ fn test_two_stage_concurrent_translations() {
 
     // Setup mappings for concurrent access
     for i in 0..(NUM_THREADS * TRANSLATIONS_PER_THREAD) {
-        let iova = IOVA::new(0x1000000 + i as u64 * PAGE_SIZE).unwrap();
-        let ipa = PA::new(0x2000000 + i as u64 * PAGE_SIZE).unwrap();
-        let pa = PA::new(0x3000000 + i as u64 * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let ipa = PA::new(0x2000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
 
         smmu.map_page(
             stream_id,
@@ -400,8 +400,8 @@ fn test_two_stage_concurrent_translations() {
         let handle = thread::spawn(move || {
             for i in 0..TRANSLATIONS_PER_THREAD {
                 let index = thread_id * TRANSLATIONS_PER_THREAD + i;
-                let iova = IOVA::new(0x1000000 + index as u64 * PAGE_SIZE).unwrap();
-                let expected_pa = PA::new(0x3000000 + index as u64 * PAGE_SIZE).unwrap();
+                let iova = IOVA::new(0x1000000 + u64::from(index) * PAGE_SIZE).unwrap();
+                let expected_pa = PA::new(0x3000000 + u64::from(index) * PAGE_SIZE).unwrap();
 
                 let result = smmu_clone.translate(
                     stream_id,
@@ -683,9 +683,9 @@ fn test_concurrent_multi_stream_access() {
 
         // Map unique pages for each stream
         for j in 0..TRANSLATIONS_PER_STREAM {
-            let iova = IOVA::new(0x1000000 + (i as u64 * TRANSLATIONS_PER_STREAM as u64 + j as u64) * PAGE_SIZE)
+            let iova = IOVA::new(0x1000000 + (u64::from(i) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(j)) * PAGE_SIZE)
                 .unwrap();
-            let pa = PA::new(0x2000000 + (i as u64 * TRANSLATIONS_PER_STREAM as u64 + j as u64) * PAGE_SIZE)
+            let pa = PA::new(0x2000000 + (u64::from(i) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(j)) * PAGE_SIZE)
                 .unwrap();
 
             smmu.map_page(
@@ -716,13 +716,13 @@ fn test_concurrent_multi_stream_access() {
             for i in 0..TRANSLATIONS_PER_STREAM {
                 let iova = IOVA::new(
                     0x1000000
-                        + (stream_index as u64 * TRANSLATIONS_PER_STREAM as u64 + i as u64)
+                        + (u64::from(stream_index) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(i))
                             * PAGE_SIZE,
                 )
                 .unwrap();
                 let expected_pa = PA::new(
                     0x2000000
-                        + (stream_index as u64 * TRANSLATIONS_PER_STREAM as u64 + i as u64)
+                        + (u64::from(stream_index) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(i))
                             * PAGE_SIZE,
                 )
                 .unwrap();
@@ -888,9 +888,9 @@ fn test_basic_pasid_context_switching() {
 
         // Map pages for this PASID
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
-            let pa = PA::new(0x2000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
 
             smmu.map_page(
@@ -910,10 +910,10 @@ fn test_basic_pasid_context_switching() {
         let pasid = PASID::new(pasid_val).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
             let expected_pa =
-                PA::new(0x2000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
+                PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
 
             let result =
                 smmu.translate(stream_id, pasid, iova, AccessType::Read);
@@ -952,11 +952,11 @@ fn test_pasid_context_isolation() {
 
     // Map pages for both PASIDs
     for i in 0..PAGES_PER_PASID {
-        let iova1 = IOVA::new(0x1000000 + 10 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
-        let pa1 = PA::new(0x2000000 + 10 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
+        let iova1 = IOVA::new(0x1000000 + 10 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let pa1 = PA::new(0x2000000 + 10 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
 
-        let iova2 = IOVA::new(0x1000000 + 20 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
-        let pa2 = PA::new(0x2000000 + 20 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
+        let iova2 = IOVA::new(0x1000000 + 20 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let pa2 = PA::new(0x2000000 + 20 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
 
         smmu.map_page(
             stream_id,
@@ -1062,9 +1062,9 @@ fn test_large_scale_pasid_switching() {
         smmu.create_pasid(stream_id, pasid).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
-            let pa = PA::new(0x2000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
 
             smmu.map_page(
@@ -1084,10 +1084,10 @@ fn test_large_scale_pasid_switching() {
         let pasid = PASID::new(pasid_val).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE)
+            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE)
                 .unwrap();
             let expected_pa =
-                PA::new(0x2000000 + pasid_val as u64 * 0x100000 + i as u64 * PAGE_SIZE).unwrap();
+                PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
 
             let result =
                 smmu.translate(stream_id, pasid, iova, AccessType::Read);
@@ -1127,9 +1127,9 @@ fn test_concurrent_pasid_switching() {
 
             for j in 0..PAGES_PER_PASID {
                 let iova =
-                    IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + j as u64 * PAGE_SIZE)
+                    IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(j) * PAGE_SIZE)
                         .unwrap();
-                let pa = PA::new(0x2000000 + pasid_val as u64 * 0x100000 + j as u64 * PAGE_SIZE)
+                let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(j) * PAGE_SIZE)
                     .unwrap();
 
                 smmu.map_page(
@@ -1166,10 +1166,10 @@ fn test_concurrent_pasid_switching() {
 
                 let page_index = rng.gen_range(0..PAGES_PER_PASID);
                 let iova =
-                    IOVA::new(0x1000000 + pasid_val as u64 * 0x100000 + page_index as u64 * PAGE_SIZE)
+                    IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(page_index) * PAGE_SIZE)
                         .unwrap();
                 let expected_pa =
-                    PA::new(0x2000000 + pasid_val as u64 * 0x100000 + page_index as u64 * PAGE_SIZE)
+                    PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(page_index) * PAGE_SIZE)
                         .unwrap();
 
                 let result = smmu_clone.translate(
@@ -1279,11 +1279,11 @@ fn test_massive_translation_load() {
 
             for k in 0..PAGES_PER_PASID {
                 let iova = IOVA::new(
-                    0x100000000 + i as u64 * 0x10000000 + j as u64 * 0x1000000 + k as u64 * PAGE_SIZE,
+                    0x100000000 + u64::from(i) * 0x10000000 + u64::from(j) * 0x1000000 + k as u64 * PAGE_SIZE,
                 )
                 .unwrap();
                 let pa = PA::new(
-                    0x200000000 + i as u64 * 0x10000000 + j as u64 * 0x1000000 + k as u64 * PAGE_SIZE,
+                    0x200000000 + u64::from(i) * 0x10000000 + u64::from(j) * 0x1000000 + k as u64 * PAGE_SIZE,
                 )
                 .unwrap();
 
@@ -1323,7 +1323,7 @@ fn test_massive_translation_load() {
 
         let stream_base = stream_id.as_u32() as u64 * 0x10000000;
         let pasid_base = pasid.as_u32() as u64 * 0x1000000;
-        let iova = IOVA::new(0x100000000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE)
+        let iova = IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE)
             .unwrap();
 
         let result =
@@ -1392,9 +1392,9 @@ fn test_concurrent_high_load_scalability() {
             for j in 0..PAGES_PER_STREAM {
                 let stream_base = stream_id.as_u32() as u64 * 0x10000000;
                 let pasid_base = 1u64 * 0x1000000;
-                let iova = IOVA::new(0x100000000 + stream_base + pasid_base + j as u64 * PAGE_SIZE)
+                let iova = IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(j) * PAGE_SIZE)
                     .unwrap();
-                let pa = PA::new(0x200000000 + stream_base + pasid_base + j as u64 * PAGE_SIZE)
+                let pa = PA::new(0x200000000 + stream_base + pasid_base + u64::from(j) * PAGE_SIZE)
                     .unwrap();
 
                 smmu.map_page(
@@ -1438,7 +1438,7 @@ fn test_concurrent_high_load_scalability() {
                 let stream_base = stream_id.as_u32() as u64 * 0x10000000;
                 let pasid_base = 1u64 * 0x1000000;
                 let iova =
-                    IOVA::new(0x100000000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE)
+                    IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE)
                         .unwrap();
 
                 let pasid = PASID::new(1).unwrap();
@@ -1575,7 +1575,7 @@ fn test_memory_scalability_under_load() {
             let stream_base = stream_id.as_u32() as u64 * 0x10000000;
             let pasid_base = pasid.as_u32() as u64 * 0x1000000;
             let iova =
-                IOVA::new(0x100000000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE)
+                IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE)
                     .unwrap();
 
             let result =
@@ -1626,8 +1626,8 @@ fn test_complete_smmu_lifecycle() {
         let pasid = PASID::new(1).unwrap();
         smmu.create_pasid(stream_id, pasid).unwrap();
 
-        let iova = IOVA::new(0x1000 + i as u64 * 0x1000).unwrap();
-        let pa = PA::new(0x2000 + i as u64 * 0x1000).unwrap();
+        let iova = IOVA::new(0x1000 + u64::from(i) * 0x1000).unwrap();
+        let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
 
         smmu.map_page(
             stream_id,
@@ -1644,7 +1644,7 @@ fn test_complete_smmu_lifecycle() {
     for i in 1..=10 {
         let stream_id = StreamID::new(i).unwrap();
         let pasid = PASID::new(1).unwrap();
-        let iova = IOVA::new(0x1000 + i as u64 * 0x1000).unwrap();
+        let iova = IOVA::new(0x1000 + u64::from(i) * 0x1000).unwrap();
 
         let result =
             smmu.translate(stream_id, pasid, iova, AccessType::Read);

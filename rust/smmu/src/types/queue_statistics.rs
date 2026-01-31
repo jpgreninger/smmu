@@ -1,10 +1,10 @@
-//! Queue statistics for ARM SMMU v3
+//! Queue statistics for ARM `SMMU` v3
 //!
 //! Runtime statistics for queue monitoring.
 
 /// Queue statistics structure
 ///
-/// Provides runtime statistics for all SMMU queues.
+/// Provides runtime statistics for all `SMMU` queues.
 #[derive(Clone, Debug, Default)]
 pub struct QueueStatistics {
     /// Current event queue size
@@ -23,6 +23,7 @@ pub struct QueueStatistics {
 
 impl QueueStatistics {
     /// Create new queue statistics
+    #[must_use]
     pub const fn new(
         event_queue_size: u64,
         command_queue_size: u64,
@@ -42,21 +43,26 @@ impl QueueStatistics {
     }
 
     /// Get event queue size
+    #[must_use]
     pub const fn event_queue_size(&self) -> u64 {
         self.event_queue_size
     }
 
     /// Get command queue size
+    #[must_use]
     pub const fn command_queue_size(&self) -> u64 {
         self.command_queue_size
     }
 
     /// Get PRI queue size
+    #[must_use]
     pub const fn pri_queue_size(&self) -> u64 {
         self.pri_queue_size
     }
 
     /// Get event queue utilization (0.0 - 1.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn event_queue_utilization(&self) -> f64 {
         if self.event_queue_capacity == 0 {
             0.0
@@ -66,6 +72,8 @@ impl QueueStatistics {
     }
 
     /// Get command queue utilization (0.0 - 1.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn command_queue_utilization(&self) -> f64 {
         if self.command_queue_capacity == 0 {
             0.0
@@ -75,6 +83,8 @@ impl QueueStatistics {
     }
 
     /// Get PRI queue utilization (0.0 - 1.0)
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn pri_queue_utilization(&self) -> f64 {
         if self.pri_queue_capacity == 0 {
             0.0

@@ -1,29 +1,29 @@
-//! Translation stage definitions for ARM SMMU v3
+//! Translation stage definitions for ARM `SMMU` v3
 
 use crate::types::ValidationError;
 use crate::types::fault_type::{AddressType, TranslationStep};
 use core::fmt;
 
-/// ARM SMMU v3 Translation Stage Configuration
+/// ARM `SMMU` v3 Translation Stage Configuration
 ///
 /// Defines which translation stages are active:
 /// - Bypass: No translation
-/// - Stage1: IOVA → PA (process/application address space)
-/// - Stage2: IPA → PA (guest/VM address space)
-/// - Stage1And2: IOVA → IPA → PA (nested virtualization)
+/// - Stage1: `IOVA` → `PA` (process/application address space)
+/// - Stage2: `IPA` → `PA` (guest/VM address space)
+/// - Stage1And2: `IOVA` → `IPA` → `PA` (nested virtualization)
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TranslationStage {
     /// No translation - direct passthrough
     Bypass = 0b00,
 
-    /// Stage 1 only (IOVA → PA)
+    /// Stage 1 only (`IOVA` → `PA`)
     Stage1 = 0b01,
 
-    /// Stage 2 only (IPA → PA)
+    /// Stage 2 only (`IPA` → `PA`)
     Stage2 = 0b10,
 
-    /// Two-stage translation (IOVA → IPA → PA)
+    /// Two-stage translation (`IOVA` → `IPA` → `PA`)
     Stage1And2 = 0b11,
 }
 
@@ -63,12 +63,18 @@ impl TranslationStage {
         self.uses_stage1()
     }
 
+    /// Check if stage uses stage 2 translation (const version)
+    ///
+    /// This is a const-compatible version of `uses_stage2()` for use in const contexts.
     #[inline]
     #[must_use]
     pub const fn const_uses_stage2(self) -> bool {
         self.uses_stage2()
     }
 
+    /// Check if this is two-stage translation (const version)
+    ///
+    /// This is a const-compatible version of `is_two_stage()` for use in const contexts.
     #[inline]
     #[must_use]
     pub const fn const_is_two_stage(self) -> bool {
@@ -139,7 +145,7 @@ impl TranslationStage {
         }
     }
 
-    /// Check if PASID is supported at translation level
+    /// Check if `PASID` is supported at translation level
     #[inline]
     #[must_use]
     pub const fn supports_pasid(self) -> bool {
@@ -194,14 +200,14 @@ impl TranslationStage {
         matches!(self, Self::Stage2 | Self::Stage1And2)
     }
 
-    /// Convert to ARM SMMU v3 bit encoding
+    /// Convert to ARM `SMMU` v3 bit encoding
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u8 {
         self as u8
     }
 
-    /// Create from ARM SMMU v3 bit encoding
+    /// Create from ARM `SMMU` v3 bit encoding
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
         match bits {
             0b00 => Ok(Self::Bypass),
@@ -227,7 +233,7 @@ impl fmt::Display for TranslationStage {
             Self::Stage2 => "Stage 2",
             Self::Stage1And2 => "Stage 1+2",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

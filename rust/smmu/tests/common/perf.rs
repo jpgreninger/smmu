@@ -85,7 +85,8 @@ impl PerfTimer {
         }
 
         let total: Duration = self.iterations.iter().sum();
-        let avg_ns = (total.as_nanos() / self.iterations.len() as u128) as u64;
+        #[allow(clippy::cast_possible_truncation)]
+        let avg_ns = (total.as_nanos() / u128::try_from(self.iterations.len()).unwrap()) as u64;
 
         let min_ns = self
             .iterations

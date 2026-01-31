@@ -573,10 +573,10 @@ fn test_event_queue_overflow_with_small_queue() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (i as u64) * 0x1000,
+            address: (u64::from(i)) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: i as u64,
+            timestamp: u64::from(i),
         };
         smmu.submit_event(event).unwrap();
     }
@@ -613,10 +613,10 @@ fn test_event_queue_large_queue_no_overflow() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (i as u64) * 0x1000,
+            address: (u64::from(i)) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: i as u64,
+            timestamp: u64::from(i),
         };
         assert!(smmu.submit_event(event).is_ok());
     }
@@ -634,10 +634,10 @@ fn test_event_queue_get_all_events() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (i as u64) * 0x1000,
+            address: (u64::from(i)) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: i as u64,
+            timestamp: u64::from(i),
         };
         smmu.submit_event(event).unwrap();
     }
@@ -701,10 +701,10 @@ fn test_event_queue_filter_by_stream() {
             event_type: EventType::TranslationFault,
             stream_id: 1,
             pasid: 0,
-            address: (i as u64) * 0x1000,
+            address: (u64::from(i)) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: i as u64,
+            timestamp: u64::from(i),
         })
         .unwrap();
     }
@@ -737,10 +737,10 @@ fn test_event_queue_clear() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (i as u64) * 0x1000,
+            address: (u64::from(i)) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: i as u64,
+            timestamp: u64::from(i),
         })
         .unwrap();
     }
@@ -782,7 +782,7 @@ fn test_pri_queue_submit_multiple_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: i,
-            requested_address: (i as u64) * 0x1000,
+            requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
         timestamp: 0,
@@ -805,7 +805,7 @@ fn test_pri_queue_overflow_with_small_queue() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (i as u64) * 0x1000,
+            requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
         timestamp: 0,
@@ -842,7 +842,7 @@ fn test_pri_queue_get_all_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (i as u64) * 0x1000,
+            requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
         timestamp: 0,
@@ -892,7 +892,7 @@ fn test_pri_queue_process_multiple_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: i,
-            requested_address: (i as u64) * 0x1000,
+            requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
         timestamp: 0,
@@ -926,7 +926,7 @@ fn test_pri_queue_clear() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (i as u64) * 0x1000,
+            requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
         timestamp: 0,

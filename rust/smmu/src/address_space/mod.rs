@@ -33,16 +33,16 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
-/// Maximum valid virtual address (52-bit address space per ARM SMMU v3 spec)
+/// Maximum valid virtual address (52-bit address space per ARM `SMMU` v3 spec)
 const MAX_VIRTUAL_ADDRESS: u64 = (1u64 << 52) - 1;
 
-/// Maximum valid physical address (52-bit PA space per ARM SMMU v3 spec)
+/// Maximum valid physical address (52-bit `PA` space per ARM `SMMU` v3 spec)
 const MAX_PHYSICAL_ADDRESS: u64 = (1u64 << 52) - 1;
 
 /// Page alignment mask (lower 12 bits for 4KB pages)
 const PAGE_MASK: u64 = PAGE_SIZE - 1;
 
-/// AddressSpace operation error types
+/// `AddressSpace` operation error types
 ///
 /// Comprehensive error enumeration for all address space operation failure cases.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -102,7 +102,7 @@ impl Iterator for AddressRangeIterator {
         if self.current <= self.end {
             let iova = IOVA::new(self.current).ok()?;
             let page_number = self.current >> 12;
-            self.current += PAGE_SIZE as u64;
+            self.current += PAGE_SIZE;
             Some(PageInfo {
                 iova,
                 page_number,
@@ -119,7 +119,7 @@ impl IntoIterator for AddressRange {
 
     fn into_iter(self) -> Self::IntoIter {
         AddressRangeIterator {
-            current: self.start.as_u64() & !(PAGE_SIZE as u64 - 1),
+            current: self.start.as_u64() & !(PAGE_SIZE - 1),
             end: self.end.as_u64(),
         }
     }
@@ -133,7 +133,7 @@ pub struct PageInfo {
 }
 
 impl PageInfo {
-    /// Returns the IOVA for this page
+    /// Returns the `IOVA` for this page
     #[must_use]
     pub const fn iova(&self) -> IOVA {
         self.iova
@@ -146,7 +146,7 @@ impl PageInfo {
     }
 }
 
-/// Reference to a page entry with its IOVA
+/// Reference to a page entry with its `IOVA`
 #[derive(Debug, Clone)]
 pub struct PageEntryRef {
     iova: IOVA,
@@ -154,7 +154,7 @@ pub struct PageEntryRef {
 }
 
 impl PageEntryRef {
-    /// Returns the IOVA
+    /// Returns the `IOVA`
     #[must_use]
     pub const fn iova(&self) -> IOVA {
         self.iova
@@ -185,7 +185,7 @@ impl PageEntryRef {
     }
 }
 
-/// Mutable reference to a page entry with its IOVA
+/// Mutable reference to a page entry with its `IOVA`
 #[derive(Debug)]
 pub struct PageEntryMutRef<'a> {
     iova: IOVA,
@@ -193,7 +193,7 @@ pub struct PageEntryMutRef<'a> {
 }
 
 impl<'a> PageEntryMutRef<'a> {
-    /// Returns the IOVA
+    /// Returns the `IOVA`
     #[must_use]
     pub const fn iova(&self) -> IOVA {
         self.iova
@@ -224,7 +224,7 @@ pub struct RangeStats {
     pub executable_pages: usize,
 }
 
-/// Immutable query interface for AddressSpace
+/// Immutable query interface for `AddressSpace`
 #[derive(Debug)]
 pub struct AddressSpaceQuery<'a> {
     addr_space: &'a AddressSpace,
@@ -276,7 +276,7 @@ impl<'a> AddressSpaceQuery<'a> {
     }
 }
 
-/// AddressSpace - Sparse page table for ARM SMMU v3 address translation
+/// `AddressSpace` - Sparse page table for ARM `SMMU` v3 address translation
 ///
 /// Implements efficient address translation with O(1) average case lookups using
 /// HashMap-based sparse page table representation. This design minimizes memory
@@ -290,19 +290,19 @@ impl<'a> AddressSpaceQuery<'a> {
 /// # Examples
 ///
 /// ```
-/// use smmu::address_space::AddressSpace;
-/// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, AccessType};
+/// use smmu::address_space::`AddressSpace`;
+/// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, `AccessType`};
 ///
-/// let mut addr_space = AddressSpace::new();
-/// let iova = IOVA::new(0x1000).unwrap();
-/// let pa = PA::new(0x2000).unwrap();
-/// let perms = PagePermissions::read_write();
+/// let mut addr_space = `AddressSpace`::new();
+/// let iova = `IOVA`::new(0x1000).unwrap();
+/// let pa = `PA`::new(0x2000).unwrap();
+/// let perms = `PagePermissions`::read_write();
 ///
 /// // Map a page
-/// addr_space.map_page(iova, pa, perms, SecurityState::NonSecure).unwrap();
+/// addr_space.map_page(iova, pa, perms, `SecurityState`::NonSecure).unwrap();
 ///
 /// // Translate the address
-/// let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+/// let result = addr_space.translate_page(iova, `AccessType`::Read, `SecurityState`::NonSecure).unwrap();
 /// assert_eq!(result.physical_address().as_u64(), 0x2000);
 /// ```
 #[derive(Debug)]
@@ -332,14 +332,14 @@ impl Clone for AddressSpace {
 }
 
 impl AddressSpace {
-    /// Creates a new empty AddressSpace
+    /// Creates a new empty `AddressSpace`
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
+    /// use smmu::address_space::`AddressSpace`;
     ///
-    /// let addr_space = AddressSpace::new();
+    /// let addr_space = `AddressSpace`::new();
     /// assert_eq!(addr_space.get_page_count().unwrap(), 0);
     /// ```
     #[must_use]
@@ -351,7 +351,7 @@ impl AddressSpace {
         }
     }
 
-    /// Creates a new AddressSpace with pre-allocated capacity
+    /// Creates a new `AddressSpace` with pre-allocated capacity
     ///
     /// # Arguments
     ///
@@ -360,9 +360,9 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
+    /// use smmu::address_space::`AddressSpace`;
     ///
-    /// let addr_space = AddressSpace::with_capacity(1000);
+    /// let addr_space = `AddressSpace`::with_capacity(1000);
     /// ```
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
@@ -387,22 +387,22 @@ impl AddressSpace {
     /// # Errors
     ///
     /// Returns error if:
-    /// - IOVA exceeds maximum supported address
-    /// - PA exceeds maximum supported address
+    /// - `IOVA` exceeds maximum supported address
+    /// - `PA` exceeds maximum supported address
     /// - Permissions are completely empty (none set)
     /// - Security state is invalid
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     /// ```
     pub fn map_page(
         &mut self,
@@ -452,20 +452,20 @@ impl AddressSpace {
     /// # Errors
     ///
     /// Returns error if:
-    /// - IOVA exceeds maximum supported address
+    /// - `IOVA` exceeds maximum supported address
     /// - Page is not currently mapped
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     /// addr_space.unmap_page(iova).unwrap();
     /// ```
     pub fn unmap_page(&mut self, iova: IOVA) -> Result<(), AddressSpaceError> {
@@ -507,16 +507,16 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, AccessType};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, `AccessType`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_write(), `SecurityState`::NonSecure).unwrap();
     ///
-    /// let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+    /// let result = addr_space.translate_page(iova, `AccessType`::Read, `SecurityState`::NonSecure).unwrap();
     /// assert_eq!(result.physical_address().as_u64(), 0x2000);
     /// ```
     pub fn translate_page(
@@ -568,21 +568,21 @@ impl AddressSpace {
     ///
     /// # Errors
     ///
-    /// Returns error if IOVA exceeds maximum supported address.
+    /// Returns error if `IOVA` exceeds maximum supported address.
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
     ///
     /// assert!(!addr_space.is_page_mapped(iova).unwrap());
     ///
-    /// let pa = PA::new(0x2000).unwrap();
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     ///
     /// assert!(addr_space.is_page_mapped(iova).unwrap());
     /// ```
@@ -607,21 +607,21 @@ impl AddressSpace {
     /// # Errors
     ///
     /// Returns error if:
-    /// - IOVA exceeds maximum supported address
+    /// - `IOVA` exceeds maximum supported address
     /// - Page is not mapped
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
-    /// let perms = PagePermissions::read_execute();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
+    /// let perms = `PagePermissions`::read_execute();
     ///
-    /// addr_space.map_page(iova, pa, perms, SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, perms, `SecurityState`::NonSecure).unwrap();
     ///
     /// let retrieved_perms = addr_space.get_page_permissions(iova).unwrap();
     /// assert_eq!(retrieved_perms, perms);
@@ -651,15 +651,15 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
+    /// let mut addr_space = `AddressSpace`::new();
     /// assert_eq!(addr_space.get_page_count().unwrap(), 0);
     ///
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     ///
     /// assert_eq!(addr_space.get_page_count().unwrap(), 1);
     /// ```
@@ -676,14 +676,14 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     /// assert_eq!(addr_space.get_page_count().unwrap(), 1);
     ///
     /// addr_space.clear().unwrap();
@@ -710,15 +710,15 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let start_iova = IOVA::new(0x1000).unwrap();
-    /// let end_iova = IOVA::new(0x1000 + (10 * PAGE_SIZE as u64)).unwrap();
-    /// let start_pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let start_iova = `IOVA`::new(0x1000).unwrap();
+    /// let end_iova = `IOVA`::new(0x1000 + (10 * PAGE_SIZE)).unwrap();
+    /// let start_pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_range(start_iova, end_iova, start_pa, `PagePermissions`::read_write()).unwrap();
     /// ```
     pub fn map_range(
         &mut self,
@@ -765,7 +765,7 @@ impl AddressSpace {
         for page_num in start_page_num..=end_page_num {
             let entry = PageEntry::new(PA::new(current_pa).unwrap(), permissions);
             self.page_table.insert(page_num, entry);
-            current_pa += PAGE_SIZE as u64;
+            current_pa += PAGE_SIZE;
         }
 
         Ok(())
@@ -785,15 +785,15 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let start_iova = IOVA::new(0x1000).unwrap();
-    /// let end_iova = IOVA::new(0x1000 + (10 * PAGE_SIZE as u64)).unwrap();
-    /// let start_pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let start_iova = `IOVA`::new(0x1000).unwrap();
+    /// let end_iova = `IOVA`::new(0x1000 + (10 * PAGE_SIZE)).unwrap();
+    /// let start_pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_only()).unwrap();
+    /// addr_space.map_range(start_iova, end_iova, start_pa, `PagePermissions`::read_only()).unwrap();
     /// addr_space.unmap_range(start_iova, end_iova).unwrap();
     /// ```
     pub fn unmap_range(
@@ -839,7 +839,7 @@ impl AddressSpace {
     ///
     /// # Arguments
     ///
-    /// * `mappings` - Slice of (IOVA, PA) pairs to map
+    /// * `mappings` - Slice of (`IOVA`, `PA`) pairs to map
     /// * `permissions` - Page permissions for all mappings
     ///
     /// # Errors
@@ -849,19 +849,19 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let mappings: Vec<(IOVA, PA)> = (0..10)
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let mappings: Vec<(`IOVA`, `PA`)> = (0..10)
     ///     .map(|i| {
-    ///         let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-    ///         let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+    ///         let iova = `IOVA`::new(0x1000 + i * PAGE_SIZE).unwrap();
+    ///         let pa = `PA`::new(0x2000 + i * PAGE_SIZE).unwrap();
     ///         (iova, pa)
     ///     })
     ///     .collect();
     ///
-    /// addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_pages(&mappings, `PagePermissions`::read_write()).unwrap();
     /// ```
     pub fn map_pages(
         &mut self,
@@ -912,17 +912,17 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iovas: Vec<IOVA> = (0..10)
-    ///     .map(|i| IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap())
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iovas: Vec<`IOVA`> = (0..10)
+    ///     .map(|i| `IOVA`::new(0x1000 + i * PAGE_SIZE).unwrap())
     ///     .collect();
     ///
     /// for iova in &iovas {
-    ///     let pa = PA::new(0x2000).unwrap();
-    ///     addr_space.map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    ///     let pa = `PA`::new(0x2000).unwrap();
+    ///     addr_space.map_page(*iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     /// }
     ///
     /// addr_space.unmap_pages(&iovas).unwrap();
@@ -960,16 +960,16 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
+    /// let mut addr_space = `AddressSpace`::new();
     ///
     /// // Map contiguous range
     /// for i in 0..5 {
-    ///     let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-    ///     let pa = PA::new(0x2000).unwrap();
-    ///     addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    ///     let iova = `IOVA`::new(0x1000 + i * PAGE_SIZE).unwrap();
+    ///     let pa = `PA`::new(0x2000).unwrap();
+    ///     addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     /// }
     ///
     /// let ranges = addr_space.get_mapped_ranges();
@@ -989,14 +989,14 @@ impl AddressSpace {
 
         // Consolidate into ranges
         let mut range_start = page_nums[0] << 12;
-        let mut range_end = range_start + PAGE_SIZE as u64 - 1;
+        let mut range_end = range_start + PAGE_SIZE - 1;
 
         for &page_num in &page_nums[1..] {
             let current_page_addr = page_num << 12;
 
             if current_page_addr == range_end + 1 {
                 // Extend current range
-                range_end = current_page_addr + PAGE_SIZE as u64 - 1;
+                range_end = current_page_addr + PAGE_SIZE - 1;
             } else {
                 // Start new range
                 ranges.push(AddressRange::new(
@@ -1004,7 +1004,7 @@ impl AddressSpace {
                     IOVA::new(range_end).unwrap(),
                 ));
                 range_start = current_page_addr;
-                range_end = range_start + PAGE_SIZE as u64 - 1;
+                range_end = range_start + PAGE_SIZE - 1;
             }
         }
 
@@ -1022,19 +1022,19 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova1 = IOVA::new(0x1000).unwrap();
-    /// let iova2 = IOVA::new(0x1000 + (100 * PAGE_SIZE as u64)).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova1 = `IOVA`::new(0x1000).unwrap();
+    /// let iova2 = `IOVA`::new(0x1000 + (100 * PAGE_SIZE)).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova1, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
-    /// addr_space.map_page(iova2, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova1, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
+    /// addr_space.map_page(iova2, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     ///
     /// let size = addr_space.get_address_space_size();
-    /// assert!(size >= 100 * PAGE_SIZE as u64);
+    /// assert!(size >= 100 * PAGE_SIZE);
     /// ```
     #[must_use]
     pub fn get_address_space_size(&self) -> u64 {
@@ -1046,7 +1046,7 @@ impl AddressSpace {
         let max_page_num = *self.page_table.keys().max().unwrap();
 
         let min_address = min_page_num << 12;
-        let max_address = (max_page_num << 12) + PAGE_SIZE as u64 - 1;
+        let max_address = (max_page_num << 12) + PAGE_SIZE - 1;
 
         max_address - min_address + 1
     }
@@ -1061,17 +1061,17 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
     ///
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     ///
-    /// let start = IOVA::new(0x1000 - PAGE_SIZE as u64).unwrap();
-    /// let end = IOVA::new(0x1000 + PAGE_SIZE as u64).unwrap();
+    /// let start = `IOVA`::new(0x1000 - PAGE_SIZE).unwrap();
+    /// let end = `IOVA`::new(0x1000 + PAGE_SIZE).unwrap();
     ///
     /// assert!(addr_space.has_overlapping_mappings(start, end));
     /// ```
@@ -1092,13 +1092,13 @@ impl AddressSpace {
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let iova = IOVA::new(0x1000).unwrap();
-    /// let pa = PA::new(0x2000).unwrap();
-    /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// let pa = `PA`::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, `PagePermissions`::read_only(), `SecurityState`::NonSecure).unwrap();
     ///
     /// let count = addr_space.iter().count();
     /// assert_eq!(count, 1);
@@ -1125,7 +1125,7 @@ impl AddressSpace {
 
     /// Returns an immutable query interface
     ///
-    /// The query interface borrows the AddressSpace immutably, preventing
+    /// The query interface borrows the `AddressSpace` immutably, preventing
     /// mutations while queries are active (enforced by borrow checker).
     #[must_use]
     pub const fn query(&self) -> AddressSpaceQuery<'_> {
@@ -1146,24 +1146,24 @@ impl AddressSpace {
     ///
     /// # Arguments
     ///
-    /// * `mappings` - Slice of (IOVA, PA) pairs to map
+    /// * `mappings` - Slice of (`IOVA`, `PA`) pairs to map
     /// * `permissions` - Page permissions for all mappings
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, PAGE_SIZE};
     ///
-    /// let mut addr_space = AddressSpace::new();
-    /// let mappings: Vec<(IOVA, PA)> = (0..100)
+    /// let mut addr_space = `AddressSpace`::new();
+    /// let mappings: Vec<(`IOVA`, `PA`)> = (0..100)
     ///     .map(|i| {
-    ///         (IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap(),
-    ///          PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap())
+    ///         (`IOVA`::new(0x1000 + i * PAGE_SIZE).unwrap(),
+    ///          `PA`::new(0x2000 + i * PAGE_SIZE).unwrap())
     ///     })
     ///     .collect();
     ///
-    /// addr_space.map_pages_batched(&mappings, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_pages_batched(&mappings, `PagePermissions`::read_write()).unwrap();
     /// assert_eq!(addr_space.get_page_count().unwrap(), 100);
     /// ```
     pub fn map_pages_batched(
@@ -1374,7 +1374,7 @@ impl AddressSpace {
 
     /// Invalidates a specific page in the cache
     ///
-    /// This is a no-op in the current implementation as AddressSpace maintains
+    /// This is a no-op in the current implementation as `AddressSpace` maintains
     /// authoritative state. Cache invalidation is coordinated at higher levels.
     pub fn invalidate_page(&mut self, iova: IOVA) {
         // Delegate to atomic version
@@ -1383,7 +1383,7 @@ impl AddressSpace {
 
     /// Invalidates a range in the cache
     ///
-    /// This is a no-op in the current implementation as AddressSpace maintains
+    /// This is a no-op in the current implementation as `AddressSpace` maintains
     /// authoritative state. Cache invalidation is coordinated at higher levels.
     pub fn invalidate_range(&mut self, _start_iova: IOVA, _end_iova: IOVA) {
         // No-op - AddressSpace maintains authoritative state
@@ -1391,7 +1391,7 @@ impl AddressSpace {
 
     /// Invalidates all cache entries
     ///
-    /// This is a no-op in the current implementation as AddressSpace maintains
+    /// This is a no-op in the current implementation as `AddressSpace` maintains
     /// authoritative state. Cache invalidation is coordinated at higher levels.
     pub fn invalidate_all(&mut self) {
         // No-op - AddressSpace maintains authoritative state
@@ -1399,7 +1399,7 @@ impl AddressSpace {
 
     // Private helper methods
 
-    /// Converts IOVA to page number for sparse indexing
+    /// Converts `IOVA` to page number for sparse indexing
     #[inline]
     fn page_number(&self, iova: IOVA) -> u64 {
         iova.as_u64() >> 12 // PAGE_SIZE = 4096 = 2^12

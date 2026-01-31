@@ -1,6 +1,6 @@
 //! Validation error type for newtype wrappers
 //!
-//! This module provides the `ValidationError` type used throughout the SMMU implementation
+//! This module provides the `ValidationError` type used throughout the `SMMU` implementation
 //! for reporting validation failures in newtype constructors.
 
 use core::fmt;
@@ -16,10 +16,10 @@ use core::fmt;
 /// # Examples
 ///
 /// ```
-/// use smmu::ValidationError;
+/// use smmu::`ValidationError`;
 ///
-/// let error = ValidationError::OutOfRange {
-///     field: "PASID".to_string(),
+/// let error = `ValidationError`::OutOfRange {
+///     field: "`PASID`".to_string(),
 ///     value: 1048576,
 ///     max: 1048575,
 /// };
@@ -100,9 +100,9 @@ pub enum ValidationError {
         reason: String,
     },
 
-    /// Invalid PASID value
+    /// Invalid `PASID` value
     InvalidPASID {
-        /// Invalid PASID value
+        /// Invalid `PASID` value
         value: u32,
     },
 
@@ -141,8 +141,7 @@ impl fmt::Display for ValidationError {
             Self::OutOfRange { field, value, max } => {
                 write!(
                     f,
-                    "Validation error for {}: value {} exceeds maximum {}",
-                    field, value, max
+                    "Validation error for {field}: value {value} exceeds maximum {max}"
                 )
             }
             Self::InvalidAlignment {
@@ -151,24 +150,23 @@ impl fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "Address {:#x} is not aligned to {:#x}",
-                    address, required_alignment
+                    "Address {address:#x} is not aligned to {required_alignment:#x}"
                 )
             }
             Self::InvalidAccessType { bits } => {
-                write!(f, "Invalid access type bit pattern: {:#b}", bits)
+                write!(f, "Invalid access type bit pattern: {bits:#b}")
             }
             Self::InvalidSecurityState { bits } => {
-                write!(f, "Invalid security state encoding: {:#b}", bits)
+                write!(f, "Invalid security state encoding: {bits:#b}")
             }
             Self::InvalidTranslationStage { bits } => {
-                write!(f, "Invalid translation stage configuration: {:#b}", bits)
+                write!(f, "Invalid translation stage configuration: {bits:#b}")
             }
             Self::InvalidFaultType { code } => {
-                write!(f, "Invalid fault type code: {:#x}", code)
+                write!(f, "Invalid fault type code: {code:#x}")
             }
             Self::InvalidStateTransition { from, to } => {
-                write!(f, "Invalid state transition from {} to {}", from, to)
+                write!(f, "Invalid state transition from {from} to {to}")
             }
             Self::PermissionDenied {
                 requested,
@@ -176,8 +174,7 @@ impl fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "Permission denied: requested {} but only {} available",
-                    requested, available
+                    "Permission denied: requested {requested} but only {available} available"
                 )
             }
             Self::SecurityViolation {
@@ -186,15 +183,14 @@ impl fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "Security violation: {} cannot access {}",
-                    from_state, to_state
+                    "Security violation: {from_state} cannot access {to_state}"
                 )
             }
             Self::InvalidConfiguration { reason } => {
-                write!(f, "Invalid configuration: {}", reason)
+                write!(f, "Invalid configuration: {reason}")
             }
             Self::InvalidPASID { value } => {
-                write!(f, "Invalid PASID value: {}", value)
+                write!(f, "Invalid PASID value: {value}")
             }
             Self::Generic {
                 field,
@@ -203,8 +199,7 @@ impl fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "Validation error for {}: value '{}' {}",
-                    field, value, constraint
+                    "Validation error for {field}: value '{value}' {constraint}"
                 )
             }
         }

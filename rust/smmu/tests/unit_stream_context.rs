@@ -316,8 +316,8 @@ fn test_bulk_translation() {
 
     // Map 100 pages
     for i in 0..100 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
-        let pa = PA::new(0x2000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         stream_context
             .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
@@ -325,7 +325,7 @@ fn test_bulk_translation() {
 
     // Translate all pages
     for i in 0..100 {
-        let iova = IOVA::new(0x1000 + i * PAGE_SIZE as u64).unwrap();
+        let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let result = stream_context.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
         assert!(result.is_ok());
     }

@@ -171,7 +171,7 @@ fn test_fault_syndrome_debug() {
         .syndrome_register(0x1234)
         .build();
 
-    let debug_str = format!("{:?}", syndrome);
+    let debug_str = format!("{syndrome:?}");
     assert!(debug_str.contains("FaultSyndrome"));
 }
 
@@ -389,7 +389,7 @@ fn test_fault_record_equality() {
 #[test]
 fn test_fault_record_debug() {
     let record = FaultRecord::default();
-    let debug_str = format!("{:?}", record);
+    let debug_str = format!("{record:?}");
 
     assert!(debug_str.contains("FaultRecord"));
 }

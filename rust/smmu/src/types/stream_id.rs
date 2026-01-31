@@ -1,8 +1,8 @@
 //! `StreamID` newtype wrapper
 //!
-//! Provides type-safe `StreamID` handling with validation per ARM SMMU v3 specification.
+//! Provides type-safe `StreamID` handling with validation per ARM `SMMU` v3 specification.
 //!
-//! # ARM SMMU v3 Compliance
+//! # ARM `SMMU` v3 Compliance
 //!
 //! `StreamID` is a hardware-dependent identifier, typically in the range 0-65535 (16-bit).
 //! The implementation supports configurable maximum values.
@@ -10,14 +10,14 @@
 //! # Examples
 //!
 //! ```ignore
-//! use smmu::types::StreamID;
+//! use smmu::types::`StreamID`;
 //!
-//! // Create a valid StreamID
-//! let stream_id = StreamID::new(42).expect("Valid StreamID");
+//! // Create a valid `StreamID`
+//! let stream_id = `StreamID`::new(42).expect("Valid `StreamID`");
 //! assert_eq!(stream_id.as_u32(), 42);
 //!
-//! // Invalid StreamID construction fails
-//! let result = StreamID::new(u32::MAX);
+//! // Invalid `StreamID` construction fails
+//! let result = `StreamID`::new(u32::MAX);
 //! assert!(result.is_err());
 //! ```
 
@@ -32,6 +32,7 @@ const STREAM_ID_MAX: u32 = 65535;
 /// Wraps a 32-bit unsigned integer with validation to ensure it falls within
 /// the hardware-supported range (typically 0-65535).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StreamID(u32);
 
 impl StreamID {
@@ -43,7 +44,7 @@ impl StreamID {
     ///
     /// # Returns
     ///
-    /// `Ok(StreamID)` if the value is valid, `Err(ValidationError)` otherwise
+    /// `Ok(`StreamID`)` if the value is valid, `Err(`ValidationError`)` otherwise
     ///
     /// # Errors
     ///
@@ -52,7 +53,7 @@ impl StreamID {
     /// # Examples
     ///
     /// ```ignore
-    /// let stream_id = StreamID::new(42)?;
+    /// let stream_id = `StreamID`::new(42)?;
     /// ```
     pub fn new(value: u32) -> Result<Self, ValidationError> {
         if value > STREAM_ID_MAX {
@@ -70,7 +71,7 @@ impl StreamID {
     /// # Examples
     ///
     /// ```ignore
-    /// let stream_id = StreamID::new(42)?;
+    /// let stream_id = `StreamID`::new(42)?;
     /// assert_eq!(stream_id.as_u32(), 42);
     /// ```
     #[must_use]
