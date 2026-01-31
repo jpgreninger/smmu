@@ -333,7 +333,7 @@ cargo bench
 ### Rust Documentation
 
 - **[rust/smmu/PLAN_100_PERCENT_COVERAGE.md](rust/smmu/PLAN_100_PERCENT_COVERAGE.md)** - Complete 4-phase coverage plan and results
-- **[TASKS-RUST.md](TASKS-RUST.md)** - Rust implementation progress tracking (all phases complete)
+- **[rust/TASKS-RUST.md](rust/TASKS-RUST.md)** - Rust implementation progress tracking (all phases complete)
 - **[rust/smmu/PHASE_4_1_LOOM_CONCURRENCY_TESTING_REPORT.md](rust/smmu/PHASE_4_1_LOOM_CONCURRENCY_TESTING_REPORT.md)** - Concurrency validation report
 - **[rust/smmu/PHASE_4_2_PROPERTY_TESTING_EXPANSION_REPORT.md](rust/smmu/PHASE_4_2_PROPERTY_TESTING_EXPANSION_REPORT.md)** - Property-based testing report
 - **[rust/smmu/PHASE_4_3_MIRI_VALIDATION_REPORT.md](rust/smmu/PHASE_4_3_MIRI_VALIDATION_REPORT.md)** - Memory safety certification
