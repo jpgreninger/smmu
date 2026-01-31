@@ -418,6 +418,88 @@ match result {
 
 ---
 
+## Repository Structure
+
+The repository is organized with separate directories for C++ and Rust implementations:
+
+```
+ARM-SMMU-v3/
+├── cpp/                          # C++ Implementation (v1.0.0)
+│   ├── include/smmu/            # Public C++ headers
+│   ├── src/                     # C++ source files
+│   │   ├── address_space/
+│   │   ├── cache/
+│   │   ├── configuration/
+│   │   ├── fault/
+│   │   ├── smmu/
+│   │   ├── stream_context/
+│   │   └── types/
+│   ├── tests/                   # C++ test suites
+│   │   ├── unit/               # Unit tests (35 tests)
+│   │   ├── integration/        # Integration tests (5 tests)
+│   │   └── performance/        # Performance benchmarks (3 tests)
+│   ├── examples/               # C++ usage examples
+│   ├── docs/                   # C++ documentation
+│   │   ├── user-manual.md
+│   │   ├── developer-guide.md
+│   │   ├── api-documentation.md
+│   │   └── architecture-guide.md
+│   ├── CMakeLists.txt          # C++ build system
+│   ├── TASKS.md                # C++ implementation tracking
+│   ├── CHANGELOG.md            # C++ version history
+│   ├── RELEASE_NOTES.md        # C++ release documentation
+│   └── COVERAGE_*.md           # C++ coverage reports
+│
+├── rust/                        # Rust Implementation (v1.0.0)
+│   ├── smmu/                   # Rust crate
+│   │   ├── src/                # Rust source files
+│   │   │   ├── address_space/
+│   │   │   ├── cache/
+│   │   │   ├── fault/
+│   │   │   ├── stream_context/
+│   │   │   ├── types/
+│   │   │   └── lib.rs
+│   │   ├── tests/              # Rust test suites (1,624 tests)
+│   │   ├── benches/            # Rust benchmarks (22 benchmarks)
+│   │   ├── Cargo.toml          # Rust build configuration
+│   │   ├── proptest.toml       # Property test configuration
+│   │   ├── PLAN_100_PERCENT_COVERAGE.md
+│   │   └── PHASE_*.md          # Rust test phase reports
+│   └── TASKS-RUST.md           # Rust implementation tracking
+│
+├── README.md                    # This file (project overview)
+├── CLAUDE.md                    # Development instructions
+├── ARM_SMMU_v3_PRD.md          # Product requirements (shared)
+├── build.sh                     # C++ build script
+├── .gitignore                   # Git ignore patterns
+├── LICENSE                      # License information
+└── *.pdf                        # ARM SMMU v3 specification
+
+Total: ~150K lines of code (C++ + Rust + tests + documentation)
+```
+
+### Key Directories
+
+**C++ Implementation (`cpp/`)**
+- Production-ready C++11 implementation
+- 88.51% test coverage, 51 tests, 100% passing
+- Build: `./build.sh` or `cd cpp && cmake`
+- Zero external dependencies (STL only)
+
+**Rust Implementation (`rust/`)**
+- Production-ready Rust implementation
+- 93.08% test coverage, 1,624 tests, 100% passing
+- Build: `cd rust/smmu && cargo build --release`
+- Memory-safe, zero data races, Miri validated
+
+**Shared Resources**
+- ARM SMMU v3 specification (PDF)
+- Product requirements document
+- Development guidelines (CLAUDE.md)
+- Repository-wide documentation
+
+---
+
 ## License
 
 Copyright (c) 2025-2026 John Greninger. All rights reserved.
