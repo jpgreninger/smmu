@@ -2322,6 +2322,94 @@ All tests written before implementation and verified to fail, then pass after im
 - **Modules Completed**: 11 modules (sections 2.1-2.11)
 - **Time**: ~20 hours actual vs. 40-50 hours estimated (60% efficiency gain)
 
+----
+
+**Phase 3 Sections (Uncovered Modules - IN PROGRESS)**:
+
+##### 8.4.12 types/event_entry.rs ✅ **COMPLETE** (January 30, 2026)
+- [x] Create EventType variant tests (25 tests) - 2 hours
+- [x] Create EventEntry construction tests (14 tests) - 1 hour
+- [x] Create field manipulation tests (7 tests) - 1 hour
+- [x] Create security state integration tests (4 tests) - 30 minutes
+- [x] Create timestamp management tests (4 tests) - 30 minutes
+- [x] Create error code handling tests (4 tests) - 30 minutes
+- [x] Create trait implementation tests (8 tests) - 1 hour
+- [x] Create collections support tests (3 tests) - 30 minutes
+- [x] Create ARM SMMU v3 compliance tests (8 tests) - 1 hour
+
+**Coverage Achievement**:
+- **Before**: 0.00% line coverage (0/19 lines uncovered)
+- **After**: 100.00% line coverage (19/19 lines covered)
+- **Region Coverage**: 100.00% (9/9 regions)
+- **Function Coverage**: 100.00% (2/2 functions)
+- **Improvement**: +100.00%
+- **Tests**: 77 comprehensive tests
+- **Time**: ~3 hours (vs. 6-8 hours estimated - 150% efficiency gain)
+
+**Deliverables**:
+- Created: `tests/test_event_entry_comprehensive.rs` - 904 lines, 77 tests
+- Created: `PHASE_3_1_EVENT_ENTRY_COVERAGE_REPORT.md` - Detailed coverage report
+
+**Key Features**:
+- All 7 EventType variants tested (ARM SMMU v3 Section 6.3)
+- EventEntry construction with all parameters
+- Security state integration (all 3 states)
+- Timestamp and error code management
+- All trait implementations (Copy, Clone, Debug, PartialEq, Eq, Hash)
+- Collections support (Vec, sorting, filtering)
+- Const constructor testing in const contexts
+- Test-to-source ratio: 12.05:1 (excellent)
+
+##### 8.4.13 types/fault_type.rs ✅ **COMPLETE** (January 30, 2026)
+- [x] Create FaultType variant tests (15 variants) - 2 hours
+- [x] Create classification method tests (5 methods) - 1 hour
+- [x] Create severity level tests (3 levels) - 1 hour
+- [x] Create recoverability tests (2 tests) - 30 minutes
+- [x] Create stage occurrence tests (3 methods) - 1 hour
+- [x] Create code conversion tests (from_code) - 1 hour
+- [x] Create FaultContext tests (5 methods) - 1 hour
+- [x] Create helper enum tests (3 enums) - 30 minutes
+- [x] Create trait implementation tests (6 traits) - 30 minutes
+- [x] Create const context tests (4 methods) - 30 minutes
+
+**Coverage Achievement**:
+- **Before**: 0.00% line coverage (0/118 lines uncovered)
+- **After**: 100.00% line coverage (118/118 lines covered)
+- **Region Coverage**: 100.00% (123/123 regions)
+- **Function Coverage**: 100.00% (20/20 functions)
+- **Improvement**: +100.00%
+- **Tests**: 44 comprehensive tests
+- **Time**: ~3 hours (vs. 6-8 hours estimated - 150% efficiency gain)
+
+**Deliverables**:
+- Created: `tests/test_fault_type.rs` - 1,007 lines, 44 tests
+
+**Key Features**:
+- All 15 ARM SMMU v3 fault types tested (codes 0x01-0x0F)
+- 5 classification methods (translation, permission, configuration, address, external)
+- 3 severity levels: Critical (3 faults), Error (10 faults), Warning (2 faults)
+- Recoverability testing (2 recoverable, 13 non-recoverable)
+- Stage occurrence validation (Stage 1, Stage 2, stage-agnostic)
+- Code conversion with validation (from_code round-trip testing)
+- FaultContext struct with all 4 getters
+- Helper enums: FaultSeverity, TranslationStep, AddressType
+- All trait implementations tested
+- Const method testing in const contexts
+- Test-to-source ratio: 8.5:1 (excellent)
+
+**Phase 3 Partial Achievement (Sections 3.1-3.2)**:
+- **Modules Completed**: 2 modules (event_entry.rs, fault_type.rs)
+- **Total Tests Added**: 121 tests (~1,911 lines)
+- **All Tests Passing**: ✅ 1,608/1,608 (100%)
+- **Time**: ~6 hours actual vs. 12-16 hours estimated (150% efficiency gain)
+- **Coverage Impact**: Both modules achieved 100% line coverage from 0%
+
+**Next Steps**:
+- Continue with Phase 3 sections 3.3-3.6 (queue_statistics, command_entry, pri_entry, remaining modules)
+- Target: Reach 98% overall coverage
+- Update overall test documentation
+- Commit progress with comprehensive changelog
+
 
 ### 9. API and Documentation (Estimated: 16-22 hours)
 

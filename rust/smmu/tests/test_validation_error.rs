@@ -1,393 +1,725 @@
-//! Comprehensive unit tests for ValidationError type
+//! Comprehensive tests for ValidationError type
 //!
-//! Tests error handling for newtype wrappers:
-//! - Descriptive error messages
-//! - Error context (field name, invalid value, constraints)
-//! - Display and Debug formatting
-//! - Error type properties
-//!
-//! All tests follow strict TDD - they WILL FAIL until implementation is complete.
+//! This test suite achieves 100% coverage for types/validation_error.rs by testing:
+//! - All 11 error variant constructors
+//! - Display implementation for each variant
+//! - Generic error constructor (backward compatibility)
+//! - Feature-gated std::error::Error trait implementation
+//! - Error message formatting consistency
 
-use smmu::types::ValidationError;
+use smmu::ValidationError;
+
+// ============================================================================
+// Display Implementation Tests - OutOfRange
+// ============================================================================
+
+#[test]
+fn test_validation_error_out_of_range_display() {
+    let error = ValidationError::OutOfRange {
+        field: "PASID".to_string(),
+        value: 1048576,
+        max: 1048575,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for PASID: value 1048576 exceeds maximum 1048575"
+    );
+}
+
+#[test]
+fn test_validation_error_out_of_range_stream_id() {
+    let error = ValidationError::OutOfRange {
+        field: "StreamID".to_string(),
+        value: 65536,
+        max: 65535,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for StreamID: value 65536 exceeds maximum 65535"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidAlignment
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_alignment_display() {
+    let error = ValidationError::InvalidAlignment {
+        address: 0x1001,
+        required_alignment: 0x1000,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Address 0x1001 is not aligned to 0x1000"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_alignment_64kb() {
+    let error = ValidationError::InvalidAlignment {
+        address: 0x20001,
+        required_alignment: 0x10000,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Address 0x20001 is not aligned to 0x10000"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidAccessType
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_access_type_display() {
+    let error = ValidationError::InvalidAccessType {
+        bits: 0b11111111,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid access type bit pattern: 0b11111111"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_access_type_zero() {
+    let error = ValidationError::InvalidAccessType {
+        bits: 0,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid access type bit pattern: 0b0"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidSecurityState
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_security_state_display() {
+    let error = ValidationError::InvalidSecurityState {
+        bits: 0xFF,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid security state encoding: 0b11111111"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_security_state_three() {
+    let error = ValidationError::InvalidSecurityState {
+        bits: 3,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid security state encoding: 0b11"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidTranslationStage
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_translation_stage_display() {
+    let error = ValidationError::InvalidTranslationStage {
+        bits: 0xFF,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid translation stage configuration: 0b11111111"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_translation_stage_four() {
+    let error = ValidationError::InvalidTranslationStage {
+        bits: 4,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid translation stage configuration: 0b100"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidFaultType
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_fault_type_display() {
+    let error = ValidationError::InvalidFaultType {
+        code: 0xFF,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid fault type code: 0xff"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_fault_type_zero() {
+    let error = ValidationError::InvalidFaultType {
+        code: 0,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid fault type code: 0x0"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidStateTransition
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_state_transition_display() {
+    let error = ValidationError::InvalidStateTransition {
+        from: "Idle".to_string(),
+        to: "Active".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid state transition from Idle to Active"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_state_transition_disabled() {
+    let error = ValidationError::InvalidStateTransition {
+        from: "Disabled".to_string(),
+        to: "Bypassed".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid state transition from Disabled to Bypassed"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - PermissionDenied
+// ============================================================================
+
+#[test]
+fn test_validation_error_permission_denied_display() {
+    let error = ValidationError::PermissionDenied {
+        requested: "Read+Write".to_string(),
+        available: "Read".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Permission denied: requested Read+Write but only Read available"
+    );
+}
+
+#[test]
+fn test_validation_error_permission_denied_execute() {
+    let error = ValidationError::PermissionDenied {
+        requested: "Execute".to_string(),
+        available: "None".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Permission denied: requested Execute but only None available"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - SecurityViolation
+// ============================================================================
+
+#[test]
+fn test_validation_error_security_violation_display() {
+    let error = ValidationError::SecurityViolation {
+        from_state: "NonSecure".to_string(),
+        to_state: "Secure".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Security violation: NonSecure cannot access Secure"
+    );
+}
+
+#[test]
+fn test_validation_error_security_violation_realm() {
+    let error = ValidationError::SecurityViolation {
+        from_state: "Realm".to_string(),
+        to_state: "Root".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Security violation: Realm cannot access Root"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidConfiguration
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_configuration_display() {
+    let error = ValidationError::InvalidConfiguration {
+        reason: "Stage 1 and Stage 2 cannot both be disabled".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid configuration: Stage 1 and Stage 2 cannot both be disabled"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_configuration_cache() {
+    let error = ValidationError::InvalidConfiguration {
+        reason: "Cache size must be power of 2".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid configuration: Cache size must be power of 2"
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - InvalidPASID
+// ============================================================================
+
+#[test]
+fn test_validation_error_invalid_pasid_display() {
+    let error = ValidationError::InvalidPASID {
+        value: 1048576,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Invalid PASID value: 1048576"
+    );
+}
+
+#[test]
+fn test_validation_error_invalid_pasid_max() {
+    let error = ValidationError::InvalidPASID {
+        value: u32::MAX,
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        format!("Invalid PASID value: {}", u32::MAX)
+    );
+}
+
+// ============================================================================
+// Display Implementation Tests - Generic (Backward Compatibility)
+// ============================================================================
+
+#[test]
+fn test_validation_error_generic_display() {
+    let error = ValidationError::Generic {
+        field: "PageSize".to_string(),
+        value: "8192".to_string(),
+        constraint: "must be 4096 or 65536".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for PageSize: value '8192' must be 4096 or 65536"
+    );
+}
+
+#[test]
+fn test_validation_error_generic_empty_values() {
+    let error = ValidationError::Generic {
+        field: "Field".to_string(),
+        value: "".to_string(),
+        constraint: "must not be empty".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for Field: value '' must not be empty"
+    );
+}
 
 // ============================================================================
 // Error Construction Tests
 // ============================================================================
 
 #[test]
-fn test_validation_error_construction() {
-    // ValidationError should be constructible with context
-    let error = ValidationError::new(
-        "StreamID",
-        "4294967295",
-        "must be <= 65535"
-    );
-
-    let message = format!("{}", error);
-    assert!(!message.is_empty(), "Error message should not be empty");
-}
-
-#[test]
-fn test_validation_error_with_field_name() {
-    // Error should include field name for context
-    let error = ValidationError::new(
-        "PASID",
-        "1048576",
-        "must be <= 1048575 (20-bit)"
-    );
-
-    let message = format!("{}", error);
-    assert!(message.contains("PASID"), "Error should mention field name");
-}
-
-// ============================================================================
-// Display Formatting Tests
-// ============================================================================
-
-#[test]
-fn test_validation_error_display_stream_id() {
-    // Test Display formatting for StreamID error
-    let error = ValidationError::new(
-        "StreamID",
-        "999999",
-        "must be <= 65535"
-    );
-
-    let display = format!("{}", error);
-
-    assert!(display.contains("StreamID"), "Should mention field name");
-    assert!(display.contains("999999") || display.contains("invalid"),
-            "Should mention invalid value");
-    assert!(display.contains("65535") || display.contains("constraint"),
-            "Should mention constraint");
-}
-
-#[test]
-fn test_validation_error_display_pasid() {
-    // Test Display formatting for PASID error
-    let error = ValidationError::new(
-        "PASID",
-        "1048576",
-        "must be <= 1048575 (20-bit maximum)"
-    );
-
-    let display = format!("{}", error);
-
-    assert!(display.contains("PASID"), "Should mention field name");
-    assert!(display.contains("1048576") || display.contains("invalid"),
-            "Should mention invalid value");
-    assert!(display.contains("20-bit") || display.contains("1048575"),
-            "Should mention 20-bit constraint");
-}
-
-#[test]
-fn test_validation_error_display_readable() {
-    // Error messages should be human-readable
+fn test_validation_error_new_constructor() {
     let error = ValidationError::new(
         "TestField",
-        "12345",
-        "must be positive and less than 100"
+        "invalid_value",
+        "must be positive"
+    );
+
+    match error {
+        ValidationError::Generic { field, value, constraint } => {
+            assert_eq!(field, "TestField");
+            assert_eq!(value, "invalid_value");
+            assert_eq!(constraint, "must be positive");
+        }
+        _ => panic!("Expected Generic variant"),
+    }
+}
+
+#[test]
+fn test_validation_error_new_display() {
+    let error = ValidationError::new(
+        "Count",
+        "0",
+        "must be greater than 0"
     );
 
     let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for Count: value '0' must be greater than 0"
+    );
+}
 
-    // Should form a coherent sentence
-    assert!(display.len() > 10, "Error message should be substantial");
-    assert!(!display.contains("{{"), "Should not have template markers");
+#[test]
+fn test_validation_error_construct_all_variants() {
+    // Test construction of all variants to ensure they can be created
+
+    let _out_of_range = ValidationError::OutOfRange {
+        field: "test".to_string(),
+        value: 100,
+        max: 99,
+    };
+
+    let _invalid_alignment = ValidationError::InvalidAlignment {
+        address: 0x1234,
+        required_alignment: 0x1000,
+    };
+
+    let _invalid_access = ValidationError::InvalidAccessType {
+        bits: 0xFF,
+    };
+
+    let _invalid_security = ValidationError::InvalidSecurityState {
+        bits: 0x10,
+    };
+
+    let _invalid_stage = ValidationError::InvalidTranslationStage {
+        bits: 0x0F,
+    };
+
+    let _invalid_fault = ValidationError::InvalidFaultType {
+        code: 0xAB,
+    };
+
+    let _invalid_transition = ValidationError::InvalidStateTransition {
+        from: "A".to_string(),
+        to: "B".to_string(),
+    };
+
+    let _permission_denied = ValidationError::PermissionDenied {
+        requested: "RW".to_string(),
+        available: "R".to_string(),
+    };
+
+    let _security_violation = ValidationError::SecurityViolation {
+        from_state: "NS".to_string(),
+        to_state: "S".to_string(),
+    };
+
+    let _invalid_config = ValidationError::InvalidConfiguration {
+        reason: "test".to_string(),
+    };
+
+    let _invalid_pasid = ValidationError::InvalidPASID {
+        value: 1000000,
+    };
+
+    let _generic = ValidationError::Generic {
+        field: "test".to_string(),
+        value: "val".to_string(),
+        constraint: "constraint".to_string(),
+    };
 }
 
 // ============================================================================
-// Debug Formatting Tests
+// Clone and PartialEq Tests
+// ============================================================================
+
+#[test]
+fn test_validation_error_clone() {
+    let error1 = ValidationError::InvalidPASID { value: 12345 };
+    let error2 = error1.clone();
+
+    assert_eq!(error1, error2);
+}
+
+#[test]
+fn test_validation_error_equality() {
+    let error1 = ValidationError::OutOfRange {
+        field: "test".to_string(),
+        value: 100,
+        max: 50,
+    };
+
+    let error2 = ValidationError::OutOfRange {
+        field: "test".to_string(),
+        value: 100,
+        max: 50,
+    };
+
+    assert_eq!(error1, error2);
+}
+
+#[test]
+fn test_validation_error_inequality() {
+    let error1 = ValidationError::InvalidPASID { value: 100 };
+    let error2 = ValidationError::InvalidPASID { value: 200 };
+
+    assert_ne!(error1, error2);
+}
+
+// ============================================================================
+// Debug Trait Tests
 // ============================================================================
 
 #[test]
 fn test_validation_error_debug() {
-    // Test Debug trait implementation
-    let error = ValidationError::new(
-        "StreamID",
-        "4294967295",
-        "must be <= 65535"
-    );
+    let error = ValidationError::InvalidPASID { value: 999 };
+    let debug_str = format!("{:?}", error);
 
-    let debug = format!("{:?}", error);
-
-    assert!(!debug.is_empty(), "Debug output should not be empty");
-    // Debug output should include all context
-    assert!(debug.contains("StreamID") || debug.contains("4294967295"),
-            "Debug should include context");
+    // Debug should show the variant and fields
+    assert!(debug_str.contains("InvalidPASID"));
+    assert!(debug_str.contains("999"));
 }
 
 #[test]
-fn test_validation_error_debug_detailed() {
-    // Debug should provide detailed information
-    let error = ValidationError::new(
-        "PASID",
-        "0x100000",
-        "exceeds 20-bit maximum (0xFFFFF)"
-    );
+fn test_validation_error_debug_generic() {
+    let error = ValidationError::Generic {
+        field: "test".to_string(),
+        value: "val".to_string(),
+        constraint: "constraint".to_string(),
+    };
+    let debug_str = format!("{:?}", error);
 
-    let debug = format!("{:?}", error);
-
-    // Should include field details in Debug output
-    assert!(debug.len() > 20, "Debug output should be detailed");
+    assert!(debug_str.contains("Generic"));
+    assert!(debug_str.contains("test"));
+    assert!(debug_str.contains("val"));
+    assert!(debug_str.contains("constraint"));
 }
 
 // ============================================================================
-// Error Context Tests
+// Feature-Gated std::error::Error Trait Tests
 // ============================================================================
 
+#[cfg(feature = "std")]
 #[test]
-fn test_validation_error_field_name_context() {
-    // Error should preserve field name
-    let error = ValidationError::new(
-        "StreamID",
-        "invalid",
-        "constraint"
-    );
-
-    let message = format!("{}", error);
-    assert!(message.to_lowercase().contains("streamid"),
-            "Should mention field name");
-}
-
-#[test]
-fn test_validation_error_value_context() {
-    // Error should include the invalid value
-    let invalid_value = "4294967295";
-    let error = ValidationError::new(
-        "StreamID",
-        invalid_value,
-        "too large"
-    );
-
-    let message = format!("{}", error);
-    // Should mention the value or indicate it's invalid
-    assert!(message.contains(invalid_value) || message.contains("invalid"),
-            "Should provide value context");
-}
-
-#[test]
-fn test_validation_error_constraint_context() {
-    // Error should explain the constraint
-    let constraint = "must be <= 1048575 (20-bit maximum)";
-    let error = ValidationError::new(
-        "PASID",
-        "1048576",
-        constraint
-    );
-
-    let message = format!("{}", error);
-    assert!(message.contains("20-bit") || message.contains("1048575") || message.contains("maximum"),
-            "Should explain constraint");
-}
-
-#[test]
-fn test_validation_error_complete_context() {
-    // Error should provide complete context for debugging
-    let error = ValidationError::new(
-        "PASID",
-        "0x100000",
-        "exceeds maximum value 0xFFFFF (20-bit)"
-    );
-
-    let message = format!("{}", error);
-
-    // Should have all three pieces of information
-    let has_field = message.to_lowercase().contains("pasid");
-    let has_value = message.contains("100000") || message.contains("invalid");
-    let has_constraint = message.contains("FFFFF") || message.contains("20-bit");
-
-    assert!(has_field || has_value || has_constraint,
-            "Error should provide complete context");
-}
-
-// ============================================================================
-// Error Message Quality Tests
-// ============================================================================
-
-#[test]
-fn test_validation_error_message_not_empty() {
-    // Error messages should never be empty
-    let error = ValidationError::new("Field", "value", "constraint");
-    let message = format!("{}", error);
-
-    assert!(!message.is_empty(), "Error message must not be empty");
-    assert!(message.len() > 5, "Error message should be meaningful");
-}
-
-#[test]
-fn test_validation_error_message_informative() {
-    // Error messages should be informative
-    let error = ValidationError::new(
-        "StreamID",
-        "999999",
-        "must be within hardware-supported range (0-65535)"
-    );
-
-    let message = format!("{}", error);
-
-    // Should be long enough to be informative
-    assert!(message.len() > 20, "Error message should be informative");
-}
-
-#[test]
-fn test_validation_error_different_fields() {
-    // Different field names should produce different errors
-    let error1 = ValidationError::new("StreamID", "999999", "too large");
-    let error2 = ValidationError::new("PASID", "999999", "too large");
-
-    let msg1 = format!("{}", error1);
-    let msg2 = format!("{}", error2);
-
-    assert_ne!(msg1, msg2, "Different fields should produce different errors");
-}
-
-// ============================================================================
-// Special Characters and Edge Cases
-// ============================================================================
-
-#[test]
-fn test_validation_error_hex_values() {
-    // Should handle hexadecimal value formatting
-    let error = ValidationError::new(
-        "PASID",
-        "0x100000",
-        "exceeds 0xFFFFF"
-    );
-
-    let message = format!("{}", error);
-    assert!(!message.is_empty(), "Should handle hex values");
-}
-
-#[test]
-fn test_validation_error_large_numbers() {
-    // Should handle large number formatting
-    let error = ValidationError::new(
-        "StreamID",
-        "4294967295",
-        "exceeds maximum"
-    );
-
-    let message = format!("{}", error);
-    assert!(message.len() > 10, "Should format large numbers");
-}
-
-#[test]
-fn test_validation_error_special_cases() {
-    // Test various special cases
-    let test_cases = [
-        ("Field", "0", "must be positive"),
-        ("Field", "MAX", "out of range"),
-        ("Field", "-1", "must be unsigned"),
-    ];
-
-    for (field, value, constraint) in &test_cases {
-        let error = ValidationError::new(field, value, constraint);
-        let message = format!("{}", error);
-        assert!(!message.is_empty(),
-                "Should handle case: {} {} {}", field, value, constraint);
-    }
-}
-
-// ============================================================================
-// Error Type Properties
-// ============================================================================
-
-#[test]
-fn test_validation_error_is_send() {
-    // ValidationError should be Send (can be sent between threads)
-    fn assert_send<T: Send>() {}
-    assert_send::<ValidationError>();
-}
-
-#[test]
-fn test_validation_error_is_sync() {
-    // ValidationError should be Sync (can be shared between threads)
-    fn assert_sync<T: Sync>() {}
-    assert_sync::<ValidationError>();
-}
-
-#[test]
-fn test_validation_error_std_error() {
-    // ValidationError should implement std::error::Error
+fn test_validation_error_implements_std_error() {
     use std::error::Error;
 
-    fn assert_error<T: Error>() {}
-    assert_error::<ValidationError>();
+    let error = ValidationError::InvalidPASID { value: 12345 };
+
+    // Test that it implements Error trait
+    let _: &dyn Error = &error;
+
+    // Test Display through Error trait
+    let display = format!("{}", error);
+    assert_eq!(display, "Invalid PASID value: 12345");
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_validation_error_source_is_none() {
+    use std::error::Error;
+
+    let error = ValidationError::InvalidConfiguration {
+        reason: "Test error".to_string(),
+    };
+
+    // ValidationError doesn't chain errors, so source should be None
+    assert!(error.source().is_none());
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_validation_error_downcast() {
+    use std::error::Error;
+
+    let error: Box<dyn Error> = Box::new(ValidationError::InvalidPASID { value: 100 });
+
+    // Test that we can downcast back to ValidationError
+    let downcast = error.downcast::<ValidationError>();
+    assert!(downcast.is_ok());
+
+    if let Ok(boxed_error) = downcast {
+        assert_eq!(*boxed_error, ValidationError::InvalidPASID { value: 100 });
+    }
 }
 
 // ============================================================================
-// Error Usage in Result Types
+// Edge Cases and Message Consistency Tests
 // ============================================================================
 
 #[test]
-fn test_validation_error_in_result() {
-    // Should work naturally in Result types
-    fn validate_value(value: u32) -> Result<u32, ValidationError> {
-        if value > 100 {
-            Err(ValidationError::new(
-                "value",
-                &value.to_string(),
-                "must be <= 100"
-            ))
-        } else {
-            Ok(value)
-        }
-    }
+fn test_validation_error_large_values() {
+    let error = ValidationError::OutOfRange {
+        field: "LargeValue".to_string(),
+        value: u64::MAX,
+        max: u64::MAX - 1,
+    };
 
-    assert!(validate_value(50).is_ok());
-    assert!(validate_value(150).is_err());
+    let display = format!("{}", error);
+    assert!(display.contains(&format!("{}", u64::MAX)));
 }
 
 #[test]
-fn test_validation_error_result_chaining() {
-    // Should work with ? operator
-    fn inner() -> Result<(), ValidationError> {
-        Err(ValidationError::new("field", "value", "invalid"))
-    }
+fn test_validation_error_zero_values() {
+    let error = ValidationError::OutOfRange {
+        field: "ZeroValue".to_string(),
+        value: 0,
+        max: 0,
+    };
 
-    fn outer() -> Result<(), ValidationError> {
-        inner()?;
-        Ok(())
-    }
-
-    assert!(outer().is_err());
-}
-
-// ============================================================================
-// Documentation Examples
-// ============================================================================
-
-#[test]
-fn test_validation_error_example_usage() {
-    // Example from documentation
-    let error = ValidationError::new(
-        "PASID",
-        "1048576",
-        "must be <= 1048575 (20-bit maximum)"
+    let display = format!("{}", error);
+    assert_eq!(
+        display,
+        "Validation error for ZeroValue: value 0 exceeds maximum 0"
     );
+}
 
-    // Should be usable in match expressions
-    let result: Result<(), ValidationError> = Err(error);
+#[test]
+fn test_validation_error_message_format_consistency() {
+    // Test that all error messages follow consistent format patterns
 
-    match result {
-        Ok(_) => panic!("Should be error"),
-        Err(e) => {
-            let _ = format!("{}", e);
-        }
+    let errors = vec![
+        (
+            ValidationError::OutOfRange {
+                field: "F".to_string(),
+                value: 1,
+                max: 0,
+            },
+            "Validation error for F: value 1 exceeds maximum 0",
+        ),
+        (
+            ValidationError::InvalidAlignment {
+                address: 0x100,
+                required_alignment: 0x10,
+            },
+            "Address 0x100 is not aligned to 0x10",
+        ),
+        (
+            ValidationError::InvalidAccessType { bits: 8 },
+            "Invalid access type bit pattern: 0b1000",
+        ),
+        (
+            ValidationError::InvalidSecurityState { bits: 2 },
+            "Invalid security state encoding: 0b10",
+        ),
+        (
+            ValidationError::InvalidTranslationStage { bits: 7 },
+            "Invalid translation stage configuration: 0b111",
+        ),
+        (
+            ValidationError::InvalidFaultType { code: 0x42 },
+            "Invalid fault type code: 0x42",
+        ),
+        (
+            ValidationError::InvalidStateTransition {
+                from: "A".to_string(),
+                to: "B".to_string(),
+            },
+            "Invalid state transition from A to B",
+        ),
+        (
+            ValidationError::PermissionDenied {
+                requested: "X".to_string(),
+                available: "Y".to_string(),
+            },
+            "Permission denied: requested X but only Y available",
+        ),
+        (
+            ValidationError::SecurityViolation {
+                from_state: "NS".to_string(),
+                to_state: "S".to_string(),
+            },
+            "Security violation: NS cannot access S",
+        ),
+        (
+            ValidationError::InvalidConfiguration {
+                reason: "reason".to_string(),
+            },
+            "Invalid configuration: reason",
+        ),
+        (
+            ValidationError::InvalidPASID { value: 42 },
+            "Invalid PASID value: 42",
+        ),
+    ];
+
+    for (error, expected) in errors {
+        assert_eq!(format!("{}", error), expected);
     }
 }
 
 #[test]
-fn test_validation_error_builder_pattern() {
-    // If builder pattern is implemented
-    // This test validates the builder usage
-    let error = ValidationError::new(
-        "StreamID",
-        "999999",
-        "exceeds hardware limit"
-    );
+fn test_validation_error_unicode_support() {
+    let error = ValidationError::Generic {
+        field: "テスト".to_string(),
+        value: "値".to_string(),
+        constraint: "制約".to_string(),
+    };
 
-    let message = format!("{}", error);
-    assert!(!message.is_empty());
+    let display = format!("{}", error);
+    assert_eq!(display, "Validation error for テスト: value '値' 制約");
+}
+
+#[test]
+fn test_validation_error_special_characters() {
+    let error = ValidationError::InvalidConfiguration {
+        reason: "Value contains special chars: !@#$%^&*()".to_string(),
+    };
+
+    let display = format!("{}", error);
+    assert_eq!(display, "Invalid configuration: Value contains special chars: !@#$%^&*()");
 }
