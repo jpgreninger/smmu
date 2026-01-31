@@ -2410,6 +2410,59 @@ All tests written before implementation and verified to fail, then pass after im
 - Update overall test documentation
 - Commit progress with comprehensive changelog
 
+##### 8.4.14 types/queue_statistics.rs ✅ **COMPLETE** (January 30, 2026)
+- [x] Create construction tests (5 tests) - 30 minutes
+- [x] Create getter method tests (4 tests) - 30 minutes
+- [x] Create event queue utilization tests (7 tests) - 1 hour
+- [x] Create command queue utilization tests (7 tests) - 1 hour
+- [x] Create PRI queue utilization tests (7 tests) - 1 hour
+- [x] Create all queues combined tests (5 tests) - 30 minutes
+- [x] Create trait implementation tests (3 tests) - 30 minutes
+- [x] Create const context tests (2 tests) - 30 minutes
+- [x] Create edge case tests (5 tests) - 1 hour
+- [x] Create realistic usage scenario tests (5 tests) - 30 minutes
+- [x] Create ARM SMMU v3 compliance tests (3 tests) - 30 minutes
+
+**Coverage Achievement**:
+- **Before**: 51.61% line coverage (15/31 lines uncovered)
+- **After**: 100.00% line coverage (31/31 lines covered)
+- **Region Coverage**: 100.00% (7/7 regions)
+- **Function Coverage**: 100.00% (41/41 functions)
+- **Improvement**: +48.39%
+- **Tests**: 53 comprehensive tests
+- **Time**: ~2.5 hours (vs. 4-5 hours estimated - 100% efficiency gain)
+
+**Deliverables**:
+- Created: `tests/test_queue_statistics.rs` - 521 lines, 53 tests
+
+**Key Features**:
+- All construction methods tested (new, default, const constructor)
+- All 3 queue size getters tested (event, command, PRI)
+- All 3 utilization calculation methods tested with edge cases:
+  * Empty queues (0% utilization)
+  * Partial utilization (fractional values)
+  * Full queues (100% utilization)
+  * Over-capacity scenarios (>100%)
+  * Zero capacity safety (returns 0.0)
+- Trait implementations (Clone, Debug, Default)
+- Const context validation (const constructor and getters)
+- Realistic usage scenarios (low, medium, high, critical load)
+- ARM SMMU v3 queue monitoring compliance
+- Test-to-source ratio: 16.8:1 (excellent)
+
+**Phase 3 Partial Achievement (Sections 3.1-3.3)**:
+- **Modules Completed**: 3 modules (event_entry.rs, fault_type.rs, queue_statistics.rs)
+- **Total Tests Added**: 174 tests (~2,432 lines)
+- **All Tests Passing**: ✅ All tests passing (100%)
+- **Time**: ~8.5 hours actual vs. 20-28 hours estimated (165% efficiency gain)
+- **Coverage Impact**: All 3 modules achieved 100% line coverage
+
+**Next Steps**:
+- Continue with Phase 3 sections 3.4-3.6 (command_entry, pri_entry, remaining modules)
+- Target: Reach 98% overall coverage
+- Update overall test documentation
+- Commit progress with comprehensive changelog
+
 
 ### 9. API and Documentation (Estimated: 16-22 hours)
 
