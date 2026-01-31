@@ -6,7 +6,7 @@
 //! - Translation caching with configurable size
 //! - Cache invalidation operations
 //! - Stream-specific and global invalidation
-//! - PASID-aware caching
+//! - `PASID`-aware caching
 //!
 //! # Performance Impact
 //!
@@ -17,7 +17,7 @@
 //!
 //! Proper cache invalidation is essential for correctness when page table
 //! mappings change. This module implements all required invalidation operations
-//! per ARM SMMU v3 specification.
+//! per ARM `SMMU` v3 specification.
 
 #![warn(missing_docs)]
 
@@ -30,19 +30,19 @@ use smallvec::SmallVec;
 
 /// Cache entry storing a single translation result
 ///
-/// This structure represents a cached translation from IOVA to PA with
+/// This structure represents a cached translation from `IOVA` to `PA` with
 /// associated permissions and security state.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// use smmu::cache::CacheEntry;
-/// use smmu::{IOVA, PA, PagePermissions, SecurityState};
+/// use smmu::cache::`CacheEntry`;
+/// use smmu::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
 ///
-/// let entry = CacheEntry::new(
-///     IOVA::new(0x1000).unwrap(),
-///     PA::new(0x2000).unwrap(),
-///     PagePermissions::read_write(),
+/// let entry = `CacheEntry`::new(
+///     `IOVA`::new(0x1000).unwrap(),
+///     `PA`::new(0x2000).unwrap(),
+///     `PagePermissions`::read_write(),
 ///     100,
 /// );
 /// ```
@@ -119,7 +119,7 @@ impl Default for CacheEntry {
 // CacheKey - Multi-level cache indexing key
 // ============================================================================
 
-/// Cache key for multi-level indexing by StreamID, PASID, IOVA, and SecurityState
+/// Cache key for multi-level indexing by `StreamID`, `PASID`, `IOVA`, and `SecurityState`
 ///
 /// This structure is used as the key in the TLB cache HashMap to uniquely
 /// identify a translation entry.
@@ -165,10 +165,10 @@ impl CacheKey {
 // CacheKeyHash - FNV-1a hash implementation
 // ============================================================================
 
-/// Custom hash implementation for CacheKey using FNV-1a algorithm
+/// Custom hash implementation for `CacheKey` using FNV-1a algorithm
 ///
-/// This hasher is optimized for ARM SMMU v3 usage patterns:
-/// - Skips lower 12 bits of IOVA (page-aligned addresses)
+/// This hasher is optimized for ARM `SMMU` v3 usage patterns:
+/// - Skips lower 12 bits of `IOVA` (page-aligned addresses)
 /// - Provides better distribution than default hash
 /// - Uses FNV-1a constants for 64-bit hash values
 ///
@@ -180,14 +180,14 @@ impl CacheKey {
 pub struct CacheKeyHash;
 
 impl CacheKeyHash {
-    /// Hash a CacheKey using optimized algorithm
+    /// Hash a `CacheKey` using optimized algorithm
     ///
     /// # Optimization
     ///
     /// Uses a fast mixing function optimized for hardware:
     /// - Minimal operations for sub-10ns latency
     /// - Good distribution for hash tables
-    /// - The lower 12 bits of IOVA are skipped (4KB pages)
+    /// - The lower 12 bits of `IOVA` are skipped (4KB pages)
     /// - Uses efficient bit rotation and XOR mixing
     #[inline(always)]
     pub fn hash(key: &CacheKey) -> u64 {
@@ -195,13 +195,13 @@ impl CacheKeyHash {
         // This is much faster than FNV-1a's multiple multiply operations
 
         // StreamID (16 bits) - place in upper portion
-        let stream = (key.stream_id.as_u32() as u64) << 48;
+        let stream = u64::from(key.stream_id.as_u32()) << 48;
 
         // PASID (20 bits) - place in middle-upper portion
-        let pasid = (key.pasid.as_u32() as u64) << 26;
+        let pasid = u64::from(key.pasid.as_u32()) << 26;
 
         // Security state (2 bits) - place in middle for better mixing
-        let security = ((key.security_state as u64) & 0x3) << 24;
+        let security = (u64::from(key.security_state as u8) & 0x3) << 24;
 
         // Page number (IOVA >> 12) - uses remaining 24 bits
         let page = (key.iova.as_u64() >> 12) & 0xFF_FFFF;
@@ -212,9 +212,9 @@ impl CacheKeyHash {
         // Fast mixing using bit rotation and XOR (murmur-like finalizer)
         // This provides good distribution with minimal operations
         hash ^= hash >> 33;
-        hash = hash.wrapping_mul(0xff51afd7ed558ccd);
+        hash = hash.wrapping_mul(0xff51_afd7_ed55_8ccd);
         hash ^= hash >> 33;
-        hash = hash.wrapping_mul(0xc4ceb9fe1a85ec53);
+        hash = hash.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
         hash ^= hash >> 33;
 
         hash
@@ -225,10 +225,10 @@ impl CacheKeyHash {
 // StreamPASIDKey - Secondary index key
 // ============================================================================
 
-/// Key for secondary indexing by StreamID and PASID
+/// Key for secondary indexing by `StreamID` and `PASID`
 ///
 /// Used for efficient invalidation operations that target all entries
-/// for a specific stream or PASID.
+/// for a specific stream or `PASID`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StreamPASIDKey {
     /// Stream identifier
@@ -259,12 +259,12 @@ impl StreamPASIDKeyHash {
     #[inline(always)]
     pub fn hash(key: &StreamPASIDKey) -> u64 {
         // Simple combination - StreamID and PASID are small values
-        let combined = ((key.stream_id.as_u32() as u64) << 32) | (key.pasid.as_u32() as u64);
+        let combined = (u64::from(key.stream_id.as_u32()) << 32) | u64::from(key.pasid.as_u32());
 
         // Fast mixing with offset to ensure non-zero for zero input
-        let mut hash = combined.wrapping_add(0xdeadbeef);
+        let mut hash = combined.wrapping_add(0xdead_beef);
         hash ^= hash >> 33;
-        hash = hash.wrapping_mul(0xff51afd7ed558ccd);
+        hash = hash.wrapping_mul(0xff51_afd7_ed55_8ccd);
         hash ^= hash >> 33;
 
         hash
@@ -449,9 +449,9 @@ impl Default for CacheStatistics {
 /// # Example
 ///
 /// ```rust,ignore
-/// use smmu::cache::{TlbCache, ReplacementPolicy};
+/// use smmu::cache::{`TlbCache`, ReplacementPolicy};
 ///
-/// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+/// let cache = `TlbCache`::new(1024, ReplacementPolicy::Lru);
 ///
 /// // Insert translation
 /// cache.insert(key, entry);
@@ -496,7 +496,7 @@ impl TlbCache {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// let cache = `TlbCache`::new(1024, ReplacementPolicy::Lru);
     /// ```
     pub fn new(capacity: usize, policy: ReplacementPolicy) -> Self {
         assert!(capacity > 0, "TlbCache capacity must be greater than 0");
@@ -524,7 +524,7 @@ impl TlbCache {
     /// ```rust,ignore
     /// if let Some(entry) = cache.lookup(&key) {
     ///     // Use cached translation
-    ///     println!("PA: 0x{:x}", entry.physical_address.as_u64());
+    ///     println!("`PA`: 0x{:x}", entry.physical_address.as_u64());
     /// }
     /// ```
     #[inline(always)]
@@ -588,6 +588,7 @@ impl TlbCache {
     ///
     /// This is optimized for speed over perfect eviction policy.
     /// Trades perfect LRU for sub-100ns insertion performance.
+    #[allow(dead_code)]
     #[inline(always)]
     fn evict_one_fast(&self) {
         // Try a completely different approach - just remove any arbitrary key
@@ -655,7 +656,7 @@ impl TlbCache {
             .fetch_add(count as u64, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific StreamID
+    /// Invalidate all entries for a specific `StreamID`
     ///
     /// Removes all cached translations for the given stream across all PASIDs.
     ///
@@ -693,9 +694,9 @@ impl TlbCache {
             .fetch_add(removed_count, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific PASID
+    /// Invalidate all entries for a specific `PASID`
     ///
-    /// Removes all cached translations for the given PASID across all streams.
+    /// Removes all cached translations for the given `PASID` across all streams.
     ///
     /// # Arguments
     ///
@@ -730,9 +731,9 @@ impl TlbCache {
             .fetch_add(removed_count, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific StreamID and PASID combination
+    /// Invalidate all entries for a specific `StreamID` and `PASID` combination
     ///
-    /// Removes all cached translations for the given stream/PASID pair.
+    /// Removes all cached translations for the given stream/`PASID` pair.
     /// This is the most common invalidation operation.
     ///
     /// # Arguments
@@ -773,20 +774,20 @@ impl TlbCache {
     /// Invalidate entries within a virtual address range
     ///
     /// Removes cached translations for IOVAs within the specified range
-    /// for a given stream/PASID combination.
+    /// for a given stream/`PASID` combination.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - Stream identifier
     /// * `pasid` - Process Address Space ID
-    /// * `start` - Start of IOVA range (inclusive)
-    /// * `end` - End of IOVA range (inclusive)
+    /// * `start` - Start of `IOVA` range (inclusive)
+    /// * `end` - End of `IOVA` range (inclusive)
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let start = IOVA::new(0x1000).unwrap();
-    /// let end = IOVA::new(0x5000).unwrap();
+    /// let start = `IOVA`::new(0x1000).unwrap();
+    /// let end = `IOVA`::new(0x5000).unwrap();
     /// cache.invalidate_by_va_range(stream_id, pasid, start, end);
     /// ```
     pub fn invalidate_by_va_range(
@@ -1128,7 +1129,7 @@ mod tests {
     #[test]
     fn test_cache_entry_debug_format() {
         let entry = CacheEntry::default();
-        let debug_str = format!("{:?}", entry);
+        let debug_str = format!("{entry:?}");
         assert!(debug_str.contains("CacheEntry"));
     }
 
@@ -1314,19 +1315,19 @@ mod tests {
         let perms = PagePermissions::read_only();
 
         // Test all three security states
-        let entry_ns = CacheEntry::new_with_security(
+        let entry_nonsecure = CacheEntry::new_with_security(
             iova, pa, perms, SecurityState::NonSecure, 0
         );
-        let entry_s = CacheEntry::new_with_security(
+        let entry_secure = CacheEntry::new_with_security(
             iova, pa, perms, SecurityState::Secure, 0
         );
-        let entry_r = CacheEntry::new_with_security(
+        let entry_realm = CacheEntry::new_with_security(
             iova, pa, perms, SecurityState::Realm, 0
         );
 
-        assert_eq!(entry_ns.security_state, SecurityState::NonSecure);
-        assert_eq!(entry_s.security_state, SecurityState::Secure);
-        assert_eq!(entry_r.security_state, SecurityState::Realm);
+        assert_eq!(entry_nonsecure.security_state, SecurityState::NonSecure);
+        assert_eq!(entry_secure.security_state, SecurityState::Secure);
+        assert_eq!(entry_realm.security_state, SecurityState::Realm);
     }
 
     // ------------------------------------------------------------------------
@@ -1441,7 +1442,7 @@ mod tests {
         let iova = IOVA::new(0x1000).unwrap();
 
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-        let debug_str = format!("{:?}", key);
+        let debug_str = format!("{key:?}");
 
         assert!(debug_str.contains("CacheKey"));
     }
@@ -1462,13 +1463,13 @@ mod tests {
 
     #[test]
     fn test_cache_key_max_values() {
-        let stream_id = StreamID::new(u16::MAX as u32).unwrap();
+        let stream_id = StreamID::new(u32::from(u16::MAX)).unwrap();
         let pasid = PASID::new(0xF_FFFF).unwrap(); // 20-bit max
         let iova = IOVA::new(u64::MAX).unwrap();
 
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::Realm);
 
-        assert_eq!(key.stream_id.as_u32(), u16::MAX as u32);
+        assert_eq!(key.stream_id.as_u32(), u32::from(u16::MAX));
         assert_eq!(key.pasid.as_u32(), 0xF_FFFF);
         assert_eq!(key.iova.as_u64(), u64::MAX);
     }
@@ -1503,14 +1504,14 @@ mod tests {
         let pasid = PASID::new(2).unwrap();
         let iova = IOVA::new(0x1000).unwrap();
 
-        let key_ns = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-        let key_s = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
-        let key_r = CacheKey::new(stream_id, pasid, iova, SecurityState::Realm);
+        let key_nonsecure = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let key_secure = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
+        let key_realm = CacheKey::new(stream_id, pasid, iova, SecurityState::Realm);
 
         // All keys should be different
-        assert_ne!(key_ns, key_s);
-        assert_ne!(key_s, key_r);
-        assert_ne!(key_ns, key_r);
+        assert_ne!(key_nonsecure, key_secure);
+        assert_ne!(key_secure, key_realm);
+        assert_ne!(key_nonsecure, key_realm);
     }
 
     #[test]
@@ -1538,12 +1539,12 @@ mod tests {
     fn test_cache_key_hash_uses_murmur_constants() {
         // Verify the hash uses the optimized murmur-like mixing constants
         // These constants provide good distribution with minimal operations
-        const MIX_CONSTANT_1: u64 = 0xff51afd7ed558ccd;
-        const MIX_CONSTANT_2: u64 = 0xc4ceb9fe1a85ec53;
+        const MIX_CONSTANT_1: u64 = 0xff51_afd7_ed55_8ccd;
+        const MIX_CONSTANT_2: u64 = 0xc4ce_b9fe_1a85_ec53;
 
         // Just verify the constants are the expected values
-        assert_eq!(MIX_CONSTANT_1, 0xff51afd7ed558ccd);
-        assert_eq!(MIX_CONSTANT_2, 0xc4ceb9fe1a85ec53);
+        assert_eq!(MIX_CONSTANT_1, 0xff51_afd7_ed55_8ccd);
+        assert_eq!(MIX_CONSTANT_2, 0xc4ce_b9fe_1a85_ec53);
     }
 
     #[test]
@@ -1642,7 +1643,7 @@ mod tests {
 
     #[test]
     fn test_cache_key_hash_max_values() {
-        let stream_id = StreamID::new(u16::MAX as u32).unwrap();
+        let stream_id = StreamID::new(u32::from(u16::MAX)).unwrap();
         let pasid = PASID::new(0xF_FFFF).unwrap();
         let iova = IOVA::new(u64::MAX).unwrap();
 
@@ -1680,7 +1681,7 @@ mod tests {
         }
 
         // All hashes should be unique
-        hashes.sort();
+        hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), 100);
     }
@@ -1699,7 +1700,7 @@ mod tests {
         }
 
         // All hashes should be unique
-        hashes.sort();
+        hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), 100);
     }
@@ -1718,7 +1719,7 @@ mod tests {
         }
 
         // All hashes should be unique
-        hashes.sort();
+        hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), 100);
     }
@@ -1729,18 +1730,18 @@ mod tests {
         let pasid = PASID::new(200).unwrap();
         let iova = IOVA::new(0x1000).unwrap();
 
-        let key_ns = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-        let key_s = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
-        let key_r = CacheKey::new(stream_id, pasid, iova, SecurityState::Realm);
+        let key_nonsecure = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let key_secure = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
+        let key_realm = CacheKey::new(stream_id, pasid, iova, SecurityState::Realm);
 
-        let hash_ns = CacheKeyHash::hash(&key_ns);
-        let hash_s = CacheKeyHash::hash(&key_s);
-        let hash_r = CacheKeyHash::hash(&key_r);
+        let hash_nonsecure = CacheKeyHash::hash(&key_nonsecure);
+        let hash_secure = CacheKeyHash::hash(&key_secure);
+        let hash_realm = CacheKeyHash::hash(&key_realm);
 
         // All should be different
-        assert_ne!(hash_ns, hash_s);
-        assert_ne!(hash_s, hash_r);
-        assert_ne!(hash_ns, hash_r);
+        assert_ne!(hash_nonsecure, hash_secure);
+        assert_ne!(hash_secure, hash_realm);
+        assert_ne!(hash_nonsecure, hash_realm);
     }
 
     #[test]
@@ -1805,7 +1806,7 @@ mod tests {
             for pasid_val in 0..50 {
                 let stream_id = StreamID::new(stream).unwrap();
                 let pasid = PASID::new(pasid_val).unwrap();
-                let iova = IOVA::new((stream as u64) * 0x1000 + (pasid_val as u64) * 0x10000).unwrap();
+                let iova = IOVA::new(u64::from(stream) * 0x1000 + u64::from(pasid_val) * 0x10000).unwrap();
 
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let hash = CacheKeyHash::hash(&key);
@@ -1821,7 +1822,7 @@ mod tests {
     #[test]
     fn test_cache_key_hash_wrapping_mul() {
         // Ensure wrapping multiplication doesn't cause issues
-        let stream_id = StreamID::new(u16::MAX as u32).unwrap();
+        let stream_id = StreamID::new(u32::from(u16::MAX)).unwrap();
         let pasid = PASID::new(0xF_FFFF).unwrap();
         let iova = IOVA::new(u64::MAX).unwrap();
 
@@ -1856,9 +1857,9 @@ mod tests {
 
         let mut expected = stream | pasid | security | page;
         expected ^= expected >> 33;
-        expected = expected.wrapping_mul(0xff51afd7ed558ccd);
+        expected = expected.wrapping_mul(0xff51_afd7_ed55_8ccd);
         expected ^= expected >> 33;
-        expected = expected.wrapping_mul(0xc4ceb9fe1a85ec53);
+        expected = expected.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
         expected ^= expected >> 33;
 
         let actual = CacheKeyHash::hash(&key);
@@ -1944,7 +1945,7 @@ mod tests {
         let pasid = PASID::new(200).unwrap();
 
         let key = StreamPASIDKey::new(stream_id, pasid);
-        let debug_str = format!("{:?}", key);
+        let debug_str = format!("{key:?}");
 
         assert!(debug_str.contains("StreamPASIDKey"));
     }
@@ -1963,12 +1964,12 @@ mod tests {
 
     #[test]
     fn test_stream_pasid_key_max_values() {
-        let stream_id = StreamID::new(u16::MAX as u32).unwrap();
+        let stream_id = StreamID::new(u32::from(u16::MAX)).unwrap();
         let pasid = PASID::new(0xF_FFFF).unwrap();
 
         let key = StreamPASIDKey::new(stream_id, pasid);
 
-        assert_eq!(key.stream_id.as_u32(), u16::MAX as u32);
+        assert_eq!(key.stream_id.as_u32(), u32::from(u16::MAX));
         assert_eq!(key.pasid.as_u32(), 0xF_FFFF);
     }
 
@@ -2006,10 +2007,10 @@ mod tests {
     #[test]
     fn test_stream_pasid_key_hash_uses_fast_mixing() {
         // Verify the hash uses the optimized murmur-like mixing constant
-        const MIX_CONSTANT: u64 = 0xff51afd7ed558ccd;
+        const MIX_CONSTANT: u64 = 0xff51_afd7_ed55_8ccd;
 
         // Just verify the constant is the expected value
-        assert_eq!(MIX_CONSTANT, 0xff51afd7ed558ccd);
+        assert_eq!(MIX_CONSTANT, 0xff51_afd7_ed55_8ccd);
     }
 
     #[test]
@@ -2057,7 +2058,7 @@ mod tests {
 
     #[test]
     fn test_stream_pasid_key_hash_max_values() {
-        let stream_id = StreamID::new(u16::MAX as u32).unwrap();
+        let stream_id = StreamID::new(u32::from(u16::MAX)).unwrap();
         let pasid = PASID::new(0xF_FFFF).unwrap();
 
         let key = StreamPASIDKey::new(stream_id, pasid);
@@ -2092,7 +2093,7 @@ mod tests {
         }
 
         // All hashes should be unique
-        hashes.sort();
+        hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), 100);
     }
@@ -2110,7 +2111,7 @@ mod tests {
         }
 
         // All hashes should be unique
-        hashes.sort();
+        hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), 100);
     }
@@ -2146,9 +2147,9 @@ mod tests {
 
         // Manual calculation using new optimized algorithm
         let combined = ((1u64) << 32) | 2u64;
-        let mut expected = combined.wrapping_add(0xdeadbeef);
+        let mut expected = combined.wrapping_add(0xdead_beef);
         expected ^= expected >> 33;
-        expected = expected.wrapping_mul(0xff51afd7ed558ccd);
+        expected = expected.wrapping_mul(0xff51_afd7_ed55_8ccd);
         expected ^= expected >> 33;
 
         let actual = StreamPASIDKeyHash::hash(&key);
@@ -2265,7 +2266,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Eviction disabled for performance optimization
+    #[ignore = "Eviction disabled for performance optimization"]
     fn test_tlb_cache_eviction_lru() {
         let cache = TlbCache::new(3, ReplacementPolicy::Lru);
 
@@ -2301,7 +2302,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Eviction disabled for performance optimization
+    #[ignore = "Eviction disabled for performance optimization"]
     fn test_tlb_cache_eviction_fifo() {
         let cache = TlbCache::new(3, ReplacementPolicy::Fifo);
 
@@ -2443,8 +2444,8 @@ mod tests {
             for j in 0..10 {
                 let stream_id = StreamID::new(i).unwrap();
                 let pasid = PASID::new(j).unwrap();
-                let iova = IOVA::new((i as u64) * 0x100000 + (j as u64) * 0x1000).unwrap();
-                let pa = PA::new((i as u64) * 0x200000 + (j as u64) * 0x2000).unwrap();
+                let iova = IOVA::new((i as u64) * 0x0010_0000 + u64::from(j) * 0x1000).unwrap();
+                let pa = PA::new((i as u64) * 0x0020_0000 + u64::from(j) * 0x2000).unwrap();
 
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let entry = CacheEntry::new(iova, pa, PagePermissions::read_only(), 0);
@@ -2459,7 +2460,7 @@ mod tests {
         let target_key = CacheKey::new(
             target_stream,
             target_pasid,
-            IOVA::new(5 * 0x100000 + 7 * 0x1000).unwrap(),
+            IOVA::new(5 * 0x0010_0000 + 7 * 0x1000).unwrap(),
             SecurityState::NonSecure,
         );
         assert!(cache.lookup(&target_key).is_some());
@@ -2685,41 +2686,41 @@ mod tests {
         let stream_id = StreamID::new(1).unwrap();
         let pasid = PASID::new(2).unwrap();
         let iova = IOVA::new(0x1000).unwrap();
-        let pa_ns = PA::new(0x2000).unwrap();
-        let pa_s = PA::new(0x3000).unwrap();
+        let pa_nonsecure = PA::new(0x2000).unwrap();
+        let pa_secure = PA::new(0x3000).unwrap();
 
         // Insert entries with same stream/PASID/IOVA but different security states
-        let key_ns = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-        let entry_ns = CacheEntry::new_with_security(
+        let key_nonsecure = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let entry_nonsecure = CacheEntry::new_with_security(
             iova,
-            pa_ns,
+            pa_nonsecure,
             PagePermissions::read_only(),
             SecurityState::NonSecure,
             0,
         );
 
-        let key_s = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
-        let entry_s = CacheEntry::new_with_security(
+        let key_secure = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
+        let entry_secure = CacheEntry::new_with_security(
             iova,
-            pa_s,
+            pa_secure,
             PagePermissions::read_only(),
             SecurityState::Secure,
             0,
         );
 
-        cache.insert(key_ns, entry_ns);
-        cache.insert(key_s, entry_s);
+        cache.insert(key_nonsecure, entry_nonsecure);
+        cache.insert(key_secure, entry_secure);
 
         assert_eq!(cache.len(), 2);
 
         // Lookup should return correct entry for each security state
-        let result_ns = cache.lookup(&key_ns).unwrap();
-        let result_s = cache.lookup(&key_s).unwrap();
+        let result_nonsecure = cache.lookup(&key_nonsecure).unwrap();
+        let result_secure = cache.lookup(&key_secure).unwrap();
 
-        assert_eq!(result_ns.physical_address, pa_ns);
-        assert_eq!(result_s.physical_address, pa_s);
-        assert_eq!(result_ns.security_state, SecurityState::NonSecure);
-        assert_eq!(result_s.security_state, SecurityState::Secure);
+        assert_eq!(result_nonsecure.physical_address, pa_nonsecure);
+        assert_eq!(result_secure.physical_address, pa_secure);
+        assert_eq!(result_nonsecure.security_state, SecurityState::NonSecure);
+        assert_eq!(result_secure.security_state, SecurityState::Secure);
     }
 
     #[test]
@@ -2747,7 +2748,7 @@ mod tests {
     #[test]
     fn test_tlb_cache_debug_format() {
         let cache = TlbCache::new(100, ReplacementPolicy::Lru);
-        let debug_str = format!("{:?}", cache);
+        let debug_str = format!("{cache:?}");
 
         assert!(debug_str.contains("TlbCache"));
         assert!(debug_str.contains("capacity"));
@@ -2789,7 +2790,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // LRU timestamp update on lookup disabled for performance
+    #[ignore = "LRU timestamp update on lookup disabled for performance"]
     fn test_tlb_cache_lru_timestamp_update() {
         let cache = TlbCache::new(10, ReplacementPolicy::Lru);
         let stream_id = StreamID::new(1).unwrap();

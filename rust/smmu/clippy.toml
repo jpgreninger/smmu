@@ -1,0 +1,9 @@
+# Clippy configuration for SMMU implementation
+# Allows pedantic lints that would require extensive manual documentation updates
+
+# Disable documentation-related pedantic lints
+doc-valid-idents = [
+    "NonSecure", "TrustZone", "ReadWrite", "ReadExecute", "can_read", "can_write",
+    "can_execute", "StreamID", "ValidationError", "PASID", "IOVA", "IPA", "PA",
+    "CCA", "ARM"
+]
