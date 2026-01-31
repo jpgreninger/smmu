@@ -35,10 +35,14 @@ A comprehensive, production-ready software model of the ARM System Memory Manage
 
 ## Quick Start
 
-### Building
+### Building the C++ Implementation
 
 ```bash
-# Production Release Build
+# Using the build script (recommended)
+./build.sh
+
+# Or manually
+cd cpp
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=11
 make -j$(nproc)
@@ -51,7 +55,7 @@ make -j$(nproc)
 ### Testing
 
 ```bash
-cd build
+cd cpp/build
 
 # Run all tests (51/51 tests, 100% success rate)
 make test
@@ -119,13 +123,13 @@ make run_performance_tests    # Performance benchmarks (2 tests)
 ## Documentation
 
 ### Production Documentation Suite
-- **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - Complete production release documentation with technical specifications
-- **[CHANGELOG.md](CHANGELOG.md)** - Detailed version history and development progression
-- **[COVERAGE_SUMMARY.txt](COVERAGE_SUMMARY.txt)** - Comprehensive test coverage analysis and quality metrics
+- **[cpp/RELEASE_NOTES.md](cpp/RELEASE_NOTES.md)** - Complete production release documentation with technical specifications
+- **[cpp/CHANGELOG.md](cpp/CHANGELOG.md)** - Detailed version history and development progression
+- **[cpp/COVERAGE_SUMMARY.txt](cpp/COVERAGE_SUMMARY.txt)** - Comprehensive test coverage analysis and quality metrics
 - **[ARM_SMMU_v3_PRD.md](ARM_SMMU_v3_PRD.md)** - Complete product requirements document with implementation status
-- **[TASKS.md](TASKS.md)** - Implementation progress and completion details
-- **[tests/TEST_COVERAGE_REPORT.md](tests/TEST_COVERAGE_REPORT.md)** - Detailed test coverage report with performance analysis
-- **[docs/](docs/)** - Complete documentation suite including:
+- **[cpp/TASKS.md](cpp/TASKS.md)** - C++ implementation progress and completion details
+- **[cpp/tests/TEST_COVERAGE_REPORT.md](cpp/tests/TEST_COVERAGE_REPORT.md)** - Detailed test coverage report with performance analysis
+- **[cpp/docs/](cpp/docs/)** - Complete C++ documentation suite including:
   - **user-manual.md** - Usage guide and integration instructions
   - **developer-guide.md** - Architecture overview and implementation details
   - **api-documentation.md** - Complete API reference with examples

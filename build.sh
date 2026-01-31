@@ -115,14 +115,15 @@ check_requirements() {
 run_clang_format() {
     if command -v clang-format &> /dev/null; then
         print_message $BLUE "Running clang-format on all source files..."
-        
+
+        # Note: This runs from cpp/ directory after cd
         find . -name "*.cpp" -o -name "*.h" | while read file; do
             if [[ $file != *"/build/"* ]] && [[ $file != *"/.serena/"* ]]; then
                 echo "Formatting: $file"
                 clang-format -i "$file"
             fi
         done
-        
+
         print_message $GREEN "Code formatting complete"
     else
         print_message $YELLOW "WARNING: clang-format not found, skipping code formatting"
@@ -305,6 +306,16 @@ echo "  - Verbose: $VERBOSE"
 echo "  - Run Tests: $RUN_TESTS"
 echo "  - Coverage: $COVERAGE"
 echo ""
+
+# Change to C++ directory
+if [ ! -d "cpp" ]; then
+    print_message $RED "ERROR: cpp directory not found!"
+    print_message $YELLOW "Make sure you're running this script from the project root"
+    exit 1
+fi
+
+cd cpp
+print_message $BLUE "Working in cpp/ directory"
 
 # Execute build steps
 check_requirements

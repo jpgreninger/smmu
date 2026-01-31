@@ -1,0 +1,953 @@
+================================================================================
+Section 7.2 Algorithm Optimization - Validation Report
+================================================================================
+Timestamp: 2026-01-28 19:14:48
+Location: /home/jpgreninger/Work/smmu/rust/smmu
+
+>>> Phase 1: Performance Regression Tests (~30 seconds)
+
+error: unexpected argument 'performance_regression_tests::test_btreemap_lookup_is_olog_n' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Complexity Verification Tests failed
+error: unexpected argument 'performance_regression_tests::test_hash_function_latency' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Latency Bound Tests failed
+error: unexpected argument 'performance_regression_tests::test_batch_operation_throughput' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Throughput Requirement Tests failed
+error: unexpected argument 'performance_regression_tests::test_cache_memory_bounds' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Usage Bound Tests failed
+error: unexpected argument 'performance_regression_tests::test_cache_eviction_fairness' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Cache Performance Tests failed
+   Compiling smmu v1.0.0 (/home/jpgreninger/Work/smmu/rust/smmu)
+warning: unexpected `cfg` condition value: `serde`
+  --> smmu/src/types/fault_record.rs:26:12
+   |
+26 | #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+   |            ^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `default` and `std`
+   = help: consider adding `serde` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `serde`
+   --> smmu/src/types/fault_record.rs:193:12
+    |
+193 | #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    |            ^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default` and `std`
+    = help: consider adding `serde` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/event_entry.rs:5:35
+  |
+5 | use crate::types::{SecurityState, StreamID, IOVA, PASID};
+  |                                   ^^^^^^^^  ^^^^  ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/command_entry.rs:5:20
+  |
+5 | use crate::types::{StreamID, IOVA, PASID};
+  |                    ^^^^^^^^  ^^^^  ^^^^^
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/pri_entry.rs:5:32
+  |
+5 | use crate::types::{AccessType, StreamID, IOVA, PASID};
+  |                                ^^^^^^^^  ^^^^  ^^^^^
+
+warning: field `max_stall_queue` is never read
+   --> smmu/src/fault/processing.rs:106:5
+    |
+ 85 | pub struct FaultProcessor {
+    |            -------------- field in this struct
+...
+106 |     max_stall_queue: usize,
+    |     ^^^^^^^^^^^^^^^
+    |
+    = note: `FaultProcessor` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `evict_one_fast` is never used
+   --> smmu/src/cache/mod.rs:592:8
+    |
+484 | impl TlbCache {
+    | ------------- method in this implementation
+...
+592 |     fn evict_one_fast(&self) {
+    |        ^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/security_state.rs:82:5
+   |
+82 |     pub const fn const_is_non_secure(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> smmu/src/types/mod.rs:19:9
+   |
+19 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/security_state.rs:88:5
+   |
+88 |     pub const fn const_is_realm(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/translation_stage.rs:68:5
+   |
+68 |     pub const fn const_uses_stage2(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/translation_stage.rs:74:5
+   |
+74 |     pub const fn const_is_two_stage(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:291:5
+    |
+291 |     pub stream_id: StreamID,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> smmu/src/fault/mod.rs:55:9
+    |
+ 55 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:292:5
+    |
+292 |     pub pasid: PASID,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:293:5
+    |
+293 |     pub address: IOVA,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:294:5
+    |
+294 |     pub access_type: AccessType,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:295:5
+    |
+295 |     pub security_state: SecurityState,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `smmu` (lib test) generated 16 warnings (run `cargo fix --lib -p smmu --tests` to apply 3 suggestions)
+warning: `smmu` (lib) generated 16 warnings (16 duplicates)
+warning: unused import: `TranslationError`
+  --> smmu/tests/test_smmu_section_5_1.rs:61:5
+   |
+61 |     TranslationError, IOVA, PA, PASID,
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `PageEntry` and `TranslationResult`
+  --> smmu/tests/test_address_space.rs:15:17
+   |
+15 |     AccessType, PageEntry, PagePermissions, SecurityState, TranslationError, TranslationResult,
+   |                 ^^^^^^^^^                                                    ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `builders::*`
+  --> smmu/tests/common/mod.rs:24:9
+   |
+24 | pub use builders::*;
+   |         ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `assertions::*`
+  --> smmu/tests/common/mod.rs:25:9
+   |
+25 | pub use assertions::*;
+   |         ^^^^^^^^^^^^^
+
+warning: unused import: `fixtures::*`
+  --> smmu/tests/common/mod.rs:26:9
+   |
+26 | pub use fixtures::*;
+   |         ^^^^^^^^^^^
+
+warning: unused variable: `i`
+   --> smmu/tests/test_smmu_section_5_1.rs:578:15
+    |
+578 |         .map(|i| {
+    |               ^ help: if this is intentional, prefix it with an underscore: `_i`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `TOTAL_ADDRESS_SPACE` is never used
+   --> smmu/tests/performance_regression_tests.rs:438:11
+    |
+438 |     const TOTAL_ADDRESS_SPACE: usize = 1_000_000;
+    |           ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: comparison is useless due to type limits
+   --> smmu/tests/test_smmu_section_5_1.rs:278:25
+    |
+278 |                 assert!(stream_count >= 0);
+    |                         ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: unused return value of `builders::SMMUConfigBuilder::build` that must be used
+   --> smmu/tests/common/builders.rs:289:9
+    |
+289 |         SMMUConfigBuilder::new().with_stream_count(0).build();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+289 |         let _ = SMMUConfigBuilder::new().with_stream_count(0).build();
+    |         +++++++
+
+warning: unused return value of `builders::SMMUConfigBuilder::build` that must be used
+   --> smmu/tests/common/builders.rs:295:9
+    |
+295 |         SMMUConfigBuilder::new().with_pasid_bits(21).build();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: use `let _ = ...` to ignore the resulting value
+    |
+295 |         let _ = SMMUConfigBuilder::new().with_pasid_bits(21).build();
+    |         +++++++
+
+warning: `smmu` (test "integration_test") generated 5 warnings (run `cargo fix --test "integration_test" -p smmu` to apply 3 suggestions)
+warning: struct `CacheKeyBuildHasher` is never constructed
+   --> smmu/tests/cache_entry_tests.rs:339:12
+    |
+339 |     struct CacheKeyBuildHasher;
+    |            ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `CacheKeyHasherWrapper` is never constructed
+   --> smmu/tests/cache_entry_tests.rs:349:12
+    |
+349 |     struct CacheKeyHasherWrapper {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `smmu` (test "performance_regression_tests") generated 1 warning
+warning: function `test_pa` is never used
+  --> smmu/tests/test_fault_detection.rs:27:4
+   |
+27 | fn test_pa(value: u64) -> PA {
+   |    ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `smmu` (test "test_address_space") generated 1 warning (run `cargo fix --test "test_address_space" -p smmu` to apply 1 suggestion)
+warning: unused imports: `FaultContext`, `IOVA`, `PASID`, `StreamID`, and `ValidationError`
+  --> smmu/tests/test_fault_type.rs:11:23
+   |
+11 | use smmu::{FaultType, ValidationError, FaultSeverity, FaultContext, StreamID, PASID, IOVA};
+   |                       ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^^  ^^^^^^^^  ^^^^^  ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `smmu` (test "test_smmu_section_5_1") generated 3 warnings (run `cargo fix --test "test_smmu_section_5_1" -p smmu` to apply 2 suggestions)
+warning: `smmu` (test "cache_entry_tests") generated 2 warnings
+warning: unexpected `cfg` condition value: `serde`
+   --> smmu/tests/test_fault_record.rs:240:7
+    |
+240 | #[cfg(feature = "serde")]
+    |       ^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default` and `std`
+    = help: consider adding `serde` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: `smmu` (test "test_fault_detection") generated 1 warning
+warning: unused import: `smmu::types::FaultRecord`
+   --> smmu/tests/test_stream_context_section_4_2.rs:748:9
+    |
+748 |     use smmu::types::FaultRecord;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `smmu` (test "test_fault_type") generated 1 warning (run `cargo fix --test "test_fault_type" -p smmu` to apply 1 suggestion)
+warning: unused import: `BTreeMap`
+  --> smmu/tests/memory_usage_tests.rs:12:33
+   |
+12 | use std::collections::{HashMap, BTreeMap};
+   |                                 ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `align_of`
+   --> smmu/tests/memory_usage_tests.rs:225:29
+    |
+225 |     use std::mem::{size_of, align_of};
+    |                             ^^^^^^^^
+
+warning: fields `iova`, `pa`, `permissions`, and `timestamp` are never read
+   --> smmu/tests/memory_usage_tests.rs:176:9
+    |
+175 |     struct StandardEntry {
+    |            ------------- fields in this struct
+176 |         iova: u64,
+    |         ^^^^
+177 |         pa: u64,
+    |         ^^
+178 |         permissions: u8,
+    |         ^^^^^^^^^^^
+179 |         _padding: [u8; 7],
+180 |         timestamp: u64,
+    |         ^^^^^^^^^
+    |
+    = note: `StandardEntry` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `iova`, `pa`, `permissions`, and `timestamp` are never read
+   --> smmu/tests/memory_usage_tests.rs:187:9
+    |
+186 |     struct CompactEntry {
+    |            ------------ fields in this struct
+187 |         iova: u64,
+    |         ^^^^
+188 |         pa: u64,
+    |         ^^
+189 |         permissions: u8,
+    |         ^^^^^^^^^^^
+190 |         timestamp: u64,
+    |         ^^^^^^^^^
+    |
+    = note: `CompactEntry` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `read`, `write`, `execute`, and `secure` are never read
+   --> smmu/tests/memory_usage_tests.rs:207:9
+    |
+206 |     struct UnpackedFlags {
+    |            ------------- fields in this struct
+207 |         read: bool,
+    |         ^^^^
+208 |         write: bool,
+    |         ^^^^^
+209 |         execute: bool,
+    |         ^^^^^^^
+210 |         secure: bool,
+    |         ^^^^^^
+    |
+    = note: `UnpackedFlags` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `flags` is never read
+   --> smmu/tests/memory_usage_tests.rs:215:9
+    |
+214 |     struct PackedFlags {
+    |            ----------- field in this struct
+215 |         flags: u8, // All 4 flags in one byte
+    |         ^^^^^
+    |
+    = note: `PackedFlags` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: unused variable: `result`
+   --> smmu/tests/test_fault_processing.rs:197:9
+    |
+197 |     let result = processor.process_fault(overflow_fault);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_result`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `smmu` (test "test_fault_record") generated 1 warning
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+  --> smmu/tests/test_queues_section_5_3.rs:69:5
+   |
+69 |     StreamID, QueueConfig, IOVA, PASID,
+   |     ^^^^^^^^               ^^^^  ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `Result` that must be used
+   --> smmu/tests/test_queues_section_5_3.rs:521:5
+    |
+521 |     smmu.process_command_queue();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+521 |     let _ = smmu.process_command_queue();
+    |     +++++++
+
+warning: unused `Result` that must be used
+   --> smmu/tests/test_queues_section_5_3.rs:741:5
+    |
+741 |     smmu.process_pri_queue();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+741 |     let _ = smmu.process_pri_queue();
+    |     +++++++
+
+warning: unused `Result` that must be used
+   --> smmu/tests/test_queues_section_5_3.rs:924:5
+    |
+924 |     smmu.process_command_queue();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+924 |     let _ = smmu.process_command_queue();
+    |     +++++++
+
+warning: unused `Result` that must be used
+   --> smmu/tests/test_queues_section_5_3.rs:954:5
+    |
+954 |     smmu.process_command_queue();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+954 |     let _ = smmu.process_command_queue();
+    |     +++++++
+
+warning: unused `Result` that must be used
+   --> smmu/tests/test_queues_section_5_3.rs:981:5
+    |
+981 |     smmu.process_command_queue();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+981 |     let _ = smmu.process_command_queue();
+    |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1008:5
+     |
+1008 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1008 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1046:5
+     |
+1046 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1046 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1072:5
+     |
+1072 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1072 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1122:5
+     |
+1122 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1122 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1164:5
+     |
+1164 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1164 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: unused `Result` that must be used
+    --> smmu/tests/test_queues_section_5_3.rs:1277:5
+     |
+1277 |     smmu.process_command_queue();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1277 |     let _ = smmu.process_command_queue();
+     |     +++++++
+
+warning: `smmu` (test "compliance_test") generated 5 warnings (5 duplicates)
+warning: `smmu` (test "test_fault_processing") generated 1 warning (run `cargo fix --test "test_fault_processing" -p smmu` to apply 1 suggestion)
+warning: `smmu` (test "test_stream_context_section_4_2") generated 1 warning (run `cargo fix --test "test_stream_context_section_4_2" -p smmu` to apply 1 suggestion)
+warning: `smmu` (test "memory_usage_tests") generated 6 warnings (run `cargo fix --test "memory_usage_tests" -p smmu` to apply 2 suggestions)
+warning: `smmu` (test "test_queues_section_5_3") generated 12 warnings (run `cargo fix --test "test_queues_section_5_3" -p smmu` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 1m 23s
+     Running unittests src/lib.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/smmu-69ebd5ae5eb84d2a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 227 filtered out; finished in 0.00s
+
+     Running tests/cache_entry_tests.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/cache_entry_tests-410bc47a187e0db6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.00s
+
+     Running tests/compliance_test.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/compliance_test-8291990bed785ef8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.00s
+
+     Running tests/config_tests.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/config_tests-99d85c9a36ec2975)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 162 filtered out; finished in 0.00s
+
+     Running tests/config_tests_new_features.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/config_tests_new_features-23a1d37675fc44b0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 0.00s
+
+     Running tests/integration_test.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/integration_test-bdbd62628a53b07d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 0.00s
+
+     Running tests/memory_usage_tests.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/memory_usage_tests-b05580805525abef)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running tests/performance_regression_tests.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/performance_regression_tests-584da46c48ea9c5b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running tests/test_access_type.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_access_type-4b1de389ef8849e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+     Running tests/test_address_space.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_address_space-834eb3bd929c8dea)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.00s
+
+     Running tests/test_address_space_section_3_2.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_address_space_section_3_2-2616675c27fd4ae3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+     Running tests/test_address_types.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_address_types-e250ab89dc31ac89)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running tests/test_fault_detection.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_fault_detection-84041263736b0aac)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+
+     Running tests/test_fault_processing.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_fault_processing-bae7599a4652cd1b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.00s
+
+     Running tests/test_fault_record.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_fault_record-8669a3013c915d4d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.00s
+
+     Running tests/test_fault_type.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_fault_type-710af961f748cec5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.00s
+
+     Running tests/test_page_entry.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_page_entry-deb052fe130e75f0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.00s
+
+     Running tests/test_pasid.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_pasid-f8b9309a688adaaf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.00s
+
+     Running tests/test_queues_section_5_3.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_queues_section_5_3-3d5c5208e8ebae8c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.00s
+
+     Running tests/test_security_state.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_security_state-8e1d8a4128c219b2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.00s
+
+     Running tests/test_smmu_section_5_1.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_smmu_section_5_1-e6d3e79402ed85c1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+
+     Running tests/test_stream_context_section_4_1.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_stream_context_section_4_1-c71371f06850c8e5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.00s
+
+     Running tests/test_stream_context_section_4_2.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_stream_context_section_4_2-c4ffef60bec2de54)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+
+     Running tests/test_stream_id.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_stream_id-b5a5eabb797ef9bc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running tests/test_translation_result.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_translation_result-069a1f7d47dd6e16)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+     Running tests/test_translation_stage.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_translation_stage-e76015f4ddcbc805)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.00s
+
+     Running tests/test_validation_error.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/test_validation_error-7fde734259b2e551)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+
+✓ Regression Detection Tests passed
+>>> Phase 2: Memory Usage Tests (~20 seconds)
+
+error: unexpected argument 'memory_usage_tests::test_hashmap_capacity_optimization' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Allocation Pattern Tests failed
+error: unexpected argument 'memory_usage_tests::test_pool_size_efficiency' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Pooling Tests failed
+error: unexpected argument 'memory_usage_tests::test_bit_packing_efficiency' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Compact Representation Tests failed
+error: unexpected argument 'memory_usage_tests::test_no_memory_leak_in_map_operations' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Leak Detection Tests failed
+error: unexpected argument 'memory_usage_tests::test_fragmentation_with_different_sizes' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Fragmentation Tests failed
+error: unexpected argument 'memory_usage_tests::test_multi_stream_memory_bounds' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Peak Memory Usage Tests failed
+error: unexpected argument 'memory_usage_tests::test_cache_entry_size_bounds' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.
+✗ Memory Efficiency Tests failed
+>>> Phase 3: Benchmark Samples (Quick validation)
+
+Note: Running quick benchmark samples. Use 'cargo bench' for full suite.
+
+warning: unexpected `cfg` condition value: `serde`
+  --> smmu/src/types/fault_record.rs:26:12
+   |
+26 | #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+   |            ^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `default` and `std`
+   = help: consider adding `serde` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `serde`
+   --> smmu/src/types/fault_record.rs:193:12
+    |
+193 | #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    |            ^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default` and `std`
+    = help: consider adding `serde` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/event_entry.rs:5:35
+  |
+5 | use crate::types::{SecurityState, StreamID, IOVA, PASID};
+  |                                   ^^^^^^^^  ^^^^  ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/command_entry.rs:5:20
+  |
+5 | use crate::types::{StreamID, IOVA, PASID};
+  |                    ^^^^^^^^  ^^^^  ^^^^^
+
+warning: unused imports: `IOVA`, `PASID`, and `StreamID`
+ --> smmu/src/types/pri_entry.rs:5:32
+  |
+5 | use crate::types::{AccessType, StreamID, IOVA, PASID};
+  |                                ^^^^^^^^  ^^^^  ^^^^^
+
+warning: field `max_stall_queue` is never read
+   --> smmu/src/fault/processing.rs:106:5
+    |
+ 85 | pub struct FaultProcessor {
+    |            -------------- field in this struct
+...
+106 |     max_stall_queue: usize,
+    |     ^^^^^^^^^^^^^^^
+    |
+    = note: `FaultProcessor` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `evict_one_fast` is never used
+   --> smmu/src/cache/mod.rs:592:8
+    |
+484 | impl TlbCache {
+    | ------------- method in this implementation
+...
+592 |     fn evict_one_fast(&self) {
+    |        ^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/security_state.rs:82:5
+   |
+82 |     pub const fn const_is_non_secure(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> smmu/src/types/mod.rs:19:9
+   |
+19 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/security_state.rs:88:5
+   |
+88 |     pub const fn const_is_realm(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/translation_stage.rs:68:5
+   |
+68 |     pub const fn const_uses_stage2(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> smmu/src/types/translation_stage.rs:74:5
+   |
+74 |     pub const fn const_is_two_stage(self) -> bool {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:291:5
+    |
+291 |     pub stream_id: StreamID,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> smmu/src/fault/mod.rs:55:9
+    |
+ 55 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:292:5
+    |
+292 |     pub pasid: PASID,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:293:5
+    |
+293 |     pub address: IOVA,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:294:5
+    |
+294 |     pub access_type: AccessType,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> smmu/src/fault/validator.rs:295:5
+    |
+295 |     pub security_state: SecurityState,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `smmu` (lib) generated 16 warnings (run `cargo fix --lib -p smmu` to apply 3 suggestions)
+   Compiling smmu v1.0.0 (/home/jpgreninger/Work/smmu/rust/smmu)
+warning: constant `CPP_BASELINE_NS` is never used
+   --> smmu/benches/algorithm_optimization.rs:526:11
+    |
+526 |     const CPP_BASELINE_NS: u128 = 135;
+    |           ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: missing documentation for a function
+   --> smmu/benches/algorithm_optimization.rs:600:1
+    |
+600 | / criterion_group! {
+601 | |     name = benches;
+602 | |     config = configure_criterion();
+603 | |     targets =
+...   |
+625 | |         bench_throughput_comparison
+626 | | }
+    | |_^
+    |
+    = note: requested on the command line with `-W missing-docs`
+    = note: this warning originates in the macro `criterion_group` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `smmu` (bench "algorithm_optimization") generated 2 warnings
+    Finished `bench` profile [optimized] target(s) in 23.88s
+     Running benches/algorithm_optimization.rs (/home/jpgreninger/Work/smmu/rust/target/release/deps/algorithm_optimization-f39faabb6e5d936e)
+Gnuplot not found, using plotters backend
+Benchmarking hashmap_lookup_complexity/100
+Benchmarking hashmap_lookup_complexity/100: Warming up for 3.0000 s
+Benchmarking hashmap_lookup_complexity/100: Collecting 10 samples in estimated 10.000 s (721M iterations)
+Benchmarking hashmap_lookup_complexity/100: Analyzing
+hashmap_lookup_complexity/100
+                        time:   [13.967 ns 14.140 ns 14.277 ns]
+                        thrpt:  [7.0042 Gelem/s 7.0721 Gelem/s 7.1599 Gelem/s]
+                 change:
+                        time:   [-42.108% -40.122% -38.073%] (p = 0.00 < 0.01)
+                        thrpt:  [+61.480% +67.005% +72.735%]
+                        Performance has improved.
+Benchmarking hashmap_lookup_complexity/1000
+Benchmarking hashmap_lookup_complexity/1000: Warming up for 3.0000 s
+Benchmarking hashmap_lookup_complexity/1000: Collecting 10 samples in estimated 10.000 s (668M iterations)
+Benchmarking hashmap_lookup_complexity/1000: Analyzing
+hashmap_lookup_complexity/1000
+                        time:   [14.815 ns 15.649 ns 16.739 ns]
+                        thrpt:  [59.739 Gelem/s 63.900 Gelem/s 67.500 Gelem/s]
+                 change:
+                        time:   [-39.691% -37.037% -33.322%] (p = 0.00 < 0.01)
+                        thrpt:  [+49.974% +58.822% +65.812%]
+                        Performance has improved.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+Benchmarking hashmap_lookup_complexity/10000
+Benchmarking hashmap_lookup_complexity/10000: Warming up for 3.0000 s
+Benchmarking hashmap_lookup_complexity/10000: Collecting 10 samples in estimated 10.000 s (651M iterations)
+Benchmarking hashmap_lookup_complexity/10000: Analyzing
+hashmap_lookup_complexity/10000
+                        time:   [13.918 ns 14.053 ns 14.274 ns]
+                        thrpt:  [700.60 Gelem/s 711.58 Gelem/s 718.47 Gelem/s]
+                 change:
+                        time:   [-39.294% -36.414% -33.398%] (p = 0.00 < 0.01)
+                        thrpt:  [+50.147% +57.266% +64.729%]
+                        Performance has improved.
+Benchmarking hashmap_lookup_complexity/100000
+Benchmarking hashmap_lookup_complexity/100000: Warming up for 3.0000 s
+Benchmarking hashmap_lookup_complexity/100000: Collecting 10 samples in estimated 10.000 s (696M iterations)
+Benchmarking hashmap_lookup_complexity/100000: Analyzing
+hashmap_lookup_complexity/100000
+                        time:   [14.888 ns 15.535 ns 15.932 ns]
+                        thrpt:  [6276.5 Gelem/s 6437.2 Gelem/s 6716.6 Gelem/s]
+                 change:
+                        time:   [-33.399% -29.921% -26.734%] (p = 0.00 < 0.01)
+                        thrpt:  [+36.489% +42.696% +50.148%]
+                        Performance has improved.
+
