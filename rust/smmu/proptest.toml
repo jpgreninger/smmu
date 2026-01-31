@@ -1,0 +1,22 @@
+# Proptest Configuration for SMMU Property-Based Testing
+# Phase 4.2: Increased iteration counts for thorough testing
+
+# Default number of test cases per property
+# Increased from default 256 to 10,000 for comprehensive validation
+cases = 10000
+
+# Maximum number of local rejects before giving up
+# (when a generated value doesn't meet preconditions)
+max_local_rejects = 100000
+
+# Maximum number of global rejects before giving up
+max_global_rejects = 1000
+
+# Maximum test case shrinking iterations
+max_shrink_iters = 10000
+
+# Timeout for individual test cases (in milliseconds)
+timeout = 30000
+
+# Verbose test output
+verbose = false
