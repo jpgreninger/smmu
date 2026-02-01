@@ -1,6 +1,6 @@
 //! Validation error type for newtype wrappers
 //!
-//! This module provides the `ValidationError` type used throughout the `SMMU` implementation
+//! This module provides the ValidationError type used throughout the SMMU implementation
 //! for reporting validation failures in newtype constructors.
 
 use core::fmt;
@@ -40,7 +40,7 @@ fn format_hex_with_underscores(value: u64) -> String {
 /// Validation error for newtype wrapper construction and operations
 ///
 /// Provides detailed context about validation failures including:
-/// - Field name (e.g., `StreamID`, `PASID`)
+/// - Field name (e.g., StreamID, PASID)
 /// - Invalid value that was provided
 /// - Constraint that was violated
 /// - Specific error types for different validation scenarios
@@ -48,10 +48,10 @@ fn format_hex_with_underscores(value: u64) -> String {
 /// # Examples
 ///
 /// ```
-/// use smmu::`ValidationError`;
+/// use smmu::ValidationError;
 ///
-/// let error = `ValidationError`::OutOfRange {
-///     field: "`PASID`".to_string(),
+/// let error = ValidationError::OutOfRange {
+///     field: "PASID".to_string(),
 ///     value: 1_048_576,
 ///     max: 1_048_575,
 /// };
@@ -133,9 +133,9 @@ pub enum ValidationError {
         reason: String,
     },
 
-    /// Invalid `PASID` value
+    /// Invalid PASID value
     InvalidPASID {
-        /// Invalid `PASID` value
+        /// Invalid PASID value
         value: u32,
     },
 

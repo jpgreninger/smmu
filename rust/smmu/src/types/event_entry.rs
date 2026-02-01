@@ -1,6 +1,6 @@
-//! Event queue types for ARM `SMMU` v3
+//! Event queue types for ARM SMMU v3
 //!
-//! Event queue management per ARM `SMMU` v3 specification Section 6.3.
+//! Event queue management per ARM SMMU v3 specification Section 6.3.
 
 use crate::types::SecurityState;
 
@@ -36,7 +36,7 @@ impl Default for EventType {
 /// Event entry structure
 ///
 /// Contains all information about a single event in the event queue.
-/// Follows ARM `SMMU` v3 event record format.
+/// Follows ARM SMMU v3 event record format.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EventEntry {

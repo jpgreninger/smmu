@@ -1,22 +1,22 @@
-//! Fault Record structures for ARM `SMMU` v3
+//! Fault Record structures for ARM SMMU v3
 //!
 //! This module defines fault record structures for comprehensive fault reporting
-//! following the ARM `SMMU` v3 specification. All implementations are safe with
+//! following the ARM SMMU v3 specification. All implementations are safe with
 //! zero unsafe code.
 
 use super::{AccessType, FaultType, SecurityState, StreamID, TranslationStage, IOVA, PASID};
 
-/// ARM `SMMU` v3 fault syndrome structure
+/// ARM SMMU v3 fault syndrome structure
 ///
-/// Contains detailed fault information following ARM `SMMU` v3 fault syndrome
+/// Contains detailed fault information following ARM SMMU v3 fault syndrome
 /// register format. Used for comprehensive fault reporting and debugging.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::`FaultSyndrome`;
+/// use smmu::types::FaultSyndrome;
 ///
-/// let syndrome = `FaultSyndrome`::builder()
+/// let syndrome = FaultSyndrome::builder()
 ///     .syndrome_register(0x1234_5678)
 ///     .fault_level(2)
 ///     .write_not_read(true)
@@ -25,7 +25,7 @@ use super::{AccessType, FaultType, SecurityState, StreamID, TranslationStage, IO
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FaultSyndrome {
-    /// ARM `SMMU` v3 fault syndrome register value
+    /// ARM SMMU v3 fault syndrome register value
     syndrome_register: u32,
     /// Translation table level (0-3)
     fault_level: u8,
@@ -38,7 +38,7 @@ pub struct FaultSyndrome {
 }
 
 impl FaultSyndrome {
-    /// Creates a new `FaultSyndrome` with default values
+    /// Creates a new FaultSyndrome with default values
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -50,7 +50,7 @@ impl FaultSyndrome {
         }
     }
 
-    /// Creates a builder for constructing `FaultSyndrome`
+    /// Creates a builder for constructing FaultSyndrome
     #[must_use]
     pub const fn builder() -> FaultSyndromeBuilder {
         FaultSyndromeBuilder::new()
@@ -98,7 +98,7 @@ impl Default for FaultSyndrome {
     }
 }
 
-/// Builder for `FaultSyndrome`
+/// Builder for FaultSyndrome
 #[derive(Debug, Clone)]
 pub struct FaultSyndromeBuilder {
     syndrome_register: u32,
@@ -156,7 +156,7 @@ impl FaultSyndromeBuilder {
         self
     }
 
-    /// Builds the `FaultSyndrome`
+    /// Builds the FaultSyndrome
     #[must_use]
     pub const fn build(self) -> FaultSyndrome {
         FaultSyndrome {
@@ -169,23 +169,23 @@ impl FaultSyndromeBuilder {
     }
 }
 
-/// ARM `SMMU` v3 comprehensive fault record structure
+/// ARM SMMU v3 comprehensive fault record structure
 ///
 /// Contains all fault information required for complete fault reporting,
-/// debugging, and recovery according to ARM `SMMU` v3 specification.
+/// debugging, and recovery according to ARM SMMU v3 specification.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `SecurityState`, `StreamID`, `PASID`, `IOVA`};
+/// use smmu::types::{FaultRecord, FaultType, AccessType, SecurityState, StreamID, PASID, IOVA};
 ///
-/// let record = `FaultRecord`::builder()
-///     .stream_id(`StreamID`::new(42).unwrap())
-///     .pasid(`PASID`::new(7).unwrap())
-///     .address(`IOVA`::new(0x1000).unwrap())
-///     .fault_type(`FaultType`::PermissionFault)
-///     .access_type(`AccessType`::Write)
-///     .security_state(`SecurityState`::Secure)
+/// let record = FaultRecord::builder()
+///     .stream_id(StreamID::new(42).unwrap())
+///     .pasid(PASID::new(7).unwrap())
+///     .address(IOVA::new(0x1000).unwrap())
+///     .fault_type(FaultType::PermissionFault)
+///     .access_type(AccessType::Write)
+///     .security_state(SecurityState::Secure)
 ///     .timestamp(12_345)
 ///     .build();
 /// ```
@@ -204,14 +204,14 @@ pub struct FaultRecord {
     access_type: AccessType,
     /// Security state context
     security_state: SecurityState,
-    /// Detailed ARM `SMMU` v3 fault syndrome
+    /// Detailed ARM SMMU v3 fault syndrome
     syndrome: FaultSyndrome,
     /// Fault occurrence timestamp
     timestamp: u64,
 }
 
 impl FaultRecord {
-    /// Creates a new `FaultRecord` with basic fault information
+    /// Creates a new FaultRecord with basic fault information
     ///
     /// # Arguments
     ///
@@ -225,15 +225,15 @@ impl FaultRecord {
     /// # Examples
     ///
     /// ```
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `SecurityState`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, SecurityState, StreamID, PASID, IOVA};
     ///
-    /// let record = `FaultRecord`::new(
-    ///     `StreamID`::new(1).unwrap(),
-    ///     `PASID`::new(0).unwrap(),
-    ///     `IOVA`::new(0x1000).unwrap(),
-    ///     `FaultType`::TranslationFault,
-    ///     `AccessType`::Read,
-    ///     `SecurityState`::NonSecure,
+    /// let record = FaultRecord::new(
+    ///     StreamID::new(1).unwrap(),
+    ///     PASID::new(0).unwrap(),
+    ///     IOVA::new(0x1000).unwrap(),
+    ///     FaultType::TranslationFault,
+    ///     AccessType::Read,
+    ///     SecurityState::NonSecure,
     /// );
     /// ```
     #[must_use]
@@ -257,7 +257,7 @@ impl FaultRecord {
         }
     }
 
-    /// Creates a new `FaultRecord` with comprehensive fault syndrome
+    /// Creates a new FaultRecord with comprehensive fault syndrome
     ///
     /// # Arguments
     ///
@@ -290,7 +290,7 @@ impl FaultRecord {
         }
     }
 
-    /// Creates a builder for constructing `FaultRecord`
+    /// Creates a builder for constructing FaultRecord
     #[must_use]
     pub const fn builder() -> FaultRecordBuilder {
         FaultRecordBuilder::new()
@@ -303,7 +303,7 @@ impl FaultRecord {
         self.stream_id
     }
 
-    /// Returns the `PASID`
+    /// Returns the PASID
     #[must_use]
     #[inline]
     pub const fn pasid(&self) -> PASID {
@@ -383,9 +383,9 @@ impl Default for FaultRecord {
     }
 }
 
-/// Builder for `FaultRecord` with comprehensive validation
+/// Builder for FaultRecord with comprehensive validation
 ///
-/// Provides a fluent interface for constructing `FaultRecord` instances.
+/// Provides a fluent interface for constructing FaultRecord instances.
 #[derive(Debug, Clone)]
 pub struct FaultRecordBuilder {
     stream_id: Option<StreamID>,
@@ -421,7 +421,7 @@ impl FaultRecordBuilder {
         self
     }
 
-    /// Sets the `PASID`
+    /// Sets the PASID
     #[must_use]
     pub const fn pasid(mut self, pasid: PASID) -> Self {
         self.pasid = Some(pasid);
@@ -470,7 +470,7 @@ impl FaultRecordBuilder {
         self
     }
 
-    /// Builds the `FaultRecord`
+    /// Builds the FaultRecord
     ///
     /// # Panics
     ///

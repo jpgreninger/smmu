@@ -1,12 +1,12 @@
-//! Configuration structures for ARM `SMMU` v3
+//! Configuration structures for ARM SMMU v3
 //!
-//! This module provides type-safe configuration structures for the `SMMU` controller,
+//! This module provides type-safe configuration structures for the SMMU controller,
 //! including per-stream and global configurations. All configurations use builder
 //! patterns for ergonomic construction and compile-time validation where possible.
 //!
-//! # ARM `SMMU` v3 Compliance
+//! # ARM SMMU v3 Compliance
 //!
-//! All configuration structures follow the ARM `SMMU` v3 specification requirements
+//! All configuration structures follow the ARM SMMU v3 specification requirements
 //! for queue sizes, cache configurations, and address space limits.
 
 use crate::types::ValidationError;
@@ -31,7 +31,7 @@ fn parse_numeric<T: std::str::FromStr>(value: &str, field_name: &str) -> Result<
 
 /// Fault handling mode for stream configuration
 ///
-/// Defines how the `SMMU` handles translation faults for a stream.
+/// Defines how the SMMU handles translation faults for a stream.
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -61,23 +61,23 @@ impl fmt::Display for FaultMode {
 /// Per-stream configuration structure
 ///
 /// Defines translation behavior for a single stream, including stage enablement,
-/// `PASID` support, and fault handling mode.
+/// PASID support, and fault handling mode.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreamConfig {
     /// Enable translation for this stream
     pub translation_enabled: bool,
 
-    /// Enable Stage 1 translation (`IOVA` → `IPA` or `IOVA` → `PA`)
+    /// Enable Stage 1 translation (IOVA → IPA or IOVA → PA)
     pub stage1_enabled: bool,
 
-    /// Enable Stage 2 translation (`IPA` → `PA`)
+    /// Enable Stage 2 translation (IPA → PA)
     pub stage2_enabled: bool,
 
-    /// `PASID` support enabled for this stream
+    /// PASID support enabled for this stream
     pub pasid_enabled: bool,
 
-    /// Maximum `PASID` value allowed (default: 1_048_575, 20-bit)
+    /// Maximum PASID value allowed (default: 1_048_575, 20-bit)
     pub max_pasid: u32,
 
     /// Fault handling mode
@@ -88,10 +88,10 @@ pub struct StreamConfig {
 }
 
 impl StreamConfig {
-    /// ARM `SMMU` v3 minimum `PASID` value (always 0)
+    /// ARM SMMU v3 minimum PASID value (always 0)
     pub const MIN_PASID: u32 = 0;
 
-    /// ARM `SMMU` v3 maximum `PASID` value (20-bit)
+    /// ARM SMMU v3 maximum PASID value (20-bit)
     pub const MAX_PASID: u32 = (1 << 20) - 1;
 
     /// Create a new builder for StreamConfig
@@ -263,14 +263,14 @@ impl StreamConfigBuilder {
         self
     }
 
-    /// Enable or disable `PASID` support
+    /// Enable or disable PASID support
     #[must_use]
     pub fn pasid_enabled(mut self, enabled: bool) -> Self {
         self.pasid_enabled = enabled;
         self
     }
 
-    /// Set maximum `PASID` value
+    /// Set maximum PASID value
     #[must_use]
     pub fn max_pasid(mut self, max: u32) -> Self {
         self.max_pasid = max;
@@ -315,7 +315,7 @@ impl Default for StreamConfigBuilder {
     }
 }
 
-/// Queue configuration for `SMMU` event, command, and PRI queues
+/// Queue configuration for SMMU event, command, and PRI queues
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueConfig {
@@ -330,10 +330,10 @@ pub struct QueueConfig {
 }
 
 impl QueueConfig {
-    /// Minimum queue size per ARM `SMMU` v3 spec
+    /// Minimum queue size per ARM SMMU v3 spec
     pub const MIN_QUEUE_SIZE: usize = 16;
 
-    /// Maximum queue size per ARM `SMMU` v3 spec
+    /// Maximum queue size per ARM SMMU v3 spec
     pub const MAX_QUEUE_SIZE: usize = 65_536;
 
     /// Default event queue size
@@ -662,7 +662,7 @@ impl Default for CacheConfigBuilder {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AddressConfig {
-    /// Maximum `IOVA` address space size in bits (default: 48-bit)
+    /// Maximum IOVA address space size in bits (default: 48-bit)
     pub max_iova_bits: u8,
 
     /// Maximum physical address space size in bits (default: 52-bit)
@@ -676,16 +676,16 @@ pub struct AddressConfig {
 }
 
 impl AddressConfig {
-    /// Minimum `IOVA` address bits
+    /// Minimum IOVA address bits
     pub const MIN_IOVA_BITS: u8 = 32;
 
-    /// Maximum `IOVA` address bits
+    /// Maximum IOVA address bits
     pub const MAX_IOVA_BITS: u8 = 52;
 
-    /// Minimum `PA` address bits
+    /// Minimum PA address bits
     pub const MIN_PA_BITS: u8 = 32;
 
-    /// Maximum `PA` address bits
+    /// Maximum PA address bits
     pub const MAX_PA_BITS: u8 = 52;
 
     /// Minimum stream count
@@ -694,22 +694,22 @@ impl AddressConfig {
     /// Maximum stream count
     pub const MAX_STREAM_COUNT: u32 = 1_048_576;
 
-    /// Minimum `PASID` count
+    /// Minimum PASID count
     pub const MIN_PASID_COUNT: u32 = 1;
 
-    /// Maximum `PASID` count per ARM `SMMU` v3 (20-bit)
+    /// Maximum PASID count per ARM SMMU v3 (20-bit)
     pub const MAX_PASID_COUNT: u32 = 1_048_576;
 
-    /// Default `IOVA` bits (48-bit = 256TB)
+    /// Default IOVA bits (48-bit = 256TB)
     pub const DEFAULT_IOVA_BITS: u8 = 48;
 
-    /// Default `PA` bits (52-bit = 4PB)
+    /// Default PA bits (52-bit = 4PB)
     pub const DEFAULT_PA_BITS: u8 = 52;
 
-    /// Default stream count (16-bit `StreamID`)
+    /// Default stream count (16-bit StreamID)
     pub const DEFAULT_STREAM_COUNT: u32 = 65_536;
 
-    /// Default `PASID` count (20-bit `PASID`)
+    /// Default PASID count (20-bit PASID)
     pub const DEFAULT_PASID_COUNT: u32 = 1_048_576;
 
     /// Create a new builder for AddressConfig
@@ -800,14 +800,14 @@ impl AddressConfigBuilder {
         }
     }
 
-    /// Set maximum `IOVA` bits
+    /// Set maximum IOVA bits
     #[must_use]
     pub fn max_iova_bits(mut self, bits: u8) -> Self {
         self.max_iova_bits = bits;
         self
     }
 
-    /// Set maximum `PA` bits
+    /// Set maximum PA bits
     #[must_use]
     pub fn max_pa_bits(mut self, bits: u8) -> Self {
         self.max_pa_bits = bits;
@@ -821,7 +821,7 @@ impl AddressConfigBuilder {
         self
     }
 
-    /// Set maximum `PASID` count
+    /// Set maximum PASID count
     #[must_use]
     pub fn max_pasid_count(mut self, count: u32) -> Self {
         self.max_pasid_count = count;
@@ -1225,7 +1225,7 @@ impl ConfigConstants {
     pub const ENV_MEMORY_LIMIT: &'static str = "SMMU_MEMORY_LIMIT";
 }
 
-/// Global `SMMU` configuration combining all configuration types
+/// Global SMMU configuration combining all configuration types
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SMMUConfig {

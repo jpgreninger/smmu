@@ -1,21 +1,21 @@
-//! Security state definitions for ARM `SMMU` v3
+//! Security state definitions for ARM SMMU v3
 //!
-//! This module implements ARM `SMMU` v3 security domains including support for
+//! This module implements ARM SMMU v3 security domains including support for
 //! ARM Confidential Compute Architecture (CCA) Realm.
 
 use crate::types::ValidationError;
 use core::fmt;
 
-/// Security state for ARM `SMMU` v3
+/// Security state for ARM SMMU v3
 ///
-/// ARM `SMMU` v3 supports three security domains:
+/// ARM SMMU v3 supports three security domains:
 /// - Secure: Trusted execution environment
 /// - NonSecure: Normal world
 /// - Realm: ARM CCA confidential compute (isolated from both Secure and NonSecure)
 ///
 /// # Encoding
 ///
-/// ARM `SMMU` v3 uses 2-bit encoding:
+/// ARM SMMU v3 uses 2-bit encoding:
 /// - 0b00: Secure
 /// - 0b01: NonSecure
 /// - 0b10: Realm
@@ -23,17 +23,17 @@ use core::fmt;
 /// # Example
 ///
 /// ```
-/// use smmu::`SecurityState`;
+/// use smmu::SecurityState;
 ///
-/// let state = `SecurityState`::Secure;
+/// let state = SecurityState::Secure;
 /// assert!(state.is_secure());
 /// assert!(!state.is_non_secure());
 ///
 /// // Secure can access NonSecure (downgrade)
-/// assert!(state.can_access(`SecurityState`::NonSecure));
+/// assert!(state.can_access(SecurityState::NonSecure));
 ///
 /// // NonSecure cannot access Secure
-/// assert!(!`SecurityState`::NonSecure.can_access(`SecurityState`::Secure));
+/// assert!(!SecurityState::NonSecure.can_access(SecurityState::Secure));
 /// ```
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -98,7 +98,7 @@ impl SecurityState {
 
     /// Check if a state transition is valid
     ///
-    /// # ARM `SMMU` v3 Rules
+    /// # ARM SMMU v3 Rules
     ///
     /// - Same-state transitions are always allowed (no-op)
     /// - All cross-state transitions require reconfiguration and are not allowed as simple transitions
@@ -125,7 +125,7 @@ impl SecurityState {
 
     /// Check if this state can access the target state
     ///
-    /// # ARM `SMMU` v3 Access Rules
+    /// # ARM SMMU v3 Access Rules
     ///
     /// - Same state can always access itself
     /// - Secure can access NonSecure (downgrade)
@@ -147,7 +147,7 @@ impl SecurityState {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if access is not permitted by ARM `SMMU` v3 security rules.
+    /// Returns `Err` if access is not permitted by ARM SMMU v3 security rules.
     pub fn validate_access(self, target: Self) -> Result<(), ValidationError> {
         if self.can_access(target) {
             Ok(())
@@ -159,14 +159,14 @@ impl SecurityState {
         }
     }
 
-    /// Convert to ARM `SMMU` v3 bit encoding
+    /// Convert to ARM SMMU v3 bit encoding
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u8 {
         self as u8
     }
 
-    /// Create from ARM `SMMU` v3 bit encoding
+    /// Create from ARM SMMU v3 bit encoding
     ///
     /// # Errors
     ///

@@ -6,7 +6,7 @@
 //! - Translation caching with configurable size
 //! - Cache invalidation operations
 //! - Stream-specific and global invalidation
-//! - `PASID`-aware caching
+//! - PASID-aware caching
 //!
 //! # Performance Impact
 //!
@@ -17,7 +17,7 @@
 //!
 //! Proper cache invalidation is essential for correctness when page table
 //! mappings change. This module implements all required invalidation operations
-//! per ARM `SMMU` v3 specification.
+//! per ARM SMMU v3 specification.
 
 #![warn(missing_docs)]
 
@@ -30,19 +30,19 @@ use smallvec::SmallVec;
 
 /// Cache entry storing a single translation result
 ///
-/// This structure represents a cached translation from `IOVA` to `PA` with
+/// This structure represents a cached translation from IOVA to PA with
 /// associated permissions and security state.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// use smmu::cache::`CacheEntry`;
-/// use smmu::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
+/// use smmu::cache::CacheEntry;
+/// use smmu::{IOVA, PA, PagePermissions, SecurityState};
 ///
-/// let entry = `CacheEntry`::new(
-///     `IOVA`::new(0x1000).unwrap(),
-///     `PA`::new(0x2000).unwrap(),
-///     `PagePermissions`::read_write(),
+/// let entry = CacheEntry::new(
+///     IOVA::new(0x1000).unwrap(),
+///     PA::new(0x2000).unwrap(),
+///     PagePermissions::read_write(),
 ///     100,
 /// );
 /// ```
@@ -114,7 +114,7 @@ impl Default for CacheEntry {
 // CacheKey - Multi-level cache indexing key
 // ============================================================================
 
-/// Cache key for multi-level indexing by `StreamID`, `PASID`, `IOVA`, and `SecurityState`
+/// Cache key for multi-level indexing by StreamID, PASID, IOVA, and SecurityState
 ///
 /// This structure is used as the key in the TLB cache HashMap to uniquely
 /// identify a translation entry.
@@ -152,8 +152,8 @@ impl CacheKey {
 
 /// Custom hash implementation for `CacheKey` using FNV-1a algorithm
 ///
-/// This hasher is optimized for ARM `SMMU` v3 usage patterns:
-/// - Skips lower 12 bits of `IOVA` (page-aligned addresses)
+/// This hasher is optimized for ARM SMMU v3 usage patterns:
+/// - Skips lower 12 bits of IOVA (page-aligned addresses)
 /// - Provides better distribution than default hash
 /// - Uses FNV-1a constants for 64-bit hash values
 ///
@@ -172,7 +172,7 @@ impl CacheKeyHash {
     /// Uses a fast mixing function optimized for hardware:
     /// - Minimal operations for sub-10ns latency
     /// - Good distribution for hash tables
-    /// - The lower 12 bits of `IOVA` are skipped (4KB pages)
+    /// - The lower 12 bits of IOVA are skipped (4KB pages)
     /// - Uses efficient bit rotation and XOR mixing
     #[inline(always)]
     pub fn hash(key: &CacheKey) -> u64 {
@@ -210,10 +210,10 @@ impl CacheKeyHash {
 // StreamPASIDKey - Secondary index key
 // ============================================================================
 
-/// Key for secondary indexing by `StreamID` and `PASID`
+/// Key for secondary indexing by StreamID and PASID
 ///
 /// Used for efficient invalidation operations that target all entries
-/// for a specific stream or `PASID`.
+/// for a specific stream or PASID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StreamPASIDKey {
     /// Stream identifier
@@ -434,9 +434,9 @@ impl Default for CacheStatistics {
 /// # Example
 ///
 /// ```rust,ignore
-/// use smmu::cache::{`TlbCache`, ReplacementPolicy};
+/// use smmu::cache::{TlbCache, ReplacementPolicy};
 ///
-/// let cache = `TlbCache`::new(1024, ReplacementPolicy::Lru);
+/// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
 ///
 /// // Insert translation
 /// cache.insert(key, entry);
@@ -481,7 +481,7 @@ impl TlbCache {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let cache = `TlbCache`::new(1024, ReplacementPolicy::Lru);
+    /// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// ```
     pub fn new(capacity: usize, policy: ReplacementPolicy) -> Self {
         assert!(capacity > 0, "TlbCache capacity must be greater than 0");
@@ -509,7 +509,7 @@ impl TlbCache {
     /// ```rust,ignore
     /// if let Some(entry) = cache.lookup(&key) {
     ///     // Use cached translation
-    ///     println!("`PA`: 0x{:x}", entry.physical_address.as_u64());
+    ///     println!("PA: 0x{:x}", entry.physical_address.as_u64());
     /// }
     /// ```
     #[inline(always)]
@@ -639,7 +639,7 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific `StreamID`
+    /// Invalidate all entries for a specific StreamID
     ///
     /// Removes all cached translations for the given stream across all PASIDs.
     ///
@@ -675,9 +675,9 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific `PASID`
+    /// Invalidate all entries for a specific PASID
     ///
-    /// Removes all cached translations for the given `PASID` across all streams.
+    /// Removes all cached translations for the given PASID across all streams.
     ///
     /// # Arguments
     ///
@@ -710,9 +710,9 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
-    /// Invalidate all entries for a specific `StreamID` and `PASID` combination
+    /// Invalidate all entries for a specific StreamID and PASID combination
     ///
-    /// Removes all cached translations for the given stream/`PASID` pair.
+    /// Removes all cached translations for the given stream/PASID pair.
     /// This is the most common invalidation operation.
     ///
     /// # Arguments
@@ -751,20 +751,20 @@ impl TlbCache {
     /// Invalidate entries within a virtual address range
     ///
     /// Removes cached translations for IOVAs within the specified range
-    /// for a given stream/`PASID` combination.
+    /// for a given stream/PASID combination.
     ///
     /// # Arguments
     ///
     /// * `stream_id` - Stream identifier
     /// * `pasid` - Process Address Space ID
-    /// * `start` - Start of `IOVA` range (inclusive)
-    /// * `end` - End of `IOVA` range (inclusive)
+    /// * `start` - Start of IOVA range (inclusive)
+    /// * `end` - End of IOVA range (inclusive)
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let start = `IOVA`::new(0x1000).unwrap();
-    /// let end = `IOVA`::new(0x5000).unwrap();
+    /// let start = IOVA::new(0x1000).unwrap();
+    /// let end = IOVA::new(0x5000).unwrap();
     /// cache.invalidate_by_va_range(stream_id, pasid, start, end);
     /// ```
     pub fn invalidate_by_va_range(&self, stream_id: StreamID, pasid: PASID, start: IOVA, end: IOVA) {

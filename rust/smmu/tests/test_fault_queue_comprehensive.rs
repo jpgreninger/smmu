@@ -254,7 +254,7 @@ fn test_peek_returns_front_item() {
     assert_eq!(peeked.stream_id().as_u32(), 0x100);
 
     // Pop and verify peek returns next
-    queue.pop();
+    let _ = queue.pop();
     let peeked = queue.peek().unwrap();
     assert_eq!(peeked.stream_id().as_u32(), 0x200);
 }
@@ -571,7 +571,7 @@ fn test_multiple_operations_sequence() {
     let _all = queue.get_all();
     assert_eq!(queue.len(), 2);
 
-    queue.pop();
+    let _ = queue.pop();
     assert_eq!(queue.len(), 1);
 
     queue.clear();
@@ -591,7 +591,7 @@ fn test_capacity_one_special_case() {
 
     assert_eq!(queue.push(create_test_fault(0x200, 2)), Err(FaultQueueError::QueueFull));
 
-    queue.pop();
+    let _ = queue.pop();
     assert!(queue.is_empty());
     assert!(!queue.is_full());
 }

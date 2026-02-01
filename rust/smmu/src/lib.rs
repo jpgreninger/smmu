@@ -149,17 +149,23 @@
 //! ```rust
 //! use smmu::prelude::*;
 //!
-//! // Build custom SMMU configuration
+//! // Build custom cache configuration
+//! let cache_config = CacheConfig {
+//!     tlb_cache_size: 2048,
+//!     cache_max_age_ms: 5000,
+//!     enable_caching: true,
+//! };
+//!
+//! // Build SMMU configuration
 //! let config = SMMUConfigBuilder::new()
-//!     .max_streams(1024)
-//!     .tlb_cache_size(2048)
-//!     .event_queue_size(512)
+//!     .cache_config(cache_config)
 //!     .build()?;
 //!
 //! let smmu = SMMU::with_config(config);
 //!
 //! // Build stream configuration
 //! let stream_config = StreamConfigBuilder::new()
+//!     .translation_enabled(true)
 //!     .stage1_enabled(true)
 //!     .stage2_enabled(true)
 //!     .pasid_enabled(true)
@@ -205,6 +211,7 @@
 //!
 //! // Configure two-stage translation
 //! let config = StreamConfigBuilder::new()
+//!     .translation_enabled(true)
 //!     .stage1_enabled(true)
 //!     .stage2_enabled(true)
 //!     .build()?;

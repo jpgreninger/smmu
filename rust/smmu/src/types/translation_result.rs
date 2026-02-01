@@ -1,4 +1,4 @@
-//! Translation Result types for ARM `SMMU` v3
+//! Translation Result types for ARM SMMU v3
 //!
 //! This module defines the result types for translation operations, including
 //! successful translation data and comprehensive error types. All implementations
@@ -10,14 +10,14 @@ use thiserror::Error;
 /// Translation operation error types
 ///
 /// Comprehensive error enumeration for all translation failure cases following
-/// ARM `SMMU` v3 specification fault classifications.
+/// ARM SMMU v3 specification fault classifications.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{`TranslationError`, `AccessType`};
+/// use smmu::types::{TranslationError, AccessType};
 ///
-/// let error = `TranslationError`::PermissionViolation { access: `AccessType`::Write };
+/// let error = TranslationError::PermissionViolation { access: AccessType::Write };
 /// println!("Translation failed: {}", error);
 /// ```
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -40,15 +40,15 @@ pub enum TranslationError {
         address: u64,
     },
 
-    /// Invalid `StreamID`
+    /// Invalid StreamID
     #[error("Invalid StreamID")]
     InvalidStreamID,
 
-    /// Invalid `PASID`
+    /// Invalid PASID
     #[error("Invalid PASID")]
     InvalidPASID,
 
-    /// `PASID` not found in stream context
+    /// PASID not found in stream context
     #[error("PASID not found")]
     PASIDNotFound,
 
@@ -85,16 +85,16 @@ pub enum TranslationError {
 ///
 /// Contains successful translation output including physical address,
 /// permissions, and security state. This is the success type for
-/// `TranslationResult`.
+/// TranslationResult.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{TranslationData, `PagePermissions`, `PA`, `SecurityState`};
+/// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
 ///
-/// let pa = `PA`::new(0x1000).unwrap();
-/// let perms = `PagePermissions`::read_write();
-/// let data = TranslationData::new(pa, perms, `SecurityState`::NonSecure);
+/// let pa = PA::new(0x1000).unwrap();
+/// let perms = PagePermissions::read_write();
+/// let data = TranslationData::new(pa, perms, SecurityState::NonSecure);
 ///
 /// assert_eq!(data.physical_address(), pa);
 /// ```
@@ -121,11 +121,11 @@ impl TranslationData {
     /// # Examples
     ///
     /// ```
-    /// use smmu::types::{TranslationData, `PagePermissions`, `PA`, `SecurityState`};
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
     ///
-    /// let pa = `PA`::new(0x2000).unwrap();
-    /// let perms = `PagePermissions`::read_only();
-    /// let data = TranslationData::new(pa, perms, `SecurityState`::Secure);
+    /// let pa = PA::new(0x2000).unwrap();
+    /// let perms = PagePermissions::read_only();
+    /// let data = TranslationData::new(pa, perms, SecurityState::Secure);
     /// ```
     #[must_use]
     #[inline]
@@ -195,18 +195,18 @@ impl Default for TranslationData {
 
 /// Builder for TranslationData
 ///
-/// Provides a fluent interface for constructing `TranslationData` instances.
+/// Provides a fluent interface for constructing TranslationData instances.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{TranslationData, `PagePermissions`, `PA`, `SecurityState`};
+/// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
 ///
-/// let pa = `PA`::new(0x3000).unwrap();
+/// let pa = PA::new(0x3000).unwrap();
 /// let data = TranslationData::builder()
 ///     .physical_address(pa)
-///     .permissions(`PagePermissions`::read_execute())
-///     .security_state(`SecurityState`::Realm)
+///     .permissions(PagePermissions::read_execute())
+///     .security_state(SecurityState::Realm)
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -265,21 +265,21 @@ impl TranslationDataBuilder {
 
 /// Type alias for translation operation results
 ///
-/// Either successful translation with `TranslationData` or error with
-/// detailed `TranslationError`. This is the primary return type for all
+/// Either successful translation with TranslationData or error with
+/// detailed TranslationError. This is the primary return type for all
 /// translation operations.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{TranslationResult, TranslationData, `TranslationError`, `PA`};
+/// use smmu::types::{TranslationResult, TranslationData, TranslationError, PA};
 ///
 /// fn translate(valid: bool) -> TranslationResult {
 ///     if valid {
-///         let pa = `PA`::new(0x1000).unwrap();
+///         let pa = PA::new(0x1000).unwrap();
 ///         Ok(TranslationData::with_pa(pa))
 ///     } else {
-///         Err(`TranslationError`::PageNotMapped)
+///         Err(TranslationError::PageNotMapped)
 ///     }
 /// }
 ///

@@ -476,12 +476,12 @@ fn test_spec_compliance_queue_monitoring() {
     // This ensures all three queue types can be monitored
     let stats = QueueStatistics::new(10, 20, 30, 100, 200, 300);
 
-    // All queue sizes should be retrievable
-    assert!(stats.event_queue_size() >= 0);
-    assert!(stats.command_queue_size() >= 0);
-    assert!(stats.pri_queue_size() >= 0);
+    // All queue sizes should be retrievable (always non-negative for usize)
+    let _ = stats.event_queue_size();
+    let _ = stats.command_queue_size();
+    let _ = stats.pri_queue_size();
 
-    // All utilization metrics should be calculable
+    // All utilization metrics should be calculable (always non-negative for f64)
     assert!(stats.event_queue_utilization() >= 0.0);
     assert!(stats.command_queue_utilization() >= 0.0);
     assert!(stats.pri_queue_utilization() >= 0.0);
@@ -494,7 +494,7 @@ fn test_spec_compliance_utilization_range() {
     let stats_half = QueueStatistics::new(50, 50, 50, 100, 100, 100);
     let stats_full = QueueStatistics::new(100, 100, 100, 100, 100, 100);
 
-    assert!(stats_empty.event_queue_utilization() >= 0.0);
+    assert!(stats_empty.event_queue_utilization().is_finite());
     assert!(stats_half.event_queue_utilization() > 0.0 && stats_half.event_queue_utilization() < 1.0);
     assert!(stats_full.event_queue_utilization() >= 1.0);
 }

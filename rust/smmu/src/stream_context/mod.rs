@@ -1,9 +1,9 @@
-//! Per-stream state and `PASID` management
+//! Per-stream state and PASID management
 //!
 //! This module manages the state associated with each stream (device), including:
 //!
-//! - `PASID` (Process Address Space ID) management
-//! - Per-`PASID` address space mappings
+//! - PASID (Process Address Space ID) management
+//! - Per-PASID address space mappings
 //! - Stream configuration and capabilities
 //! - Translation context switching
 //!
@@ -12,13 +12,13 @@
 //! Each stream represents a device or logical channel that can access memory.
 //! Streams may support multiple PASIDs for virtualization and process isolation.
 //!
-//! # `PASID` Support
+//! # PASID Support
 //!
-//! Full `PASID` support including `PASID` 0 (default/legacy mode) per ARM `SMMU` v3 specification.
+//! Full PASID support including PASID 0 (default/legacy mode) per ARM SMMU v3 specification.
 //!
 //! # Thread Safety
 //!
-//! `StreamContext` uses DashMap for lock-free concurrent `PASID` operations and atomic
+//! StreamContext uses DashMap for lock-free concurrent PASID operations and atomic
 //! operations for configuration flags, making it safe to share across threads.
 
 #![warn(missing_docs)]
@@ -33,51 +33,51 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-/// `StreamContext` - Per-stream state and `PASID` management
+/// StreamContext - Per-stream state and PASID management
 ///
 /// Manages translation contexts for a single stream (device), supporting multiple
-/// PASIDs for process isolation and two-stage translation per ARM `SMMU` v3 specification.
+/// PASIDs for process isolation and two-stage translation per ARM SMMU v3 specification.
 ///
 /// # Architecture
 ///
-/// - **Stage-1**: Per-`PASID` translation (`IOVA` → `IPA` or `IOVA` → `PA`)
-/// - **Stage-2**: Shared translation across PASIDs (`IPA` → `PA`)
+/// - **Stage-1**: Per-PASID translation (IOVA → IPA or IOVA → PA)
+/// - **Stage-2**: Shared translation across PASIDs (IPA → PA)
 /// - **Two-Stage**: Combined Stage-1 → Stage-2 translation
 /// - **Bypass**: Identity mapping when both stages disabled
 ///
 /// # Thread Safety
 ///
-/// All operations are thread-safe using lock-free DashMap for `PASID` storage and
+/// All operations are thread-safe using lock-free DashMap for PASID storage and
 /// atomic operations for configuration flags.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::stream_context::`StreamContext`;
-/// use smmu::types::{`PASID`, `IOVA`, `PA`, `PagePermissions`, `SecurityState`, `AccessType`};
+/// use smmu::stream_context::StreamContext;
+/// use smmu::types::{PASID, IOVA, PA, PagePermissions, SecurityState, AccessType};
 ///
-/// let stream_context = `StreamContext`::new();
+/// let stream_context = StreamContext::new();
 ///
-/// // Create `PASID` and map a page
-/// let pasid = `PASID`::new(1).unwrap();
+/// // Create PASID and map a page
+/// let pasid = PASID::new(1).unwrap();
 /// stream_context.create_pasid(pasid).unwrap();
 ///
-/// let iova = `IOVA`::new(0x1000).unwrap();
-/// let pa = `PA`::new(0x2000).unwrap();
-/// let perms = `PagePermissions`::read_write();
-/// stream_context.map_page(pasid, iova, pa, perms, `SecurityState`::NonSecure).unwrap();
+/// let iova = IOVA::new(0x1000).unwrap();
+/// let pa = PA::new(0x2000).unwrap();
+/// let perms = PagePermissions::read_write();
+/// stream_context.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
 ///
 /// // Translate address
-/// let result = stream_context.translate(pasid, iova, `AccessType`::Read, `SecurityState`::NonSecure);
+/// let result = stream_context.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
 /// assert!(result.is_ok());
 /// ```
 #[derive(Debug)]
 pub struct StreamContext {
-    /// `PASID` → `AddressSpace` mapping (Stage-1)
+    /// PASID → AddressSpace mapping (Stage-1)
     /// DashMap provides lock-free concurrent access for high performance
     pub(crate) pasid_map: DashMap<u32, Arc<RwLock<AddressSpace>>>,
 
-    /// Stage-2 `AddressSpace` (shared across all PASIDs)
+    /// Stage-2 AddressSpace (shared across all PASIDs)
     /// RwLock allows concurrent reads with exclusive writes
     stage2_address_space: RwLock<Option<Arc<AddressSpace>>>,
 
@@ -104,7 +104,7 @@ pub struct StreamContext {
 }
 
 impl StreamContext {
-    /// Creates a new `StreamContext` with default configuration
+    /// Creates a new StreamContext with default configuration
     ///
     /// Default configuration:
     /// - Stage-1 enabled, Stage-2 disabled
@@ -114,9 +114,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let stream_context = `StreamContext`::new();
+    /// let stream_context = StreamContext::new();
     /// assert!(stream_context.is_stage1_enabled());
     /// assert!(!stream_context.is_stage2_enabled());
     /// ```
@@ -139,7 +139,7 @@ impl StreamContext {
     // PASID Management Operations
     // ========================================================================
 
-    /// Creates a new `PASID` with a fresh `AddressSpace`
+    /// Creates a new PASID with a fresh AddressSpace
     ///
     /// # Arguments
     ///
@@ -148,17 +148,17 @@ impl StreamContext {
     /// # Errors
     ///
     /// Returns error if:
-    /// - `PASID` already exists (`PASIDAlreadyExists`)
-    /// - `PASID` limit exceeded (`PASIDLimitExceeded`)
+    /// - PASID already exists (`PASIDAlreadyExists`)
+    /// - PASID limit exceeded (`PASIDLimitExceeded`)
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(0).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(0).unwrap();
     /// assert!(stream_context.create_pasid(pasid).is_ok());
     /// ```
     pub fn create_pasid(&self, pasid: PASID) -> Result<(), StreamContextError> {
@@ -186,7 +186,7 @@ impl StreamContext {
         Ok(())
     }
 
-    /// Removes a `PASID` and its associated `AddressSpace`
+    /// Removes a PASID and its associated AddressSpace
     ///
     /// # Arguments
     ///
@@ -194,16 +194,16 @@ impl StreamContext {
     ///
     /// # Errors
     ///
-    /// Returns error if `PASID` not found (`PASIDNotFound`)
+    /// Returns error if PASID not found (`PASIDNotFound`)
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid).unwrap();
     /// assert!(stream_context.remove_pasid(pasid).is_ok());
     /// ```
@@ -217,35 +217,35 @@ impl StreamContext {
         Ok(())
     }
 
-    /// Adds a `PASID` with an existing `AddressSpace`
+    /// Adds a PASID with an existing AddressSpace
     ///
-    /// This allows multiple PASIDs to share the same `AddressSpace`.
+    /// This allows multiple PASIDs to share the same AddressSpace.
     ///
     /// # Arguments
     ///
     /// * `pasid` - Process Address Space ID to add
-    /// * `address_space` - Shared `AddressSpace` reference
+    /// * `address_space` - Shared AddressSpace reference
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// - `PASID` already exists (`PASIDAlreadyExists`)
-    /// - `PASID` limit exceeded (`PASIDLimitExceeded`)
+    /// - PASID already exists (`PASIDAlreadyExists`)
+    /// - PASID limit exceeded (`PASIDLimitExceeded`)
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     /// use std::sync::{Arc, RwLock};
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid1 = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid1 = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid1).unwrap();
     ///
-    /// // Share `AddressSpace` with another `PASID`
+    /// // Share AddressSpace with another PASID
     /// let addr_space = stream_context.get_pasid_address_space(pasid1).unwrap();
-    /// let pasid2 = `PASID`::new(2).unwrap();
+    /// let pasid2 = PASID::new(2).unwrap();
     /// assert!(stream_context.add_pasid(pasid2, addr_space).is_ok());
     /// ```
     pub fn add_pasid(&self, pasid: PASID, address_space: Arc<RwLock<AddressSpace>>) -> Result<(), StreamContextError> {
@@ -268,7 +268,7 @@ impl StreamContext {
         Ok(())
     }
 
-    /// Checks if a `PASID` exists
+    /// Checks if a PASID exists
     ///
     /// # Arguments
     ///
@@ -277,11 +277,11 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(1).unwrap();
     /// assert!(!stream_context.has_pasid(pasid));
     /// stream_context.create_pasid(pasid).unwrap();
     /// assert!(stream_context.has_pasid(pasid));
@@ -296,12 +296,12 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
+    /// let stream_context = StreamContext::new();
     /// assert_eq!(stream_context.pasid_count(), 0);
-    /// stream_context.create_pasid(`PASID`::new(1).unwrap()).unwrap();
+    /// stream_context.create_pasid(PASID::new(1).unwrap()).unwrap();
     /// assert_eq!(stream_context.pasid_count(), 1);
     /// ```
     #[must_use]
@@ -314,12 +314,12 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// stream_context.create_pasid(`PASID`::new(1).unwrap()).unwrap();
-    /// stream_context.create_pasid(`PASID`::new(2).unwrap()).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// stream_context.create_pasid(PASID::new(1).unwrap()).unwrap();
+    /// stream_context.create_pasid(PASID::new(2).unwrap()).unwrap();
     /// assert_eq!(stream_context.pasid_count(), 2);
     ///
     /// stream_context.clear_all_pasids().unwrap();
@@ -334,23 +334,23 @@ impl StreamContext {
     ///
     /// # Arguments
     ///
-    /// * `max` - Maximum `PASID` count
+    /// * `max` - Maximum PASID count
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_max_pasids_per_stream(512);
     /// ```
     pub fn set_max_pasids_per_stream(&mut self, max: usize) {
         self.max_pasids_per_stream.store(max, Ordering::Relaxed);
     }
 
-    /// Gets the `AddressSpace` for a `PASID`
+    /// Gets the AddressSpace for a PASID
     ///
-    /// Returns `None` if `PASID` not found.
+    /// Returns `None` if PASID not found.
     ///
     /// # Arguments
     ///
@@ -359,11 +359,11 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid).unwrap();
     ///
     /// let addr_space = stream_context.get_pasid_address_space(pasid);
@@ -387,9 +387,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_stage1_enabled(false);
     /// assert!(!stream_context.is_stage1_enabled());
     /// ```
@@ -406,9 +406,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// assert!(stream_context.is_stage2_enabled());
     /// ```
@@ -421,9 +421,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let stream_context = `StreamContext`::new();
+    /// let stream_context = StreamContext::new();
     /// assert!(stream_context.is_stage1_enabled());
     /// ```
     #[must_use]
@@ -436,9 +436,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let stream_context = `StreamContext`::new();
+    /// let stream_context = StreamContext::new();
     /// assert!(!stream_context.is_stage2_enabled());
     /// ```
     #[must_use]
@@ -446,21 +446,21 @@ impl StreamContext {
         self.stage2_enabled.load(Ordering::Relaxed)
     }
 
-    /// Sets the Stage-2 `AddressSpace` (shared across PASIDs)
+    /// Sets the Stage-2 AddressSpace (shared across PASIDs)
     ///
     /// # Arguments
     ///
-    /// * `address_space` - Optional Stage-2 `AddressSpace`
+    /// * `address_space` - Optional Stage-2 AddressSpace
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::address_space::`AddressSpace`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::address_space::AddressSpace;
     /// use std::sync::Arc;
     ///
-    /// let mut stream_context = `StreamContext`::new();
-    /// let stage2 = Arc::new(`AddressSpace`::new());
+    /// let mut stream_context = StreamContext::new();
+    /// let stage2 = Arc::new(AddressSpace::new());
     /// stream_context.set_stage2_address_space(Some(stage2));
     /// ```
     pub fn set_stage2_address_space(&mut self, address_space: Option<Arc<AddressSpace>>) {
@@ -472,7 +472,7 @@ impl StreamContext {
     // Page Operations
     // ========================================================================
 
-    /// Maps a page in the specified `PASID`'s address space
+    /// Maps a page in the specified PASID's address space
     ///
     /// # Arguments
     ///
@@ -484,23 +484,23 @@ impl StreamContext {
     ///
     /// # Errors
     ///
-    /// Returns error if `PASID` not found or mapping fails
+    /// Returns error if PASID not found or mapping fails
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::{`PASID`, `IOVA`, `PA`, `PagePermissions`, `SecurityState`};
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{PASID, IOVA, PA, PagePermissions, SecurityState};
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid).unwrap();
     ///
-    /// let iova = `IOVA`::new(0x1000).unwrap();
-    /// let pa = `PA`::new(0x2000).unwrap();
-    /// let perms = `PagePermissions`::read_write();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// let perms = PagePermissions::read_write();
     ///
-    /// assert!(stream_context.map_page(pasid, iova, pa, perms, `SecurityState`::NonSecure).is_ok());
+    /// assert!(stream_context.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).is_ok());
     /// ```
     pub fn map_page(
         &self,
@@ -525,7 +525,7 @@ impl StreamContext {
         space.map_page(iova, pa, permissions, security_state)
     }
 
-    /// Unmaps a page from the specified `PASID`'s address space
+    /// Unmaps a page from the specified PASID's address space
     ///
     /// # Arguments
     ///
@@ -534,22 +534,22 @@ impl StreamContext {
     ///
     /// # Errors
     ///
-    /// Returns error if `PASID` not found or unmap fails
+    /// Returns error if PASID not found or unmap fails
     ///
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::{`PASID`, `IOVA`, `PA`, `PagePermissions`, `SecurityState`};
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{PASID, IOVA, PA, PagePermissions, SecurityState};
     ///
-    /// let stream_context = `StreamContext`::new();
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let stream_context = StreamContext::new();
+    /// let pasid = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid).unwrap();
     ///
-    /// let iova = `IOVA`::new(0x1000).unwrap();
-    /// let pa = `PA`::new(0x2000).unwrap();
-    /// let perms = `PagePermissions`::read_write();
-    /// stream_context.map_page(pasid, iova, pa, perms, `SecurityState`::NonSecure).unwrap();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// let perms = PagePermissions::read_write();
+    /// stream_context.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
     ///
     /// assert!(stream_context.unmap_page(pasid, iova).is_ok());
     /// ```
@@ -566,7 +566,7 @@ impl StreamContext {
 
     /// Create and initialize Stage-2 address space
     ///
-    /// Creates a new address space for Stage-2 translation (`IPA` → `PA`).
+    /// Creates a new address space for Stage-2 translation (IPA → PA).
     /// Required for two-stage translation setup.
     ///
     /// # Errors
@@ -576,9 +576,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// assert!(stream_context.create_stage2_address_space().is_ok());
     /// ```
@@ -597,7 +597,7 @@ impl StreamContext {
         Ok(())
     }
 
-    /// Map a page in the Stage-2 address space (`IPA` → `PA`)
+    /// Map a page in the Stage-2 address space (IPA → PA)
     ///
     /// For two-stage translation, this maps Intermediate Physical Addresses
     /// (output of Stage-1) to final Physical Addresses.
@@ -618,18 +618,18 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::{`IOVA`, `PA`, `PagePermissions`, `SecurityState`};
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// stream_context.create_stage2_address_space().unwrap();
     ///
-    /// let ipa = `IOVA`::new(0x2000).unwrap();
-    /// let pa = `PA`::new(0x3000).unwrap();
-    /// let perms = `PagePermissions`::read_write();
+    /// let ipa = IOVA::new(0x2000).unwrap();
+    /// let pa = PA::new(0x3000).unwrap();
+    /// let perms = PagePermissions::read_write();
     ///
-    /// assert!(stream_context.map_stage2_page(ipa, pa, perms, `SecurityState`::NonSecure).is_ok());
+    /// assert!(stream_context.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure).is_ok());
     /// ```
     pub fn map_stage2_page(
         &mut self,
@@ -655,11 +655,11 @@ impl StreamContext {
 
     /// Translates an address through configured translation stages
     ///
-    /// Supports four translation modes per ARM `SMMU` v3 specification:
-    /// - Stage-1 only: `IOVA` → `PA`
-    /// - Stage-2 only: `IPA` → `PA` (`IOVA` treated as `IPA`)
-    /// - Two-stage: `IOVA` → `IPA` → `PA`
-    /// - Bypass: `IOVA` = `PA` (identity mapping)
+    /// Supports four translation modes per ARM SMMU v3 specification:
+    /// - Stage-1 only: IOVA → PA
+    /// - Stage-2 only: IPA → PA (IOVA treated as IPA)
+    /// - Two-stage: IOVA → IPA → PA
+    /// - Bypass: IOVA = PA (identity mapping)
     ///
     /// # Arguments
     ///
@@ -671,7 +671,7 @@ impl StreamContext {
     /// # Errors
     ///
     /// Returns error if translation fails due to:
-    /// - `PASID` not found
+    /// - PASID not found
     /// - Page not mapped
     /// - Permission violation
     /// - Invalid configuration
@@ -679,22 +679,22 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::{`PASID`, `IOVA`, `PA`, `PagePermissions`, `SecurityState`, `AccessType`};
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{PASID, IOVA, PA, PagePermissions, SecurityState, AccessType};
     ///
-    /// let mut stream_context = `StreamContext`::new();
+    /// let mut stream_context = StreamContext::new();
     /// stream_context.set_stage1_enabled(true);
     /// stream_context.set_stage2_enabled(false);
     ///
-    /// let pasid = `PASID`::new(1).unwrap();
+    /// let pasid = PASID::new(1).unwrap();
     /// stream_context.create_pasid(pasid).unwrap();
     ///
-    /// let iova = `IOVA`::new(0x1000).unwrap();
-    /// let pa = `PA`::new(0x2000).unwrap();
-    /// let perms = `PagePermissions`::read_write();
-    /// stream_context.map_page(pasid, iova, pa, perms, `SecurityState`::NonSecure).unwrap();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// let perms = PagePermissions::read_write();
+    /// stream_context.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
     ///
-    /// let result = stream_context.translate(pasid, iova, `AccessType`::Read, `SecurityState`::NonSecure);
+    /// let result = stream_context.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     /// assert!(result.is_ok());
     /// assert_eq!(result.unwrap().physical_address(), pa);
     /// ```
@@ -728,7 +728,7 @@ impl StreamContext {
         }
     }
 
-    /// Stage-1 only translation: `IOVA` → `PA`
+    /// Stage-1 only translation: IOVA → PA
     fn translate_stage1_only(
         &self,
         pasid: PASID,
@@ -753,7 +753,7 @@ impl StreamContext {
         result
     }
 
-    /// Stage-2 only translation: `IPA` → `PA`
+    /// Stage-2 only translation: IPA → PA
     fn translate_stage2_only(
         &self,
         pasid: PASID,
@@ -776,7 +776,7 @@ impl StreamContext {
         result
     }
 
-    /// Two-stage translation: `IOVA` → `IPA` → `PA`
+    /// Two-stage translation: IOVA → IPA → PA
     fn translate_two_stage(
         &self,
         pasid: PASID,
@@ -818,7 +818,7 @@ impl StreamContext {
         result
     }
 
-    /// Bypass mode translation: `IOVA` = `PA` (identity mapping)
+    /// Bypass mode translation: IOVA = PA (identity mapping)
     fn translate_bypass(&self, iova: IOVA, security_state: SecurityState) -> TranslationResult {
         // Identity mapping: IOVA = PA
         let pa = PA::new(iova.as_u64()).map_err(|_| TranslationError::AddressSizeError)?;
@@ -838,9 +838,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = `StreamContext`::new();
+    /// let mut ctx = StreamContext::new();
     /// let builder = ctx.update_config_builder();
     /// ```
     #[must_use]
@@ -954,9 +954,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = `StreamContext`::new();
+    /// let mut ctx = StreamContext::new();
     /// ctx.enable();
     /// assert!(ctx.is_enabled());
     /// ```
@@ -971,9 +971,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = `StreamContext`::new();
+    /// let mut ctx = StreamContext::new();
     /// ctx.disable();
     /// assert!(!ctx.is_enabled());
     /// ```
@@ -988,9 +988,9 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
+    /// use smmu::stream_context::StreamContext;
     ///
-    /// let ctx = `StreamContext`::new();
+    /// let ctx = StreamContext::new();
     /// assert!(ctx.is_enabled());
     /// ```
     #[must_use]
@@ -1016,11 +1016,11 @@ impl StreamContext {
     /// # Examples
     ///
     /// ```
-    /// use smmu::stream_context::`StreamContext`;
-    /// use smmu::types::`PASID`;
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::PASID;
     ///
-    /// let ctx = `StreamContext`::new();
-    /// ctx.create_pasid(`PASID`::new(1).unwrap()).unwrap();
+    /// let ctx = StreamContext::new();
+    /// ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
     ///
     /// let query = ctx.query();
     /// assert_eq!(query.pasid_count(), 1);
@@ -1038,7 +1038,7 @@ impl StreamContext {
     ///
     /// # Arguments
     ///
-    /// * `_pasid` - `PASID` that caused the fault
+    /// * `_pasid` - PASID that caused the fault
     /// * `fault` - Fault record to store
     pub fn record_fault(&self, _pasid: PASID, fault: FaultRecord) {
         let mut records = self.fault_records.write().unwrap();
@@ -1195,9 +1195,9 @@ impl StreamContext {
 /// # Examples
 ///
 /// ```
-/// use smmu::stream_context::{`StreamContext`, StreamConfigBuilder};
+/// use smmu::stream_context::{StreamContext, StreamConfigBuilder};
 ///
-/// let mut ctx = `StreamContext`::new();
+/// let mut ctx = StreamContext::new();
 /// let config = StreamConfigBuilder::new()
 ///     .max_pasids_per_stream(512)
 ///     .stage1_enabled(false)
@@ -1246,7 +1246,7 @@ impl StreamConfigBuilder {
         self
     }
 
-    /// Sets Stage-2 `AddressSpace`
+    /// Sets Stage-2 AddressSpace
     #[must_use]
     pub fn stage2_address_space(mut self, addr_space: Option<Arc<AddressSpace>>) -> Self {
         self.stage2_address_space = Some(addr_space);
@@ -1268,15 +1268,15 @@ impl StreamConfigBuilder {
 /// # Examples
 ///
 /// ```
-/// use smmu::stream_context::`StreamContext`;
-/// use smmu::types::`PASID`;
+/// use smmu::stream_context::StreamContext;
+/// use smmu::types::PASID;
 ///
-/// let ctx = `StreamContext`::new();
-/// ctx.create_pasid(`PASID`::new(1).unwrap()).unwrap();
+/// let ctx = StreamContext::new();
+/// ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
 ///
 /// let query = ctx.query();
 /// assert_eq!(query.pasid_count(), 1);
-/// assert!(query.has_pasid(`PASID`::new(1).unwrap()));
+/// assert!(query.has_pasid(PASID::new(1).unwrap()));
 /// ```
 #[derive(Debug)]
 pub struct StreamContextQuery<'a> {
@@ -1290,7 +1290,7 @@ impl<'a> StreamContextQuery<'a> {
         self.ctx.pasid_count()
     }
 
-    /// Checks if a `PASID` exists
+    /// Checks if a PASID exists
     #[must_use]
     pub fn has_pasid(&self, pasid: PASID) -> bool {
         self.ctx.has_pasid(pasid)
@@ -1320,7 +1320,7 @@ impl<'a> StreamContextQuery<'a> {
     /// # TODO
     ///
     /// This is a placeholder implementation. Full implementation would require
-    /// tracking security state per `PASID`/page, which is beyond basic Section 4.2 scope.
+    /// tracking security state per PASID/page, which is beyond basic Section 4.2 scope.
     pub fn pasids_by_security_state(&self, _security_state: SecurityState) -> impl Iterator<Item = PASID> + 'a {
         // TODO: Implement proper security state tracking per PASID
         // For now, return empty iterator to avoid incorrect results
@@ -1337,7 +1337,7 @@ pub struct FaultStatistics {
     pub total_faults: u64,
     /// Faults grouped by type
     pub faults_by_type: HashMap<FaultType, u64>,
-    /// Faults grouped by `PASID`
+    /// Faults grouped by PASID
     pub faults_by_pasid: HashMap<u32, u64>,
     /// Timestamp of most recent fault
     pub last_fault_time: Option<u64>,

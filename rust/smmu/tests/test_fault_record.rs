@@ -380,7 +380,7 @@ fn test_fault_record_debug() {
 #[test]
 #[should_panic(expected = "stream_id must be set")]
 fn test_fault_record_builder_missing_stream_id() {
-    FaultRecord::builder()
+    let _ = FaultRecord::builder()
         .pasid(PASID::new(1).unwrap())
         .address(IOVA::new(0x1000).unwrap())
         .build();
@@ -389,7 +389,7 @@ fn test_fault_record_builder_missing_stream_id() {
 #[test]
 #[should_panic(expected = "pasid must be set")]
 fn test_fault_record_builder_missing_pasid() {
-    FaultRecord::builder()
+    let _ = FaultRecord::builder()
         .stream_id(StreamID::new(1).unwrap())
         .address(IOVA::new(0x1000).unwrap())
         .build();
@@ -398,7 +398,7 @@ fn test_fault_record_builder_missing_pasid() {
 #[test]
 #[should_panic(expected = "address must be set")]
 fn test_fault_record_builder_missing_address() {
-    FaultRecord::builder()
+    let _ = FaultRecord::builder()
         .stream_id(StreamID::new(1).unwrap())
         .pasid(PASID::new(1).unwrap())
         .build();

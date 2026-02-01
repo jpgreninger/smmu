@@ -1,6 +1,6 @@
-//! Page Entry structures for ARM `SMMU` v3
+//! Page Entry structures for ARM SMMU v3
 //!
-//! This module defines the `PageEntry` and `PagePermissions` structures used for
+//! This module defines the PageEntry and PagePermissions structures used for
 //! page table entries in address translation. All implementations are safe
 //! with zero unsafe code.
 
@@ -15,15 +15,15 @@ use super::{AccessType, SecurityState, PA};
 /// # Examples
 ///
 /// ```
-/// use smmu::types::`PagePermissions`;
+/// use smmu::types::PagePermissions;
 ///
 /// // Create read-only permissions
-/// let read_only = `PagePermissions`::read_only();
+/// let read_only = PagePermissions::read_only();
 /// assert!(read_only.read());
 /// assert!(!read_only.write());
 ///
 /// // Create read-write permissions
-/// let read_write = `PagePermissions`::read_write();
+/// let read_write = PagePermissions::read_write();
 /// assert!(read_write.read() && read_write.write());
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -38,7 +38,7 @@ pub struct PagePermissions {
 }
 
 impl PagePermissions {
-    /// Creates new `PagePermissions` with explicit flags
+    /// Creates new PagePermissions with explicit flags
     ///
     /// # Arguments
     ///
@@ -49,9 +49,9 @@ impl PagePermissions {
     /// # Examples
     ///
     /// ```
-    /// use smmu::types::`PagePermissions`;
+    /// use smmu::types::PagePermissions;
     ///
-    /// let perms = `PagePermissions`::new(true, false, false);
+    /// let perms = PagePermissions::new(true, false, false);
     /// assert!(perms.read());
     /// ```
     #[must_use]
@@ -161,7 +161,7 @@ impl PagePermissions {
     ///
     /// # Returns
     ///
-    /// A new `PagePermissions` with permissions from both sets
+    /// A new PagePermissions with permissions from both sets
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
         Self::new(
@@ -179,7 +179,7 @@ impl PagePermissions {
     ///
     /// # Returns
     ///
-    /// A new `PagePermissions` with only permissions present in both sets
+    /// A new PagePermissions with only permissions present in both sets
     #[must_use]
     pub const fn intersection(self, other: Self) -> Self {
         Self::new(
@@ -205,7 +205,7 @@ impl PagePermissions {
 }
 
 impl Default for PagePermissions {
-    /// Creates `PagePermissions` with no access allowed (secure default)
+    /// Creates PagePermissions with no access allowed (secure default)
     fn default() -> Self {
         Self::none()
     }
@@ -215,7 +215,7 @@ impl Default for PagePermissions {
 ///
 /// Represents a single page table entry containing physical address mapping,
 /// permissions, security state, and memory attributes. This structure follows
-/// ARM `SMMU` v3 specification requirements.
+/// ARM SMMU v3 specification requirements.
 ///
 /// # Memory Safety
 ///
@@ -225,11 +225,11 @@ impl Default for PagePermissions {
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{`PageEntry`, `PagePermissions`, `PA`, `SecurityState`};
+/// use smmu::types::{PageEntry, PagePermissions, PA, SecurityState};
 ///
-/// let pa = `PA`::new(0x1000).unwrap();
-/// let perms = `PagePermissions`::read_write();
-/// let entry = `PageEntry`::new(pa, perms);
+/// let pa = PA::new(0x1000).unwrap();
+/// let perms = PagePermissions::read_write();
+/// let entry = PageEntry::new(pa, perms);
 ///
 /// assert!(entry.is_valid());
 /// assert_eq!(entry.physical_address(), pa);
@@ -254,7 +254,7 @@ pub struct PageEntry {
 }
 
 impl PageEntry {
-    /// Creates a new valid `PageEntry` with physical address and permissions
+    /// Creates a new valid PageEntry with physical address and permissions
     ///
     /// Security state defaults to NonSecure, and memory attributes default to
     /// normal memory (cacheable, shareable, not device memory).
@@ -267,10 +267,10 @@ impl PageEntry {
     /// # Examples
     ///
     /// ```
-    /// use smmu::types::{`PageEntry`, `PagePermissions`, `PA`};
+    /// use smmu::types::{PageEntry, PagePermissions, PA};
     ///
-    /// let pa = `PA`::new(0x1000).unwrap();
-    /// let entry = `PageEntry`::new(pa, `PagePermissions`::read_only());
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let entry = PageEntry::new(pa, PagePermissions::read_only());
     /// assert!(entry.is_valid());
     /// ```
     #[must_use]
@@ -286,7 +286,7 @@ impl PageEntry {
         }
     }
 
-    /// Creates a new `PageEntry` with explicit security state
+    /// Creates a new PageEntry with explicit security state
     ///
     /// # Arguments
     ///
@@ -310,7 +310,7 @@ impl PageEntry {
         }
     }
 
-    /// Creates a builder for constructing `PageEntry`
+    /// Creates a builder for constructing PageEntry
     #[must_use]
     pub const fn builder() -> PageEntryBuilder {
         PageEntryBuilder::new()
@@ -417,7 +417,7 @@ impl PageEntry {
 }
 
 impl Default for PageEntry {
-    /// Creates an invalid `PageEntry` with zero physical address
+    /// Creates an invalid PageEntry with zero physical address
     fn default() -> Self {
         Self {
             physical_address: PA::new(0).unwrap_or_else(|_| unreachable!()),
@@ -431,20 +431,20 @@ impl Default for PageEntry {
     }
 }
 
-/// Builder for `PageEntry` with compile-time validation
+/// Builder for PageEntry with compile-time validation
 ///
-/// Provides a fluent interface for constructing `PageEntry` instances.
+/// Provides a fluent interface for constructing PageEntry instances.
 ///
 /// # Examples
 ///
 /// ```
-/// use smmu::types::{`PageEntry`, `PagePermissions`, `PA`, `SecurityState`};
+/// use smmu::types::{PageEntry, PagePermissions, PA, SecurityState};
 ///
-/// let pa = `PA`::new(0x2000).unwrap();
-/// let entry = `PageEntry`::builder()
+/// let pa = PA::new(0x2000).unwrap();
+/// let entry = PageEntry::builder()
 ///     .physical_address(pa)
-///     .permissions(`PagePermissions`::read_execute())
-///     .security_state(`SecurityState`::Secure)
+///     .permissions(PagePermissions::read_execute())
+///     .security_state(SecurityState::Secure)
 ///     .cacheable(true)
 ///     .build();
 /// ```
@@ -514,7 +514,7 @@ impl PageEntryBuilder {
         self
     }
 
-    /// Builds the `PageEntry`
+    /// Builds the PageEntry
     ///
     /// # Panics
     ///

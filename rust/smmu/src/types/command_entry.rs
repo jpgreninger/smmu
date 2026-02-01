@@ -1,12 +1,12 @@
-//! Command queue types for ARM `SMMU` v3
+//! Command queue types for ARM SMMU v3
 //!
-//! Command queue processing per ARM `SMMU` v3 specification Section 6.4.
+//! Command queue processing per ARM SMMU v3 specification Section 6.4.
 
 // Note: StreamID, IOVA, PASID types not currently used but available for future expansion
 
 /// Command type enumeration
 ///
-/// Defines all ARM `SMMU` v3 command types supported by the command queue.
+/// Defines all ARM SMMU v3 command types supported by the command queue.
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -44,7 +44,7 @@ impl Default for CommandType {
 /// Command entry structure
 ///
 /// Contains all information about a single command in the command queue.
-/// Follows ARM `SMMU` v3 command format.
+/// Follows ARM SMMU v3 command format.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct CommandEntry {

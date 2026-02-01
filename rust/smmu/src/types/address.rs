@@ -1,25 +1,25 @@
-//! Address types for ARM `SMMU` v3
+//! Address types for ARM SMMU v3
 //!
 //! This module provides type-safe wrappers for different address types used in
-//! ARM `SMMU` v3 translation:
+//! ARM SMMU v3 translation:
 //!
-//! - [`IOVA`] - Input/Output Virtual Address (input to Stage 1)
-//! - [`IPA`] - Intermediate Physical Address (output from Stage 1, input to Stage 2)
-//! - [`PA`] - Physical Address (final output from translation)
+//! - [IOVA] - Input/Output Virtual Address (input to Stage 1)
+//! - [IPA] - Intermediate Physical Address (output from Stage 1, input to Stage 2)
+//! - [PA] - Physical Address (final output from translation)
 //!
 //! # Type Safety
 //!
 //! Each address type is a distinct newtype wrapper to prevent mixing address types.
-//! The compiler will catch errors like passing an `IPA` where an `IOVA` is expected.
+//! The compiler will catch errors like passing an IPA where an IOVA is expected.
 //!
 //! # Zero-Cost Abstractions
 //!
 //! All address types use `const fn` constructors and are marked with `#[repr(transparent)]`
 //! to ensure zero runtime overhead compared to raw `u64` values.
 //!
-//! # ARM `SMMU` v3 Compliance
+//! # ARM SMMU v3 Compliance
 //!
-//! Addresses support ARM `SMMU` v3 requirements including:
+//! Addresses support ARM SMMU v3 requirements including:
 //! - 4KB page alignment (0x1000)
 //! - Page offset extraction
 //! - Address range validation
@@ -41,22 +41,22 @@ const PAGE_SHIFT: u32 = 12;
 // IOVA - Input/Output Virtual Address
 // ============================================================================
 
-/// Input/Output Virtual Address (`IOVA`)
+/// Input/Output Virtual Address (IOVA)
 ///
-/// `IOVA` is the input address to Stage 1 translation in ARM `SMMU` v3.
+/// IOVA is the input address to Stage 1 translation in ARM SMMU v3.
 /// It represents the virtual address from the device's perspective.
 ///
 /// # Example
 ///
 /// ```
-/// use smmu::`IOVA`;
+/// use smmu::IOVA;
 ///
-/// // Create a page-aligned `IOVA`
-/// let iova = `IOVA`::new_page_aligned(0x1000).unwrap();
+/// // Create a page-aligned IOVA
+/// let iova = IOVA::new_page_aligned(0x1000).unwrap();
 /// assert!(iova.is_page_aligned());
 ///
 /// // Extract page offset
-/// let addr = `IOVA`::new(0x1234).unwrap();
+/// let addr = IOVA::new(0x1234).unwrap();
 /// assert_eq!(addr.page_offset(), 0x234);
 /// ```
 #[repr(transparent)]
@@ -65,7 +65,7 @@ const PAGE_SHIFT: u32 = 12;
 pub struct IOVA(u64);
 
 impl IOVA {
-    /// Create a new `IOVA` from a u64 address
+    /// Create a new IOVA from a u64 address
     ///
     /// # Errors
     ///
@@ -74,8 +74,8 @@ impl IOVA {
     /// # Example
     ///
     /// ```
-    /// use smmu::`IOVA`;
-    /// let iova = `IOVA`::new(0x1000).unwrap();
+    /// use smmu::IOVA;
+    /// let iova = IOVA::new(0x1000).unwrap();
     /// assert_eq!(iova.as_u64(), 0x1000);
     /// ```
     #[inline]
@@ -83,13 +83,13 @@ impl IOVA {
         Ok(Self(addr))
     }
 
-    /// Create a new `IOVA` with const fn for compile-time construction
+    /// Create a new IOVA with const fn for compile-time construction
     ///
     /// # Example
     ///
     /// ```
-    /// use smmu::`IOVA`;
-    /// const ADDR: `IOVA` = `IOVA`::const_new(0x1000);
+    /// use smmu::IOVA;
+    /// const ADDR: IOVA = IOVA::const_new(0x1000);
     /// ```
     #[inline]
     #[must_use]
@@ -97,7 +97,7 @@ impl IOVA {
         Self(addr)
     }
 
-    /// Create a page-aligned `IOVA`
+    /// Create a page-aligned IOVA
     ///
     /// # Errors
     ///
@@ -106,9 +106,9 @@ impl IOVA {
     /// # Example
     ///
     /// ```
-    /// use smmu::`IOVA`;
-    /// assert!(`IOVA`::new_page_aligned(0x1000).is_ok());
-    /// assert!(`IOVA`::new_page_aligned(0x1001).is_err());
+    /// use smmu::IOVA;
+    /// assert!(IOVA::new_page_aligned(0x1000).is_ok());
+    /// assert!(IOVA::new_page_aligned(0x1001).is_err());
     /// ```
     #[inline]
     pub const fn new_page_aligned(addr: u64) -> Result<Self, ValidationError> {
@@ -216,18 +216,18 @@ impl fmt::Display for IOVA {
 // IPA - Intermediate Physical Address
 // ============================================================================
 
-/// Intermediate Physical Address (`IPA`)
+/// Intermediate Physical Address (IPA)
 ///
-/// `IPA` is the output address from Stage 1 translation and the input address
-/// to Stage 2 translation in ARM `SMMU` v3. In two-stage translation, it
+/// IPA is the output address from Stage 1 translation and the input address
+/// to Stage 2 translation in ARM SMMU v3. In two-stage translation, it
 /// represents the guest physical address.
 ///
 /// # Example
 ///
 /// ```
-/// use smmu::`IPA`;
+/// use smmu::IPA;
 ///
-/// let ipa = `IPA`::new_page_aligned(0x2000).unwrap();
+/// let ipa = IPA::new_page_aligned(0x2000).unwrap();
 /// assert!(ipa.is_page_aligned());
 /// ```
 #[repr(transparent)]
@@ -236,7 +236,7 @@ impl fmt::Display for IOVA {
 pub struct IPA(u64);
 
 impl IPA {
-    /// Create a new `IPA` from a u64 address
+    /// Create a new IPA from a u64 address
     ///
     /// # Errors
     ///
@@ -246,14 +246,14 @@ impl IPA {
         Ok(Self(addr))
     }
 
-    /// Create a new `IPA` with const fn for compile-time construction
+    /// Create a new IPA with const fn for compile-time construction
     #[inline]
     #[must_use]
     pub const fn const_new(addr: u64) -> Self {
         Self(addr)
     }
 
-    /// Create a page-aligned `IPA`
+    /// Create a page-aligned IPA
     ///
     /// # Errors
     ///
@@ -364,17 +364,17 @@ impl fmt::Display for IPA {
 // PA - Physical Address
 // ============================================================================
 
-/// Physical Address (`PA`)
+/// Physical Address (PA)
 ///
-/// `PA` is the final output address from `SMMU` translation. It represents the
+/// PA is the final output address from SMMU translation. It represents the
 /// actual physical address in system memory that will be accessed.
 ///
 /// # Example
 ///
 /// ```
-/// use smmu::`PA`;
+/// use smmu::PA;
 ///
-/// let pa = `PA`::new_page_aligned(0x8000).unwrap();
+/// let pa = PA::new_page_aligned(0x8000).unwrap();
 /// assert!(pa.is_page_aligned());
 /// ```
 #[repr(transparent)]
@@ -383,7 +383,7 @@ impl fmt::Display for IPA {
 pub struct PA(u64);
 
 impl PA {
-    /// Create a new `PA` from a u64 address
+    /// Create a new PA from a u64 address
     ///
     /// # Errors
     ///
@@ -393,14 +393,14 @@ impl PA {
         Ok(Self(addr))
     }
 
-    /// Create a new `PA` with const fn for compile-time construction
+    /// Create a new PA with const fn for compile-time construction
     #[inline]
     #[must_use]
     pub const fn const_new(addr: u64) -> Self {
         Self(addr)
     }
 
-    /// Create a page-aligned `PA`
+    /// Create a page-aligned PA
     ///
     /// # Errors
     ///

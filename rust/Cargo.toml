@@ -56,6 +56,7 @@ unsafe_code = "warn"
 missing_docs = "warn"
 missing_debug_implementations = "warn"
 rust_2018_idioms = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
 [workspace.lints.clippy]
 # Specific clippy lint levels

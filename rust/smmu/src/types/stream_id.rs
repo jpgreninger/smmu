@@ -1,30 +1,30 @@
-//! `StreamID` newtype wrapper
+//! StreamID newtype wrapper
 //!
-//! Provides type-safe `StreamID` handling with validation per ARM `SMMU` v3 specification.
+//! Provides type-safe StreamID handling with validation per ARM SMMU v3 specification.
 //!
-//! # ARM `SMMU` v3 Compliance
+//! # ARM SMMU v3 Compliance
 //!
-//! `StreamID` is a hardware-dependent identifier, typically in the range 0-65_535 (16-bit).
+//! StreamID is a hardware-dependent identifier, typically in the range 0-65_535 (16-bit).
 //! The implementation supports configurable maximum values.
 //!
 //! # Examples
 //!
 //! ```ignore
-//! use smmu::types::`StreamID`;
+//! use smmu::types::StreamID;
 //!
-//! // Create a valid `StreamID`
-//! let stream_id = `StreamID`::new(42).expect("Valid `StreamID`");
+//! // Create a valid StreamID
+//! let stream_id = StreamID::new(42).expect("Valid StreamID");
 //! assert_eq!(stream_id.as_u32(), 42);
 //!
-//! // Invalid `StreamID` construction fails
-//! let result = `StreamID`::new(u32::MAX);
+//! // Invalid StreamID construction fails
+//! let result = StreamID::new(u32::MAX);
 //! assert!(result.is_err());
 //! ```
 
 use super::ValidationError;
 use std::fmt;
 
-/// Maximum `StreamID` value (typical hardware limit - 16-bit)
+/// Maximum StreamID value (typical hardware limit - 16-bit)
 const STREAM_ID_MAX: u32 = 65_535;
 
 /// Helper function to format u32 with underscores for readability
@@ -43,7 +43,7 @@ fn format_with_underscores(value: u32) -> String {
     result
 }
 
-/// Type-safe `StreamID` wrapper
+/// Type-safe StreamID wrapper
 ///
 /// Wraps a 32-bit unsigned integer with validation to ensure it falls within
 /// the hardware-supported range (typically 0-65_535).
@@ -52,24 +52,24 @@ fn format_with_underscores(value: u32) -> String {
 pub struct StreamID(u32);
 
 impl StreamID {
-    /// Creates a new `StreamID` with validation
+    /// Creates a new StreamID with validation
     ///
     /// # Arguments
     ///
-    /// * `value` - The `StreamID` value to validate and wrap
+    /// * `value` - The StreamID value to validate and wrap
     ///
     /// # Returns
     ///
-    /// `Ok(`StreamID`)` if the value is valid, `Err(`ValidationError`)` otherwise
+    /// `Ok(StreamID)` if the value is valid, `Err(ValidationError)` otherwise
     ///
     /// # Errors
     ///
-    /// Returns `ValidationError` if value exceeds the configured maximum
+    /// Returns ValidationError if value exceeds the configured maximum
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// let stream_id = `StreamID`::new(42)?;
+    /// let stream_id = StreamID::new(42)?;
     /// ```
     pub fn new(value: u32) -> Result<Self, ValidationError> {
         if value > STREAM_ID_MAX {
@@ -82,12 +82,12 @@ impl StreamID {
         Ok(Self(value))
     }
 
-    /// Converts the `StreamID` to its underlying `u32` value
+    /// Converts the StreamID to its underlying `u32` value
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// let stream_id = `StreamID`::new(42)?;
+    /// let stream_id = StreamID::new(42)?;
     /// assert_eq!(stream_id.as_u32(), 42);
     /// ```
     #[must_use]

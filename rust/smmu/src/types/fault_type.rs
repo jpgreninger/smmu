@@ -1,6 +1,6 @@
-//! Fault type definitions for ARM `SMMU` v3
+//! Fault type definitions for ARM SMMU v3
 //!
-//! This module defines all 15 ARM `SMMU` v3 fault types with detailed classification and severity.
+//! This module defines all 15 ARM SMMU v3 fault types with detailed classification and severity.
 
 use crate::types::{StreamID, ValidationError, IOVA, PASID};
 use core::fmt;
@@ -39,13 +39,13 @@ pub enum AddressType {
     PA,
 }
 
-/// ARM `SMMU` v3 Fault Type
+/// ARM SMMU v3 Fault Type
 ///
-/// Represents all 15 fault types defined in the ARM `SMMU` v3 specification.
+/// Represents all 15 fault types defined in the ARM SMMU v3 specification.
 ///
 /// # Fault Codes
 ///
-/// Each fault type has a unique code (0x01-0x0F) as defined in the ARM `SMMU` v3 spec.
+/// Each fault type has a unique code (0x01-0x0F) as defined in the ARM SMMU v3 spec.
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -77,7 +77,7 @@ pub enum FaultType {
     /// Output address range fault
     OutputAddressRangeFault = 0x09,
 
-    /// Bad `StreamID`
+    /// Bad StreamID
     BadStreamID = 0x0A,
 
     /// Context Descriptor fetch fault
@@ -97,7 +97,7 @@ pub enum FaultType {
 }
 
 impl FaultType {
-    /// Get the ARM `SMMU` v3 fault code
+    /// Get the ARM SMMU v3 fault code
     #[inline]
     #[must_use]
     pub const fn code(self) -> u8 {
@@ -295,7 +295,7 @@ impl FaultContext {
         self.stream_id
     }
 
-    /// Get the `PASID`
+    /// Get the PASID
     #[must_use]
     pub const fn pasid(&self) -> PASID {
         self.pasid

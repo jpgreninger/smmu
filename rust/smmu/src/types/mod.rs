@@ -1,20 +1,20 @@
-//! Core types and protocol definitions for ARM `SMMU` v3
+//! Core types and protocol definitions for ARM SMMU v3
 //!
-//! This module provides the fundamental types used throughout the `SMMU` implementation,
+//! This module provides the fundamental types used throughout the SMMU implementation,
 //! including stream identifiers, address types, access permissions, and configuration structures.
 //!
 //! # Type Safety
 //!
 //! Strong typing is used extensively to prevent common errors:
 //!
-//! - [`StreamID`] - Type-safe stream identifier
-//! - [`PASID`] - Type-safe Process Address Space ID
-//! - [`AccessType`] - Memory access type (Read/Write/Execute)
-//! - [`TranslationResult`] - Result of address translation operations
+//! - [StreamID] - Type-safe stream identifier
+//! - [PASID] - Type-safe Process Address Space ID
+//! - [AccessType] - Memory access type (Read/Write/Execute)
+//! - [TranslationResult] - Result of address translation operations
 //!
-//! # ARM `SMMU` v3 Compliance
+//! # ARM SMMU v3 Compliance
 //!
-//! All types follow the ARM `SMMU` v3 specification definitions and constraints.
+//! All types follow the ARM SMMU v3 specification definitions and constraints.
 
 #![warn(missing_docs)]
 

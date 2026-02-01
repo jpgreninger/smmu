@@ -1,4 +1,4 @@
-//! Fault recovery mechanisms for ARM `SMMU` v3
+//! Fault recovery mechanisms for ARM SMMU v3
 //!
 //! This module implements recovery strategies for different fault types, including
 //! retry logic for transient faults, remapping strategies, and state restoration.
@@ -13,16 +13,16 @@
 //!
 //! ```
 //! use smmu::fault::recovery::{FaultRecovery, RecoveryStrategy, RecoveryResult};
-//! use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+//! use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
 //!
 //! let recovery = FaultRecovery::new();
 //!
-//! let fault = FaultRecordBuilder::new()
-//!     .stream_id(`StreamID`::new(0x100).unwrap())
-//!     .pasid(`PASID`::new(1).unwrap())
-//!     .address(`IOVA`::new(0x1000_0000).unwrap())
-//!     .fault_type(`FaultType`::TranslationFault)
-//!     .access_type(`AccessType`::Read)
+//! let fault = FaultRecord::builder()
+//!     .stream_id(StreamID::new(0x100).unwrap())
+//!     .pasid(PASID::new(1).unwrap())
+//!     .address(IOVA::new(0x1000_0000).unwrap())
+//!     .fault_type(FaultType::TranslationFault)
+//!     .access_type(AccessType::Read)
 //!     .build();
 //!
 //! let strategy = recovery.get_recommended_strategy(&fault);
@@ -142,15 +142,15 @@ impl FaultRecovery {
     ///
     /// ```
     /// use smmu::fault::recovery::{FaultRecovery, RecoveryStrategy};
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let recovery = FaultRecovery::new();
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// let strategy = recovery.get_recommended_strategy(&fault);
@@ -186,15 +186,15 @@ impl FaultRecovery {
     ///
     /// ```
     /// use smmu::fault::recovery::{FaultRecovery, RecoveryStrategy};
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let recovery = FaultRecovery::new();
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// let result = recovery.attempt_recovery(&fault, RecoveryStrategy::Retry { max_attempts: 3 });
@@ -238,15 +238,15 @@ impl FaultRecovery {
     ///
     /// ```
     /// use smmu::fault::recovery::FaultRecovery;
-    /// use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let recovery = FaultRecovery::new();
-    /// let fault = FaultRecordBuilder::new()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// let state = recovery.save_state(&fault);
@@ -269,15 +269,15 @@ impl FaultRecovery {
     ///
     /// ```
     /// use smmu::fault::recovery::FaultRecovery;
-    /// use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let recovery = FaultRecovery::new();
-    /// let fault = FaultRecordBuilder::new()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// let state = recovery.save_state(&fault);
@@ -301,15 +301,15 @@ impl FaultRecovery {
     ///
     /// ```
     /// use smmu::fault::recovery::FaultRecovery;
-    /// use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let recovery = FaultRecovery::new();
-    /// let fault = FaultRecordBuilder::new()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// recovery.clear_state(&fault);

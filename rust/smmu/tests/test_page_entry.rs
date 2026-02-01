@@ -757,7 +757,7 @@ fn test_page_entry_builder_default_values() {
 #[test]
 #[should_panic(expected = "Physical address must be set")]
 fn test_page_entry_builder_panics_without_physical_address() {
-    PageEntry::builder().permissions(PagePermissions::all()).build();
+    let _ = PageEntry::builder().permissions(PagePermissions::all()).build();
 }
 
 // ============================================================================

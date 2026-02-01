@@ -1,10 +1,10 @@
-//! Queue statistics for ARM `SMMU` v3
+//! Queue statistics for ARM SMMU v3
 //!
 //! Runtime statistics for queue monitoring.
 
 /// Queue statistics structure
 ///
-/// Provides runtime statistics for all `SMMU` queues.
+/// Provides runtime statistics for all SMMU queues.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default)]
 pub struct QueueStatistics {

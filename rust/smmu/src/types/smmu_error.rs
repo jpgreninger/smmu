@@ -1,20 +1,20 @@
-//! `SMMU` error types
+//! SMMU error types
 //!
-//! Comprehensive error type for `SMMU` controller operations, including stream management,
+//! Comprehensive error type for SMMU controller operations, including stream management,
 //! configuration validation, and translation errors.
 
 use crate::address_space::AddressSpaceError;
 use crate::types::{StreamContextError, StreamID, TranslationError};
 use thiserror::Error;
 
-/// `SMMU` controller error type
+/// SMMU controller error type
 ///
-/// Represents all possible errors that can occur during `SMMU` controller operations,
+/// Represents all possible errors that can occur during SMMU controller operations,
 /// including stream management, configuration, and translation.
 ///
-/// # ARM `SMMU` v3 Compliance
+/// # ARM SMMU v3 Compliance
 ///
-/// Error types align with ARM `SMMU` v3 specification fault conditions and
+/// Error types align with ARM SMMU v3 specification fault conditions and
 /// resource management requirements.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SMMUError {
@@ -39,7 +39,7 @@ pub enum SMMUError {
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),
 
-    /// `SMMU` shutdown in progress
+    /// SMMU shutdown in progress
     #[error("SMMU shutdown in progress")]
     ShutdownInProgress,
 

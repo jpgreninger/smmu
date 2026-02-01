@@ -1,16 +1,16 @@
-//! Translation stage definitions for ARM `SMMU` v3
+//! Translation stage definitions for ARM SMMU v3
 
 use crate::types::fault_type::{AddressType, TranslationStep};
 use crate::types::ValidationError;
 use core::fmt;
 
-/// ARM `SMMU` v3 Translation Stage Configuration
+/// ARM SMMU v3 Translation Stage Configuration
 ///
 /// Defines which translation stages are active:
 /// - Bypass: No translation
-/// - Stage1: `IOVA` → `PA` (process/application address space)
-/// - Stage2: `IPA` → `PA` (guest/VM address space)
-/// - Stage1And2: `IOVA` → `IPA` → `PA` (nested virtualization)
+/// - Stage1: IOVA → PA (process/application address space)
+/// - Stage2: IPA → PA (guest/VM address space)
+/// - Stage1And2: IOVA → IPA → PA (nested virtualization)
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -18,13 +18,13 @@ pub enum TranslationStage {
     /// No translation - direct passthrough
     Bypass = 0b00,
 
-    /// Stage 1 only (`IOVA` → `PA`)
+    /// Stage 1 only (IOVA → PA)
     Stage1 = 0b01,
 
-    /// Stage 2 only (`IPA` → `PA`)
+    /// Stage 2 only (IPA → PA)
     Stage2 = 0b10,
 
-    /// Two-stage translation (`IOVA` → `IPA` → `PA`)
+    /// Two-stage translation (IOVA → IPA → PA)
     Stage1And2 = 0b11,
 }
 
@@ -150,7 +150,7 @@ impl TranslationStage {
         }
     }
 
-    /// Check if `PASID` is supported at translation level
+    /// Check if PASID is supported at translation level
     #[inline]
     #[must_use]
     pub const fn supports_pasid(self) -> bool {
@@ -205,14 +205,14 @@ impl TranslationStage {
         matches!(self, Self::Stage2 | Self::Stage1And2)
     }
 
-    /// Convert to ARM `SMMU` v3 bit encoding
+    /// Convert to ARM SMMU v3 bit encoding
     #[inline]
     #[must_use]
     pub const fn to_bits(self) -> u8 {
         self as u8
     }
 
-    /// Create from ARM `SMMU` v3 bit encoding
+    /// Create from ARM SMMU v3 bit encoding
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
         match bits {
             0b00 => Ok(Self::Bypass),

@@ -1558,8 +1558,6 @@ fn test_query_range_statistics_partial() {
 
 #[test]
 fn test_translate_invalid_entry() {
-    
-
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
@@ -1569,17 +1567,12 @@ fn test_translate_invalid_entry() {
         .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
         .unwrap();
 
-    // Access the internal page table and insert an invalid entry
-    // This simulates a corrupted or invalidated page table entry
-    unsafe {
-        // Create an invalid entry by using an invalid PA (this is a hack for testing)
-        // In real usage, entries are always valid when inserted via map_page
-        // We need to directly manipulate the page table to create an invalid entry
-
-        // Note: This test may not be achievable without exposing internals or creating
-        // a PageEntry::invalid() constructor. The is_valid() check is primarily
-        // defensive programming for future extensions.
-    }
+    // Note: This test placeholder exists for future implementation.
+    // Currently, there is no safe way to create an invalid page table entry
+    // without exposing internal implementation details. The is_valid() check
+    // is defensive programming for future extensions.
+    // If PageEntry::invalid() or similar internal APIs are exposed, this test
+    // should verify that translation properly handles invalid entries.
 }
 
 // ============================================================================

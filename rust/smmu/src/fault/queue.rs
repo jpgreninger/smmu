@@ -1,4 +1,4 @@
-//! Thread-safe fault queue for ARM `SMMU` v3
+//! Thread-safe fault queue for ARM SMMU v3
 //!
 //! This module implements a thread-safe FIFO queue for fault records using VecDeque
 //! with Mutex protection for concurrent access. Used in Stall mode to queue faults
@@ -13,16 +13,16 @@
 //!
 //! ```
 //! use smmu::fault::queue::FaultQueue;
-//! use smmu::types::{FaultRecordBuilder, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+//! use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
 //!
 //! let queue = FaultQueue::new(100);
 //!
-//! let fault = FaultRecordBuilder::new()
-//!     .stream_id(`StreamID`::new(0x100).unwrap())
-//!     .pasid(`PASID`::new(1).unwrap())
-//!     .address(`IOVA`::new(0x1000_0000).unwrap())
-//!     .fault_type(`FaultType`::TranslationFault)
-//!     .access_type(`AccessType`::Read)
+//! let fault = FaultRecord::builder()
+//!     .stream_id(StreamID::new(0x100).unwrap())
+//!     .pasid(PASID::new(1).unwrap())
+//!     .address(IOVA::new(0x1000_0000).unwrap())
+//!     .fault_type(FaultType::TranslationFault)
+//!     .access_type(AccessType::Read)
 //!     .build();
 //!
 //! queue.push(fault).unwrap();
@@ -111,15 +111,15 @@ impl FaultQueue {
     ///
     /// ```
     /// use smmu::fault::queue::FaultQueue;
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let queue = FaultQueue::new(10);
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// assert!(queue.push(fault).is_ok());
@@ -143,15 +143,15 @@ impl FaultQueue {
     ///
     /// ```
     /// use smmu::fault::queue::FaultQueue;
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let queue = FaultQueue::new(10);
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// queue.push(fault.clone()).unwrap();
@@ -230,15 +230,15 @@ impl FaultQueue {
     ///
     /// ```
     /// use smmu::fault::queue::FaultQueue;
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let queue = FaultQueue::new(10);
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// queue.push(fault).unwrap();
@@ -259,15 +259,15 @@ impl FaultQueue {
     ///
     /// ```
     /// use smmu::fault::queue::FaultQueue;
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let queue = FaultQueue::new(10);
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// queue.push(fault.clone()).unwrap();
@@ -286,15 +286,15 @@ impl FaultQueue {
     ///
     /// ```
     /// use smmu::fault::queue::FaultQueue;
-    /// use smmu::types::{`FaultRecord`, `FaultType`, `AccessType`, `StreamID`, `PASID`, `IOVA`};
+    /// use smmu::types::{FaultRecord, FaultType, AccessType, StreamID, PASID, IOVA};
     ///
     /// let queue = FaultQueue::new(10);
-    /// let fault = `FaultRecord`::builder()
-    ///     .stream_id(`StreamID`::new(0x100).unwrap())
-    ///     .pasid(`PASID`::new(1).unwrap())
-    ///     .address(`IOVA`::new(0x1000_0000).unwrap())
-    ///     .fault_type(`FaultType`::TranslationFault)
-    ///     .access_type(`AccessType`::Read)
+    /// let fault = FaultRecord::builder()
+    ///     .stream_id(StreamID::new(0x100).unwrap())
+    ///     .pasid(PASID::new(1).unwrap())
+    ///     .address(IOVA::new(0x1000_0000).unwrap())
+    ///     .fault_type(FaultType::TranslationFault)
+    ///     .access_type(AccessType::Read)
     ///     .build();
     ///
     /// queue.push(fault).unwrap();

@@ -38,10 +38,12 @@ use std::time::Duration;
 // =============================================================================
 
 const VALID_STREAM_ID: u32 = 0x1000;
+#[allow(dead_code)]
 const MAX_STREAM_ID: u32 = 0xFFFF_FFFF;
 const INVALID_STREAM_ID: u32 = 0x10_0000; // For testing (still valid technically)
 
 const VALID_PASID: u32 = 0x1;
+#[allow(dead_code)]
 const MAX_PASID: u32 = 0xF_FFFF; // 20-bit max
 const INVALID_PASID: u32 = 0x10_0000; // Beyond 20-bit
 
@@ -436,10 +438,9 @@ fn test_pri_queue_overflow() {
     }
 
     // Check PRI queue size
-    let pri_count = smmu.get_pri_queue_size();
+    let _pri_count = smmu.get_pri_queue_size();
     // PRI queue may or may not be populated depending on fault mode
-    // Just verify the API works
-    assert!(pri_count >= 0);
+    // Just verify the API works without errors
 }
 
 #[test]

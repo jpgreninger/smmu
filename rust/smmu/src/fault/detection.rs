@@ -1,14 +1,14 @@
-//! Fault Detection and Classification for ARM `SMMU` v3
+//! Fault Detection and Classification for ARM SMMU v3
 //!
-//! This module implements comprehensive fault detection per ARM `SMMU` v3 Section 6.1:
+//! This module implements comprehensive fault detection per ARM SMMU v3 Section 6.1:
 //! - Translation fault detection with full context capture
 //! - Permission fault checking with bitwise operations
 //! - Address range validation (32/48/52-bit support)
-//! - All 15 ARM `SMMU` v3 fault types with proper classification
+//! - All 15 ARM SMMU v3 fault types with proper classification
 //!
-//! # ARM `SMMU` v3 Compliance
+//! # ARM SMMU v3 Compliance
 //!
-//! All fault detection follows the ARM `SMMU` v3 specification for:
+//! All fault detection follows the ARM SMMU v3 specification for:
 //! - Fault syndrome generation
 //! - Stage attribution (Stage 1 vs Stage 2)
 //! - Fault priority ordering
@@ -79,7 +79,7 @@ impl TranslationFaultDetector {
     ///
     /// # Returns
     ///
-    /// `FaultRecord` containing complete fault information including syndrome
+    /// FaultRecord containing complete fault information including syndrome
     #[must_use]
     pub fn detect_translation_fault(
         &mut self,
@@ -222,7 +222,7 @@ impl PermissionFaultDetector {
     ///
     /// # Returns
     ///
-    /// `FaultRecord` containing complete permission fault information
+    /// FaultRecord containing complete permission fault information
     #[must_use]
     pub fn detect_permission_fault(
         &mut self,
@@ -270,7 +270,7 @@ impl PermissionFaultDetector {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if access is permitted, `Err(`FaultRecord`)` otherwise
+    /// `Ok(())` if access is permitted, `Err(FaultRecord)` otherwise
     pub fn validate_permissions(
         &mut self,
         stream_id: StreamID,
@@ -318,8 +318,8 @@ impl AddressValidator {
     ///
     /// # Arguments
     ///
-    /// * `input_size` - Input address size configuration (`IOVA`/`IPA`)
-    /// * `output_size` - Output address size configuration (`PA`)
+    /// * `input_size` - Input address size configuration (IOVA/IPA)
+    /// * `output_size` - Output address size configuration (PA)
     #[must_use]
     pub const fn new(input_size: AddressSize, output_size: AddressSize) -> Self {
         Self {
@@ -341,7 +341,7 @@ impl AddressValidator {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if address is valid, `Err(`FaultRecord`)` otherwise
+    /// `Ok(())` if address is valid, `Err(FaultRecord)` otherwise
     pub fn validate_input_address(
         &mut self,
         stream_id: StreamID,
@@ -388,7 +388,7 @@ impl AddressValidator {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if address is valid, `Err(`FaultRecord`)` otherwise
+    /// `Ok(())` if address is valid, `Err(FaultRecord)` otherwise
     pub fn validate_output_address(
         &mut self,
         stream_id: StreamID,
@@ -436,7 +436,7 @@ impl AddressValidator {
     ///
     /// # Returns
     ///
-    /// `Ok(())` if address is properly aligned, `Err(`FaultRecord`)` otherwise
+    /// `Ok(())` if address is properly aligned, `Err(FaultRecord)` otherwise
     pub fn validate_alignment(
         &mut self,
         stream_id: StreamID,
