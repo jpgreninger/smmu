@@ -1695,6 +1695,261 @@ impl SMMU {
             invalidation_count: self.invalidation_count.load(Ordering::Relaxed),
         }
     }
+
+    // ============================================================================
+    // Iterator-Based APIs
+    // ============================================================================
+
+    /// Returns an iterator over all configured stream IDs.
+    ///
+    /// This provides an efficient way to enumerate all streams currently
+    /// configured in the SMMU without collecting into a vector.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream1 = StreamID::new(1)?;
+    /// let stream2 = StreamID::new(2)?;
+    ///
+    /// smmu.configure_stream(stream1, StreamConfig::bypass())?;
+    /// smmu.configure_stream(stream2, StreamConfig::bypass())?;
+    ///
+    /// // Iterate over all configured streams
+    /// for stream_id in smmu.streams() {
+    ///     println!("Stream: {}", stream_id.as_u32());
+    /// }
+    ///
+    /// // Count streams
+    /// let count = smmu.streams().count();
+    /// assert_eq!(count, 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// This iterator uses DashMap's iter() which provides lock-free iteration
+    /// with minimal overhead. The iterator is a snapshot of the streams at
+    /// the time of creation.
+    #[must_use]
+    pub fn streams(&self) -> impl Iterator<Item = StreamID> + '_ {
+        self.streams.iter().map(|entry| *entry.key())
+    }
+
+    /// Returns an iterator over all active PASIDs for a given stream.
+    ///
+    /// This provides an efficient way to enumerate all PASIDs configured
+    /// for a specific stream without collecting into a vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream ID to query
+    ///
+    /// # Returns
+    ///
+    /// Returns an iterator over PASIDs, or None if the stream doesn't exist.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1)?;
+    ///
+    /// let config = StreamConfig::builder()
+    ///     .stage1_enabled(true)
+    ///     .pasid_enabled(true)
+    ///     .build()?;
+    /// smmu.configure_stream(stream_id, config)?;
+    ///
+    /// // Create multiple PASIDs
+    /// smmu.create_pasid(stream_id, PASID::new(0)?)?;
+    /// smmu.create_pasid(stream_id, PASID::new(1)?)?;
+    /// smmu.create_pasid(stream_id, PASID::new(2)?)?;
+    ///
+    /// // Iterate over all PASIDs for this stream
+    /// if let Some(pasids) = smmu.pasids(stream_id) {
+    ///     for pasid in pasids {
+    ///         println!("PASID: {}", pasid.as_u32());
+    ///     }
+    /// }
+    ///
+    /// // Count PASIDs
+    /// let count = smmu.pasids(stream_id).map(|i| i.count()).unwrap_or(0);
+    /// assert_eq!(count, 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn pasids(&self, stream_id: StreamID) -> Option<impl Iterator<Item = PASID> + '_> {
+        self.streams.get(&stream_id).map(|entry| {
+            let context = entry.value().clone();
+            let context_guard = context.read().unwrap();
+            // Get all PASIDs - this creates a snapshot
+            let pasids: Vec<PASID> = context_guard.pasids().collect();
+            pasids.into_iter()
+        })
+    }
+
+    /// Returns an iterator over all fault records.
+    ///
+    /// This provides an efficient way to process fault records without
+    /// consuming the internal fault queue. For consuming iteration, use
+    /// `drain_faults()` instead.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// // ... configure and trigger some faults ...
+    ///
+    /// // Iterate over all faults
+    /// for fault in smmu.faults() {
+    ///     println!("Fault: {:?} at address 0x{:x}",
+    ///              fault.fault_type(), fault.address().as_u64());
+    /// }
+    ///
+    /// // Filter faults by type
+    /// let translation_faults = smmu.faults()
+    ///     .filter(|f| f.fault_type() == FaultType::Translation)
+    ///     .count();
+    /// ```
+    #[must_use]
+    pub fn faults(&self) -> impl Iterator<Item = FaultRecord> + '_ {
+        // Get a snapshot of the fault queue
+        let faults = self.fault_queue.lock().unwrap();
+        let faults_snapshot: Vec<FaultRecord> = faults.clone();
+        faults_snapshot.into_iter()
+    }
+
+    /// Returns a draining iterator over all fault records.
+    ///
+    /// This iterator removes faults from the internal queue as they are
+    /// iterated over. For non-consuming iteration, use `faults()` instead.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// // ... configure and trigger some faults ...
+    ///
+    /// // Process and remove all faults
+    /// for fault in smmu.drain_faults() {
+    ///     eprintln!("Processing fault: {:?}", fault.fault_type());
+    ///     // Handle fault...
+    /// }
+    ///
+    /// // Fault queue is now empty
+    /// assert_eq!(smmu.faults().count(), 0);
+    /// ```
+    #[must_use]
+    pub fn drain_faults(&self) -> impl Iterator<Item = FaultRecord> + '_ {
+        let mut faults = self.fault_queue.lock().unwrap();
+        let drained: Vec<FaultRecord> = faults.drain(..).collect();
+        drained.into_iter()
+    }
+
+    /// Returns an iterator over event queue entries.
+    ///
+    /// This provides an efficient way to process events without consuming
+    /// the event queue.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// // ... generate some events ...
+    ///
+    /// // Iterate over all events
+    /// for event in smmu.events() {
+    ///     println!("Event: {:?}", event.event_type());
+    /// }
+    ///
+    /// // Filter by event type
+    /// let fault_events = smmu.events()
+    ///     .filter(|e| matches!(e.event_type(), EventType::Fault))
+    ///     .count();
+    /// ```
+    #[must_use]
+    pub fn events(&self) -> impl Iterator<Item = EventEntry> + '_ {
+        let events = self.event_queue.lock().unwrap();
+        let events_snapshot: Vec<EventEntry> = events.clone();
+        events_snapshot.into_iter()
+    }
+
+    /// Returns an iterator over events filtered by stream ID.
+    ///
+    /// This is more efficient than filtering manually as it avoids cloning
+    /// unneeded events.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream ID to filter by
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1)?;
+    ///
+    /// // Get events for specific stream
+    /// for event in smmu.events_for_stream(stream_id) {
+    ///     println!("Stream {} event: {:?}", stream_id.as_u32(), event.event_type());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn events_for_stream(&self, stream_id: StreamID) -> impl Iterator<Item = EventEntry> + '_ {
+        let events = self.event_queue.lock().unwrap();
+        let filtered: Vec<EventEntry> = events
+            .iter()
+            .filter(|e| e.stream_id() == stream_id.as_u32())
+            .cloned()
+            .collect();
+        filtered.into_iter()
+    }
+
+    /// Returns an iterator over page request interface (PRI) queue entries.
+    ///
+    /// This provides an efficient way to process page requests without
+    /// consuming the PRI queue.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::prelude::*;
+    ///
+    /// let smmu = SMMU::new();
+    /// // ... generate some page requests ...
+    ///
+    /// // Iterate over all page requests
+    /// for request in smmu.page_requests() {
+    ///     println!("Page request: address 0x{:x}", request.address());
+    /// }
+    ///
+    /// // Process requests for specific stream
+    /// let stream_id = StreamID::new(1)?;
+    /// for request in smmu.page_requests().filter(|r| r.stream_id() == stream_id.as_u32()) {
+    ///     // Handle page request...
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn page_requests(&self) -> impl Iterator<Item = PRIEntry> + '_ {
+        let requests = self.pri_queue.lock().unwrap();
+        let requests_snapshot: Vec<PRIEntry> = requests.clone();
+        requests_snapshot.into_iter()
+    }
 }
 
 /// Cache statistics structure for testing

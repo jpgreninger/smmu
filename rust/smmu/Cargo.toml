@@ -57,6 +57,11 @@ serde = ["dep:serde"]
 # two-stage = []
 # cache = []
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
 [[bench]]
 name = "translation"
 harness = false

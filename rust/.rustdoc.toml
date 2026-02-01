@@ -1,0 +1,45 @@
+# Rustdoc configuration for ARM SMMU v3 workspace
+
+[package]
+# Generate documentation for all workspace members
+workspace = true
+
+# Default target for documentation
+default-target = "x86_64-unknown-linux-gnu"
+
+# Feature flags to enable during documentation generation
+features = ["serde"]
+
+# Generate source code links
+generate-link-to-definition = true
+
+# Better search indexing
+generate-search-index = true
+
+# Include private items in documentation
+document-private-items = false
+
+# Warnings
+# Treat missing docs as warnings
+warn-missing-docs = true
+
+# Custom HTML
+html-in-header = "smmu/rustdoc-header.html"
+html-after-content = ""
+html-before-content = ""
+
+# Theme
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+
+# Playground
+playground-url = ""
+
+# Resource suffix for cache busting
+resource-suffix = ""
+
+# Enable index page
+enable-index-page = true
+
+# Scrape examples from tests
+scrape-examples = true

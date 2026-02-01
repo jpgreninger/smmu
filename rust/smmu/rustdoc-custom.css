@@ -1,0 +1,87 @@
+/* Custom CSS for ARM SMMU v3 Rust Documentation */
+
+/* Better code block styling */
+pre.rust {
+    background-color: #f6f8fa;
+    border-left: 4px solid #0969da;
+    padding: 16px;
+    border-radius: 6px;
+    margin: 16px 0;
+}
+
+/* Highlight important notes */
+.docblock .warning,
+.docblock .note,
+.docblock .important {
+    padding: 12px 16px;
+    border-left: 4px solid;
+    margin: 16px 0;
+    border-radius: 4px;
+}
+
+.docblock .warning {
+    background-color: #fff8e1;
+    border-color: #ff9800;
+}
+
+.docblock .note {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+}
+
+.docblock .important {
+    background-color: #ffebee;
+    border-color: #f44336;
+}
+
+/* Better table styling */
+.docblock table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+}
+
+.docblock table th {
+    background-color: #f6f8fa;
+    padding: 12px;
+    text-align: left;
+    border-bottom: 2px solid #d0d7de;
+    font-weight: 600;
+}
+
+.docblock table td {
+    padding: 12px;
+    border-bottom: 1px solid #d0d7de;
+}
+
+/* ARM SMMU v3 branding */
+h1.fqn {
+    border-bottom: 3px solid #0969da;
+    padding-bottom: 8px;
+}
+
+/* Better visibility for examples */
+.example-wrap {
+    margin: 16px 0;
+}
+
+.example-wrap .tooltip {
+    background-color: #0969da;
+}
+
+/* Improved module documentation */
+.module-item .stab {
+    background-color: #0969da;
+    color: white;
+    font-weight: 500;
+}
+
+/* Better sidebar */
+.sidebar {
+    background-color: #f6f8fa;
+}
+
+.sidebar-elems .location {
+    background-color: #0969da;
+    color: white;
+}

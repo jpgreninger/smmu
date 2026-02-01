@@ -124,9 +124,55 @@ The project follows strict coding standards:
 
 ## Implementation Status
 
-**Current Phase**: Task 1.1 - Project Structure (Complete)
+**Current Phase**: Task 9.1 - Public API Design (Complete)
 
-See `../TASKS-RUST.md` for detailed implementation roadmap.
+See `TASKS-RUST.md` for detailed implementation roadmap.
+
+## Semantic Versioning and Stability
+
+This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly from version 1.0.0 onwards.
+
+### Version Format
+
+- **MAJOR.MINOR.PATCH** (e.g., 1.2.3)
+- **MAJOR** (x.0.0): Breaking API changes
+- **MINOR** (1.x.0): New features, backward compatible
+- **PATCH** (1.0.x): Bug fixes, backward compatible
+
+### Stability Guarantees
+
+✅ **Stable APIs** (full semver compliance):
+- `smmu::SMMU` - Main controller interface
+- `smmu::types::*` - All core types
+- `smmu::prelude::*` - Convenience re-exports
+- All builder patterns (`*Builder`)
+- All error types
+
+⚠️ **Internal APIs** (may change in minor versions):
+- `smmu::address_space::*`
+- `smmu::stream_context::*`
+- `smmu::fault::*`
+- `smmu::cache::*`
+
+### Documentation
+
+- **[CHANGELOG.md](CHANGELOG.md)** - Detailed version history and release notes
+- **[SEMVER.md](SEMVER.md)** - Complete semantic versioning policy
+- **[MIGRATION.md](MIGRATION.md)** - Migration guides between versions (TBD)
+
+### Deprecation Policy
+
+- APIs marked deprecated with `#[deprecated]` attribute
+- Minimum 2 minor versions before removal
+- Clear migration path provided in deprecation message
+- See [SEMVER.md](SEMVER.md) for full policy
+
+### Minimum Supported Rust Version (MSRV)
+
+- **Current MSRV**: Rust 1.75.0
+- MSRV increases are minor version changes (not major)
+- Tested in CI against MSRV, stable, and nightly
+- See [CHANGELOG.md](CHANGELOG.md) for MSRV history
 
 ## License
 

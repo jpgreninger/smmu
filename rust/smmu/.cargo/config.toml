@@ -1,0 +1,24 @@
+# Cargo configuration for ARM SMMU v3 Rust implementation
+
+[doc]
+# Custom rustdoc flags
+rustdocflags = [
+    # Enable custom CSS
+    "--html-in-header", "rustdoc-header.html",
+    # Generate source links
+    "--document-private-items",
+    # Better search
+    "--enable-index-page",
+    "-Zunstable-options",
+    # Custom theme
+    "--theme", "ayu",
+]
+
+[build]
+# Use all CPU cores for parallel builds
+jobs = -1
+
+[term]
+# Colored output
+color = "auto"
+verbose = false
