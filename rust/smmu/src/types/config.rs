@@ -18,6 +18,17 @@ use std::time::Duration;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
+/// Helper function to parse numeric values from strings, handling underscores
+///
+/// Rust's `.parse()` doesn't handle underscores in string input (only in source literals),
+/// so we need to strip them before parsing.
+#[cfg(feature = "std")]
+fn parse_numeric<T: std::str::FromStr>(value: &str, field_name: &str) -> Result<T, ValidationError> {
+    value.replace('_', "").parse().map_err(|_| ValidationError::InvalidConfiguration {
+        reason: format!("invalid {field_name}"),
+    })
+}
+
 /// Fault handling mode for stream configuration
 ///
 /// Defines how the `SMMU` handles translation faults for a stream.
@@ -1574,13 +1585,6 @@ impl SMMUConfig {
     pub fn from_string(s: &str) -> Result<Self, ValidationError> {
         let mut config = Self::default();
         let mut map = HashMap::new();
-
-        // Helper function to parse numeric values, handling underscores
-        fn parse_numeric<T: std::str::FromStr>(value: &str, field_name: &str) -> Result<T, ValidationError> {
-            value.replace('_', "").parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: format!("invalid {field_name}"),
-            })
-        }
 
         // Parse key-value pairs
         for line in s.lines() {
