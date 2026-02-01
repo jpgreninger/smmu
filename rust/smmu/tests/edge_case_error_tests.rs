@@ -14,8 +14,8 @@
 //! Rust-specific safety guarantees and testing patterns.
 
 use smmu::types::{
-    AccessType, CommandEntry, CommandType, PagePermissions, SMMUConfig, SecurityState,
-    StreamConfig, StreamID, TranslationError, IOVA, PA, PASID, PAGE_SIZE,
+    AccessType, CommandEntry, CommandType, PagePermissions, SMMUConfig, SecurityState, StreamConfig, StreamID,
+    TranslationError, IOVA, PA, PAGE_SIZE, PASID,
 };
 use smmu::SMMU;
 use std::panic;
@@ -65,8 +65,15 @@ fn setup_basic_mapping(smmu: &SMMU, stream_id: u32, pasid: u32, iova: u64, pa: u
     let pa = PA::new(pa).unwrap();
 
     smmu.create_pasid(stream_id, pasid).unwrap();
-    smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 }
 
 // =============================================================================
@@ -149,8 +156,15 @@ fn test_address_space_exhaustion() {
     let pa2 = PA::new(0x5000_0000).unwrap();
 
     // Map initial page
-    smmu.map_page(stream_id, pasid, base_iova, pa1, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        base_iova,
+        pa1,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Try to map overlapping page - implementation allows remapping
     let result = smmu.map_page(
@@ -176,12 +190,7 @@ fn test_unmapped_address_in_valid_range() {
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     let unmapped_iova = IOVA::new(0x5000_0000).unwrap();
-    let result = smmu.translate(
-        stream_id,
-        pasid,
-        unmapped_iova,
-        AccessType::Read,
-    );
+    let result = smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read);
 
     assert!(result.is_err());
     if let Err(e) = result {
@@ -213,12 +222,7 @@ fn test_address_alignment_edge_cases() {
     assert!(result.is_ok());
 
     // Test translation
-    let trans_result = smmu.translate(
-        stream_id,
-        pasid,
-        aligned_iova,
-        AccessType::Read,
-    );
+    let trans_result = smmu.translate(stream_id, pasid, aligned_iova, AccessType::Read);
     assert!(trans_result.is_ok());
 }
 
@@ -390,11 +394,7 @@ fn test_command_queue_overflow() {
 
     // Fill command queue (try to overflow beyond capacity of 16)
     for i in 0..20 {
-        let cmd = CommandEntry::new(
-            CommandType::TlbiNhAll,
-            stream_id_val,
-            pasid_val,
-        );
+        let cmd = CommandEntry::new(CommandType::TlbiNhAll, stream_id_val, pasid_val);
 
         let result = smmu.submit_command(cmd);
         if i < 16 {
@@ -494,12 +494,7 @@ fn test_concurrent_queue_access_under_full_conditions() {
                 let iova_val = 0x5000_0000 + (u64::from(t) * 0x10_0000) + (i * PAGE_SIZE);
                 let iova = IOVA::new(iova_val).unwrap();
 
-                let result = smmu_clone.translate(
-                    stream_id,
-                    pasid,
-                    iova,
-                    AccessType::Read,
-                );
+                let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
 
                 if result.is_err() {
                     success_clone.fetch_add(1, Ordering::Relaxed);
@@ -568,8 +563,15 @@ fn test_write_violation_on_read_only_page() {
     let pa = PA::new(0x4000_0000).unwrap();
 
     // Map with read-only permissions
-    smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa,
+        PagePermissions::read_only(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Read should succeed
     let read_result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
@@ -593,8 +595,15 @@ fn test_execute_violation_on_non_executable_page() {
     let pa = PA::new(0x4000_0000).unwrap();
 
     // Map with read-write but no execute
-    smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Read and write should succeed
     assert!(smmu.translate(stream_id, pasid, iova, AccessType::Read).is_ok());
@@ -809,12 +818,7 @@ fn test_concurrent_permission_violations() {
                 let iova = IOVA::new(0x1000_0000 + (i * PAGE_SIZE)).unwrap();
 
                 // Try read
-                let read_result = smmu_clone.translate(
-                    stream_id,
-                    pasid,
-                    iova,
-                    AccessType::Read,
-                );
+                let read_result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
                 if read_result.is_err() {
                     read_viol_clone.fetch_add(1, Ordering::Relaxed);
                 } else {
@@ -822,12 +826,7 @@ fn test_concurrent_permission_violations() {
                 }
 
                 // Try write
-                let write_result = smmu_clone.translate(
-                    stream_id,
-                    pasid,
-                    iova,
-                    AccessType::Write,
-                );
+                let write_result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Write);
                 if write_result.is_err() {
                     write_viol_clone.fetch_add(1, Ordering::Relaxed);
                 } else {
@@ -872,16 +871,30 @@ fn test_translation_consistency_after_remapping() {
     let pa2 = PA::new(0x5000_0000).unwrap();
 
     // Map page
-    smmu.map_page(stream_id, pasid, iova, pa1, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa1,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Translate
     let result1 = smmu.translate(stream_id, pasid, iova, AccessType::Read);
     assert!(result1.is_ok());
 
     // Remap to different PA
-    smmu.map_page(stream_id, pasid, iova, pa2, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa2,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Translation should reflect new mapping
     let result2 = smmu.translate(stream_id, pasid, iova, AccessType::Read);
@@ -908,10 +921,24 @@ fn test_multiple_pasid_isolation() {
     let pa2 = PA::new(0x5000_0000).unwrap();
 
     // Map same IOVA to different PAs in different PASIDs
-    smmu.map_page(stream_id, pasid1, iova, pa1, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
-    smmu.map_page(stream_id, pasid2, iova, pa2, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid1,
+        iova,
+        pa1,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid2,
+        iova,
+        pa2,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Translations should be independent
     let result1 = smmu.translate(stream_id, pasid1, iova, AccessType::Read);
@@ -945,10 +972,24 @@ fn test_multiple_stream_isolation() {
     let pa2 = PA::new(0x5000_0000).unwrap();
 
     // Map same IOVA to different PAs in different streams
-    smmu.map_page(stream1, pasid, iova, pa1, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
-    smmu.map_page(stream2, pasid, iova, pa2, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream1,
+        pasid,
+        iova,
+        pa1,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+    smmu.map_page(
+        stream2,
+        pasid,
+        iova,
+        pa2,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
     // Translations should be independent per stream
     let result1 = smmu.translate(stream1, pasid, iova, AccessType::Read);
@@ -975,8 +1016,15 @@ fn test_no_panic_on_normal_operations() {
         let iova = IOVA::new(0x1000_0000).unwrap();
         let pa = PA::new(0x4000_0000).unwrap();
 
-        smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-            .unwrap();
+        smmu.map_page(
+            stream_id,
+            pasid,
+            iova,
+            pa,
+            PagePermissions::read_write(),
+            SecurityState::NonSecure,
+        )
+        .unwrap();
 
         let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
     });
@@ -1084,8 +1132,15 @@ fn test_memory_safety_basic_operations() {
     let iova = IOVA::new(0x1000_0000).unwrap();
     let pa = PA::new(0x4000_0000).unwrap();
 
-    smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-        .unwrap();
+    smmu.map_page(
+        stream_id,
+        pasid,
+        iova,
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
     let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
     // Note: SMMU doesn't expose unmap_page at top level, only via stream context
 }
@@ -1140,9 +1195,7 @@ fn test_thread_safety_concurrent_stream_configuration() {
         let smmu_clone = Arc::clone(&smmu);
         let handle = thread::spawn(move || {
             let stream_id = StreamID::new(0x1000 + i).unwrap();
-            smmu_clone
-                .configure_stream(stream_id, StreamConfig::stage1_only())
-                .unwrap();
+            smmu_clone.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
         });
         handles.push(handle);
     }
@@ -1197,8 +1250,7 @@ fn test_thread_safety_concurrent_translation() {
 
         let handle = thread::spawn(move || {
             for _ in 0..100 {
-                let result =
-                    smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
+                let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
                 if result.is_ok() {
                     success_clone.fetch_add(1, Ordering::Relaxed);
                 }

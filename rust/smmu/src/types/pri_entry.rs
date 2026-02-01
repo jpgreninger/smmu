@@ -27,12 +27,7 @@ pub struct PRIEntry {
 impl PRIEntry {
     /// Create a new PRI entry
     #[must_use]
-    pub const fn new(
-        stream_id: u32,
-        pasid: u32,
-        requested_address: u64,
-        access_type: AccessType,
-    ) -> Self {
+    pub const fn new(stream_id: u32, pasid: u32, requested_address: u64, access_type: AccessType) -> Self {
         Self {
             stream_id,
             pasid,

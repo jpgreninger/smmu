@@ -199,11 +199,7 @@ impl FaultRecovery {
     ///
     /// let result = recovery.attempt_recovery(&fault, RecoveryStrategy::Retry { max_attempts: 3 });
     /// ```
-    pub fn attempt_recovery(
-        &self,
-        fault: &FaultRecord,
-        strategy: RecoveryStrategy,
-    ) -> RecoveryResult {
+    pub fn attempt_recovery(&self, fault: &FaultRecord, strategy: RecoveryStrategy) -> RecoveryResult {
         let key = Self::fault_key(fault);
         let mut state_map = self.state_map.lock().unwrap();
 
@@ -223,11 +219,11 @@ impl FaultRecovery {
                 } else {
                     RecoveryResult::Retry
                 }
-            }
+            },
             RecoveryStrategy::Remap => {
                 // Remapping would be handled by external software
                 RecoveryResult::Retry
-            }
+            },
             RecoveryStrategy::Terminate => RecoveryResult::Unrecoverable,
         }
     }
@@ -259,10 +255,7 @@ impl FaultRecovery {
     pub fn save_state(&self, fault: &FaultRecord) -> RecoveryState {
         let key = Self::fault_key(fault);
         let state_map = self.state_map.lock().unwrap();
-        state_map
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(RecoveryState::new)
+        state_map.get(&key).cloned().unwrap_or_else(RecoveryState::new)
     }
 
     /// Restores recovery state for a fault
@@ -355,10 +348,8 @@ impl FaultRecovery {
     /// Gets current timestamp in microseconds
     fn current_timestamp() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64 // Truncation acceptable: would require 584K+ years to overflow
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+        // Truncation acceptable: would require 584K+ years to overflow
     }
 }
 
@@ -371,7 +362,7 @@ impl Default for FaultRecovery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AccessType, FaultType, StreamID, PASID, IOVA};
+    use crate::types::{AccessType, FaultType, StreamID, IOVA, PASID};
 
     fn create_test_fault(fault_type: FaultType) -> FaultRecord {
         FaultRecord::builder()
@@ -407,20 +398,11 @@ mod tests {
         let strategy = RecoveryStrategy::Retry { max_attempts: 3 };
 
         // First two attempts should retry
-        assert_eq!(
-            recovery.attempt_recovery(&fault, strategy),
-            RecoveryResult::Retry
-        );
-        assert_eq!(
-            recovery.attempt_recovery(&fault, strategy),
-            RecoveryResult::Retry
-        );
+        assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Retry);
+        assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Retry);
 
         // Third attempt should be unrecoverable
-        assert_eq!(
-            recovery.attempt_recovery(&fault, strategy),
-            RecoveryResult::Unrecoverable
-        );
+        assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Unrecoverable);
     }
 
     #[test]

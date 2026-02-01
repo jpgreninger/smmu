@@ -25,8 +25,8 @@
 
 use crate::address_space::{AddressSpace, AddressSpaceError};
 use crate::types::{
-    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError,
-    StreamID, TranslationData, TranslationError, TranslationResult, IOVA, PA, PASID,
+    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError, StreamID, TranslationData,
+    TranslationError, TranslationResult, IOVA, PA, PASID,
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -75,7 +75,7 @@ use std::sync::{Arc, RwLock};
 pub struct StreamContext {
     /// `PASID` → `AddressSpace` mapping (Stage-1)
     /// DashMap provides lock-free concurrent access for high performance
-    pasid_map: DashMap<u32, Arc<RwLock<AddressSpace>>>,
+    pub(crate) pasid_map: DashMap<u32, Arc<RwLock<AddressSpace>>>,
 
     /// Stage-2 `AddressSpace` (shared across all PASIDs)
     /// RwLock allows concurrent reads with exclusive writes
@@ -171,10 +171,7 @@ impl StreamContext {
         let current_count = self.pasid_map.len();
         let max_pasids = self.max_pasids_per_stream.load(Ordering::Relaxed);
         if current_count >= max_pasids {
-            return Err(StreamContextError::PASIDLimitExceeded(
-                current_count,
-                max_pasids,
-            ));
+            return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
         }
 
         // Check for duplicate
@@ -251,21 +248,14 @@ impl StreamContext {
     /// let pasid2 = `PASID`::new(2).unwrap();
     /// assert!(stream_context.add_pasid(pasid2, addr_space).is_ok());
     /// ```
-    pub fn add_pasid(
-        &self,
-        pasid: PASID,
-        address_space: Arc<RwLock<AddressSpace>>,
-    ) -> Result<(), StreamContextError> {
+    pub fn add_pasid(&self, pasid: PASID, address_space: Arc<RwLock<AddressSpace>>) -> Result<(), StreamContextError> {
         let pasid_value = pasid.as_u32();
 
         // Check PASID limit
         let current_count = self.pasid_map.len();
         let max_pasids = self.max_pasids_per_stream.load(Ordering::Relaxed);
         if current_count >= max_pasids {
-            return Err(StreamContextError::PASIDLimitExceeded(
-                current_count,
-                max_pasids,
-            ));
+            return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
         }
 
         // Check for duplicate
@@ -528,10 +518,7 @@ impl StreamContext {
         let pasid_value = pasid.as_u32();
 
         // Get AddressSpace for PASID
-        let addr_space = self
-            .pasid_map
-            .get(&pasid_value)
-            .ok_or(AddressSpaceError::InternalError)?;
+        let addr_space = self.pasid_map.get(&pasid_value).ok_or(AddressSpaceError::InternalError)?;
 
         // Map page through AddressSpace
         let mut space = addr_space.write().unwrap();
@@ -570,10 +557,7 @@ impl StreamContext {
         let pasid_value = pasid.as_u32();
 
         // Get AddressSpace for PASID
-        let addr_space = self
-            .pasid_map
-            .get(&pasid_value)
-            .ok_or(AddressSpaceError::InternalError)?;
+        let addr_space = self.pasid_map.get(&pasid_value).ok_or(AddressSpaceError::InternalError)?;
 
         // Unmap page through AddressSpace
         let mut space = addr_space.write().unwrap();
@@ -603,7 +587,9 @@ impl StreamContext {
 
         // Check if Stage-2 already exists
         if stage2_guard.is_some() {
-            return Err(StreamContextError::InternalError("Stage-2 address space already exists".to_string()));
+            return Err(StreamContextError::InternalError(
+                "Stage-2 address space already exists".to_string(),
+            ));
         }
 
         // Create new Stage-2 address space
@@ -654,9 +640,7 @@ impl StreamContext {
     ) -> Result<(), AddressSpaceError> {
         // Need write lock to modify Stage-2 address space
         let mut stage2_guard = self.stage2_address_space.write().unwrap();
-        let stage2 = stage2_guard
-            .as_mut()
-            .ok_or(AddressSpaceError::InternalError)?;
+        let stage2 = stage2_guard.as_mut().ok_or(AddressSpaceError::InternalError)?;
 
         // Get mutable reference to the AddressSpace
         // Since AddressSpace doesn't implement interior mutability,
@@ -755,10 +739,7 @@ impl StreamContext {
         let pasid_value = pasid.as_u32();
 
         // Get Stage-1 AddressSpace for PASID
-        let addr_space = self
-            .pasid_map
-            .get(&pasid_value)
-            .ok_or(TranslationError::PASIDNotFound)?;
+        let addr_space = self.pasid_map.get(&pasid_value).ok_or(TranslationError::PASIDNotFound)?;
 
         // Perform Stage-1 translation
         let space = addr_space.read().unwrap();
@@ -782,9 +763,7 @@ impl StreamContext {
     ) -> TranslationResult {
         // Get Stage-2 AddressSpace
         let stage2_guard = self.stage2_address_space.read().unwrap();
-        let stage2 = stage2_guard
-            .as_ref()
-            .ok_or(TranslationError::StreamNotConfigured)?;
+        let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
 
         // Perform Stage-2 translation
         let result = stage2.translate_page(ipa, access_type, security_state);
@@ -808,10 +787,7 @@ impl StreamContext {
         let pasid_value = pasid.as_u32();
 
         // Stage-1: IOVA → IPA
-        let addr_space = self
-            .pasid_map
-            .get(&pasid_value)
-            .ok_or(TranslationError::PASIDNotFound)?;
+        let addr_space = self.pasid_map.get(&pasid_value).ok_or(TranslationError::PASIDNotFound)?;
 
         let space1 = addr_space.read().unwrap();
         let stage1_result = space1.translate_page(iova, access_type, security_state);
@@ -821,18 +797,16 @@ impl StreamContext {
             Err(ref err) => {
                 self.record_translation_fault(pasid, iova, access_type, security_state, err);
                 return Err(err.clone());
-            }
+            },
         };
 
         // IPA is the physical address from Stage-1
-        let ipa = IOVA::new(stage1_result.physical_address().as_u64())
-            .map_err(|_| TranslationError::AddressSizeError)?;
+        let ipa =
+            IOVA::new(stage1_result.physical_address().as_u64()).map_err(|_| TranslationError::AddressSizeError)?;
 
         // Stage-2: IPA → PA
         let stage2_guard = self.stage2_address_space.read().unwrap();
-        let stage2 = stage2_guard
-            .as_ref()
-            .ok_or(TranslationError::StreamNotConfigured)?;
+        let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
 
         let result = stage2.translate_page(ipa, access_type, security_state);
 
@@ -924,10 +898,7 @@ impl StreamContext {
     /// # Errors
     ///
     /// Returns error if configuration is invalid
-    pub fn validate_config_update(
-        &self,
-        builder: &StreamConfigBuilder,
-    ) -> Result<(), StreamContextError> {
+    pub fn validate_config_update(&self, builder: &StreamConfigBuilder) -> Result<(), StreamContextError> {
         // Check PASID limit doesn't exceed ARM SMMU v3 maximum (2^20 - 1)
         if let Some(max_pasids) = builder.max_pasids_per_stream {
             if max_pasids > (1 << 20) {
@@ -1030,9 +1001,7 @@ impl StreamContext {
     /// Checks if stream is enabled before operations
     fn check_enabled(&self) -> Result<(), StreamContextError> {
         if !self.is_enabled() {
-            Err(StreamContextError::ConfigurationError(
-                "Stream is not enabled".to_string(),
-            ))
+            Err(StreamContextError::ConfigurationError("Stream is not enabled".to_string()))
         } else {
             Ok(())
         }
@@ -1124,12 +1093,8 @@ impl StreamContext {
         }
 
         let total_faults = records.len() as u64;
-        let page_not_mapped_count = *faults_by_type
-            .get(&FaultType::TranslationFault)
-            .unwrap_or(&0);
-        let permission_violation_count = *faults_by_type
-            .get(&FaultType::PermissionFault)
-            .unwrap_or(&0);
+        let page_not_mapped_count = *faults_by_type.get(&FaultType::TranslationFault).unwrap_or(&0);
+        let permission_violation_count = *faults_by_type.get(&FaultType::PermissionFault).unwrap_or(&0);
 
         let rate_limit = self.fault_rate_limit.load(Ordering::Relaxed);
         let rate_limited = total_faults >= rate_limit as u64;
@@ -1203,7 +1168,6 @@ impl StreamContext {
 
         // Create fault record with timestamp
         #[allow(clippy::cast_possible_truncation)]
-
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1426,10 +1390,7 @@ mod tests {
 
         let result = ctx.create_pasid(pasid);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StreamContextError::PASIDAlreadyExists(1)
-        ));
+        assert!(matches!(result.unwrap_err(), StreamContextError::PASIDAlreadyExists(1)));
     }
 
     #[test]

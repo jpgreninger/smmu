@@ -18,53 +18,46 @@
 
 #![warn(missing_docs)]
 
-mod validation_error;
-mod stream_id;
-mod pasid;
-mod address;
 mod access_type;
-mod security_state;
-mod fault_type;
-pub mod translation_stage;
-mod page_entry;
-mod fault_record;
-mod translation_result;
-mod stream_context_error;
-mod smmu_error;
+mod address;
+mod command_entry;
 pub mod config;
 mod event_entry;
-mod command_entry;
+mod fault_record;
+mod fault_type;
+mod page_entry;
+mod pasid;
 mod pri_entry;
 mod queue_statistics;
+mod security_state;
+mod smmu_error;
+mod stream_context_error;
+mod stream_id;
+mod translation_result;
+pub mod translation_stage;
+mod validation_error;
 
-pub use validation_error::ValidationError;
-pub use stream_id::StreamID;
-pub use pasid::{PASID, PASID_MAX};
-pub use address::{IOVA, IPA, PA, PAGE_SIZE};
 pub use access_type::AccessType;
-pub use security_state::SecurityState;
-pub use fault_type::{FaultType, FaultSeverity, FaultContext, TranslationStep, AddressType};
-pub use translation_stage::TranslationStage;
-pub use page_entry::{PageEntry, PagePermissions, PageEntryBuilder};
-pub use fault_record::{FaultRecord, FaultSyndrome, FaultRecordBuilder, FaultSyndromeBuilder};
-pub use translation_result::{
-    TranslationData, TranslationDataBuilder, TranslationError, TranslationResult,
-};
-pub use stream_context_error::StreamContextError;
-pub use smmu_error::SMMUError;
-pub use event_entry::{EventEntry, EventType};
+pub use address::{IOVA, IPA, PA, PAGE_SIZE};
 pub use command_entry::{CommandEntry, CommandType};
+pub use event_entry::{EventEntry, EventType};
+pub use fault_record::{FaultRecord, FaultRecordBuilder, FaultSyndrome, FaultSyndromeBuilder};
+pub use fault_type::{AddressType, FaultContext, FaultSeverity, FaultType, TranslationStep};
+pub use page_entry::{PageEntry, PageEntryBuilder, PagePermissions};
+pub use pasid::{PASID, PASID_MAX};
 pub use pri_entry::PRIEntry;
 pub use queue_statistics::QueueStatistics;
+pub use security_state::SecurityState;
+pub use smmu_error::SMMUError;
+pub use stream_context_error::StreamContextError;
+pub use stream_id::StreamID;
+pub use translation_result::{TranslationData, TranslationDataBuilder, TranslationError, TranslationResult};
+pub use translation_stage::TranslationStage;
+pub use validation_error::ValidationError;
 
 // Export configuration types - note StreamConfig from config module
 pub use config::{
-    FaultMode, StreamConfig, StreamConfigBuilder,
-    QueueConfig, QueueConfigBuilder,
-    CacheConfig, CacheConfigBuilder,
-    AddressConfig, AddressConfigBuilder,
-    ResourceLimits, ResourceLimitsBuilder,
-    ConfigurationError, ConfigurationErrorType,
-    ValidationResult, ConfigConstants,
-    SMMUConfig, SMMUConfigBuilder,
+    AddressConfig, AddressConfigBuilder, CacheConfig, CacheConfigBuilder, ConfigConstants, ConfigurationError,
+    ConfigurationErrorType, FaultMode, QueueConfig, QueueConfigBuilder, ResourceLimits, ResourceLimitsBuilder,
+    SMMUConfig, SMMUConfigBuilder, StreamConfig, StreamConfigBuilder, ValidationResult,
 };

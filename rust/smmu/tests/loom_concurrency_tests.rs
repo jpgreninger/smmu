@@ -486,8 +486,7 @@ fn loom_smmu_concurrent_pasid_creation() {
         let pasid2 = PASID::new(2).unwrap();
 
         // Configure stream first
-        smmu.configure_stream(stream_id, StreamConfig::default())
-            .unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::default()).unwrap();
 
         let smmu1 = Arc::clone(&smmu);
         let smmu2 = Arc::clone(&smmu);
@@ -508,9 +507,7 @@ fn loom_smmu_concurrent_pasid_creation() {
 #[test]
 fn loom_smmu_concurrent_translation() {
     loom::model(|| {
-        use smmu::types::{
-            AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID,
-        };
+        use smmu::types::{AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID};
         use smmu::SMMU;
 
         let smmu = Arc::new(SMMU::new());
@@ -520,8 +517,7 @@ fn loom_smmu_concurrent_translation() {
         let pa = PA::new(0x2000).unwrap();
 
         // Setup
-        smmu.configure_stream(stream_id, StreamConfig::default())
-            .unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::default()).unwrap();
         smmu.create_pasid(stream_id, pasid).unwrap();
         smmu.map_page(
             stream_id,
@@ -538,18 +534,12 @@ fn loom_smmu_concurrent_translation() {
 
         // Concurrent translations
         let t1 = thread::spawn(move || {
-            let result =
-                smmu1.translate(stream_id, pasid, iova, AccessType::Read);
+            let result = smmu1.translate(stream_id, pasid, iova, AccessType::Read);
             assert!(result.is_ok());
         });
 
         let t2 = thread::spawn(move || {
-            let result = smmu2.translate(
-                stream_id,
-                pasid,
-                iova,
-                AccessType::Write,
-            );
+            let result = smmu2.translate(stream_id, pasid, iova, AccessType::Write);
             assert!(result.is_ok());
         });
 

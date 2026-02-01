@@ -414,11 +414,7 @@ fn test_from_bits_invalid_large_value() {
 
 #[test]
 fn test_from_bits_roundtrip() {
-    let states = [
-        SecurityState::Secure,
-        SecurityState::NonSecure,
-        SecurityState::Realm,
-    ];
+    let states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
 
     for state in &states {
         let bits = state.to_bits();
@@ -632,11 +628,7 @@ fn test_arm_cca_realm_complete_isolation() {
 #[test]
 fn test_all_state_combinations_access_matrix() {
     // Complete access matrix test (3x3 = 9 combinations)
-    let states = [
-        SecurityState::Secure,
-        SecurityState::NonSecure,
-        SecurityState::Realm,
-    ];
+    let states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
 
     let expected_access = [
         // From Secure:

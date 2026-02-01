@@ -4,7 +4,7 @@
 //! page table entries in address translation. All implementations are safe
 //! with zero unsafe code.
 
-use super::{AccessType, PA, SecurityState};
+use super::{AccessType, SecurityState, PA};
 
 /// Page access permissions structure
 ///
@@ -56,11 +56,7 @@ impl PagePermissions {
     #[must_use]
     #[inline]
     pub const fn new(read: bool, write: bool, execute: bool) -> Self {
-        Self {
-            read,
-            write,
-            execute,
-        }
+        Self { read, write, execute }
     }
 
     /// Creates permissions with no access allowed
@@ -203,9 +199,7 @@ impl PagePermissions {
     /// `true` if all permissions in `self` are also in `other`
     #[must_use]
     pub const fn is_subset_of(self, other: &Self) -> bool {
-        (!self.read || other.read)
-            && (!self.write || other.write)
-            && (!self.execute || other.execute)
+        (!self.read || other.read) && (!self.write || other.write) && (!self.execute || other.execute)
     }
 }
 
@@ -525,9 +519,7 @@ impl PageEntryBuilder {
     /// Panics if physical address was not set
     #[must_use]
     pub fn build(self) -> PageEntry {
-        let physical_address = self
-            .physical_address
-            .expect("Physical address must be set");
+        let physical_address = self.physical_address.expect("Physical address must be set");
 
         let mut entry = PageEntry {
             physical_address,

@@ -55,17 +55,17 @@
 #![warn(missing_docs)]
 
 pub mod detection;
-pub mod validator;
 pub mod processing;
 pub mod queue;
 pub mod recovery;
+pub mod validator;
 
 // Re-export main types for convenience
 pub use detection::{
-    AddressSize, AddressValidator, FaultDetectionResult, FaultDetector,
-    PermissionFaultDetector, TranslationFaultDetector,
+    AddressSize, AddressValidator, FaultDetectionResult, FaultDetector, PermissionFaultDetector,
+    TranslationFaultDetector,
 };
-pub use validator::{AddressRangeValidator, PermissionValidator, ValidationContext};
-pub use processing::{FaultMode, FaultProcessor, FaultProcessingError};
+pub use processing::{FaultMode, FaultProcessingError, FaultProcessor};
 pub use queue::{FaultQueue, FaultQueueError};
 pub use recovery::{FaultRecovery, RecoveryResult, RecoveryState, RecoveryStrategy};
+pub use validator::{AddressRangeValidator, PermissionValidator, ValidationContext};

@@ -52,7 +52,6 @@ overflow_delimited_expr = true
 use_field_init_shorthand = true
 use_try_shorthand = true
 force_multiline_blocks = false
-indent_style = "Block"
 match_arm_blocks = true
 match_arm_leading_pipes = "Never"
 

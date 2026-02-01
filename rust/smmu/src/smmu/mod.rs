@@ -56,9 +56,9 @@
 
 use crate::stream_context::StreamContext;
 use crate::types::{
-    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType,
-    PagePermissions, PRIEntry, QueueStatistics, SecurityState, SMMUConfig, SMMUError,
-    StreamConfig, StreamID, TranslationError, TranslationResult, IOVA, PA, PASID,
+    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
+    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, TranslationError, TranslationResult,
+    IOVA, PA, PASID,
 };
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -379,11 +379,7 @@ impl SMMU {
     /// let config2 = StreamConfig::stage2_only();
     /// assert!(smmu.configure_stream(stream_id, config2).is_err());
     /// ```
-    pub fn configure_stream(
-        &self,
-        stream_id: StreamID,
-        config: StreamConfig,
-    ) -> Result<(), SMMUError> {
+    pub fn configure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
         self.check_shutdown()?;
 
         // Validate stream configuration
@@ -424,10 +420,8 @@ impl SMMU {
                 // Insert into stream map with Arc<RwLock<>> wrapper
                 entry.insert(Arc::new(RwLock::new(stream_context)));
                 Ok(())
-            }
-            Entry::Occupied(_) => {
-                Err(SMMUError::stream_already_exists(stream_id))
-            }
+            },
+            Entry::Occupied(_) => Err(SMMUError::stream_already_exists(stream_id)),
         }
     }
 
@@ -749,8 +743,7 @@ impl SMMU {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
         let mut ctx = stream_context.write().unwrap();
-        ctx.create_stage2_address_space()
-            .map_err(SMMUError::from)
+        ctx.create_stage2_address_space().map_err(SMMUError::from)
     }
 
     /// Get a copy of the global `SMMU` configuration
@@ -805,10 +798,7 @@ impl SMMU {
     /// let config = smmu.get_config();
     /// assert_eq!(config.cache_config.tlb_cache_size, 2048);
     /// ```
-    pub fn update_config(
-        &self,
-        f: impl FnOnce(&mut SMMUConfig),
-    ) -> Result<(), SMMUError> {
+    pub fn update_config(&self, f: impl FnOnce(&mut SMMUConfig)) -> Result<(), SMMUError> {
         self.check_shutdown()?;
 
         let mut config_guard = self.config.write().unwrap();
@@ -1021,13 +1011,7 @@ impl SMMU {
     /// - Stage-1, Stage-2, Two-Stage, and Bypass modes
     /// - Permission checking per access type
     /// - `PASID` 0 support for legacy compatibility
-    pub fn translate(
-        &self,
-        stream_id: StreamID,
-        pasid: PASID,
-        iova: IOVA,
-        access: AccessType,
-    ) -> TranslationResult {
+    pub fn translate(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType) -> TranslationResult {
         // Update statistics
         self.total_translations.fetch_add(1, Ordering::Relaxed);
 
@@ -1045,7 +1029,7 @@ impl SMMU {
                 // Record fault before returning error
                 self.record_stream_not_found_fault(stream_id, pasid, iova, access);
                 return Err(TranslationError::StreamNotConfigured);
-            }
+            },
         };
 
         // Delegate to StreamContext for actual translation
@@ -1128,10 +1112,7 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns `SMMUError::StreamNotFound` if stream doesn't exist.
-    fn get_stream_context(
-        &self,
-        stream_id: StreamID,
-    ) -> Result<Arc<RwLock<StreamContext>>, SMMUError> {
+    fn get_stream_context(&self, stream_id: StreamID) -> Result<Arc<RwLock<StreamContext>>, SMMUError> {
         let stream_value = stream_id.as_u32();
 
         self.streams
@@ -1153,12 +1134,19 @@ impl SMMU {
     /// Corresponding event type.
     fn map_fault_type_to_event_type(fault_type: FaultType) -> EventType {
         match fault_type {
-            FaultType::TranslationFault | FaultType::BadSTE | FaultType::BadCD
-            | FaultType::BadStreamID | FaultType::AddressSizeFault
-            | FaultType::AlignmentFault | FaultType::ExternalAbort
-            | FaultType::TLBConflictAbort | FaultType::CDFetchFault
-            | FaultType::STEFetchFault | FaultType::WalkEABT
-            | FaultType::OutputAddressRangeFault | FaultType::UnsupportedAtomicUpdate
+            FaultType::TranslationFault
+            | FaultType::BadSTE
+            | FaultType::BadCD
+            | FaultType::BadStreamID
+            | FaultType::AddressSizeFault
+            | FaultType::AlignmentFault
+            | FaultType::ExternalAbort
+            | FaultType::TLBConflictAbort
+            | FaultType::CDFetchFault
+            | FaultType::STEFetchFault
+            | FaultType::WalkEABT
+            | FaultType::OutputAddressRangeFault
+            | FaultType::UnsupportedAtomicUpdate
             | FaultType::AccessFlagFault => EventType::TranslationFault,
             FaultType::PermissionFault => EventType::PermissionFault,
         }
@@ -1217,7 +1205,6 @@ impl SMMU {
 
         // Get current timestamp
         #[allow(clippy::cast_possible_truncation)]
-
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1265,15 +1252,8 @@ impl SMMU {
     /// * `pasid` - Process Address Space ID
     /// * `iova` - Input/Output Virtual Address
     /// * `access` - Access type requested
-    fn record_stream_not_found_fault(
-        &self,
-        stream_id: StreamID,
-        pasid: PASID,
-        iova: IOVA,
-        access: AccessType,
-    ) {
+    fn record_stream_not_found_fault(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType) {
         #[allow(clippy::cast_possible_truncation)]
-
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1389,11 +1369,7 @@ impl SMMU {
     /// Returns all events matching the specified event type.
     pub fn get_events_by_type(&self, event_type: EventType) -> Vec<EventEntry> {
         let queue = self.event_queue.read().unwrap();
-        queue
-            .iter()
-            .filter(|e| e.event_type == event_type)
-            .copied()
-            .collect()
+        queue.iter().filter(|e| e.event_type == event_type).copied().collect()
     }
 
     /// Get events filtered by stream ID
@@ -1401,11 +1377,7 @@ impl SMMU {
     /// Returns all events for the specified stream.
     pub fn get_events_by_stream(&self, stream_id: u32) -> Vec<EventEntry> {
         let queue = self.event_queue.read().unwrap();
-        queue
-            .iter()
-            .filter(|e| e.stream_id == stream_id)
-            .copied()
-            .collect()
+        queue.iter().filter(|e| e.stream_id == stream_id).copied().collect()
     }
 
     // ========================================================================
@@ -1426,9 +1398,7 @@ impl SMMU {
     /// Implements command queue management per Section 6.4.
     pub fn submit_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         // Validate command parameters
-        if command.cmd_type == CommandType::AtcInv
-            && command.end_address < command.start_address
-        {
+        if command.cmd_type == CommandType::AtcInv && command.end_address < command.start_address {
             return Err(SMMUError::InvalidCommandParameters(
                 "Invalid address range: end < start".to_string(),
             ));
@@ -1466,7 +1436,7 @@ impl SMMU {
                 Some(cmd) => {
                     self.process_single_command(cmd)?;
                     processed += 1;
-                }
+                },
                 None => break,
             }
         }
@@ -1503,27 +1473,27 @@ impl SMMU {
     /// Process a single command
     ///
     /// Internal method to process one command and generate appropriate completion events.
+    #[allow(clippy::unnecessary_wraps)]
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
             CommandType::TlbiNhAll | CommandType::TlbiEl2All => {
                 // Global TLB invalidation
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             CommandType::TlbiS12Vmall => {
                 // Stream/PASID-specific TLB invalidation
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             CommandType::AtcInv => {
                 // Address range invalidation
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
 
                 // Generate completion event
                 #[allow(clippy::cast_possible_truncation)]
-
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                    .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                 let event = EventEntry {
                     event_type: EventType::AtcInvalidateCompletion,
@@ -1536,15 +1506,14 @@ impl SMMU {
                 };
 
                 let _ = self.submit_event(event);
-            }
+            },
             CommandType::Sync => {
                 // Synchronization barrier - generate completion event
                 #[allow(clippy::cast_possible_truncation)]
-
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                    .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                 let event = EventEntry {
                     event_type: EventType::CommandSyncCompletion,
@@ -1557,11 +1526,11 @@ impl SMMU {
                 };
 
                 let _ = self.submit_event(event);
-            }
+            },
             _ => {
                 // Other commands: PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll, PriResp, Resume
                 // No special processing needed for tests
-            }
+            },
         }
 
         Ok(())
@@ -1615,11 +1584,10 @@ impl SMMU {
                 Some(req) => {
                     // Generate PRI event for this request
                     #[allow(clippy::cast_possible_truncation)]
-
                     let timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                        .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
 
                     let event = EventEntry {
                         event_type: EventType::PriPageRequest,
@@ -1633,7 +1601,7 @@ impl SMMU {
 
                     let _ = self.submit_event(event);
                     processed += 1;
-                }
+                },
                 None => break,
             }
         }
@@ -1735,7 +1703,7 @@ impl SMMU {
     /// the time of creation.
     #[must_use]
     pub fn streams(&self) -> impl Iterator<Item = StreamID> + '_ {
-        self.streams.iter().map(|entry| *entry.key())
+        self.streams.iter().filter_map(|entry| StreamID::new(*entry.key()).ok())
     }
 
     /// Returns an iterator over all active PASIDs for a given stream.
@@ -1783,13 +1751,16 @@ impl SMMU {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn pasids(&self, stream_id: StreamID) -> Option<impl Iterator<Item = PASID> + '_> {
-        self.streams.get(&stream_id).map(|entry| {
+    pub fn pasids(&self, stream_id: StreamID) -> Option<Vec<PASID>> {
+        self.streams.get(&stream_id.as_u32()).map(|entry| {
             let context = entry.value().clone();
             let context_guard = context.read().unwrap();
-            // Get all PASIDs - this creates a snapshot
-            let pasids: Vec<PASID> = context_guard.pasids().collect();
-            pasids.into_iter()
+            // Get all PASID keys from the DashMap
+            context_guard
+                .pasid_map
+                .iter()
+                .filter_map(|p| PASID::new(*p.key()).ok())
+                .collect()
         })
     }
 
@@ -1849,10 +1820,9 @@ impl SMMU {
     /// assert_eq!(smmu.faults().count(), 0);
     /// ```
     #[must_use]
-    pub fn drain_faults(&self) -> impl Iterator<Item = FaultRecord> + '_ {
+    pub fn drain_faults(&self) -> Vec<FaultRecord> {
         let mut faults = self.fault_queue.lock().unwrap();
-        let drained: Vec<FaultRecord> = faults.drain(..).collect();
-        drained.into_iter()
+        faults.drain(..).collect()
     }
 
     /// Returns an iterator over event queue entries.
@@ -1879,10 +1849,9 @@ impl SMMU {
     ///     .count();
     /// ```
     #[must_use]
-    pub fn events(&self) -> impl Iterator<Item = EventEntry> + '_ {
-        let events = self.event_queue.lock().unwrap();
-        let events_snapshot: Vec<EventEntry> = events.clone();
-        events_snapshot.into_iter()
+    pub fn events(&self) -> Vec<EventEntry> {
+        let events = self.event_queue.read().unwrap();
+        events.iter().copied().collect()
     }
 
     /// Returns an iterator over events filtered by stream ID.
@@ -1909,14 +1878,9 @@ impl SMMU {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn events_for_stream(&self, stream_id: StreamID) -> impl Iterator<Item = EventEntry> + '_ {
-        let events = self.event_queue.lock().unwrap();
-        let filtered: Vec<EventEntry> = events
-            .iter()
-            .filter(|e| e.stream_id() == stream_id.as_u32())
-            .cloned()
-            .collect();
-        filtered.into_iter()
+    pub fn events_for_stream(&self, stream_id: StreamID) -> Vec<EventEntry> {
+        let events = self.event_queue.read().unwrap();
+        events.iter().filter(|e| e.stream_id == stream_id.as_u32()).copied().collect()
     }
 
     /// Returns an iterator over page request interface (PRI) queue entries.
@@ -1945,10 +1909,9 @@ impl SMMU {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn page_requests(&self) -> impl Iterator<Item = PRIEntry> + '_ {
-        let requests = self.pri_queue.lock().unwrap();
-        let requests_snapshot: Vec<PRIEntry> = requests.clone();
-        requests_snapshot.into_iter()
+    pub fn page_requests(&self) -> Vec<PRIEntry> {
+        let requests = self.pri_queue.read().unwrap();
+        requests.iter().copied().collect()
     }
 }
 
@@ -2202,8 +2165,7 @@ mod tests {
 
         assert!(!smmu.has_stream(stream_id));
 
-        smmu.configure_stream(stream_id, StreamConfig::bypass())
-            .unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
 
         assert!(smmu.has_stream(stream_id));
     }

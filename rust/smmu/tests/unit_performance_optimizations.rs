@@ -5,7 +5,7 @@
 
 use smmu::address_space::AddressSpace;
 use smmu::stream_context::StreamContext;
-use smmu::types::{AccessType, PagePermissions, SecurityState, IOVA, PA, PASID, PAGE_SIZE};
+use smmu::types::{AccessType, PagePermissions, SecurityState, IOVA, PA, PAGE_SIZE, PASID};
 use smmu::SMMU;
 use std::time::Instant;
 
@@ -41,13 +41,7 @@ fn test_hash_function_sparse_addresses() {
     let mut addr_space = AddressSpace::new();
 
     // Map pages at very sparse addresses (good distribution test)
-    let sparse_addrs = [
-        0x1000,
-        0x10000000,
-        0x100000000,
-        0x1000000000,
-        0x10000000000,
-    ];
+    let sparse_addrs = [0x1000, 0x10000000, 0x100000000, 0x1000000000, 0x10000000000];
 
     for &addr in &sparse_addrs {
         let iova = IOVA::new(addr).unwrap();
@@ -117,10 +111,7 @@ fn test_scalability_10_to_10000() {
         }
         let translate_time = start.elapsed();
 
-        println!(
-            "Scale {}: map={:?}, translate={:?}",
-            count, map_time, translate_time
-        );
+        println!("Scale {}: map={:?}, translate={:?}", count, map_time, translate_time);
 
         assert_eq!(addr_space.get_page_count().unwrap(), *usize::try_from(count).unwrap());
     }
@@ -243,8 +234,7 @@ fn test_multi_stream_performance() {
     // Configure 10 streams with PASIDs
     for i in 0..10 {
         let stream_id = smmu::types::StreamID::new(i).unwrap();
-        smmu.configure_stream(stream_id, Default::default())
-            .unwrap();
+        smmu.configure_stream(stream_id, Default::default()).unwrap();
 
         let pasid = PASID::new(1).unwrap();
         smmu.create_pasid(stream_id, pasid).unwrap();
@@ -345,9 +335,7 @@ fn test_batch_operation_efficiency() {
 
     // Measure batch operation time
     let start = Instant::now();
-    addr_space
-        .map_pages(&mappings, PagePermissions::read_write())
-        .unwrap();
+    addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
     let batch_time = start.elapsed();
 
     println!("Batch mapping time (1000 pages): {:?}", batch_time);

@@ -36,20 +36,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .tlb_size(16384)           // Large TLB for better hit rate
                 .enable_prefetch(true)      // Prefetch adjacent pages
                 .enable_hugepages(true)     // Support 2MB/1GB pages
-                .build()?
+                .build()?,
         )
         .queue_config(
             QueueConfig::builder()
                 .event_queue_size(2048)     // Large event queue
                 .command_queue_size(1024)   // Large command queue
                 .pri_queue_size(512)        // Page request interface queue
-                .build()?
+                .build()?,
         )
         .resource_limits(
             ResourceLimits::builder()
                 .max_streams(2048)          // Support many devices
                 .max_pasids_per_stream(1024) // Many contexts per device
-                .build()?
+                .build()?,
         )
         .build()?;
 
@@ -76,13 +76,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .enable_prefetch(true)
                 .prefetch_distance(8)       // Aggressive prefetching
                 .enable_locked_entries(true) // Pin critical translations
-                .build()?
+                .build()?,
         )
         .address_config(
             AddressConfig::builder()
                 .enable_fast_path(true)     // Fast path for common cases
                 .enable_speculation(true)   // Speculative translation
-                .build()?
+                .build()?,
         )
         .build()?;
 
@@ -104,20 +104,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .tlb_size(1024)             // Small TLB
                 .enable_prefetch(false)     // No prefetching
                 .enable_compression(true)   // Compress cache entries
-                .build()?
+                .build()?,
         )
-        .queue_config(
-            QueueConfig::builder()
+        .queue_config(QueueConfig::builder()
                 .event_queue_size(128)      // Minimal event queue
                 .command_queue_size(64)
-                .build()?
-        )
+                .build()?)
         .resource_limits(
             ResourceLimits::builder()
                 .max_streams(64)            // Few devices
                 .max_pasids_per_stream(16)
                 .enable_sparse_tables(true) // Sparse allocation
-                .build()?
+                .build()?,
         )
         .build()?;
 
@@ -133,9 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 5: Translation Performance Measurement\n");
 
     let stream_id = StreamID::new(1)?;
-    let stream_config = StreamConfig::builder()
-        .stage1_enabled(true)
-        .build()?;
+    let stream_config = StreamConfig::builder().stage1_enabled(true).build()?;
 
     smmu_hp.configure_stream(stream_id, stream_config)?;
 
@@ -160,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Measure cold translation (TLB miss)
     println!("  Measuring cold translation (TLB miss):");
-    smmu_hp.invalidate_tlb()?;  // Clear TLB
+    smmu_hp.invalidate_tlb()?; // Clear TLB
 
     let cold_iova = IOVA::new(0x500 * 0x1000)?;
     let start = Instant::now();
@@ -176,8 +172,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let hot_time = start.elapsed();
     let avg_hot_time = hot_time / 10000;
-    println!("    Hot translation time: {:?} avg ({:?} total for 10k)",
-             avg_hot_time, hot_time);
+    println!(
+        "    Hot translation time: {:?} avg ({:?} total for 10k)",
+        avg_hot_time, hot_time
+    );
 
     println!("\n  Performance comparison:");
     println!("    Cold: ~{:?} (page table walk)", cold_time);
@@ -201,21 +199,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_stats = smmu_hp.get_cache_stats();
     println!("\n  Cache Statistics:");
     println!("    Cache size: {} entries", cache_stats.size());
-    println!("    Cache occupancy: {}/{} ({:.1}%)",
-             cache_stats.used_entries(),
-             cache_stats.total_entries(),
-             cache_stats.occupancy_percent());
+    println!(
+        "    Cache occupancy: {}/{} ({:.1}%)",
+        cache_stats.used_entries(),
+        cache_stats.total_entries(),
+        cache_stats.occupancy_percent()
+    );
     println!("    Evictions: {}", cache_stats.evictions());
 
     // Get queue statistics
     let queue_stats = smmu_hp.get_queue_stats();
     println!("\n  Queue Statistics:");
-    println!("    Event queue: {}/{} used",
-             queue_stats.event_queue_used(),
-             queue_stats.event_queue_size());
-    println!("    Command queue: {}/{} used",
-             queue_stats.command_queue_used(),
-             queue_stats.command_queue_size());
+    println!(
+        "    Event queue: {}/{} used",
+        queue_stats.event_queue_used(),
+        queue_stats.event_queue_size()
+    );
+    println!(
+        "    Command queue: {}/{} used",
+        queue_stats.command_queue_used(),
+        queue_stats.command_queue_size()
+    );
     println!("    Events processed: {}", queue_stats.events_processed());
 
     // Example 7: Workload-Specific Tuning

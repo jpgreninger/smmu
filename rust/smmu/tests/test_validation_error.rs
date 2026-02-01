@@ -22,10 +22,7 @@ fn test_validation_error_out_of_range_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for PASID: value 1048576 exceeds maximum 1048575"
-    );
+    assert_eq!(display, "Validation error for PASID: value 1048576 exceeds maximum 1048575");
 }
 
 #[test]
@@ -37,10 +34,7 @@ fn test_validation_error_out_of_range_stream_id() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for StreamID: value 65536 exceeds maximum 65535"
-    );
+    assert_eq!(display, "Validation error for StreamID: value 65536 exceeds maximum 65535");
 }
 
 // ============================================================================
@@ -55,10 +49,7 @@ fn test_validation_error_invalid_alignment_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Address 0x1001 is not aligned to 0x1000"
-    );
+    assert_eq!(display, "Address 0x1001 is not aligned to 0x1000");
 }
 
 #[test]
@@ -69,10 +60,7 @@ fn test_validation_error_invalid_alignment_64kb() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Address 0x20001 is not aligned to 0x10000"
-    );
+    assert_eq!(display, "Address 0x20001 is not aligned to 0x10000");
 }
 
 // ============================================================================
@@ -81,28 +69,18 @@ fn test_validation_error_invalid_alignment_64kb() {
 
 #[test]
 fn test_validation_error_invalid_access_type_display() {
-    let error = ValidationError::InvalidAccessType {
-        bits: 0b11111111,
-    };
+    let error = ValidationError::InvalidAccessType { bits: 0b11111111 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid access type bit pattern: 0b11111111"
-    );
+    assert_eq!(display, "Invalid access type bit pattern: 0b11111111");
 }
 
 #[test]
 fn test_validation_error_invalid_access_type_zero() {
-    let error = ValidationError::InvalidAccessType {
-        bits: 0,
-    };
+    let error = ValidationError::InvalidAccessType { bits: 0 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid access type bit pattern: 0b0"
-    );
+    assert_eq!(display, "Invalid access type bit pattern: 0b0");
 }
 
 // ============================================================================
@@ -111,28 +89,18 @@ fn test_validation_error_invalid_access_type_zero() {
 
 #[test]
 fn test_validation_error_invalid_security_state_display() {
-    let error = ValidationError::InvalidSecurityState {
-        bits: 0xFF,
-    };
+    let error = ValidationError::InvalidSecurityState { bits: 0xFF };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid security state encoding: 0b11111111"
-    );
+    assert_eq!(display, "Invalid security state encoding: 0b11111111");
 }
 
 #[test]
 fn test_validation_error_invalid_security_state_three() {
-    let error = ValidationError::InvalidSecurityState {
-        bits: 3,
-    };
+    let error = ValidationError::InvalidSecurityState { bits: 3 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid security state encoding: 0b11"
-    );
+    assert_eq!(display, "Invalid security state encoding: 0b11");
 }
 
 // ============================================================================
@@ -141,28 +109,18 @@ fn test_validation_error_invalid_security_state_three() {
 
 #[test]
 fn test_validation_error_invalid_translation_stage_display() {
-    let error = ValidationError::InvalidTranslationStage {
-        bits: 0xFF,
-    };
+    let error = ValidationError::InvalidTranslationStage { bits: 0xFF };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid translation stage configuration: 0b11111111"
-    );
+    assert_eq!(display, "Invalid translation stage configuration: 0b11111111");
 }
 
 #[test]
 fn test_validation_error_invalid_translation_stage_four() {
-    let error = ValidationError::InvalidTranslationStage {
-        bits: 4,
-    };
+    let error = ValidationError::InvalidTranslationStage { bits: 4 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid translation stage configuration: 0b100"
-    );
+    assert_eq!(display, "Invalid translation stage configuration: 0b100");
 }
 
 // ============================================================================
@@ -171,28 +129,18 @@ fn test_validation_error_invalid_translation_stage_four() {
 
 #[test]
 fn test_validation_error_invalid_fault_type_display() {
-    let error = ValidationError::InvalidFaultType {
-        code: 0xFF,
-    };
+    let error = ValidationError::InvalidFaultType { code: 0xFF };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid fault type code: 0xff"
-    );
+    assert_eq!(display, "Invalid fault type code: 0xff");
 }
 
 #[test]
 fn test_validation_error_invalid_fault_type_zero() {
-    let error = ValidationError::InvalidFaultType {
-        code: 0,
-    };
+    let error = ValidationError::InvalidFaultType { code: 0 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid fault type code: 0x0"
-    );
+    assert_eq!(display, "Invalid fault type code: 0x0");
 }
 
 // ============================================================================
@@ -207,10 +155,7 @@ fn test_validation_error_invalid_state_transition_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid state transition from Idle to Active"
-    );
+    assert_eq!(display, "Invalid state transition from Idle to Active");
 }
 
 #[test]
@@ -221,10 +166,7 @@ fn test_validation_error_invalid_state_transition_disabled() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid state transition from Disabled to Bypassed"
-    );
+    assert_eq!(display, "Invalid state transition from Disabled to Bypassed");
 }
 
 // ============================================================================
@@ -239,10 +181,7 @@ fn test_validation_error_permission_denied_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Permission denied: requested Read+Write but only Read available"
-    );
+    assert_eq!(display, "Permission denied: requested Read+Write but only Read available");
 }
 
 #[test]
@@ -253,10 +192,7 @@ fn test_validation_error_permission_denied_execute() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Permission denied: requested Execute but only None available"
-    );
+    assert_eq!(display, "Permission denied: requested Execute but only None available");
 }
 
 // ============================================================================
@@ -271,10 +207,7 @@ fn test_validation_error_security_violation_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Security violation: NonSecure cannot access Secure"
-    );
+    assert_eq!(display, "Security violation: NonSecure cannot access Secure");
 }
 
 #[test]
@@ -285,10 +218,7 @@ fn test_validation_error_security_violation_realm() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Security violation: Realm cannot access Root"
-    );
+    assert_eq!(display, "Security violation: Realm cannot access Root");
 }
 
 // ============================================================================
@@ -302,10 +232,7 @@ fn test_validation_error_invalid_configuration_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid configuration: Stage 1 and Stage 2 cannot both be disabled"
-    );
+    assert_eq!(display, "Invalid configuration: Stage 1 and Stage 2 cannot both be disabled");
 }
 
 #[test]
@@ -315,10 +242,7 @@ fn test_validation_error_invalid_configuration_cache() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid configuration: Cache size must be power of 2"
-    );
+    assert_eq!(display, "Invalid configuration: Cache size must be power of 2");
 }
 
 // ============================================================================
@@ -327,28 +251,18 @@ fn test_validation_error_invalid_configuration_cache() {
 
 #[test]
 fn test_validation_error_invalid_pasid_display() {
-    let error = ValidationError::InvalidPASID {
-        value: 1048576,
-    };
+    let error = ValidationError::InvalidPASID { value: 1048576 };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Invalid PASID value: 1048576"
-    );
+    assert_eq!(display, "Invalid PASID value: 1048576");
 }
 
 #[test]
 fn test_validation_error_invalid_pasid_max() {
-    let error = ValidationError::InvalidPASID {
-        value: u32::MAX,
-    };
+    let error = ValidationError::InvalidPASID { value: u32::MAX };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        format!("Invalid PASID value: {}", u32::MAX)
-    );
+    assert_eq!(display, format!("Invalid PASID value: {}", u32::MAX));
 }
 
 // ============================================================================
@@ -364,10 +278,7 @@ fn test_validation_error_generic_display() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for PageSize: value '8192' must be 4096 or 65536"
-    );
+    assert_eq!(display, "Validation error for PageSize: value '8192' must be 4096 or 65536");
 }
 
 #[test]
@@ -379,10 +290,7 @@ fn test_validation_error_generic_empty_values() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for Field: value '' must not be empty"
-    );
+    assert_eq!(display, "Validation error for Field: value '' must not be empty");
 }
 
 // ============================================================================
@@ -391,35 +299,24 @@ fn test_validation_error_generic_empty_values() {
 
 #[test]
 fn test_validation_error_new_constructor() {
-    let error = ValidationError::new(
-        "TestField",
-        "invalid_value",
-        "must be positive"
-    );
+    let error = ValidationError::new("TestField", "invalid_value", "must be positive");
 
     match error {
         ValidationError::Generic { field, value, constraint } => {
             assert_eq!(field, "TestField");
             assert_eq!(value, "invalid_value");
             assert_eq!(constraint, "must be positive");
-        }
+        },
         _ => panic!("Expected Generic variant"),
     }
 }
 
 #[test]
 fn test_validation_error_new_display() {
-    let error = ValidationError::new(
-        "Count",
-        "0",
-        "must be greater than 0"
-    );
+    let error = ValidationError::new("Count", "0", "must be greater than 0");
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for Count: value '0' must be greater than 0"
-    );
+    assert_eq!(display, "Validation error for Count: value '0' must be greater than 0");
 }
 
 #[test]
@@ -437,21 +334,13 @@ fn test_validation_error_construct_all_variants() {
         required_alignment: 0x1000,
     };
 
-    let _invalid_access = ValidationError::InvalidAccessType {
-        bits: 0xFF,
-    };
+    let _invalid_access = ValidationError::InvalidAccessType { bits: 0xFF };
 
-    let _invalid_security = ValidationError::InvalidSecurityState {
-        bits: 0x10,
-    };
+    let _invalid_security = ValidationError::InvalidSecurityState { bits: 0x10 };
 
-    let _invalid_stage = ValidationError::InvalidTranslationStage {
-        bits: 0x0F,
-    };
+    let _invalid_stage = ValidationError::InvalidTranslationStage { bits: 0x0F };
 
-    let _invalid_fault = ValidationError::InvalidFaultType {
-        code: 0xAB,
-    };
+    let _invalid_fault = ValidationError::InvalidFaultType { code: 0xAB };
 
     let _invalid_transition = ValidationError::InvalidStateTransition {
         from: "A".to_string(),
@@ -468,13 +357,9 @@ fn test_validation_error_construct_all_variants() {
         to_state: "S".to_string(),
     };
 
-    let _invalid_config = ValidationError::InvalidConfiguration {
-        reason: "test".to_string(),
-    };
+    let _invalid_config = ValidationError::InvalidConfiguration { reason: "test".to_string() };
 
-    let _invalid_pasid = ValidationError::InvalidPASID {
-        value: 1000000,
-    };
+    let _invalid_pasid = ValidationError::InvalidPASID { value: 1000000 };
 
     let _generic = ValidationError::Generic {
         field: "test".to_string(),
@@ -573,9 +458,7 @@ fn test_validation_error_implements_std_error() {
 fn test_validation_error_source_is_none() {
     use std::error::Error;
 
-    let error = ValidationError::InvalidConfiguration {
-        reason: "Test error".to_string(),
-    };
+    let error = ValidationError::InvalidConfiguration { reason: "Test error".to_string() };
 
     // ValidationError doesn't chain errors, so source should be None
     assert!(error.source().is_none());
@@ -622,10 +505,7 @@ fn test_validation_error_zero_values() {
     };
 
     let display = format!("{}", error);
-    assert_eq!(
-        display,
-        "Validation error for ZeroValue: value 0 exceeds maximum 0"
-    );
+    assert_eq!(display, "Validation error for ZeroValue: value 0 exceeds maximum 0");
 }
 
 #[test]
@@ -634,18 +514,11 @@ fn test_validation_error_message_format_consistency() {
 
     let errors = vec![
         (
-            ValidationError::OutOfRange {
-                field: "F".to_string(),
-                value: 1,
-                max: 0,
-            },
+            ValidationError::OutOfRange { field: "F".to_string(), value: 1, max: 0 },
             "Validation error for F: value 1 exceeds maximum 0",
         ),
         (
-            ValidationError::InvalidAlignment {
-                address: 0x100,
-                required_alignment: 0x10,
-            },
+            ValidationError::InvalidAlignment { address: 0x100, required_alignment: 0x10 },
             "Address 0x100 is not aligned to 0x10",
         ),
         (
@@ -686,15 +559,10 @@ fn test_validation_error_message_format_consistency() {
             "Security violation: NS cannot access S",
         ),
         (
-            ValidationError::InvalidConfiguration {
-                reason: "reason".to_string(),
-            },
+            ValidationError::InvalidConfiguration { reason: "reason".to_string() },
             "Invalid configuration: reason",
         ),
-        (
-            ValidationError::InvalidPASID { value: 42 },
-            "Invalid PASID value: 42",
-        ),
+        (ValidationError::InvalidPASID { value: 42 }, "Invalid PASID value: 42"),
     ];
 
     for (error, expected) in errors {

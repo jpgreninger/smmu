@@ -5,8 +5,7 @@
 //! and display formatting.
 
 use smmu::types::{
-    AccessType, PagePermissions, SecurityState, TranslationData, TranslationError,
-    TranslationResult, PA,
+    AccessType, PagePermissions, SecurityState, TranslationData, TranslationError, TranslationResult, PA,
 };
 
 // ============================================================================
@@ -211,9 +210,7 @@ fn test_builder_partial_configuration() {
 #[test]
 #[should_panic(expected = "Physical address must be set")]
 fn test_builder_without_physical_address_panics() {
-    let _data = TranslationData::builder()
-        .permissions(PagePermissions::read_only())
-        .build();
+    let _data = TranslationData::builder().permissions(PagePermissions::read_only()).build();
 }
 
 #[test]
@@ -246,9 +243,7 @@ fn test_error_page_not_mapped() {
 
 #[test]
 fn test_error_permission_violation() {
-    let error = TranslationError::PermissionViolation {
-        access: AccessType::Write,
-    };
+    let error = TranslationError::PermissionViolation { access: AccessType::Write };
     let msg = format!("{}", error);
     assert!(msg.contains("Permission violation"));
     assert!(msg.contains("Write"));
@@ -256,18 +251,14 @@ fn test_error_permission_violation() {
 
 #[test]
 fn test_error_permission_violation_read() {
-    let error = TranslationError::PermissionViolation {
-        access: AccessType::Read,
-    };
+    let error = TranslationError::PermissionViolation { access: AccessType::Read };
     let msg = format!("{}", error);
     assert!(msg.contains("Read"));
 }
 
 #[test]
 fn test_error_permission_violation_execute() {
-    let error = TranslationError::PermissionViolation {
-        access: AccessType::Execute,
-    };
+    let error = TranslationError::PermissionViolation { access: AccessType::Execute };
     let msg = format!("{}", error);
     assert!(msg.contains("Execute"));
 }
@@ -366,17 +357,11 @@ fn test_error_equality() {
 
 #[test]
 fn test_error_equality_with_fields() {
-    let err1 = TranslationError::PermissionViolation {
-        access: AccessType::Write,
-    };
-    let err2 = TranslationError::PermissionViolation {
-        access: AccessType::Write,
-    };
+    let err1 = TranslationError::PermissionViolation { access: AccessType::Write };
+    let err2 = TranslationError::PermissionViolation { access: AccessType::Write };
     assert_eq!(err1, err2);
 
-    let err3 = TranslationError::PermissionViolation {
-        access: AccessType::Read,
-    };
+    let err3 = TranslationError::PermissionViolation { access: AccessType::Read };
     assert_ne!(err1, err3);
 }
 
@@ -436,9 +421,7 @@ fn test_result_err_page_not_mapped() {
 
 #[test]
 fn test_result_err_permission_violation() {
-    let result: TranslationResult = Err(TranslationError::PermissionViolation {
-        access: AccessType::Execute,
-    });
+    let result: TranslationResult = Err(TranslationError::PermissionViolation { access: AccessType::Execute });
     assert!(result.is_err());
 }
 
@@ -452,9 +435,7 @@ fn test_result_err_invalid_address() {
 fn test_result_err_all_variants() {
     let errors = vec![
         TranslationError::PageNotMapped,
-        TranslationError::PermissionViolation {
-            access: AccessType::Write,
-        },
+        TranslationError::PermissionViolation { access: AccessType::Write },
         TranslationError::InvalidAddress { address: 0x1000 },
         TranslationError::InvalidStreamID,
         TranslationError::InvalidPASID,
@@ -574,9 +555,7 @@ fn test_error_invalid_address_zero() {
 
 #[test]
 fn test_error_invalid_address_max() {
-    let error = TranslationError::InvalidAddress {
-        address: 0xFFFF_FFFF_FFFF_FFFF,
-    };
+    let error = TranslationError::InvalidAddress { address: 0xFFFF_FFFF_FFFF_FFFF };
     let msg = format!("{}", error);
     assert!(msg.contains("Invalid address"));
 }
@@ -611,11 +590,7 @@ fn test_builder_debug() {
 #[test]
 fn test_all_security_permission_combinations() {
     let pa = PA::new(0x1000).unwrap();
-    let security_states = [
-        SecurityState::NonSecure,
-        SecurityState::Secure,
-        SecurityState::Realm,
-    ];
+    let security_states = [SecurityState::NonSecure, SecurityState::Secure, SecurityState::Realm];
     let permissions = [
         PagePermissions::none(),
         PagePermissions::read_only(),

@@ -12,9 +12,7 @@
 //! - ARM SMMU v3 fault reporting compliance
 //! - Builder validation and error handling
 
-use smmu::types::{
-    AccessType, FaultRecord, FaultSyndrome, FaultType, SecurityState, StreamID, IOVA, PASID,
-};
+use smmu::types::{AccessType, FaultRecord, FaultSyndrome, FaultType, SecurityState, StreamID, IOVA, PASID};
 
 // ============================================================================
 // FaultSyndrome Construction Tests
@@ -69,10 +67,7 @@ fn test_fault_syndrome_builder_all_fields() {
 
 #[test]
 fn test_fault_syndrome_builder_partial_fields() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0xABCD)
-        .fault_level(3)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0xABCD).fault_level(3).build();
 
     assert_eq!(syndrome.syndrome_register(), 0xABCD);
     assert_eq!(syndrome.fault_level(), 3);
@@ -86,9 +81,7 @@ fn test_fault_syndrome_builder_partial_fields() {
 
 #[test]
 fn test_fault_syndrome_syndrome_register() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0xDEADBEEF)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0xDEADBEEF).build();
 
     assert_eq!(syndrome.syndrome_register(), 0xDEADBEEF);
 }
@@ -121,9 +114,7 @@ fn test_fault_syndrome_valid_syndrome_flag() {
 
 #[test]
 fn test_fault_syndrome_context_descriptor_index() {
-    let syndrome = FaultSyndrome::builder()
-        .context_descriptor_index(1234)
-        .build();
+    let syndrome = FaultSyndrome::builder().context_descriptor_index(1234).build();
 
     assert_eq!(syndrome.context_descriptor_index(), 1234);
 }
@@ -134,10 +125,7 @@ fn test_fault_syndrome_context_descriptor_index() {
 
 #[test]
 fn test_fault_syndrome_clone() {
-    let syndrome1 = FaultSyndrome::builder()
-        .syndrome_register(0x1234)
-        .fault_level(2)
-        .build();
+    let syndrome1 = FaultSyndrome::builder().syndrome_register(0x1234).fault_level(2).build();
 
     let syndrome2 = syndrome1.clone();
 
@@ -146,20 +134,11 @@ fn test_fault_syndrome_clone() {
 
 #[test]
 fn test_fault_syndrome_equality() {
-    let syndrome1 = FaultSyndrome::builder()
-        .syndrome_register(0x1234)
-        .fault_level(2)
-        .build();
+    let syndrome1 = FaultSyndrome::builder().syndrome_register(0x1234).fault_level(2).build();
 
-    let syndrome2 = FaultSyndrome::builder()
-        .syndrome_register(0x1234)
-        .fault_level(2)
-        .build();
+    let syndrome2 = FaultSyndrome::builder().syndrome_register(0x1234).fault_level(2).build();
 
-    let syndrome3 = FaultSyndrome::builder()
-        .syndrome_register(0x5678)
-        .fault_level(2)
-        .build();
+    let syndrome3 = FaultSyndrome::builder().syndrome_register(0x5678).fault_level(2).build();
 
     assert_eq!(syndrome1, syndrome2);
     assert_ne!(syndrome1, syndrome3);
@@ -167,9 +146,7 @@ fn test_fault_syndrome_equality() {
 
 #[test]
 fn test_fault_syndrome_debug() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0x1234)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0x1234).build();
 
     let debug_str = format!("{syndrome:?}");
     assert!(debug_str.contains("FaultSyndrome"));
@@ -201,10 +178,7 @@ fn test_fault_record_new() {
 
 #[test]
 fn test_fault_record_with_syndrome() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0xABCD)
-        .fault_level(2)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0xABCD).fault_level(2).build();
 
     let record = FaultRecord::with_syndrome(
         StreamID::new(1).unwrap(),
@@ -252,9 +226,7 @@ fn test_fault_record_builder_minimal() {
 
 #[test]
 fn test_fault_record_builder_all_fields() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0x9876)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0x9876).build();
 
     let record = FaultRecord::builder()
         .stream_id(StreamID::new(100).unwrap())
@@ -283,9 +255,7 @@ fn test_fault_record_builder_all_fields() {
 
 #[test]
 fn test_fault_record_all_getters() {
-    let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0x1111)
-        .build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0x1111).build();
 
     let record = FaultRecord::builder()
         .stream_id(StreamID::new(5).unwrap())
@@ -448,10 +418,7 @@ fn test_translation_fault_scenario() {
 #[test]
 fn test_permission_fault_scenario() {
     // ARM SMMU v3: Permission fault (page present but wrong permissions)
-    let syndrome = FaultSyndrome::builder()
-        .write_not_read(true)
-        .fault_level(3)
-        .build();
+    let syndrome = FaultSyndrome::builder().write_not_read(true).fault_level(3).build();
 
     let record = FaultRecord::with_syndrome(
         StreamID::new(20).unwrap(),
@@ -486,10 +453,7 @@ fn test_address_size_fault_scenario() {
 #[test]
 fn test_access_flag_fault_scenario() {
     // ARM SMMU v3: Access flag not set in page table entry
-    let syndrome = FaultSyndrome::builder()
-        .fault_level(2)
-        .valid_syndrome(true)
-        .build();
+    let syndrome = FaultSyndrome::builder().fault_level(2).valid_syndrome(true).build();
 
     let record = FaultRecord::with_syndrome(
         StreamID::new(40).unwrap(),

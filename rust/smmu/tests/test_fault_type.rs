@@ -16,8 +16,7 @@
 //! ARM SMMU v3 Fault Classification Compliance
 
 use smmu::types::{
-    AddressType, FaultContext, FaultSeverity, FaultType, TranslationStep,
-    StreamID, PASID, IOVA, ValidationError,
+    AddressType, FaultContext, FaultSeverity, FaultType, StreamID, TranslationStep, ValidationError, IOVA, PASID,
 };
 use std::collections::HashSet;
 
@@ -49,11 +48,7 @@ fn test_fault_type_codes_unique() {
     let mut codes = HashSet::new();
     for fault in &fault_types {
         let code = fault.code();
-        assert!(
-            codes.insert(code),
-            "Duplicate fault code: 0x{:02X}",
-            code
-        );
+        assert!(codes.insert(code), "Duplicate fault code: 0x{:02X}", code);
     }
 
     assert_eq!(codes.len(), 15, "Expected 15 unique fault codes");
@@ -88,30 +83,15 @@ fn test_fault_type_names() {
     assert_eq!(FaultType::PermissionFault.name(), "Permission Fault");
     assert_eq!(FaultType::ExternalAbort.name(), "External Abort");
     assert_eq!(FaultType::TLBConflictAbort.name(), "TLB Conflict Abort");
-    assert_eq!(
-        FaultType::UnsupportedAtomicUpdate.name(),
-        "Unsupported Atomic Update"
-    );
+    assert_eq!(FaultType::UnsupportedAtomicUpdate.name(), "Unsupported Atomic Update");
     assert_eq!(FaultType::AlignmentFault.name(), "Alignment Fault");
-    assert_eq!(
-        FaultType::OutputAddressRangeFault.name(),
-        "Output Address Range Fault"
-    );
+    assert_eq!(FaultType::OutputAddressRangeFault.name(), "Output Address Range Fault");
     assert_eq!(FaultType::BadStreamID.name(), "Bad StreamID");
-    assert_eq!(
-        FaultType::CDFetchFault.name(),
-        "Context Descriptor Fetch Fault"
-    );
+    assert_eq!(FaultType::CDFetchFault.name(), "Context Descriptor Fetch Fault");
     assert_eq!(FaultType::BadCD.name(), "Bad Context Descriptor");
-    assert_eq!(
-        FaultType::WalkEABT.name(),
-        "Page Table Walk External Abort"
-    );
+    assert_eq!(FaultType::WalkEABT.name(), "Page Table Walk External Abort");
     assert_eq!(FaultType::BadSTE.name(), "Bad Stream Table Entry");
-    assert_eq!(
-        FaultType::STEFetchFault.name(),
-        "Stream Table Entry Fetch Fault"
-    );
+    assert_eq!(FaultType::STEFetchFault.name(), "Stream Table Entry Fetch Fault");
 }
 
 #[test]
@@ -138,12 +118,7 @@ fn test_fault_type_descriptions() {
     for fault in &fault_types {
         let desc = fault.description();
         assert!(!desc.is_empty(), "Fault {:?} has empty description", fault);
-        assert!(
-            desc.len() > 10,
-            "Fault {:?} description too short: {}",
-            fault,
-            desc
-        );
+        assert!(desc.len() > 10, "Fault {:?} description too short: {}", fault, desc);
     }
 }
 
@@ -294,11 +269,7 @@ fn test_classification_mutually_exclusive() {
 
         let count = categories.iter().filter(|&&x| x).count();
         // Verify that a fault belongs to at most one category (mutually exclusive)
-        assert!(
-            count <= 1,
-            "Fault {:?} belongs to multiple categories",
-            fault
-        );
+        assert!(count <= 1, "Fault {:?} belongs to multiple categories", fault);
     }
 }
 
@@ -322,17 +293,11 @@ fn test_severity_error() {
     assert_eq!(FaultType::ExternalAbort.severity(), FaultSeverity::Error);
     assert_eq!(FaultType::AddressSizeFault.severity(), FaultSeverity::Error);
     assert_eq!(FaultType::AlignmentFault.severity(), FaultSeverity::Error);
-    assert_eq!(
-        FaultType::OutputAddressRangeFault.severity(),
-        FaultSeverity::Error
-    );
+    assert_eq!(FaultType::OutputAddressRangeFault.severity(), FaultSeverity::Error);
     assert_eq!(FaultType::CDFetchFault.severity(), FaultSeverity::Error);
     assert_eq!(FaultType::STEFetchFault.severity(), FaultSeverity::Error);
     assert_eq!(FaultType::WalkEABT.severity(), FaultSeverity::Error);
-    assert_eq!(
-        FaultType::UnsupportedAtomicUpdate.severity(),
-        FaultSeverity::Error
-    );
+    assert_eq!(FaultType::UnsupportedAtomicUpdate.severity(), FaultSeverity::Error);
 }
 
 #[test]
@@ -532,51 +497,21 @@ fn test_stage_occurrence_consistency() {
 #[test]
 fn test_from_code_valid_codes() {
     // Test all valid fault codes 0x01-0x0F
-    assert_eq!(
-        FaultType::from_code(0x01).unwrap(),
-        FaultType::TranslationFault
-    );
-    assert_eq!(
-        FaultType::from_code(0x02).unwrap(),
-        FaultType::AddressSizeFault
-    );
-    assert_eq!(
-        FaultType::from_code(0x03).unwrap(),
-        FaultType::AccessFlagFault
-    );
-    assert_eq!(
-        FaultType::from_code(0x04).unwrap(),
-        FaultType::PermissionFault
-    );
-    assert_eq!(
-        FaultType::from_code(0x05).unwrap(),
-        FaultType::ExternalAbort
-    );
-    assert_eq!(
-        FaultType::from_code(0x06).unwrap(),
-        FaultType::TLBConflictAbort
-    );
-    assert_eq!(
-        FaultType::from_code(0x07).unwrap(),
-        FaultType::UnsupportedAtomicUpdate
-    );
-    assert_eq!(
-        FaultType::from_code(0x08).unwrap(),
-        FaultType::AlignmentFault
-    );
-    assert_eq!(
-        FaultType::from_code(0x09).unwrap(),
-        FaultType::OutputAddressRangeFault
-    );
+    assert_eq!(FaultType::from_code(0x01).unwrap(), FaultType::TranslationFault);
+    assert_eq!(FaultType::from_code(0x02).unwrap(), FaultType::AddressSizeFault);
+    assert_eq!(FaultType::from_code(0x03).unwrap(), FaultType::AccessFlagFault);
+    assert_eq!(FaultType::from_code(0x04).unwrap(), FaultType::PermissionFault);
+    assert_eq!(FaultType::from_code(0x05).unwrap(), FaultType::ExternalAbort);
+    assert_eq!(FaultType::from_code(0x06).unwrap(), FaultType::TLBConflictAbort);
+    assert_eq!(FaultType::from_code(0x07).unwrap(), FaultType::UnsupportedAtomicUpdate);
+    assert_eq!(FaultType::from_code(0x08).unwrap(), FaultType::AlignmentFault);
+    assert_eq!(FaultType::from_code(0x09).unwrap(), FaultType::OutputAddressRangeFault);
     assert_eq!(FaultType::from_code(0x0A).unwrap(), FaultType::BadStreamID);
     assert_eq!(FaultType::from_code(0x0B).unwrap(), FaultType::CDFetchFault);
     assert_eq!(FaultType::from_code(0x0C).unwrap(), FaultType::BadCD);
     assert_eq!(FaultType::from_code(0x0D).unwrap(), FaultType::WalkEABT);
     assert_eq!(FaultType::from_code(0x0E).unwrap(), FaultType::BadSTE);
-    assert_eq!(
-        FaultType::from_code(0x0F).unwrap(),
-        FaultType::STEFetchFault
-    );
+    assert_eq!(FaultType::from_code(0x0F).unwrap(), FaultType::STEFetchFault);
 }
 
 #[test]
@@ -587,7 +522,7 @@ fn test_from_code_invalid_zero() {
     match result {
         Err(ValidationError::InvalidFaultType { code }) => {
             assert_eq!(code, 0x00);
-        }
+        },
         _ => panic!("Expected InvalidFaultType error"),
     }
 }
@@ -602,7 +537,7 @@ fn test_from_code_invalid_above_range() {
         match result {
             Err(ValidationError::InvalidFaultType { code: err_code }) => {
                 assert_eq!(err_code, code);
-            }
+            },
             _ => panic!("Expected InvalidFaultType error for code 0x{:02X}", code),
         }
     }
@@ -632,11 +567,7 @@ fn test_from_code_roundtrip() {
     for fault in &fault_types {
         let code = fault.code();
         let reconstructed = FaultType::from_code(code).unwrap();
-        assert_eq!(
-            *fault, reconstructed,
-            "Roundtrip failed for fault {:?}",
-            fault
-        );
+        assert_eq!(*fault, reconstructed, "Roundtrip failed for fault {:?}", fault);
     }
 }
 
@@ -647,60 +578,21 @@ fn test_from_code_roundtrip() {
 #[test]
 fn test_display_trait() {
     // Display should match name()
-    assert_eq!(
-        format!("{}", FaultType::TranslationFault),
-        "Translation Fault"
-    );
-    assert_eq!(
-        format!("{}", FaultType::AddressSizeFault),
-        "Address Size Fault"
-    );
-    assert_eq!(
-        format!("{}", FaultType::AccessFlagFault),
-        "Access Flag Fault"
-    );
-    assert_eq!(
-        format!("{}", FaultType::PermissionFault),
-        "Permission Fault"
-    );
+    assert_eq!(format!("{}", FaultType::TranslationFault), "Translation Fault");
+    assert_eq!(format!("{}", FaultType::AddressSizeFault), "Address Size Fault");
+    assert_eq!(format!("{}", FaultType::AccessFlagFault), "Access Flag Fault");
+    assert_eq!(format!("{}", FaultType::PermissionFault), "Permission Fault");
     assert_eq!(format!("{}", FaultType::ExternalAbort), "External Abort");
-    assert_eq!(
-        format!("{}", FaultType::TLBConflictAbort),
-        "TLB Conflict Abort"
-    );
-    assert_eq!(
-        format!("{}", FaultType::UnsupportedAtomicUpdate),
-        "Unsupported Atomic Update"
-    );
-    assert_eq!(
-        format!("{}", FaultType::AlignmentFault),
-        "Alignment Fault"
-    );
-    assert_eq!(
-        format!("{}", FaultType::OutputAddressRangeFault),
-        "Output Address Range Fault"
-    );
+    assert_eq!(format!("{}", FaultType::TLBConflictAbort), "TLB Conflict Abort");
+    assert_eq!(format!("{}", FaultType::UnsupportedAtomicUpdate), "Unsupported Atomic Update");
+    assert_eq!(format!("{}", FaultType::AlignmentFault), "Alignment Fault");
+    assert_eq!(format!("{}", FaultType::OutputAddressRangeFault), "Output Address Range Fault");
     assert_eq!(format!("{}", FaultType::BadStreamID), "Bad StreamID");
-    assert_eq!(
-        format!("{}", FaultType::CDFetchFault),
-        "Context Descriptor Fetch Fault"
-    );
-    assert_eq!(
-        format!("{}", FaultType::BadCD),
-        "Bad Context Descriptor"
-    );
-    assert_eq!(
-        format!("{}", FaultType::WalkEABT),
-        "Page Table Walk External Abort"
-    );
-    assert_eq!(
-        format!("{}", FaultType::BadSTE),
-        "Bad Stream Table Entry"
-    );
-    assert_eq!(
-        format!("{}", FaultType::STEFetchFault),
-        "Stream Table Entry Fetch Fault"
-    );
+    assert_eq!(format!("{}", FaultType::CDFetchFault), "Context Descriptor Fetch Fault");
+    assert_eq!(format!("{}", FaultType::BadCD), "Bad Context Descriptor");
+    assert_eq!(format!("{}", FaultType::WalkEABT), "Page Table Walk External Abort");
+    assert_eq!(format!("{}", FaultType::BadSTE), "Bad Stream Table Entry");
+    assert_eq!(format!("{}", FaultType::STEFetchFault), "Stream Table Entry Fetch Fault");
 }
 
 // ============================================================================

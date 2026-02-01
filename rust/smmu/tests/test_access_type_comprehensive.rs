@@ -158,7 +158,7 @@ fn test_from_bits_invalid() {
         match result {
             Err(ValidationError::InvalidAccessType { bits: b }) => {
                 assert_eq!(b, bits);
-            }
+            },
             _ => panic!("Expected InvalidAccessType error"),
         }
     }
@@ -314,10 +314,7 @@ fn test_intersect_read_write() {
     assert_eq!(rw.intersect(AccessType::Execute), AccessType::None);
     assert_eq!(rw.intersect(AccessType::ReadExecute), AccessType::Read);
     assert_eq!(rw.intersect(AccessType::WriteExecute), AccessType::Write);
-    assert_eq!(
-        rw.intersect(AccessType::ReadWriteExecute),
-        AccessType::ReadWrite
-    );
+    assert_eq!(rw.intersect(AccessType::ReadWriteExecute), AccessType::ReadWrite);
 }
 
 #[test]
@@ -373,10 +370,7 @@ fn test_union_read() {
     assert_eq!(read.union(AccessType::Write), AccessType::ReadWrite);
     assert_eq!(read.union(AccessType::Execute), AccessType::ReadExecute);
     assert_eq!(read.union(AccessType::ReadWrite), AccessType::ReadWrite);
-    assert_eq!(
-        read.union(AccessType::WriteExecute),
-        AccessType::ReadWriteExecute
-    );
+    assert_eq!(read.union(AccessType::WriteExecute), AccessType::ReadWriteExecute);
 }
 
 #[test]
@@ -478,13 +472,10 @@ fn test_validate_against_error_details() {
 
     assert!(result.is_err());
     match result {
-        Err(ValidationError::PermissionDenied {
-            requested,
-            available,
-        }) => {
+        Err(ValidationError::PermissionDenied { requested, available }) => {
             assert!(requested.contains("Execute"));
             assert!(available.contains("ReadWrite"));
-        }
+        },
         _ => panic!("Expected PermissionDenied error"),
     }
 }
@@ -746,10 +737,7 @@ fn test_union_with_read_write_execute() {
     ];
 
     for &t in &types {
-        assert_eq!(
-            t.union(AccessType::ReadWriteExecute),
-            AccessType::ReadWriteExecute
-        );
+        assert_eq!(t.union(AccessType::ReadWriteExecute), AccessType::ReadWriteExecute);
     }
 }
 

@@ -4,11 +4,9 @@
 //! builder patterns, serialization, profiles, and validation logic.
 
 use smmu::types::{
-    AddressConfig, AddressConfigBuilder, CacheConfig, CacheConfigBuilder,
-    ConfigurationError, ConfigurationErrorType, FaultMode, QueueConfig,
-    QueueConfigBuilder, ResourceLimits, ResourceLimitsBuilder, SMMUConfig,
-    SMMUConfigBuilder, StreamConfig, StreamConfigBuilder, ValidationError,
-    ValidationResult, ConfigConstants,
+    AddressConfig, AddressConfigBuilder, CacheConfig, CacheConfigBuilder, ConfigConstants, ConfigurationError,
+    ConfigurationErrorType, FaultMode, QueueConfig, QueueConfigBuilder, ResourceLimits, ResourceLimitsBuilder,
+    SMMUConfig, SMMUConfigBuilder, StreamConfig, StreamConfigBuilder, ValidationError, ValidationResult,
 };
 
 // ============================================================================
@@ -69,10 +67,7 @@ fn test_stream_config_two_stage() {
 
 #[test]
 fn test_stream_config_validation_stages_without_translation() {
-    let result = StreamConfig::builder()
-        .translation_enabled(false)
-        .stage1_enabled(true)
-        .build();
+    let result = StreamConfig::builder().translation_enabled(false).stage1_enabled(true).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -199,9 +194,7 @@ fn test_queue_config_builder_valid() {
 
 #[test]
 fn test_queue_config_event_queue_too_small() {
-    let result = QueueConfig::builder()
-        .event_queue_size(8)
-        .build();
+    let result = QueueConfig::builder().event_queue_size(8).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -212,9 +205,7 @@ fn test_queue_config_event_queue_too_small() {
 
 #[test]
 fn test_queue_config_event_queue_too_large() {
-    let result = QueueConfig::builder()
-        .event_queue_size(QueueConfig::MAX_QUEUE_SIZE + 1)
-        .build();
+    let result = QueueConfig::builder().event_queue_size(QueueConfig::MAX_QUEUE_SIZE + 1).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -224,9 +215,7 @@ fn test_queue_config_event_queue_too_large() {
 
 #[test]
 fn test_queue_config_command_queue_too_small() {
-    let result = QueueConfig::builder()
-        .command_queue_size(8)
-        .build();
+    let result = QueueConfig::builder().command_queue_size(8).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -245,9 +234,7 @@ fn test_queue_config_command_queue_too_large() {
 
 #[test]
 fn test_queue_config_pri_queue_too_small() {
-    let result = QueueConfig::builder()
-        .pri_queue_size(8)
-        .build();
+    let result = QueueConfig::builder().pri_queue_size(8).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -257,9 +244,7 @@ fn test_queue_config_pri_queue_too_small() {
 
 #[test]
 fn test_queue_config_pri_queue_too_large() {
-    let result = QueueConfig::builder()
-        .pri_queue_size(QueueConfig::MAX_QUEUE_SIZE + 1)
-        .build();
+    let result = QueueConfig::builder().pri_queue_size(QueueConfig::MAX_QUEUE_SIZE + 1).build();
 
     assert!(result.is_err());
 }
@@ -337,9 +322,7 @@ fn test_cache_config_builder_valid() {
 
 #[test]
 fn test_cache_config_tlb_cache_too_small() {
-    let result = CacheConfig::builder()
-        .tlb_cache_size(CacheConfig::MIN_CACHE_SIZE - 1)
-        .build();
+    let result = CacheConfig::builder().tlb_cache_size(CacheConfig::MIN_CACHE_SIZE - 1).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -350,9 +333,7 @@ fn test_cache_config_tlb_cache_too_small() {
 
 #[test]
 fn test_cache_config_tlb_cache_too_large() {
-    let result = CacheConfig::builder()
-        .tlb_cache_size(CacheConfig::MAX_CACHE_SIZE + 1)
-        .build();
+    let result = CacheConfig::builder().tlb_cache_size(CacheConfig::MAX_CACHE_SIZE + 1).build();
 
     assert!(result.is_err());
 }
@@ -452,9 +433,7 @@ fn test_address_config_builder_valid() {
 
 #[test]
 fn test_address_config_iova_bits_too_small() {
-    let result = AddressConfig::builder()
-        .max_iova_bits(AddressConfig::MIN_IOVA_BITS - 1)
-        .build();
+    let result = AddressConfig::builder().max_iova_bits(AddressConfig::MIN_IOVA_BITS - 1).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -464,18 +443,14 @@ fn test_address_config_iova_bits_too_small() {
 
 #[test]
 fn test_address_config_iova_bits_too_large() {
-    let result = AddressConfig::builder()
-        .max_iova_bits(AddressConfig::MAX_IOVA_BITS + 1)
-        .build();
+    let result = AddressConfig::builder().max_iova_bits(AddressConfig::MAX_IOVA_BITS + 1).build();
 
     assert!(result.is_err());
 }
 
 #[test]
 fn test_address_config_pa_bits_too_small() {
-    let result = AddressConfig::builder()
-        .max_pa_bits(AddressConfig::MIN_PA_BITS - 1)
-        .build();
+    let result = AddressConfig::builder().max_pa_bits(AddressConfig::MIN_PA_BITS - 1).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -485,9 +460,7 @@ fn test_address_config_pa_bits_too_small() {
 
 #[test]
 fn test_address_config_pa_bits_too_large() {
-    let result = AddressConfig::builder()
-        .max_pa_bits(AddressConfig::MAX_PA_BITS + 1)
-        .build();
+    let result = AddressConfig::builder().max_pa_bits(AddressConfig::MAX_PA_BITS + 1).build();
 
     assert!(result.is_err());
 }
@@ -634,9 +607,7 @@ fn test_resource_limits_thread_count_too_large() {
 
 #[test]
 fn test_resource_limits_timeout_too_small() {
-    let result = ResourceLimits::builder()
-        .timeout_ms(ResourceLimits::MIN_TIMEOUT_MS - 1)
-        .build();
+    let result = ResourceLimits::builder().timeout_ms(ResourceLimits::MIN_TIMEOUT_MS - 1).build();
 
     assert!(result.is_err());
     if let Err(ValidationError::InvalidConfiguration { reason }) = result {
@@ -646,9 +617,7 @@ fn test_resource_limits_timeout_too_small() {
 
 #[test]
 fn test_resource_limits_timeout_too_large() {
-    let result = ResourceLimits::builder()
-        .timeout_ms(ResourceLimits::MAX_TIMEOUT_MS + 1)
-        .build();
+    let result = ResourceLimits::builder().timeout_ms(ResourceLimits::MAX_TIMEOUT_MS + 1).build();
 
     assert!(result.is_err());
 }
@@ -691,7 +660,10 @@ fn test_resource_limits_memory_accessors() {
     assert_eq!(limits.max_memory_bytes(), ResourceLimits::DEFAULT_MAX_MEMORY_USAGE);
     assert_eq!(limits.max_memory_kb(), ResourceLimits::DEFAULT_MAX_MEMORY_USAGE / 1024);
     assert_eq!(limits.max_memory_mb(), ResourceLimits::DEFAULT_MAX_MEMORY_USAGE / (1024 * 1024));
-    assert_eq!(limits.max_memory_gb(), ResourceLimits::DEFAULT_MAX_MEMORY_USAGE / (1024 * 1024 * 1024));
+    assert_eq!(
+        limits.max_memory_gb(),
+        ResourceLimits::DEFAULT_MAX_MEMORY_USAGE / (1024 * 1024 * 1024)
+    );
 }
 
 #[test]
@@ -915,7 +887,10 @@ fn test_smmu_config_update_resource_limits_invalid() {
 
     assert!(result.is_err());
     // Original config should be unchanged
-    assert_eq!(config.resource_limits.max_memory_usage, ResourceLimits::DEFAULT_MAX_MEMORY_USAGE);
+    assert_eq!(
+        config.resource_limits.max_memory_usage,
+        ResourceLimits::DEFAULT_MAX_MEMORY_USAGE
+    );
 }
 
 // ============================================================================
@@ -960,8 +935,7 @@ fn test_smmu_config_reset() {
 
 #[test]
 fn test_smmu_config_with_max_streams() {
-    let config = SMMUConfig::default()
-        .with_max_streams(2048);
+    let config = SMMUConfig::default().with_max_streams(2048);
 
     assert_eq!(config.max_streams(), 2048);
     assert_eq!(config.address_config.max_stream_count, 2048);
@@ -1121,22 +1095,10 @@ fn test_smmu_config_builder_default() {
 #[test]
 fn test_smmu_config_builder_custom() {
     let config = SMMUConfig::builder()
-        .queue_config(QueueConfig::builder()
-            .event_queue_size(1024)
-            .build()
-            .unwrap())
-        .cache_config(CacheConfig::builder()
-            .tlb_cache_size(2048)
-            .build()
-            .unwrap())
-        .address_config(AddressConfig::builder()
-            .max_stream_count(1024)
-            .build()
-            .unwrap())
-        .resource_limits(ResourceLimits::builder()
-            .max_thread_count(16)
-            .build()
-            .unwrap())
+        .queue_config(QueueConfig::builder().event_queue_size(1024).build().unwrap())
+        .cache_config(CacheConfig::builder().tlb_cache_size(2048).build().unwrap())
+        .address_config(AddressConfig::builder().max_stream_count(1024).build().unwrap())
+        .resource_limits(ResourceLimits::builder().max_thread_count(16).build().unwrap())
         .build()
         .expect("valid config");
 
@@ -1148,10 +1110,7 @@ fn test_smmu_config_builder_custom() {
 
 #[test]
 fn test_smmu_config_from_queue_config() {
-    let queue_config = QueueConfig::builder()
-        .event_queue_size(1024)
-        .build()
-        .unwrap();
+    let queue_config = QueueConfig::builder().event_queue_size(1024).build().unwrap();
 
     let smmu_config: SMMUConfig = queue_config.clone().into();
 
@@ -1196,8 +1155,14 @@ fn test_configuration_error_display() {
 fn test_configuration_error_type_display() {
     assert_eq!(format!("{}", ConfigurationErrorType::InvalidQueueSize), "Invalid queue size");
     assert_eq!(format!("{}", ConfigurationErrorType::InvalidCacheSize), "Invalid cache size");
-    assert_eq!(format!("{}", ConfigurationErrorType::InvalidAddressSize), "Invalid address size");
-    assert_eq!(format!("{}", ConfigurationErrorType::InvalidResourceLimit), "Invalid resource limit");
+    assert_eq!(
+        format!("{}", ConfigurationErrorType::InvalidAddressSize),
+        "Invalid address size"
+    );
+    assert_eq!(
+        format!("{}", ConfigurationErrorType::InvalidResourceLimit),
+        "Invalid resource limit"
+    );
     assert_eq!(format!("{}", ConfigurationErrorType::InvalidFormat), "Invalid format");
     assert_eq!(format!("{}", ConfigurationErrorType::MissingRequired), "Missing required field");
     assert_eq!(format!("{}", ConfigurationErrorType::OutOfRange), "Value out of range");
@@ -1205,9 +1170,7 @@ fn test_configuration_error_type_display() {
 
 #[test]
 fn test_configuration_error_from_validation_error() {
-    let validation_error = ValidationError::InvalidConfiguration {
-        reason: "test error".to_string(),
-    };
+    let validation_error = ValidationError::InvalidConfiguration { reason: "test error".to_string() };
 
     let config_error: ConfigurationError = validation_error.into();
     assert_eq!(config_error.error_type, ConfigurationErrorType::InvalidFormat);
@@ -1551,11 +1514,7 @@ fn test_configuration_error_types_coverage() {
     ];
 
     for error_type in types {
-        let error = ConfigurationError::new(
-            error_type,
-            "test".to_string(),
-            "test message".to_string(),
-        );
+        let error = ConfigurationError::new(error_type, "test".to_string(), "test message".to_string());
         assert_eq!(error.error_type, error_type);
     }
 }
@@ -1925,8 +1884,14 @@ fn test_configuration_error_equality() {
 
 #[test]
 fn test_configuration_error_type_equality() {
-    assert_eq!(ConfigurationErrorType::InvalidQueueSize, ConfigurationErrorType::InvalidQueueSize);
-    assert_ne!(ConfigurationErrorType::InvalidQueueSize, ConfigurationErrorType::InvalidCacheSize);
+    assert_eq!(
+        ConfigurationErrorType::InvalidQueueSize,
+        ConfigurationErrorType::InvalidQueueSize
+    );
+    assert_ne!(
+        ConfigurationErrorType::InvalidQueueSize,
+        ConfigurationErrorType::InvalidCacheSize
+    );
 }
 
 #[test]
@@ -2384,10 +2349,7 @@ fn test_resource_limits_timeout_duration_conversion() {
     ];
 
     for (timeout_ms, expected_millis) in &test_cases {
-        let limits = ResourceLimits::builder()
-            .timeout_ms(*timeout_ms)
-            .build()
-            .expect("valid limits");
+        let limits = ResourceLimits::builder().timeout_ms(*timeout_ms).build().expect("valid limits");
         let duration = limits.timeout();
         assert_eq!(duration.as_millis(), *expected_millis);
     }
@@ -2404,10 +2366,7 @@ fn test_cache_config_cache_max_age_duration_conversion() {
     ];
 
     for (age_ms, expected_millis) in &test_cases {
-        let config = CacheConfig::builder()
-            .cache_max_age_ms(*age_ms)
-            .build()
-            .expect("valid config");
+        let config = CacheConfig::builder().cache_max_age_ms(*age_ms).build().expect("valid config");
         let duration = config.cache_max_age();
         assert_eq!(duration.as_millis(), *expected_millis);
     }
@@ -2498,9 +2457,9 @@ fn test_stream_config_all_predefined_configs_valid() {
 
 #[test]
 fn test_configuration_error_type_hash_uniqueness() {
+    use std::collections::hash_map::DefaultHasher;
     use std::collections::HashSet;
     use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
 
     let types = [
         ConfigurationErrorType::InvalidQueueSize,
@@ -2530,16 +2489,36 @@ fn test_configuration_error_from_all_validation_error_types() {
     let validation_errors: Vec<ValidationError> = vec![
         ValidationError::InvalidConfiguration { reason: "test".to_string() },
         ValidationError::InvalidPASID { value: 999999 },
-        ValidationError::InvalidAlignment { address: 0x1001, required_alignment: 0x1000 },
-        ValidationError::PermissionDenied { requested: "rw".to_string(), available: "r".to_string() },
-        ValidationError::OutOfRange { field: "test".to_string(), value: 100, max: 50 },
+        ValidationError::InvalidAlignment {
+            address: 0x1001,
+            required_alignment: 0x1000,
+        },
+        ValidationError::PermissionDenied {
+            requested: "rw".to_string(),
+            available: "r".to_string(),
+        },
+        ValidationError::OutOfRange {
+            field: "test".to_string(),
+            value: 100,
+            max: 50,
+        },
         ValidationError::InvalidAccessType { bits: 0xFF },
         ValidationError::InvalidSecurityState { bits: 0xFF },
         ValidationError::InvalidTranslationStage { bits: 0xFF },
         ValidationError::InvalidFaultType { code: 0xFF },
-        ValidationError::InvalidStateTransition { from: "A".to_string(), to: "B".to_string() },
-        ValidationError::SecurityViolation { from_state: "NS".to_string(), to_state: "S".to_string() },
-        ValidationError::Generic { field: "test".to_string(), value: "val".to_string(), constraint: "c".to_string() },
+        ValidationError::InvalidStateTransition {
+            from: "A".to_string(),
+            to: "B".to_string(),
+        },
+        ValidationError::SecurityViolation {
+            from_state: "NS".to_string(),
+            to_state: "S".to_string(),
+        },
+        ValidationError::Generic {
+            field: "test".to_string(),
+            value: "val".to_string(),
+            constraint: "c".to_string(),
+        },
     ];
 
     for validation_error in validation_errors {
@@ -2577,20 +2556,12 @@ fn test_smmu_config_update_cache_settings_boundary() {
     let mut config = SMMUConfig::default();
 
     // Test MIN boundary
-    let result = config.update_cache_settings(
-        CacheConfig::MIN_CACHE_SIZE,
-        CacheConfig::MIN_CACHE_AGE_MS,
-        true,
-    );
+    let result = config.update_cache_settings(CacheConfig::MIN_CACHE_SIZE, CacheConfig::MIN_CACHE_AGE_MS, true);
     assert!(result.is_ok());
     assert_eq!(config.cache_config.tlb_cache_size, CacheConfig::MIN_CACHE_SIZE);
 
     // Test MAX boundary
-    let result = config.update_cache_settings(
-        CacheConfig::MAX_CACHE_SIZE,
-        CacheConfig::MAX_CACHE_AGE_MS,
-        false,
-    );
+    let result = config.update_cache_settings(CacheConfig::MAX_CACHE_SIZE, CacheConfig::MAX_CACHE_AGE_MS, false);
     assert!(result.is_ok());
     assert_eq!(config.cache_config.tlb_cache_size, CacheConfig::MAX_CACHE_SIZE);
     assert!(!config.cache_config.enable_caching);
@@ -2651,9 +2622,7 @@ fn test_smmu_config_update_resource_limits_boundary() {
 #[test]
 fn test_stream_config_builder_validation_at_build() {
     // Test that validation happens at build time
-    let builder = StreamConfig::builder()
-        .translation_enabled(false)
-        .stage1_enabled(true); // Invalid: stages enabled without translation
+    let builder = StreamConfig::builder().translation_enabled(false).stage1_enabled(true); // Invalid: stages enabled without translation
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2662,8 +2631,7 @@ fn test_stream_config_builder_validation_at_build() {
 #[test]
 fn test_queue_config_builder_validation_at_build() {
     // Test that validation happens at build time
-    let builder = QueueConfig::builder()
-        .event_queue_size(1); // Too small
+    let builder = QueueConfig::builder().event_queue_size(1); // Too small
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2672,8 +2640,7 @@ fn test_queue_config_builder_validation_at_build() {
 #[test]
 fn test_cache_config_builder_validation_at_build() {
     // Test that validation happens at build time
-    let builder = CacheConfig::builder()
-        .tlb_cache_size(1); // Too small
+    let builder = CacheConfig::builder().tlb_cache_size(1); // Too small
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2682,8 +2649,7 @@ fn test_cache_config_builder_validation_at_build() {
 #[test]
 fn test_address_config_builder_validation_at_build() {
     // Test that validation happens at build time
-    let builder = AddressConfig::builder()
-        .max_iova_bits(1); // Too small
+    let builder = AddressConfig::builder().max_iova_bits(1); // Too small
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2692,8 +2658,7 @@ fn test_address_config_builder_validation_at_build() {
 #[test]
 fn test_resource_limits_builder_validation_at_build() {
     // Test that validation happens at build time
-    let builder = ResourceLimits::builder()
-        .max_memory_usage(1); // Too small
+    let builder = ResourceLimits::builder().max_memory_usage(1); // Too small
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2705,8 +2670,7 @@ fn test_smmu_config_builder_with_invalid_subconfigs() {
     let mut invalid_queue = QueueConfig::default();
     invalid_queue.event_queue_size = 1; // Invalid
 
-    let builder = SMMUConfig::builder()
-        .queue_config(invalid_queue);
+    let builder = SMMUConfig::builder().queue_config(invalid_queue);
 
     let result = builder.build();
     assert!(result.is_err());
@@ -2824,9 +2788,7 @@ fn test_fault_mode_debug_output() {
 #[test]
 fn test_stream_config_builder_preserves_values() {
     // Test that builder methods actually preserve values
-    let builder = StreamConfig::builder()
-        .translation_enabled(true)
-        .stage1_enabled(true);
+    let builder = StreamConfig::builder().translation_enabled(true).stage1_enabled(true);
 
     // Build it and verify values are preserved
     let config = builder.build().expect("valid config");

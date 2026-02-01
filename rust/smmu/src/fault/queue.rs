@@ -304,10 +304,7 @@ impl FaultQueue {
     /// ```
     #[must_use]
     pub fn get_all(&self) -> Vec<FaultRecord> {
-        self.queue
-            .lock()
-            .map(|q| q.iter().cloned().collect())
-            .unwrap_or_default()
+        self.queue.lock().map(|q| q.iter().cloned().collect()).unwrap_or_default()
     }
 }
 
@@ -324,7 +321,7 @@ impl Clone for FaultQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AccessType, FaultType, StreamID, PASID, IOVA};
+    use crate::types::{AccessType, FaultType, StreamID, IOVA, PASID};
 
     fn create_test_fault(stream_id: u32) -> FaultRecord {
         FaultRecord::builder()
@@ -367,10 +364,7 @@ mod tests {
         assert!(queue.is_full());
 
         // Should fail when full
-        assert_eq!(
-            queue.push(create_test_fault(0x300)),
-            Err(FaultQueueError::QueueFull)
-        );
+        assert_eq!(queue.push(create_test_fault(0x300)), Err(FaultQueueError::QueueFull));
     }
 
     #[test]

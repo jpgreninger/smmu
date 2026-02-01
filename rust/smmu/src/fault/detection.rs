@@ -15,8 +15,8 @@
 //! - Recoverable vs non-recoverable classification
 
 use crate::types::{
-    AccessType, FaultRecord, FaultSyndrome, FaultType, IOVA, PA, PASID, PagePermissions,
-    SecurityState, StreamID, TranslationStage,
+    AccessType, FaultRecord, FaultSyndrome, FaultType, PagePermissions, SecurityState, StreamID, TranslationStage,
+    IOVA, PA, PASID,
 };
 
 /// Address size configuration for validation
@@ -63,9 +63,7 @@ impl TranslationFaultDetector {
     /// Create a new translation fault detector
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            timestamp_generator: 0,
-        }
+        Self { timestamp_generator: 0 }
     }
 
     /// Detect a translation fault with full context
@@ -183,9 +181,7 @@ impl PermissionFaultDetector {
     /// Create a new permission fault detector
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            timestamp_generator: 0,
-        }
+        Self { timestamp_generator: 0 }
     }
 
     /// Check if permissions allow the requested access
@@ -208,9 +204,7 @@ impl PermissionFaultDetector {
             AccessType::ReadWrite => permissions.read() && permissions.write(),
             AccessType::ReadExecute => permissions.read() && permissions.execute(),
             AccessType::WriteExecute => permissions.write() && permissions.execute(),
-            AccessType::ReadWriteExecute => {
-                permissions.read() && permissions.write() && permissions.execute()
-            }
+            AccessType::ReadWriteExecute => permissions.read() && permissions.write() && permissions.execute(),
         }
     }
 

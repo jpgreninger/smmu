@@ -57,12 +57,7 @@ pub struct EventEntry {
 impl EventEntry {
     /// Create a new event entry
     #[must_use]
-    pub const fn new(
-        event_type: EventType,
-        stream_id: u32,
-        pasid: u32,
-        address: u64,
-    ) -> Self {
+    pub const fn new(event_type: EventType, stream_id: u32, pasid: u32, address: u64) -> Self {
         Self {
             event_type,
             stream_id,

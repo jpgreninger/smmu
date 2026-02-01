@@ -1,7 +1,7 @@
 //! Translation stage definitions for ARM `SMMU` v3
 
-use crate::types::ValidationError;
 use crate::types::fault_type::{AddressType, TranslationStep};
+use crate::types::ValidationError;
 use core::fmt;
 
 /// ARM `SMMU` v3 Translation Stage Configuration
@@ -107,7 +107,11 @@ impl TranslationStage {
     }
 
     /// Validate stage configuration
-    pub const fn validate_configuration(self, stage1_enabled: bool, stage2_enabled: bool) -> Result<(), ValidationError> {
+    pub const fn validate_configuration(
+        self,
+        stage1_enabled: bool,
+        stage2_enabled: bool,
+    ) -> Result<(), ValidationError> {
         match self {
             Self::Bypass => Ok(()),
             Self::Stage1 => {
@@ -116,21 +120,21 @@ impl TranslationStage {
                 } else {
                     Err(ValidationError::InvalidTranslationStage { bits: self as u8 })
                 }
-            }
+            },
             Self::Stage2 => {
                 if stage2_enabled {
                     Ok(())
                 } else {
                     Err(ValidationError::InvalidTranslationStage { bits: self as u8 })
                 }
-            }
+            },
             Self::Stage1And2 => {
                 if stage1_enabled && stage2_enabled {
                     Ok(())
                 } else {
                     Err(ValidationError::InvalidTranslationStage { bits: self as u8 })
                 }
-            }
+            },
         }
     }
 

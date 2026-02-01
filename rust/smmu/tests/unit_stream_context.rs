@@ -5,8 +5,7 @@
 
 use smmu::stream_context::StreamContext;
 use smmu::types::{
-    AccessType, PagePermissions, SecurityState, StreamContextError, TranslationError, IOVA, PA,
-    PASID, PAGE_SIZE,
+    AccessType, PagePermissions, SecurityState, StreamContextError, TranslationError, IOVA, PA, PAGE_SIZE, PASID,
 };
 
 #[allow(unused_imports)]
@@ -343,13 +342,7 @@ fn test_map_page() {
     let pa = PA::new(0x2000).unwrap();
 
     stream_context.create_pasid(pasid).unwrap();
-    let result = stream_context.map_page(
-        pasid,
-        iova,
-        pa,
-        PagePermissions::read_write(),
-        SecurityState::NonSecure,
-    );
+    let result = stream_context.map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure);
 
     assert!(result.is_ok());
 }

@@ -4,8 +4,7 @@
 //! and multi-stream independence per ARM SMMU v3 specification.
 
 use smmu::types::{
-    AccessType, PagePermissions, SMMUConfig, SecurityState, StreamConfig, StreamID, IOVA, PA,
-    PASID, PAGE_SIZE,
+    AccessType, PagePermissions, SMMUConfig, SecurityState, StreamConfig, StreamID, IOVA, PA, PAGE_SIZE, PASID,
 };
 use smmu::SMMU;
 
@@ -55,8 +54,7 @@ fn test_configure_multiple_streams() {
 
     for i in 1..=10 {
         let stream_id = StreamID::new(i).unwrap();
-        smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-            .unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     }
 
     assert_eq!(smmu.get_stream_count(), 10);
@@ -81,8 +79,7 @@ fn test_enable_disable_stream() {
     let smmu = SMMU::new();
     let stream_id = StreamID::new(1).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
 
     // TODO: Use remove_stream and configure_stream with translation_enabled instead
 }
@@ -110,8 +107,7 @@ fn test_translate_with_pasid_zero() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
     smmu.map_page(
         stream_id,
@@ -136,8 +132,7 @@ fn test_translate_basic() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
     smmu.map_page(
         stream_id,
@@ -179,10 +174,8 @@ fn test_multiple_streams_independent() {
     let pa2 = PA::new(0x3000).unwrap();
 
     // Configure both streams
-    smmu.configure_stream(stream1, StreamConfig::stage1_only())
-        .unwrap();
-    smmu.configure_stream(stream2, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream1, StreamConfig::stage1_only()).unwrap();
+    smmu.configure_stream(stream2, StreamConfig::stage1_only()).unwrap();
 
     // Create PASIDs
     smmu.create_pasid(stream1, pasid).unwrap();
@@ -209,12 +202,8 @@ fn test_multiple_streams_independent() {
     .unwrap();
 
     // Verify independence
-    let result1 = smmu
-        .translate(stream1, pasid, iova, AccessType::Read)
-        .unwrap();
-    let result2 = smmu
-        .translate(stream2, pasid, iova, AccessType::Read)
-        .unwrap();
+    let result1 = smmu.translate(stream1, pasid, iova, AccessType::Read).unwrap();
+    let result2 = smmu.translate(stream2, pasid, iova, AccessType::Read).unwrap();
 
     assert_eq!(result1.physical_address().as_u64(), 0x2000);
     assert_eq!(result2.physical_address().as_u64(), 0x3000);
@@ -231,8 +220,7 @@ fn test_record_fault() {
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Attempt translation of unmapped address (should generate fault)
@@ -251,8 +239,7 @@ fn test_clear_faults() {
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Generate fault
@@ -284,8 +271,7 @@ fn test_shutdown() {
     let smmu = SMMU::new();
     let stream_id = StreamID::new(1).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
 
     assert!(!smmu.is_shutdown());
     smmu.shutdown().unwrap();
@@ -314,8 +300,7 @@ fn test_translation_statistics() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    smmu.configure_stream(stream_id, StreamConfig::stage1_only())
-        .unwrap();
+    smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
     smmu.map_page(
         stream_id,

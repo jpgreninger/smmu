@@ -35,14 +35,7 @@ fn test_queue_statistics_new_zero_values() {
 
 #[test]
 fn test_queue_statistics_new_maximum_values() {
-    let stats = QueueStatistics::new(
-        u64::MAX,
-        u64::MAX,
-        u64::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-    );
+    let stats = QueueStatistics::new(u64::MAX, u64::MAX, u64::MAX, usize::MAX, usize::MAX, usize::MAX);
 
     assert_eq!(stats.event_queue_size(), u64::MAX);
     assert_eq!(stats.command_queue_size(), u64::MAX);
@@ -451,12 +444,12 @@ fn test_realistic_critical_load() {
 fn test_realistic_varying_queue_sizes() {
     // Different queue types may have different typical sizes
     let stats = QueueStatistics::new(
-        32,   // Event queue: small, frequently processed
-        128,  // Command queue: medium, batch processing
-        8,    // PRI queue: small, rarely used
-        64,   // Event capacity
-        256,  // Command capacity
-        32,   // PRI capacity
+        32,  // Event queue: small, frequently processed
+        128, // Command queue: medium, batch processing
+        8,   // PRI queue: small, rarely used
+        64,  // Event capacity
+        256, // Command capacity
+        32,  // PRI capacity
     );
 
     assert_eq!(stats.event_queue_utilization(), 0.5);

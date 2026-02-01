@@ -139,69 +139,41 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::OutOfRange { field, value, max } => {
-                write!(
-                    f,
-                    "Validation error for {field}: value {value} exceeds maximum {max}"
-                )
-            }
-            Self::InvalidAlignment {
-                address,
-                required_alignment,
-            } => {
-                write!(
-                    f,
-                    "Address {address:#x} is not aligned to {required_alignment:#x}"
-                )
-            }
+                write!(f, "Validation error for {field}: value {value} exceeds maximum {max}")
+            },
+            Self::InvalidAlignment { address, required_alignment } => {
+                write!(f, "Address {address:#x} is not aligned to {required_alignment:#x}")
+            },
             Self::InvalidAccessType { bits } => {
                 write!(f, "Invalid access type bit pattern: {bits:#b}")
-            }
+            },
             Self::InvalidSecurityState { bits } => {
                 write!(f, "Invalid security state encoding: {bits:#b}")
-            }
+            },
             Self::InvalidTranslationStage { bits } => {
                 write!(f, "Invalid translation stage configuration: {bits:#b}")
-            }
+            },
             Self::InvalidFaultType { code } => {
                 write!(f, "Invalid fault type code: {code:#x}")
-            }
+            },
             Self::InvalidStateTransition { from, to } => {
                 write!(f, "Invalid state transition from {from} to {to}")
-            }
-            Self::PermissionDenied {
-                requested,
-                available,
-            } => {
-                write!(
-                    f,
-                    "Permission denied: requested {requested} but only {available} available"
-                )
-            }
-            Self::SecurityViolation {
-                from_state,
-                to_state,
-            } => {
-                write!(
-                    f,
-                    "Security violation: {from_state} cannot access {to_state}"
-                )
-            }
+            },
+            Self::PermissionDenied { requested, available } => {
+                write!(f, "Permission denied: requested {requested} but only {available} available")
+            },
+            Self::SecurityViolation { from_state, to_state } => {
+                write!(f, "Security violation: {from_state} cannot access {to_state}")
+            },
             Self::InvalidConfiguration { reason } => {
                 write!(f, "Invalid configuration: {reason}")
-            }
+            },
             Self::InvalidPASID { value } => {
                 write!(f, "Invalid PASID value: {value}")
-            }
-            Self::Generic {
-                field,
-                value,
-                constraint,
-            } => {
-                write!(
-                    f,
-                    "Validation error for {field}: value '{value}' {constraint}"
-                )
-            }
+            },
+            Self::Generic { field, value, constraint } => {
+                write!(f, "Validation error for {field}: value '{value}' {constraint}")
+            },
         }
     }
 }

@@ -29,7 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     smmu.configure_stream(stream_id, stream_config)?;
-    println!("  ✓ Stream {} configured with PASID support (max PASID: 1024)\n", stream_id.as_u32());
+    println!(
+        "  ✓ Stream {} configured with PASID support (max PASID: 1024)\n",
+        stream_id.as_u32()
+    );
 
     // Scenario: Three processes sharing a GPU
     println!("Scenario: Three processes sharing a GPU\n");
@@ -47,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ml_pasid,
         ml_data_iova,
         ml_data_pa,
-        PagePermissions::read_only(),  // Training data is read-only
+        PagePermissions::read_only(), // Training data is read-only
         SecurityState::NonSecure,
     )?;
 
@@ -59,13 +62,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ml_pasid,
         ml_model_iova,
         ml_model_pa,
-        PagePermissions::read_write(),  // Model is updated during training
+        PagePermissions::read_write(), // Model is updated during training
         SecurityState::NonSecure,
     )?;
 
     println!("  ✓ PASID {} configured for ML workload", ml_pasid.as_u32());
-    println!("    Data buffer:  IOVA 0x{:x} -> PA 0x{:x} (RO)", ml_data_iova.as_u64(), ml_data_pa.as_u64());
-    println!("    Model buffer: IOVA 0x{:x} -> PA 0x{:x} (RW)\n", ml_model_iova.as_u64(), ml_model_pa.as_u64());
+    println!(
+        "    Data buffer:  IOVA 0x{:x} -> PA 0x{:x} (RO)",
+        ml_data_iova.as_u64(),
+        ml_data_pa.as_u64()
+    );
+    println!(
+        "    Model buffer: IOVA 0x{:x} -> PA 0x{:x} (RW)\n",
+        ml_model_iova.as_u64(),
+        ml_model_pa.as_u64()
+    );
 
     // Process 2: Graphics rendering workload
     println!("Creating PASID for Process 2 (Graphics rendering)...");
@@ -73,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(stream_id, gfx_pasid)?;
 
     // Map framebuffer
-    let gfx_fb_iova = IOVA::new(0x1000000)?;  // Same IOVA as ML, different PASID!
+    let gfx_fb_iova = IOVA::new(0x1000000)?; // Same IOVA as ML, different PASID!
     let gfx_fb_pa = PA::new(0x30000000)?;
     smmu.map_page(
         stream_id,
@@ -92,13 +103,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         gfx_pasid,
         gfx_tex_iova,
         gfx_tex_pa,
-        PagePermissions::read_only(),  // Textures are read-only
+        PagePermissions::read_only(), // Textures are read-only
         SecurityState::NonSecure,
     )?;
 
     println!("  ✓ PASID {} configured for graphics workload", gfx_pasid.as_u32());
-    println!("    Framebuffer:  IOVA 0x{:x} -> PA 0x{:x} (RW)", gfx_fb_iova.as_u64(), gfx_fb_pa.as_u64());
-    println!("    Textures:     IOVA 0x{:x} -> PA 0x{:x} (RO)\n", gfx_tex_iova.as_u64(), gfx_tex_pa.as_u64());
+    println!(
+        "    Framebuffer:  IOVA 0x{:x} -> PA 0x{:x} (RW)",
+        gfx_fb_iova.as_u64(),
+        gfx_fb_pa.as_u64()
+    );
+    println!(
+        "    Textures:     IOVA 0x{:x} -> PA 0x{:x} (RO)\n",
+        gfx_tex_iova.as_u64(),
+        gfx_tex_pa.as_u64()
+    );
 
     // Process 3: Video encoding workload
     println!("Creating PASID for Process 3 (Video encoding)...");
@@ -130,8 +149,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     println!("  ✓ PASID {} configured for video encoding", video_pasid.as_u32());
-    println!("    Input buffer:  IOVA 0x{:x} -> PA 0x{:x} (RO)", video_in_iova.as_u64(), video_in_pa.as_u64());
-    println!("    Output buffer: IOVA 0x{:x} -> PA 0x{:x} (WO)\n", video_out_iova.as_u64(), video_out_pa.as_u64());
+    println!(
+        "    Input buffer:  IOVA 0x{:x} -> PA 0x{:x} (RO)",
+        video_in_iova.as_u64(),
+        video_in_pa.as_u64()
+    );
+    println!(
+        "    Output buffer: IOVA 0x{:x} -> PA 0x{:x} (WO)\n",
+        video_out_iova.as_u64(),
+        video_out_pa.as_u64()
+    );
 
     // Demonstrate PASID isolation
     println!("Demonstrating PASID isolation...\n");
@@ -139,19 +166,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ML process accesses its own data - should succeed
     println!("ML process accessing its data buffer:");
     let ml_result = smmu.translate(stream_id, ml_pasid, ml_data_iova, AccessType::Read)?;
-    println!("  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
-             ml_pasid.as_u32(), ml_data_iova.as_u64(), ml_result.physical_address().as_u64());
+    println!(
+        "  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
+        ml_pasid.as_u32(),
+        ml_data_iova.as_u64(),
+        ml_result.physical_address().as_u64()
+    );
     assert_eq!(ml_result.physical_address().as_u64(), ml_data_pa.as_u64());
 
     // Graphics process accesses same IOVA but gets different PA
     println!("\nGraphics process accessing same IOVA (different PASID):");
     let gfx_result = smmu.translate(stream_id, gfx_pasid, gfx_fb_iova, AccessType::Read)?;
-    println!("  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
-             gfx_pasid.as_u32(), gfx_fb_iova.as_u64(), gfx_result.physical_address().as_u64());
+    println!(
+        "  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
+        gfx_pasid.as_u32(),
+        gfx_fb_iova.as_u64(),
+        gfx_result.physical_address().as_u64()
+    );
     assert_eq!(gfx_result.physical_address().as_u64(), gfx_fb_pa.as_u64());
 
     // Verify isolation: Same IOVA, different PASIDs, different PAs
-    println!("\n  ℹ Isolation verified: Same IOVA 0x{:x} maps to different PAs:", gfx_fb_iova.as_u64());
+    println!(
+        "\n  ℹ Isolation verified: Same IOVA 0x{:x} maps to different PAs:",
+        gfx_fb_iova.as_u64()
+    );
     println!("    PASID {}: PA 0x{:x}", ml_pasid.as_u32(), ml_data_pa.as_u64());
     println!("    PASID {}: PA 0x{:x}", gfx_pasid.as_u32(), gfx_fb_pa.as_u64());
     assert_ne!(ml_result.physical_address().as_u64(), gfx_result.physical_address().as_u64());
@@ -162,14 +200,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ML can read model data
     println!("  ML process reading model data (RW permission):");
     let ml_read = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Read)?;
-    println!("    ✓ Read succeeded: IOVA 0x{:x} -> PA 0x{:x}",
-             ml_model_iova.as_u64(), ml_read.physical_address().as_u64());
+    println!(
+        "    ✓ Read succeeded: IOVA 0x{:x} -> PA 0x{:x}",
+        ml_model_iova.as_u64(),
+        ml_read.physical_address().as_u64()
+    );
 
     // ML can write model data
     println!("  ML process writing model data (RW permission):");
     let ml_write = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Write)?;
-    println!("    ✓ Write succeeded: IOVA 0x{:x} -> PA 0x{:x}",
-             ml_model_iova.as_u64(), ml_write.physical_address().as_u64());
+    println!(
+        "    ✓ Write succeeded: IOVA 0x{:x} -> PA 0x{:x}",
+        ml_model_iova.as_u64(),
+        ml_write.physical_address().as_u64()
+    );
 
     // Graphics can't write textures (read-only)
     println!("  Graphics process trying to write textures (RO permission):");
@@ -177,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => println!("    ✗ ERROR: Write to read-only texture should have failed!"),
         Err(TranslationError::Fault(fault)) => {
             println!("    ✓ Permission fault as expected: {:?}", fault.fault_type());
-        }
+        },
         Err(e) => println!("    Unexpected error: {}", e),
     }
 
@@ -187,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => println!("    ✗ ERROR: Read from write-only buffer should have failed!"),
         Err(TranslationError::Fault(fault)) => {
             println!("    ✓ Permission fault as expected: {:?}", fault.fault_type());
-        }
+        },
         Err(e) => println!("    Unexpected error: {}", e),
     }
 
@@ -208,8 +252,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let legacy_result = smmu.translate(stream_id, legacy_pasid, legacy_iova, AccessType::Read)?;
-    println!("  ✓ PASID 0: IOVA 0x{:x} -> PA 0x{:x} (legacy devices)",
-             legacy_iova.as_u64(), legacy_result.physical_address().as_u64());
+    println!(
+        "  ✓ PASID 0: IOVA 0x{:x} -> PA 0x{:x} (legacy devices)",
+        legacy_iova.as_u64(),
+        legacy_result.physical_address().as_u64()
+    );
 
     println!("\n=== PASID Configuration Summary ===");
     println!("Stream {}: 4 PASIDs configured", stream_id.as_u32());

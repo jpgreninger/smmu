@@ -10,16 +10,11 @@
 //! - Fault processing: > 1M faults/sec
 //! - Memory usage: < 100 bytes per mapping
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use smmu::address_space::AddressSpace;
 use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
 use smmu::stream_context::StreamContext;
-use smmu::types::{
-    AccessType, PagePermissions, SecurityState, StreamConfig,
-    IOVA, PA, PASID, PAGE_SIZE, StreamID,
-};
+use smmu::types::{AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PAGE_SIZE, PASID};
 use smmu::SMMU;
 use std::time::Duration;
 
@@ -51,11 +46,7 @@ fn bench_translation_latency_simple(c: &mut Criterion) {
 
     c.bench_function("translation_latency_simple", |b| {
         b.iter(|| {
-            let result = addr_space.translate_page(
-                black_box(iova),
-                AccessType::Read,
-                SecurityState::NonSecure,
-            );
+            let result = addr_space.translate_page(black_box(iova), AccessType::Read, SecurityState::NonSecure);
             let _ = black_box(result);
         });
     });
@@ -74,12 +65,8 @@ fn bench_translation_latency_with_pasid(c: &mut Criterion) {
 
     c.bench_function("translation_latency_with_pasid", |b| {
         b.iter(|| {
-            let result = stream_context.translate(
-                black_box(pasid),
-                black_box(iova),
-                AccessType::Read,
-                SecurityState::NonSecure,
-            );
+            let result =
+                stream_context.translate(black_box(pasid), black_box(iova), AccessType::Read, SecurityState::NonSecure);
             let _ = black_box(result);
         });
     });
@@ -90,34 +77,27 @@ fn bench_translation_under_load(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
 
     for num_mappings in [10, 100, 1000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_mappings),
-            num_mappings,
-            |b, &num_mappings| {
-                let mut addr_space = AddressSpace::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
+            let mut addr_space = AddressSpace::new();
 
-                // Create many mappings to simulate load
-                for i in 0..num_mappings {
-                    let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                    let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
-                    addr_space
-                        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-                        .unwrap();
-                }
+            // Create many mappings to simulate load
+            for i in 0..num_mappings {
+                let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                addr_space
+                    .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+                    .unwrap();
+            }
 
-                // Benchmark translation of the first mapping
-                let test_iova = IOVA::new(0x1000).unwrap();
+            // Benchmark translation of the first mapping
+            let test_iova = IOVA::new(0x1000).unwrap();
 
-                b.iter(|| {
-                    let result = addr_space.translate_page(
-                        black_box(test_iova),
-                        AccessType::Read,
-                        SecurityState::NonSecure,
-                    );
-                    let _ = black_box(result);
-                });
-            },
-        );
+            b.iter(|| {
+                let result =
+                    addr_space.translate_page(black_box(test_iova), AccessType::Read, SecurityState::NonSecure);
+                let _ = black_box(result);
+            });
+        });
     }
 
     group.finish();
@@ -247,23 +227,19 @@ fn bench_stream_configuration_multiple(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
 
     for num_streams in [1, 10, 100, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_streams),
-            num_streams,
-            |b, &num_streams| {
-                let cfg = config.clone();
-                b.iter_batched(
-                    || SMMU::new(),
-                    |smmu| {
-                        for i in 0..num_streams {
-                            let stream_id = StreamID::new(i as u32).unwrap();
-                            let _ = black_box(smmu.configure_stream(stream_id, cfg.clone()));
-                        }
-                    },
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_streams), num_streams, |b, &num_streams| {
+            let cfg = config.clone();
+            b.iter_batched(
+                || SMMU::new(),
+                |smmu| {
+                    for i in 0..num_streams {
+                        let stream_id = StreamID::new(i as u32).unwrap();
+                        let _ = black_box(smmu.configure_stream(stream_id, cfg.clone()));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
 
     group.finish();
@@ -317,25 +293,21 @@ fn bench_memory_usage_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_usage_scaling");
 
     for num_mappings in [100, 1000, 10000, 100000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_mappings),
-            num_mappings,
-            |b, &num_mappings| {
-                b.iter(|| {
-                    let mut addr_space = AddressSpace::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
+            b.iter(|| {
+                let mut addr_space = AddressSpace::new();
 
-                    for i in 0..num_mappings {
-                        let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                        let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
-                        addr_space
-                            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
-                            .unwrap();
-                    }
+                for i in 0..num_mappings {
+                    let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
+                    let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                    addr_space
+                        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+                        .unwrap();
+                }
 
-                    black_box(addr_space);
-                });
-            },
-        );
+                black_box(addr_space);
+            });
+        });
     }
 
     group.finish();
@@ -345,31 +317,27 @@ fn bench_pasid_memory_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("pasid_memory_scaling");
 
     for num_pasids in [10, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pasids),
-            num_pasids,
-            |b, &num_pasids| {
-                b.iter(|| {
-                    let stream_context = StreamContext::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
+            b.iter(|| {
+                let stream_context = StreamContext::new();
 
-                    for i in 0..num_pasids {
-                        let pasid = PASID::new(i as u32).unwrap();
-                        stream_context.create_pasid(pasid).unwrap();
+                for i in 0..num_pasids {
+                    let pasid = PASID::new(i as u32).unwrap();
+                    stream_context.create_pasid(pasid).unwrap();
 
-                        // Map a few pages per PASID
-                        for j in 0..10 {
-                            let iova = IOVA::new(0x1000 + (j as u64) * PAGE_SIZE).unwrap();
-                            let pa = PA::new(0x10000 + (j as u64) * PAGE_SIZE).unwrap();
-                            stream_context
-                                .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-                                .unwrap();
-                        }
+                    // Map a few pages per PASID
+                    for j in 0..10 {
+                        let iova = IOVA::new(0x1000 + (j as u64) * PAGE_SIZE).unwrap();
+                        let pa = PA::new(0x10000 + (j as u64) * PAGE_SIZE).unwrap();
+                        stream_context
+                            .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+                            .unwrap();
                     }
+                }
 
-                    black_box(stream_context);
-                });
-            },
-        );
+                black_box(stream_context);
+            });
+        });
     }
 
     group.finish();
@@ -385,34 +353,27 @@ fn bench_complexity_translation_lookup(c: &mut Criterion) {
 
     // Verify O(1) lookup regardless of address space size
     for num_mappings in [100, 1000, 10000, 100000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_mappings),
-            num_mappings,
-            |b, &num_mappings| {
-                let mut addr_space = AddressSpace::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
+            let mut addr_space = AddressSpace::new();
 
-                // Create many mappings
-                for i in 0..num_mappings {
-                    let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                    let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
-                    addr_space
-                        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-                        .unwrap();
-                }
+            // Create many mappings
+            for i in 0..num_mappings {
+                let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                addr_space
+                    .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+                    .unwrap();
+            }
 
-                // Benchmark lookup (should be O(1) for HashMap)
-                let test_iova = IOVA::new(0x1000 + ((num_mappings / 2) as u64) * PAGE_SIZE).unwrap();
+            // Benchmark lookup (should be O(1) for HashMap)
+            let test_iova = IOVA::new(0x1000 + ((num_mappings / 2) as u64) * PAGE_SIZE).unwrap();
 
-                b.iter(|| {
-                    let result = addr_space.translate_page(
-                        black_box(test_iova),
-                        AccessType::Read,
-                        SecurityState::NonSecure,
-                    );
-                    let _ = black_box(result);
-                });
-            },
-        );
+            b.iter(|| {
+                let result =
+                    addr_space.translate_page(black_box(test_iova), AccessType::Read, SecurityState::NonSecure);
+                let _ = black_box(result);
+            });
+        });
     }
 
     group.finish();
@@ -424,40 +385,36 @@ fn bench_complexity_pasid_lookup(c: &mut Criterion) {
 
     // Verify O(1) PASID lookup regardless of number of PASIDs
     for num_pasids in [10, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pasids),
-            num_pasids,
-            |b, &num_pasids| {
-                let stream_context = StreamContext::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
+            let stream_context = StreamContext::new();
 
-                // Create many PASIDs
-                for i in 0..num_pasids {
-                    let pasid = PASID::new(i as u32).unwrap();
-                    stream_context.create_pasid(pasid).unwrap();
+            // Create many PASIDs
+            for i in 0..num_pasids {
+                let pasid = PASID::new(i as u32).unwrap();
+                stream_context.create_pasid(pasid).unwrap();
 
-                    // Add one mapping per PASID
-                    let iova = IOVA::new(0x1000).unwrap();
-                    let pa = PA::new(0x10000).unwrap();
-                    stream_context
-                        .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
-                        .unwrap();
-                }
+                // Add one mapping per PASID
+                let iova = IOVA::new(0x1000).unwrap();
+                let pa = PA::new(0x10000).unwrap();
+                stream_context
+                    .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+                    .unwrap();
+            }
 
-                // Benchmark PASID lookup (should be O(1) for DashMap)
-                let test_pasid = PASID::new((num_pasids / 2) as u32).unwrap();
-                let test_iova = IOVA::new(0x1000).unwrap();
+            // Benchmark PASID lookup (should be O(1) for DashMap)
+            let test_pasid = PASID::new((num_pasids / 2) as u32).unwrap();
+            let test_iova = IOVA::new(0x1000).unwrap();
 
-                b.iter(|| {
-                    let result = stream_context.translate(
-                        black_box(test_pasid),
-                        black_box(test_iova),
-                        AccessType::Read,
-                        SecurityState::NonSecure,
-                    );
-                    let _ = black_box(result);
-                });
-            },
-        );
+            b.iter(|| {
+                let result = stream_context.translate(
+                    black_box(test_pasid),
+                    black_box(test_iova),
+                    AccessType::Read,
+                    SecurityState::NonSecure,
+                );
+                let _ = black_box(result);
+            });
+        });
     }
 
     group.finish();

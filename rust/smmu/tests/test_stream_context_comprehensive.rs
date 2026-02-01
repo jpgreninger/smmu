@@ -4,10 +4,8 @@
 //! to achieve 100% coverage per PLAN_100_PERCENT_COVERAGE.md section 2.3
 
 use smmu::address_space::AddressSpace;
-use smmu::stream_context::{StreamContext, StreamConfigBuilder};
-use smmu::types::{
-    AccessType, FaultType, PagePermissions, SecurityState, StreamContextError, IOVA, PA, PASID,
-};
+use smmu::stream_context::{StreamConfigBuilder, StreamContext};
+use smmu::types::{AccessType, FaultType, PagePermissions, SecurityState, StreamContextError, IOVA, PA, PASID};
 use std::sync::Arc;
 
 // ========================================================================
@@ -26,10 +24,7 @@ fn test_pasid_limit_enforcement_at_limit() {
     // Exceed limit
     let result = ctx.create_pasid(PASID::new(2).unwrap());
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::PASIDLimitExceeded(2, 2)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::PASIDLimitExceeded(2, 2)));
 }
 
 #[test]
@@ -44,10 +39,7 @@ fn test_pasid_limit_enforcement_add_pasid() {
     let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
     let result = ctx.add_pasid(PASID::new(1).unwrap(), addr_space);
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::PASIDLimitExceeded(1, 1)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::PASIDLimitExceeded(1, 1)));
 }
 
 #[test]
@@ -59,17 +51,14 @@ fn test_add_pasid_duplicate() {
     let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
     let result = ctx.add_pasid(PASID::new(1).unwrap(), addr_space);
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::PASIDAlreadyExists(1)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::PASIDAlreadyExists(1)));
 }
 
 #[test]
 fn test_add_pasid_success() {
     let ctx = StreamContext::new();
     let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
-    
+
     assert!(ctx.add_pasid(PASID::new(1).unwrap(), addr_space).is_ok());
     assert!(ctx.has_pasid(PASID::new(1).unwrap()));
 }
@@ -79,10 +68,7 @@ fn test_remove_pasid_not_found() {
     let ctx = StreamContext::new();
     let result = ctx.remove_pasid(PASID::new(99).unwrap());
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::PASIDNotFound(99)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::PASIDNotFound(99)));
 }
 
 #[test]
@@ -100,7 +86,7 @@ fn test_clear_all_pasids() {
 fn test_get_pasid_address_space_exists() {
     let ctx = StreamContext::new();
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
-    
+
     let addr_space = ctx.get_pasid_address_space(PASID::new(1).unwrap());
     assert!(addr_space.is_some());
 }
@@ -131,8 +117,7 @@ fn test_two_stage_translation_complete_path() {
     let iova = IOVA::new(0x1000).unwrap();
     let ipa = PA::new(0x2000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure).unwrap();
 
     // Map Stage-2: IPA 0x2000 → PA 0x3000
     let ipa_iova = IOVA::new(0x2000).unwrap();
@@ -159,13 +144,8 @@ fn test_two_stage_translation_stage1_fault() {
     // Don't map Stage-1, only Stage-2
     let final_pa = PA::new(0x3000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_stage2_page(
-        IOVA::new(0x2000).unwrap(),
-        final_pa,
-        perms,
-        SecurityState::NonSecure,
-    )
-    .unwrap();
+    ctx.map_stage2_page(IOVA::new(0x2000).unwrap(), final_pa, perms, SecurityState::NonSecure)
+        .unwrap();
 
     // Translation should fail at Stage-1
     let iova = IOVA::new(0x1000).unwrap();
@@ -190,8 +170,7 @@ fn test_two_stage_translation_stage2_fault() {
     let iova = IOVA::new(0x1000).unwrap();
     let ipa = PA::new(0x2000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure).unwrap();
 
     // Translation should fail at Stage-2
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
@@ -226,8 +205,7 @@ fn test_two_stage_no_stage2_address_space() {
     let iova = IOVA::new(0x1000).unwrap();
     let ipa = PA::new(0x2000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_page(pasid, iova, ipa, perms, SecurityState::NonSecure).unwrap();
 
     // Don't create Stage-2 address space
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
@@ -252,8 +230,7 @@ fn test_stage2_only_translation_success() {
     let ipa = IOVA::new(0x2000).unwrap();
     let pa = PA::new(0x3000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure).unwrap();
 
     // Translate (IOVA treated as IPA)
     let result = ctx.translate(pasid, ipa, AccessType::Read, SecurityState::NonSecure);
@@ -312,7 +289,7 @@ fn test_bypass_mode_translation() {
     let iova = IOVA::new(0x1000).unwrap();
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
-    
+
     // IOVA should equal PA
     assert_eq!(result.unwrap().physical_address().as_u64(), 0x1000);
 }
@@ -329,7 +306,7 @@ fn test_bypass_mode_full_permissions() {
     let iova = IOVA::new(0x1000).unwrap();
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
-    
+
     let data = result.unwrap();
     assert!(data.permissions().allows(AccessType::Read));
     assert!(data.permissions().allows(AccessType::Write));
@@ -508,13 +485,10 @@ fn test_create_stage2_address_space_success() {
 fn test_create_stage2_address_space_already_exists() {
     let mut ctx = StreamContext::new();
     ctx.create_stage2_address_space().unwrap();
-    
+
     let result = ctx.create_stage2_address_space();
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::InternalError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::InternalError(_)));
 }
 
 #[test]
@@ -525,10 +499,8 @@ fn test_map_stage2_page_success() {
     let ipa = IOVA::new(0x2000).unwrap();
     let pa = PA::new(0x3000).unwrap();
     let perms = PagePermissions::read_write();
-    
-    assert!(ctx
-        .map_stage2_page(ipa, pa, perms, SecurityState::NonSecure)
-        .is_ok());
+
+    assert!(ctx.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure).is_ok());
 }
 
 #[test]
@@ -538,7 +510,7 @@ fn test_map_stage2_page_no_address_space() {
     let ipa = IOVA::new(0x2000).unwrap();
     let pa = PA::new(0x3000).unwrap();
     let perms = PagePermissions::read_write();
-    
+
     let result = ctx.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure);
     assert!(result.is_err());
 }
@@ -567,9 +539,7 @@ fn test_update_config_builder_creation() {
 #[test]
 fn test_apply_config_max_pasids() {
     let mut ctx = StreamContext::new();
-    let config = StreamConfigBuilder::new()
-        .max_pasids_per_stream(512)
-        .build();
+    let config = StreamConfigBuilder::new().max_pasids_per_stream(512).build();
 
     assert!(ctx.apply_config(config).is_ok());
     assert_eq!(ctx.max_pasids_per_stream(), 512);
@@ -594,9 +564,7 @@ fn test_apply_config_stage_flags() {
 fn test_apply_config_stage2_address_space() {
     let mut ctx = StreamContext::new();
     let stage2 = Arc::new(AddressSpace::new());
-    let config = StreamConfigBuilder::new()
-        .stage2_address_space(Some(stage2))
-        .build();
+    let config = StreamConfigBuilder::new().stage2_address_space(Some(stage2)).build();
 
     assert!(ctx.apply_config(config).is_ok());
 }
@@ -610,10 +578,7 @@ fn test_validate_config_pasid_limit_exceeds_maximum() {
 
     let result = ctx.validate_config_update(&config);
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::ConfigurationError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::ConfigurationError(_)));
 }
 
 #[test]
@@ -628,25 +593,17 @@ fn test_validate_config_reduce_limit_below_current_count() {
 
     let result = ctx.validate_config_update(&config);
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::ConfigurationError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::ConfigurationError(_)));
 }
 
 #[test]
 fn test_validate_config_stage2_enabled_without_address_space() {
     let ctx = StreamContext::new();
-    let config = StreamConfigBuilder::new()
-        .stage2_enabled(true)
-        .build();
+    let config = StreamConfigBuilder::new().stage2_enabled(true).build();
 
     let result = ctx.validate_config_update(&config);
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::ConfigurationError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::ConfigurationError(_)));
 }
 
 #[test]
@@ -671,7 +628,7 @@ fn test_enable_stream() {
     let mut ctx = StreamContext::new();
     ctx.disable();
     assert!(!ctx.is_enabled());
-    
+
     ctx.enable();
     assert!(ctx.is_enabled());
 }
@@ -695,10 +652,7 @@ fn test_create_pasid_when_disabled() {
 
     let result = ctx.create_pasid(PASID::new(1).unwrap());
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        StreamContextError::ConfigurationError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), StreamContextError::ConfigurationError(_)));
 }
 
 #[test]
@@ -820,7 +774,7 @@ fn test_stream_config_builder_fluent_api() {
         .stage1_enabled(false)
         .stage2_enabled(true)
         .build();
-    
+
     // Just verify fluent API works
     let mut ctx = StreamContext::new();
     let _result = ctx.apply_config(config);
@@ -849,8 +803,7 @@ fn test_unmap_page_success() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
     let perms = PagePermissions::read_write();
-    ctx.map_page(pasid, iova, pa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
 
     // Unmap it
     assert!(ctx.unmap_page(pasid, iova).is_ok());
@@ -912,9 +865,7 @@ fn test_validate_config_stage2_enabled_with_existing_address_space() {
 
     // Now try to enable Stage-2 without specifying a new address space
     // Should use the existing one
-    let config = StreamConfigBuilder::new()
-        .stage2_enabled(true)
-        .build();
+    let config = StreamConfigBuilder::new().stage2_enabled(true).build();
 
     let result = ctx.validate_config_update(&config);
     assert!(result.is_ok());
@@ -930,8 +881,7 @@ fn test_permission_violation_fault_type() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
     let perms = PagePermissions::read_only();
-    ctx.map_page(pasid, iova, pa, perms, SecurityState::NonSecure)
-        .unwrap();
+    ctx.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
 
     // Try to write to a read-only page
     let _ = ctx.translate(pasid, iova, AccessType::Write, SecurityState::NonSecure);

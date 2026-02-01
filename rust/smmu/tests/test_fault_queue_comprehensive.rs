@@ -4,7 +4,7 @@
 //! covering all edge cases, error conditions, and FIFO ordering guarantees.
 
 use smmu::fault::queue::{FaultQueue, FaultQueueError};
-use smmu::types::{AccessType, FaultRecord, FaultType, StreamID, PASID, IOVA};
+use smmu::types::{AccessType, FaultRecord, FaultType, StreamID, IOVA, PASID};
 
 fn create_test_fault(stream_id: u32, pasid_val: u32) -> FaultRecord {
     FaultRecord::builder()
@@ -524,12 +524,7 @@ fn test_different_fault_types() {
 fn test_different_access_types() {
     let queue = FaultQueue::new(10);
 
-    let access_types = [
-        AccessType::Read,
-        AccessType::Write,
-        AccessType::Execute,
-        AccessType::ReadWrite,
-    ];
+    let access_types = [AccessType::Read, AccessType::Write, AccessType::Execute, AccessType::ReadWrite];
 
     for (i, access_type) in access_types.iter().enumerate() {
         let fault = FaultRecord::builder()
@@ -585,10 +580,7 @@ fn test_capacity_one_special_case() {
     assert!(queue.is_full());
     assert!(!queue.is_empty());
 
-    assert_eq!(
-        queue.push(create_test_fault(0x200, 2)),
-        Err(FaultQueueError::QueueFull)
-    );
+    assert_eq!(queue.push(create_test_fault(0x200, 2)), Err(FaultQueueError::QueueFull));
 
     queue.pop();
     assert!(queue.is_empty());

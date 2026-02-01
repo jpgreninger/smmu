@@ -2,7 +2,7 @@
 //!
 //! This module defines all 15 ARM `SMMU` v3 fault types with detailed classification and severity.
 
-use crate::types::{ValidationError, StreamID, PASID, IOVA};
+use crate::types::{StreamID, ValidationError, IOVA, PASID};
 use core::fmt;
 
 /// Fault severity level
@@ -280,12 +280,7 @@ impl FaultContext {
     /// Create a new fault context
     #[must_use]
     pub const fn new(fault_type: FaultType, stream_id: StreamID, pasid: PASID, address: IOVA) -> Self {
-        Self {
-            fault_type,
-            stream_id,
-            pasid,
-            address,
-        }
+        Self { fault_type, stream_id, pasid, address }
     }
 
     /// Get the fault type

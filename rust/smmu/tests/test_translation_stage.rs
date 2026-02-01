@@ -9,8 +9,8 @@
 //! - Conversion methods with valid and invalid inputs
 //! - Display, Default, and other trait implementations
 
-use smmu::types::{TranslationStage, ValidationError, AddressType, TranslationStep};
 use smmu::types::translation_stage::StreamConfig;
+use smmu::types::{AddressType, TranslationStage, TranslationStep, ValidationError};
 
 // ============================================================================
 // Section 1: Basic Stage Flags and Properties

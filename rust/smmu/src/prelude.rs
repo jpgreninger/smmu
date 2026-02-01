@@ -42,15 +42,12 @@ pub use crate::types::{AccessType, SecurityState};
 pub use crate::types::{PageEntry, PagePermissions};
 
 // Re-export configuration types
-pub use crate::types::{
-    SMMUConfig, StreamConfig, FaultMode, QueueConfig, CacheConfig, AddressConfig, ResourceLimits,
-};
+pub use crate::types::{AddressConfig, CacheConfig, FaultMode, QueueConfig, ResourceLimits, SMMUConfig, StreamConfig};
 
 // Re-export builder types
 pub use crate::types::{
-    SMMUConfigBuilder, StreamConfigBuilder, FaultRecordBuilder, PageEntryBuilder,
-    TranslationDataBuilder, QueueConfigBuilder, CacheConfigBuilder, AddressConfigBuilder,
-    ResourceLimitsBuilder,
+    AddressConfigBuilder, CacheConfigBuilder, FaultRecordBuilder, PageEntryBuilder, QueueConfigBuilder,
+    ResourceLimitsBuilder, SMMUConfigBuilder, StreamConfigBuilder, TranslationDataBuilder,
 };
 
 // Re-export translation types
@@ -58,8 +55,7 @@ pub use crate::types::{TranslationData, TranslationError, TranslationResult, Tra
 
 // Re-export fault types
 pub use crate::types::{
-    FaultContext, FaultRecord, FaultSeverity, FaultSyndrome, FaultType, TranslationStep,
-    AddressType,
+    AddressType, FaultContext, FaultRecord, FaultSeverity, FaultSyndrome, FaultType, TranslationStep,
 };
 
 // Re-export queue types

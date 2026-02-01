@@ -128,11 +128,7 @@ impl TranslationData {
     /// ```
     #[must_use]
     #[inline]
-    pub const fn new(
-        physical_address: PA,
-        permissions: PagePermissions,
-        security_state: SecurityState,
-    ) -> Self {
+    pub const fn new(physical_address: PA, permissions: PagePermissions, security_state: SecurityState) -> Self {
         Self {
             physical_address,
             permissions,
@@ -259,9 +255,7 @@ impl TranslationDataBuilder {
     #[must_use]
     pub fn build(self) -> TranslationData {
         TranslationData {
-            physical_address: self
-                .physical_address
-                .expect("Physical address must be set"),
+            physical_address: self.physical_address.expect("Physical address must be set"),
             permissions: self.permissions,
             security_state: self.security_state,
         }

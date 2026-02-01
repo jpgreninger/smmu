@@ -326,7 +326,6 @@
 #![warn(clippy::cargo)]
 #![deny(clippy::correctness)]
 #![deny(clippy::suspicious)]
-
 // Allow specific clippy lints for ergonomics and practicality
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_errors_doc)]
@@ -368,12 +367,12 @@
 #![allow(clippy::cast_possible_truncation)]
 
 // Module declarations - organized by functionality
-pub mod types;
 pub mod address_space;
-pub mod stream_context;
-pub mod smmu;
-pub mod fault;
 pub mod cache;
+pub mod fault;
+pub mod smmu;
+pub mod stream_context;
+pub mod types;
 
 // Convenience prelude for common imports
 pub mod prelude;
@@ -383,66 +382,59 @@ pub use smmu::SMMU;
 
 // Re-export core types
 pub use types::{
-    // Identifiers
-    StreamID,
-    PASID,
-    PASID_MAX,
-
-    // Addresses
-    IOVA,
-    IPA,
-    PA,
-    PAGE_SIZE,
-
     // Access and security
     AccessType,
-    SecurityState,
+    AddressType,
+    CommandEntry,
+    CommandType,
+    // Queue management
+    EventEntry,
+    EventType,
+    FaultContext,
+    FaultMode,
 
+    FaultRecord,
+    FaultSeverity,
+    FaultSyndrome,
+
+    // Faults
+    FaultType,
+    PRIEntry,
     // Page management
     PageEntry,
     PagePermissions,
 
+    QueueStatistics,
+    SMMUConfig,
+    SecurityState,
+
+    // Configuration
+    StreamConfig,
+    StreamContextError,
+
+    // Identifiers
+    StreamID,
     // Translation
     TranslationData,
     TranslationError,
     TranslationResult,
     TranslationStage,
 
-    // Faults
-    FaultType,
-    FaultSeverity,
-    FaultContext,
     TranslationStep,
-    AddressType,
-    FaultRecord,
-    FaultSyndrome,
-
-    // Configuration
-    StreamConfig,
-    SMMUConfig,
-    FaultMode,
-
     // Errors
     ValidationError,
-    StreamContextError,
+    // Addresses
+    IOVA,
+    IPA,
+    PA,
+    PAGE_SIZE,
 
-    // Queue management
-    EventEntry,
-    EventType,
-    CommandEntry,
-    CommandType,
-    PRIEntry,
-    QueueStatistics,
+    PASID,
+    PASID_MAX,
 };
 
 // Re-export builder types for ergonomic API
-pub use types::{
-    SMMUConfigBuilder,
-    StreamConfigBuilder,
-    FaultRecordBuilder,
-    PageEntryBuilder,
-    TranslationDataBuilder,
-};
+pub use types::{FaultRecordBuilder, PageEntryBuilder, SMMUConfigBuilder, StreamConfigBuilder, TranslationDataBuilder};
 
 /// Version of the ARM SMMU specification implemented
 ///

@@ -3,7 +3,7 @@
 //! Tests core address translation functionality including page mapping,
 //! unmapping, translation, and permission checks per ARM SMMU v3 specification.
 
-use smmu::address_space::{AddressSpace, AddressSpaceError, AddressRange};
+use smmu::address_space::{AddressRange, AddressSpace, AddressSpaceError};
 use smmu::types::{AccessType, PagePermissions, SecurityState, TranslationError, IOVA, PA, PAGE_SIZE};
 use std::sync::atomic::Ordering;
 
@@ -52,7 +52,9 @@ fn test_map_multiple_pages() {
     for i in 0..10 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert_eq!(addr_space.get_page_count().unwrap(), 10);
@@ -65,11 +67,17 @@ fn test_map_page_overwrite() {
     let pa1 = PA::new(0x2000).unwrap();
     let pa2 = PA::new(0x3000).unwrap();
 
-    addr_space.map_page(iova, pa1, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
-    addr_space.map_page(iova, pa2, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa1, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
+    addr_space
+        .map_page(iova, pa2, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
     assert_eq!(addr_space.get_page_count().unwrap(), 1);
-    let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+    let result = addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .unwrap();
     assert_eq!(result.physical_address().as_u64() & !0xFFF, 0x3000);
 }
 
@@ -94,7 +102,9 @@ fn test_unmap_page() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
     assert_eq!(addr_space.get_page_count().unwrap(), 1);
 
     addr_space.unmap_page(iova).unwrap();
@@ -120,9 +130,13 @@ fn test_translate_page() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
-    let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+    let result = addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .unwrap();
     assert_eq!(result.physical_address().as_u64(), 0x2000);
 }
 
@@ -132,11 +146,15 @@ fn test_translate_page_with_offset() {
     let iova_base = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova_base, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova_base, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
     // Translate address with offset within page
     let iova_offset = IOVA::new(0x1234).unwrap();
-    let result = addr_space.translate_page(iova_offset, AccessType::Read, SecurityState::NonSecure).unwrap();
+    let result = addr_space
+        .translate_page(iova_offset, AccessType::Read, SecurityState::NonSecure)
+        .unwrap();
     assert_eq!(result.physical_address().as_u64(), 0x2234);
 }
 
@@ -159,14 +177,21 @@ fn test_permission_read_only() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     // Read should succeed
-    assert!(addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .is_ok());
 
     // Write should fail
     let result = addr_space.translate_page(iova, AccessType::Write, SecurityState::NonSecure);
-    assert!(matches!(result, Err(TranslationError::PermissionViolation { access: AccessType::Write })));
+    assert!(matches!(
+        result,
+        Err(TranslationError::PermissionViolation { access: AccessType::Write })
+    ));
 }
 
 #[test]
@@ -175,11 +200,17 @@ fn test_permission_read_write() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
     // Both read and write should succeed
-    assert!(addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).is_ok());
-    assert!(addr_space.translate_page(iova, AccessType::Write, SecurityState::NonSecure).is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Write, SecurityState::NonSecure)
+        .is_ok());
 }
 
 #[test]
@@ -188,15 +219,24 @@ fn test_permission_execute() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_execute(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_execute(), SecurityState::NonSecure)
+        .unwrap();
 
     // Read and execute should succeed
-    assert!(addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).is_ok());
-    assert!(addr_space.translate_page(iova, AccessType::Execute, SecurityState::NonSecure).is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Execute, SecurityState::NonSecure)
+        .is_ok());
 
     // Write should fail
     let result = addr_space.translate_page(iova, AccessType::Write, SecurityState::NonSecure);
-    assert!(matches!(result, Err(TranslationError::PermissionViolation { access: AccessType::Write })));
+    assert!(matches!(
+        result,
+        Err(TranslationError::PermissionViolation { access: AccessType::Write })
+    ));
 }
 
 // ============================================================================
@@ -212,8 +252,12 @@ fn test_sparse_mapping() {
     let iova2 = IOVA::new(0x100000000).unwrap(); // 4GB offset
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova1, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
-    addr_space.map_page(iova2, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova1, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
+    addr_space
+        .map_page(iova2, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     assert_eq!(addr_space.get_page_count().unwrap(), 2);
 }
@@ -226,7 +270,9 @@ fn test_sparse_efficiency() {
     for i in 0..10 {
         let iova = IOVA::new(0x1000 + i * 0x10000000).unwrap(); // 256MB apart
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert_eq!(addr_space.get_page_count().unwrap(), 10);
@@ -242,7 +288,9 @@ fn test_clone_address_space() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let cloned = addr_space.clone();
     assert_eq!(cloned.get_page_count().unwrap(), 1);
@@ -276,7 +324,9 @@ fn test_is_page_mapped() {
 
     assert!(!addr_space.is_page_mapped(iova).unwrap());
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
     assert!(addr_space.is_page_mapped(iova).unwrap());
 }
 
@@ -309,7 +359,9 @@ fn test_clear() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert_eq!(addr_space.get_page_count().unwrap(), 5);
@@ -328,7 +380,9 @@ fn test_security_state_secure() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::Secure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::Secure)
+        .unwrap();
 
     // Access with matching security state should succeed
     assert!(addr_space.translate_page(iova, AccessType::Read, SecurityState::Secure).is_ok());
@@ -344,7 +398,9 @@ fn test_security_state_realm() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::Realm).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::Realm)
+        .unwrap();
 
     // Access with matching security state should succeed
     assert!(addr_space.translate_page(iova, AccessType::Read, SecurityState::Realm).is_ok());
@@ -365,7 +421,9 @@ fn test_map_range() {
     let end_iova = IOVA::new(0x1000 + (10 * PAGE_SIZE)).unwrap();
     let start_pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_write()).unwrap();
+    addr_space
+        .map_range(start_iova, end_iova, start_pa, PagePermissions::read_write())
+        .unwrap();
 
     // Should have mapped 11 pages (inclusive range)
     assert!(addr_space.get_page_count().unwrap() >= 10);
@@ -400,7 +458,9 @@ fn test_unmap_range() {
     let end_iova = IOVA::new(0x1000 + (5 * PAGE_SIZE)).unwrap();
     let start_pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_only()).unwrap();
+    addr_space
+        .map_range(start_iova, end_iova, start_pa, PagePermissions::read_only())
+        .unwrap();
     let count_before = addr_space.get_page_count().unwrap();
     assert!(count_before >= 5);
 
@@ -450,9 +510,7 @@ fn test_map_pages_bulk() {
 #[test]
 fn test_map_pages_bulk_invalid_permissions() {
     let mut addr_space = AddressSpace::new();
-    let mappings: Vec<(IOVA, PA)> = vec![
-        (IOVA::new(0x1000).unwrap(), PA::new(0x2000).unwrap()),
-    ];
+    let mappings: Vec<(IOVA, PA)> = vec![(IOVA::new(0x1000).unwrap(), PA::new(0x2000).unwrap())];
 
     let result = addr_space.map_pages(&mappings, PagePermissions::none());
     assert!(matches!(result, Err(AddressSpaceError::InvalidPermissions)));
@@ -461,13 +519,13 @@ fn test_map_pages_bulk_invalid_permissions() {
 #[test]
 fn test_unmap_pages_bulk() {
     let mut addr_space = AddressSpace::new();
-    let iovas: Vec<IOVA> = (0..10)
-        .map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap())
-        .collect();
+    let iovas: Vec<IOVA> = (0..10).map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap()).collect();
 
     for iova in &iovas {
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert_eq!(addr_space.get_page_count().unwrap(), 10);
@@ -479,10 +537,7 @@ fn test_unmap_pages_bulk() {
 #[test]
 fn test_unmap_pages_bulk_not_mapped() {
     let mut addr_space = AddressSpace::new();
-    let iovas: Vec<IOVA> = vec![
-        IOVA::new(0x1000).unwrap(),
-        IOVA::new(0x2000).unwrap(),
-    ];
+    let iovas: Vec<IOVA> = vec![IOVA::new(0x1000).unwrap(), IOVA::new(0x2000).unwrap()];
 
     let result = addr_space.unmap_pages(&iovas);
     assert!(matches!(result, Err(AddressSpaceError::PageNotMapped)));
@@ -497,8 +552,10 @@ fn test_map_pages_batched() {
     let mut addr_space = AddressSpace::new();
     let mappings: Vec<(IOVA, PA)> = (0..100)
         .map(|i| {
-            (IOVA::new(0x1000 + i * PAGE_SIZE).unwrap(),
-             PA::new(0x2000 + i * PAGE_SIZE).unwrap())
+            (
+                IOVA::new(0x1000 + i * PAGE_SIZE).unwrap(),
+                PA::new(0x2000 + i * PAGE_SIZE).unwrap(),
+            )
         })
         .collect();
 
@@ -509,9 +566,7 @@ fn test_map_pages_batched() {
 #[test]
 fn test_map_pages_batched_invalid_permissions() {
     let mut addr_space = AddressSpace::new();
-    let mappings: Vec<(IOVA, PA)> = vec![
-        (IOVA::new(0x1000).unwrap(), PA::new(0x2000).unwrap()),
-    ];
+    let mappings: Vec<(IOVA, PA)> = vec![(IOVA::new(0x1000).unwrap(), PA::new(0x2000).unwrap())];
 
     let result = addr_space.map_pages_batched(&mappings, PagePermissions::none());
     assert!(matches!(result, Err(AddressSpaceError::InvalidPermissions)));
@@ -520,13 +575,13 @@ fn test_map_pages_batched_invalid_permissions() {
 #[test]
 fn test_unmap_pages_batched() {
     let mut addr_space = AddressSpace::new();
-    let iovas: Vec<IOVA> = (0..50)
-        .map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap())
-        .collect();
+    let iovas: Vec<IOVA> = (0..50).map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap()).collect();
 
     for iova in &iovas {
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     addr_space.unmap_pages_batched(&iovas).unwrap();
@@ -536,22 +591,26 @@ fn test_unmap_pages_batched() {
 #[test]
 fn test_update_permissions_batched() {
     let mut addr_space = AddressSpace::new();
-    let iovas: Vec<IOVA> = (0..10)
-        .map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap())
-        .collect();
+    let iovas: Vec<IOVA> = (0..10).map(|i| IOVA::new(0x1000 + i * PAGE_SIZE).unwrap()).collect();
 
     // Map with read-only permissions
     for iova in &iovas {
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(*iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     // Update to read-write permissions
-    addr_space.update_permissions_batched(&iovas, PagePermissions::read_write()).unwrap();
+    addr_space
+        .update_permissions_batched(&iovas, PagePermissions::read_write())
+        .unwrap();
 
     // Verify write access now works
     for iova in &iovas {
-        assert!(addr_space.translate_page(*iova, AccessType::Write, SecurityState::NonSecure).is_ok());
+        assert!(addr_space
+            .translate_page(*iova, AccessType::Write, SecurityState::NonSecure)
+            .is_ok());
     }
 }
 
@@ -576,7 +635,9 @@ fn test_get_mapped_ranges() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let ranges = addr_space.get_mapped_ranges();
@@ -595,10 +656,22 @@ fn test_get_mapped_ranges_sparse() {
     let mut addr_space = AddressSpace::new();
 
     // Map non-contiguous pages
-    addr_space.map_page(IOVA::new(0x1000).unwrap(), PA::new(0x2000).unwrap(),
-                        PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
-    addr_space.map_page(IOVA::new(0x100000).unwrap(), PA::new(0x2000).unwrap(),
-                        PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(
+            IOVA::new(0x1000).unwrap(),
+            PA::new(0x2000).unwrap(),
+            PagePermissions::read_only(),
+            SecurityState::NonSecure,
+        )
+        .unwrap();
+    addr_space
+        .map_page(
+            IOVA::new(0x100000).unwrap(),
+            PA::new(0x2000).unwrap(),
+            PagePermissions::read_only(),
+            SecurityState::NonSecure,
+        )
+        .unwrap();
 
     let ranges = addr_space.get_mapped_ranges();
     assert_eq!(ranges.len(), 2);
@@ -611,8 +684,12 @@ fn test_get_address_space_size() {
     let iova2 = IOVA::new(0x1000 + (100 * PAGE_SIZE)).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova1, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
-    addr_space.map_page(iova2, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova1, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
+    addr_space
+        .map_page(iova2, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let size = addr_space.get_address_space_size();
     assert!(size >= 100 * PAGE_SIZE);
@@ -630,7 +707,9 @@ fn test_has_overlapping_mappings() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let start = IOVA::new(0x1000 - PAGE_SIZE).unwrap();
     let end = IOVA::new(0x1000 + PAGE_SIZE).unwrap();
@@ -644,7 +723,9 @@ fn test_has_overlapping_mappings_no_overlap() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let start = IOVA::new(0x10000).unwrap();
     let end = IOVA::new(0x20000).unwrap();
@@ -670,7 +751,9 @@ fn test_iter() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let count = addr_space.iter().count();
     assert_eq!(count, 1);
@@ -683,7 +766,9 @@ fn test_iter_multiple() {
     for i in 0..10 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let count = addr_space.iter().count();
@@ -695,7 +780,9 @@ fn test_iter_mut() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     // Modify permissions through mutable iterator
     for mut entry in addr_space.iter_mut() {
@@ -703,7 +790,9 @@ fn test_iter_mut() {
     }
 
     // Verify write access now works
-    assert!(addr_space.translate_page(iova, AccessType::Write, SecurityState::NonSecure).is_ok());
+    assert!(addr_space
+        .translate_page(iova, AccessType::Write, SecurityState::NonSecure)
+        .is_ok());
 }
 
 // ============================================================================
@@ -715,7 +804,9 @@ fn test_query_page_count() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let query = addr_space.query();
     assert_eq!(query.page_count(), 1);
@@ -726,7 +817,9 @@ fn test_query_is_mapped() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let query = addr_space.query();
     assert!(query.is_mapped(iova));
@@ -741,7 +834,9 @@ fn test_query_range_statistics() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let query = addr_space.query();
@@ -759,7 +854,9 @@ fn test_query_iter() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let query = addr_space.query();
     let count = query.iter().count();
@@ -771,7 +868,9 @@ fn test_query_page() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let entry = addr_space.query_page(iova);
     assert!(entry.is_some());
@@ -789,7 +888,9 @@ fn test_invalidate_page() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     addr_space.invalidate_page(iova);
     // Invalidation should not remove the page
@@ -801,7 +902,9 @@ fn test_invalidate_page_atomic() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     addr_space.invalidate_page_atomic(iova);
     assert!(addr_space.is_invalidated(iova));
@@ -814,7 +917,9 @@ fn test_invalidate_range_atomic() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let start = IOVA::new(0x1000).unwrap();
@@ -828,7 +933,9 @@ fn test_invalidate_page_with_ordering() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     addr_space.invalidate_page_with_ordering(iova, Ordering::SeqCst);
     assert!(addr_space.is_invalidated_with_ordering(iova, Ordering::SeqCst));
@@ -839,7 +946,9 @@ fn test_is_invalidated() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     assert!(!addr_space.is_invalidated(iova));
 
@@ -852,7 +961,9 @@ fn test_invalidation_generation() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     let gen_before = addr_space.invalidation_generation();
     addr_space.invalidate_page_atomic(iova);
@@ -866,7 +977,9 @@ fn test_compare_exchange_invalidate() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     // Should succeed in transitioning from false to true
     assert!(addr_space.compare_exchange_invalidate(iova, false, true, Ordering::SeqCst));
@@ -882,7 +995,9 @@ fn test_invalidate_range() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let start = IOVA::new(0x1000).unwrap();
@@ -900,7 +1015,9 @@ fn test_invalidate_all() {
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     addr_space.invalidate_all();
@@ -959,7 +1076,9 @@ fn test_map_page_unaligned_pa() {
     assert!(result.is_ok());
 
     // Translation should use aligned PA
-    let trans = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+    let trans = addr_space
+        .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+        .unwrap();
     assert_eq!(trans.physical_address().as_u64() & 0xFFF, 0);
 }
 
@@ -969,12 +1088,16 @@ fn test_translate_with_various_offsets() {
     let iova_base = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova_base, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova_base, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
     // Test various offsets within the page
     for offset in [0u64, 1, 256, 1024, 2048, 4095] {
         let iova = IOVA::new(0x1000 + offset).unwrap();
-        let result = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+        let result = addr_space
+            .translate_page(iova, AccessType::Read, SecurityState::NonSecure)
+            .unwrap();
         assert_eq!(result.physical_address().as_u64(), 0x2000 + offset);
     }
 }
@@ -987,7 +1110,9 @@ fn test_large_scale_mapping() {
     for i in 0..1000 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert_eq!(addr_space.get_page_count().unwrap(), 1000);
@@ -1008,11 +1133,31 @@ fn test_permission_combinations() {
 
     // Test all permission combinations
     let perm_combos = [
-        (PagePermissions::read_only(), vec![AccessType::Read], vec![AccessType::Write, AccessType::Execute]),
-        (PagePermissions::write_only(), vec![AccessType::Write], vec![AccessType::Read, AccessType::Execute]),
-        (PagePermissions::execute_only(), vec![AccessType::Execute], vec![AccessType::Read, AccessType::Write]),
-        (PagePermissions::read_write(), vec![AccessType::Read, AccessType::Write], vec![AccessType::Execute]),
-        (PagePermissions::read_execute(), vec![AccessType::Read, AccessType::Execute], vec![AccessType::Write]),
+        (
+            PagePermissions::read_only(),
+            vec![AccessType::Read],
+            vec![AccessType::Write, AccessType::Execute],
+        ),
+        (
+            PagePermissions::write_only(),
+            vec![AccessType::Write],
+            vec![AccessType::Read, AccessType::Execute],
+        ),
+        (
+            PagePermissions::execute_only(),
+            vec![AccessType::Execute],
+            vec![AccessType::Read, AccessType::Write],
+        ),
+        (
+            PagePermissions::read_write(),
+            vec![AccessType::Read, AccessType::Write],
+            vec![AccessType::Execute],
+        ),
+        (
+            PagePermissions::read_execute(),
+            vec![AccessType::Read, AccessType::Execute],
+            vec![AccessType::Write],
+        ),
     ];
 
     for (perms, allowed, denied) in perm_combos {
@@ -1044,7 +1189,9 @@ fn test_sparse_address_distribution() {
         }
         let iova = IOVA::new(offset).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     assert!(addr_space.get_page_count().unwrap() >= 10);
@@ -1058,7 +1205,9 @@ fn test_remapping_same_page() {
     // Map and remap the same page multiple times
     for i in 0..10 {
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     // Should still have only 1 page mapped
@@ -1110,7 +1259,9 @@ fn test_page_entry_mut_ref_accessors() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     // Test PageEntryMutRef accessors
     for mut entry_ref in addr_space.iter_mut() {
@@ -1335,10 +1486,7 @@ fn test_update_permissions_batched_invalid_iova() {
 #[test]
 fn test_unmap_pages_batched_not_mapped() {
     let mut addr_space = AddressSpace::new();
-    let iovas: Vec<IOVA> = vec![
-        IOVA::new(0x1000).unwrap(),
-        IOVA::new(0x2000).unwrap(),
-    ];
+    let iovas: Vec<IOVA> = vec![IOVA::new(0x1000).unwrap(), IOVA::new(0x2000).unwrap()];
 
     let result = addr_space.unmap_pages_batched(&iovas);
     assert!(matches!(result, Err(AddressSpaceError::PageNotMapped)));
@@ -1371,14 +1519,18 @@ fn test_query_range_statistics_partial() {
     for i in 0..3 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     // Map some pages with execute-only permissions
     for i in 3..5 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::execute_only(), SecurityState::NonSecure).unwrap();
+        addr_space
+            .map_page(iova, pa, PagePermissions::execute_only(), SecurityState::NonSecure)
+            .unwrap();
     }
 
     let query = addr_space.query();
@@ -1404,7 +1556,9 @@ fn test_translate_invalid_entry() {
     let pa = PA::new(0x2000).unwrap();
 
     // Map a page first
-    addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
 
     // Access the internal page table and insert an invalid entry
     // This simulates a corrupted or invalidated page table entry
@@ -1429,7 +1583,9 @@ fn test_address_space_clone_invalidation() {
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
     addr_space.invalidate_page_atomic(iova);
 
     let gen_before = addr_space.invalidation_generation();
@@ -1456,7 +1612,9 @@ fn test_compare_exchange_invalidate_transitions() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
-    addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    addr_space
+        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
+        .unwrap();
 
     // Transition from false to true
     assert!(addr_space.compare_exchange_invalidate(iova, false, true, Ordering::SeqCst));

@@ -4,7 +4,7 @@
 //! following the ARM `SMMU` v3 specification. All implementations are safe with
 //! zero unsafe code.
 
-use super::{AccessType, FaultType, TranslationStage, IOVA, PASID, SecurityState, StreamID};
+use super::{AccessType, FaultType, SecurityState, StreamID, TranslationStage, IOVA, PASID};
 
 /// ARM `SMMU` v3 fault syndrome structure
 ///

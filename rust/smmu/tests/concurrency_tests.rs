@@ -133,9 +133,7 @@ fn stress_concurrent_smmu_operations() {
             let iova = IOVA::new(0x1000).unwrap();
             let pa = PA::new(0x2000 + u64::from(i) * 0x1000).unwrap();
 
-            smmu_clone
-                .configure_stream(stream_id, Default::default())
-                .unwrap();
+            smmu_clone.configure_stream(stream_id, Default::default()).unwrap();
             smmu_clone.create_pasid(stream_id, pasid).unwrap();
             smmu_clone
                 .map_page(
@@ -148,13 +146,7 @@ fn stress_concurrent_smmu_operations() {
                 )
                 .unwrap();
 
-            let result = smmu_clone.translate(
-                stream_id,
-                pasid,
-                iova,
-                AccessType::Read,
-                SecurityState::NonSecure,
-            );
+            let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
             assert!(result.is_ok());
         });
         handles.push(handle);
@@ -270,8 +262,7 @@ fn stress_mixed_operations() {
     // Configure initial streams
     for i in 0..5 {
         let stream_id = smmu::types::StreamID::new(i).unwrap();
-        smmu.configure_stream(stream_id, Default::default())
-            .unwrap();
+        smmu.configure_stream(stream_id, Default::default()).unwrap();
     }
 
     // Spawn threads performing mixed operations
@@ -299,13 +290,7 @@ fn stress_mixed_operations() {
             );
 
             // Translate
-            let _ = smmu_clone.translate(
-                stream_id,
-                pasid,
-                iova,
-                AccessType::Read,
-                SecurityState::NonSecure,
-            );
+            let _ = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         });
         handles.push(handle);
     }
@@ -394,8 +379,7 @@ fn stress_concurrent_fault_generation() {
     let stream_id = smmu::types::StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
 
-    smmu.configure_stream(stream_id, Default::default())
-        .unwrap();
+    smmu.configure_stream(stream_id, Default::default()).unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     let mut handles = vec![];
@@ -405,13 +389,7 @@ fn stress_concurrent_fault_generation() {
         let smmu_clone = Arc::clone(&smmu);
         let handle = thread::spawn(move || {
             let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-            let _ = smmu_clone.translate(
-                stream_id,
-                pasid,
-                iova,
-                AccessType::Read,
-                SecurityState::NonSecure,
-            );
+            let _ = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         });
         handles.push(handle);
     }

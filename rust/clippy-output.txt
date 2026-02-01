@@ -1,0 +1,81 @@
+    Checking smmu v1.0.0 (/home/jpgreninger/Work/smmu/rust/smmu)
+error: this match could be written as a `let` statement
+   --> smmu/src/types/access_type.rs:180:9
+    |
+180 | /         match Self::from_bits_unchecked(bits) {
+181 | |             bits => bits,
+182 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#match_single_binding
+    = note: `-D clippy::match-single-binding` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::match_single_binding)]`
+help: consider using a `let` statement
+    |
+180 ~         let bits = Self::from_bits_unchecked(bits);
+181 +         bits
+    |
+
+error: this function's return value is unnecessary
+    --> smmu/src/smmu/mod.rs:1506:5
+     |
+1506 |     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unnecessary_wraps
+     = note: `-D clippy::unnecessary-wraps` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::unnecessary_wraps)]`
+help: remove the return type...
+     |
+1506 -     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
+1506 +     fn process_single_command(&self, command: CommandEntry) -> () {
+     |
+help: ...and then remove returned values
+     |
+1567 -         Ok(())
+     |
+
+error: avoid using `collect()` when not needed
+    --> smmu/src/smmu/mod.rs:1859:58
+     |
+1859 |         let drained: Vec<FaultRecord> = faults.drain(..).collect();
+     |                                                          ^^^^^^^
+1860 |         drained.into_iter()
+     |         ------------------- the iterator could be used here instead
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_collect
+     = note: `-D clippy::needless-collect` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_collect)]`
+help: use the original Iterator instead of collecting it and then producing a new one
+     |
+1859 ~         
+1860 ~         faults.drain(..)
+     |
+
+error: used `cloned` where `copied` could be used instead
+    --> smmu/src/smmu/mod.rs:1889:23
+     |
+1889 |         events.iter().cloned().collect()
+     |                       ^^^^^^ help: try: `copied`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#cloned_instead_of_copied
+     = note: `-D clippy::cloned-instead-of-copied` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::cloned_instead_of_copied)]`
+
+error: used `cloned` where `copied` could be used instead
+    --> smmu/src/smmu/mod.rs:1921:14
+     |
+1921 |             .cloned()
+     |              ^^^^^^ help: try: `copied`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#cloned_instead_of_copied
+
+error: used `cloned` where `copied` could be used instead
+    --> smmu/src/smmu/mod.rs:1953:25
+     |
+1953 |         requests.iter().cloned().collect()
+     |                         ^^^^^^ help: try: `copied`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#cloned_instead_of_copied
+
+error: could not compile `smmu` (lib) due to 6 previous errors

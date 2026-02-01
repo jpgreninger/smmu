@@ -4,8 +4,7 @@
 //! following ARM `SMMU` v3 specification requirements.
 
 use crate::types::{
-    AccessType, FaultRecord, FaultSyndrome, FaultType, IOVA, PASID, PagePermissions,
-    SecurityState, StreamID,
+    AccessType, FaultRecord, FaultSyndrome, FaultType, PagePermissions, SecurityState, StreamID, IOVA, PASID,
 };
 
 use super::detection::{AddressSize, FaultDetectionResult};
@@ -78,17 +77,11 @@ impl PermissionValidator {
             AccessType::Write => Self::can_write(permissions),
             AccessType::Execute => Self::can_execute(permissions),
             AccessType::ReadWrite => Self::can_read(permissions) && Self::can_write(permissions),
-            AccessType::ReadExecute => {
-                Self::can_read(permissions) && Self::can_execute(permissions)
-            }
-            AccessType::WriteExecute => {
-                Self::can_write(permissions) && Self::can_execute(permissions)
-            }
+            AccessType::ReadExecute => Self::can_read(permissions) && Self::can_execute(permissions),
+            AccessType::WriteExecute => Self::can_write(permissions) && Self::can_execute(permissions),
             AccessType::ReadWriteExecute => {
-                Self::can_read(permissions)
-                    && Self::can_write(permissions)
-                    && Self::can_execute(permissions)
-            }
+                Self::can_read(permissions) && Self::can_write(permissions) && Self::can_execute(permissions)
+            },
         }
     }
 
@@ -144,10 +137,7 @@ impl AddressRangeValidator {
     /// * `address_size` - Address size configuration
     #[must_use]
     pub const fn new(address_size: AddressSize) -> Self {
-        Self {
-            address_size,
-            timestamp_generator: 0,
-        }
+        Self { address_size, timestamp_generator: 0 }
     }
 
     /// Check if an address is within valid range

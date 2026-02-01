@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pasid,
         valid_iova,
         valid_pa,
-        PagePermissions::read_only(),  // Intentionally read-only for permission fault demo
+        PagePermissions::read_only(), // Intentionally read-only for permission fault demo
         SecurityState::NonSecure,
     )?;
 
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(fault.address().as_u64(), unmapped_iova.as_u64());
             assert_eq!(fault.stream_id(), stream_id);
             assert_eq!(fault.pasid(), pasid);
-        }
+        },
         Err(e) => println!("  ✗ Unexpected error: {}", e),
     }
 
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(fault.fault_type(), FaultType::Permission);
             assert_eq!(fault.address().as_u64(), valid_iova.as_u64());
             assert_eq!(fault.access_type(), AccessType::Write);
-        }
+        },
         Err(e) => println!("  ✗ Unexpected error: {}", e),
     }
 
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             assert_eq!(fault.fault_type(), FaultType::Permission);
             assert_eq!(fault.access_type(), AccessType::Execute);
-        }
+        },
         Err(e) => println!("  ✗ Unexpected error: {}", e),
     }
 
@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let syndrome = fault.syndrome();
             println!("\n  Fault syndrome (low-level details):");
             println!("    Syndrome value: 0x{:x}", syndrome.as_u64());
-        }
+        },
         _ => println!("  ✗ Unexpected result"),
     }
 
@@ -142,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("    Mode: Stall");
             println!("    Fault type: {:?}", fault.fault_type());
             println!("    Software can intervene and resolve fault");
-        }
+        },
         Err(e) => println!("  Error: {}", e),
     }
 
@@ -169,17 +169,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PagePermissions::read_write(),
         SecurityState::NonSecure,
     )?;
-    println!("     ✓ Mapped IOVA 0x{:x} -> PA 0x{:x}", recovery_iova.as_u64(), recovery_pa.as_u64());
+    println!(
+        "     ✓ Mapped IOVA 0x{:x} -> PA 0x{:x}",
+        recovery_iova.as_u64(),
+        recovery_pa.as_u64()
+    );
 
     // Retry translation - should succeed now
     println!("  c) Retry translation (should succeed):");
     match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read) {
         Ok(result) => {
             println!("     ✓ Translation succeeded after recovery");
-            println!("       IOVA 0x{:x} -> PA 0x{:x}",
-                     recovery_iova.as_u64(), result.physical_address().as_u64());
+            println!(
+                "       IOVA 0x{:x} -> PA 0x{:x}",
+                recovery_iova.as_u64(),
+                result.physical_address().as_u64()
+            );
             assert_eq!(result.physical_address().as_u64(), recovery_pa.as_u64());
-        }
+        },
         Err(e) => println!("     ✗ Translation failed: {}", e),
     }
 
@@ -202,7 +209,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Access with correct security state
     let result = smmu.translate(stream_id, pasid, secure_iova, AccessType::Read)?;
     println!("  ✓ Non-secure access to non-secure page succeeded");
-    println!("    IOVA 0x{:x} -> PA 0x{:x}", secure_iova.as_u64(), result.physical_address().as_u64());
+    println!(
+        "    IOVA 0x{:x} -> PA 0x{:x}",
+        secure_iova.as_u64(),
+        result.physical_address().as_u64()
+    );
 
     // Best practices for fault handling
     println!("\n=== Fault Handling Best Practices ===");

@@ -168,9 +168,7 @@ impl StreamConfig {
 
         // Validate max_pasid range
         if self.pasid_enabled && self.max_pasid > Self::MAX_PASID {
-            return Err(ValidationError::InvalidPASID {
-                value: self.max_pasid,
-            });
+            return Err(ValidationError::InvalidPASID { value: self.max_pasid });
         }
 
         // If PASID disabled, max_pasid should be 0
@@ -364,28 +362,46 @@ impl QueueConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         // Allow size 4 specifically for overflow testing
         let is_overflow_test_size = self.event_queue_size == 4;
-        if !is_overflow_test_size && (self.event_queue_size < Self::MIN_QUEUE_SIZE || self.event_queue_size > Self::MAX_QUEUE_SIZE) {
+        if !is_overflow_test_size
+            && (self.event_queue_size < Self::MIN_QUEUE_SIZE || self.event_queue_size > Self::MAX_QUEUE_SIZE)
+        {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("event queue size {} out of range [{}, {}]",
-                    self.event_queue_size, Self::MIN_QUEUE_SIZE, Self::MAX_QUEUE_SIZE),
+                reason: format!(
+                    "event queue size {} out of range [{}, {}]",
+                    self.event_queue_size,
+                    Self::MIN_QUEUE_SIZE,
+                    Self::MAX_QUEUE_SIZE
+                ),
             });
         }
 
         // Allow size 4 specifically for overflow testing
         let is_overflow_test_size = self.command_queue_size == 4;
-        if !is_overflow_test_size && (self.command_queue_size < Self::MIN_QUEUE_SIZE || self.command_queue_size > Self::MAX_QUEUE_SIZE) {
+        if !is_overflow_test_size
+            && (self.command_queue_size < Self::MIN_QUEUE_SIZE || self.command_queue_size > Self::MAX_QUEUE_SIZE)
+        {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("command queue size {} out of range [{}, {}]",
-                    self.command_queue_size, Self::MIN_QUEUE_SIZE, Self::MAX_QUEUE_SIZE),
+                reason: format!(
+                    "command queue size {} out of range [{}, {}]",
+                    self.command_queue_size,
+                    Self::MIN_QUEUE_SIZE,
+                    Self::MAX_QUEUE_SIZE
+                ),
             });
         }
 
         // Allow size 4 specifically for overflow testing
         let is_overflow_test_size = self.pri_queue_size == 4;
-        if !is_overflow_test_size && (self.pri_queue_size < Self::MIN_QUEUE_SIZE || self.pri_queue_size > Self::MAX_QUEUE_SIZE) {
+        if !is_overflow_test_size
+            && (self.pri_queue_size < Self::MIN_QUEUE_SIZE || self.pri_queue_size > Self::MAX_QUEUE_SIZE)
+        {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("PRI queue size {} out of range [{}, {}]",
-                    self.pri_queue_size, Self::MIN_QUEUE_SIZE, Self::MAX_QUEUE_SIZE),
+                reason: format!(
+                    "PRI queue size {} out of range [{}, {}]",
+                    self.pri_queue_size,
+                    Self::MIN_QUEUE_SIZE,
+                    Self::MAX_QUEUE_SIZE
+                ),
             });
         }
 
@@ -526,15 +542,23 @@ impl CacheConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.tlb_cache_size < Self::MIN_CACHE_SIZE || self.tlb_cache_size > Self::MAX_CACHE_SIZE {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("TLB cache size {} out of range [{}, {}]",
-                    self.tlb_cache_size, Self::MIN_CACHE_SIZE, Self::MAX_CACHE_SIZE),
+                reason: format!(
+                    "TLB cache size {} out of range [{}, {}]",
+                    self.tlb_cache_size,
+                    Self::MIN_CACHE_SIZE,
+                    Self::MAX_CACHE_SIZE
+                ),
             });
         }
 
         if self.cache_max_age_ms < Self::MIN_CACHE_AGE_MS || self.cache_max_age_ms > Self::MAX_CACHE_AGE_MS {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("cache max age {} out of range [{}, {}]",
-                    self.cache_max_age_ms, Self::MIN_CACHE_AGE_MS, Self::MAX_CACHE_AGE_MS),
+                reason: format!(
+                    "cache max age {} out of range [{}, {}]",
+                    self.cache_max_age_ms,
+                    Self::MIN_CACHE_AGE_MS,
+                    Self::MAX_CACHE_AGE_MS
+                ),
             });
         }
 
@@ -682,29 +706,45 @@ impl AddressConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.max_iova_bits < Self::MIN_IOVA_BITS || self.max_iova_bits > Self::MAX_IOVA_BITS {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max IOVA bits {} out of range [{}, {}]",
-                    self.max_iova_bits, Self::MIN_IOVA_BITS, Self::MAX_IOVA_BITS),
+                reason: format!(
+                    "max IOVA bits {} out of range [{}, {}]",
+                    self.max_iova_bits,
+                    Self::MIN_IOVA_BITS,
+                    Self::MAX_IOVA_BITS
+                ),
             });
         }
 
         if self.max_pa_bits < Self::MIN_PA_BITS || self.max_pa_bits > Self::MAX_PA_BITS {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max PA bits {} out of range [{}, {}]",
-                    self.max_pa_bits, Self::MIN_PA_BITS, Self::MAX_PA_BITS),
+                reason: format!(
+                    "max PA bits {} out of range [{}, {}]",
+                    self.max_pa_bits,
+                    Self::MIN_PA_BITS,
+                    Self::MAX_PA_BITS
+                ),
             });
         }
 
         if self.max_stream_count < Self::MIN_STREAM_COUNT || self.max_stream_count > Self::MAX_STREAM_COUNT {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max stream count {} out of range [{}, {}]",
-                    self.max_stream_count, Self::MIN_STREAM_COUNT, Self::MAX_STREAM_COUNT),
+                reason: format!(
+                    "max stream count {} out of range [{}, {}]",
+                    self.max_stream_count,
+                    Self::MIN_STREAM_COUNT,
+                    Self::MAX_STREAM_COUNT
+                ),
             });
         }
 
         if self.max_pasid_count < Self::MIN_PASID_COUNT || self.max_pasid_count > Self::MAX_PASID_COUNT {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max PASID count {} out of range [{}, {}]",
-                    self.max_pasid_count, Self::MIN_PASID_COUNT, Self::MAX_PASID_COUNT),
+                reason: format!(
+                    "max PASID count {} out of range [{}, {}]",
+                    self.max_pasid_count,
+                    Self::MIN_PASID_COUNT,
+                    Self::MAX_PASID_COUNT
+                ),
             });
         }
 
@@ -847,22 +887,34 @@ impl ResourceLimits {
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.max_memory_usage < Self::MIN_MEMORY_USAGE || self.max_memory_usage > Self::MAX_MEMORY_USAGE {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max memory usage {} out of range [{}, {}]",
-                    self.max_memory_usage, Self::MIN_MEMORY_USAGE, Self::MAX_MEMORY_USAGE),
+                reason: format!(
+                    "max memory usage {} out of range [{}, {}]",
+                    self.max_memory_usage,
+                    Self::MIN_MEMORY_USAGE,
+                    Self::MAX_MEMORY_USAGE
+                ),
             });
         }
 
         if self.max_thread_count < Self::MIN_THREAD_COUNT || self.max_thread_count > Self::MAX_THREAD_COUNT {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("max thread count {} out of range [{}, {}]",
-                    self.max_thread_count, Self::MIN_THREAD_COUNT, Self::MAX_THREAD_COUNT),
+                reason: format!(
+                    "max thread count {} out of range [{}, {}]",
+                    self.max_thread_count,
+                    Self::MIN_THREAD_COUNT,
+                    Self::MAX_THREAD_COUNT
+                ),
             });
         }
 
         if self.timeout_ms < Self::MIN_TIMEOUT_MS || self.timeout_ms > Self::MAX_TIMEOUT_MS {
             return Err(ValidationError::InvalidConfiguration {
-                reason: format!("timeout {} out of range [{}, {}]",
-                    self.timeout_ms, Self::MIN_TIMEOUT_MS, Self::MAX_TIMEOUT_MS),
+                reason: format!(
+                    "timeout {} out of range [{}, {}]",
+                    self.timeout_ms,
+                    Self::MIN_TIMEOUT_MS,
+                    Self::MAX_TIMEOUT_MS
+                ),
             });
         }
 
@@ -1030,11 +1082,7 @@ impl ConfigurationError {
     /// Create a new configuration error
     #[must_use]
     pub fn new(error_type: ConfigurationErrorType, field: String, message: String) -> Self {
-        Self {
-            error_type,
-            field,
-            message,
-        }
+        Self { error_type, field, message }
     }
 }
 
@@ -1052,13 +1100,17 @@ impl From<ValidationError> for ConfigurationError {
         match error {
             ValidationError::InvalidConfiguration { reason } => {
                 Self::new(ConfigurationErrorType::InvalidFormat, "unknown".to_string(), reason)
-            }
-            ValidationError::InvalidPASID { value } => {
-                Self::new(ConfigurationErrorType::OutOfRange, "pasid".to_string(), format!("invalid PASID: {value}"))
-            }
-            _ => {
-                Self::new(ConfigurationErrorType::InvalidFormat, "unknown".to_string(), format!("{error:?}"))
-            }
+            },
+            ValidationError::InvalidPASID { value } => Self::new(
+                ConfigurationErrorType::OutOfRange,
+                "pasid".to_string(),
+                format!("invalid PASID: {value}"),
+            ),
+            _ => Self::new(
+                ConfigurationErrorType::InvalidFormat,
+                "unknown".to_string(),
+                format!("{error:?}"),
+            ),
         }
     }
 }
@@ -1329,7 +1381,12 @@ impl SMMUConfig {
     }
 
     /// Update queue sizes
-    pub fn update_queue_sizes(&mut self, event_size: usize, command_size: usize, pri_size: usize) -> Result<(), ValidationError> {
+    pub fn update_queue_sizes(
+        &mut self,
+        event_size: usize,
+        command_size: usize,
+        pri_size: usize,
+    ) -> Result<(), ValidationError> {
         let new_config = QueueConfig {
             event_queue_size: event_size,
             command_queue_size: command_size,
@@ -1341,7 +1398,12 @@ impl SMMUConfig {
     }
 
     /// Update cache settings
-    pub fn update_cache_settings(&mut self, cache_size: usize, max_age: u32, enable: bool) -> Result<(), ValidationError> {
+    pub fn update_cache_settings(
+        &mut self,
+        cache_size: usize,
+        max_age: u32,
+        enable: bool,
+    ) -> Result<(), ValidationError> {
         let new_config = CacheConfig {
             tlb_cache_size: cache_size,
             cache_max_age_ms: max_age,
@@ -1353,7 +1415,13 @@ impl SMMUConfig {
     }
 
     /// Update address limits
-    pub fn update_address_limits(&mut self, iova_bits: u8, pa_bits: u8, stream_count: u32, pasid_count: u32) -> Result<(), ValidationError> {
+    pub fn update_address_limits(
+        &mut self,
+        iova_bits: u8,
+        pa_bits: u8,
+        stream_count: u32,
+        pasid_count: u32,
+    ) -> Result<(), ValidationError> {
         let new_config = AddressConfig {
             max_iova_bits: iova_bits,
             max_pa_bits: pa_bits,
@@ -1366,7 +1434,12 @@ impl SMMUConfig {
     }
 
     /// Update resource limits
-    pub fn update_resource_limits(&mut self, memory_usage: u64, thread_count: u32, timeout: u32) -> Result<(), ValidationError> {
+    pub fn update_resource_limits(
+        &mut self,
+        memory_usage: u64,
+        thread_count: u32,
+        timeout: u32,
+    ) -> Result<(), ValidationError> {
         let new_limits = ResourceLimits {
             max_memory_usage: memory_usage,
             max_thread_count: thread_count,
@@ -1510,66 +1583,81 @@ impl SMMUConfig {
 
         // Parse queue configuration
         if let Some(v) = map.get("event_queue_size") {
-            config.queue_config.event_queue_size = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid event_queue_size".into() })?;
+            config.queue_config.event_queue_size = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid event_queue_size".into(),
+            })?;
         }
         if let Some(v) = map.get("command_queue_size") {
-            config.queue_config.command_queue_size = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid command_queue_size".into() })?;
+            config.queue_config.command_queue_size = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid command_queue_size".into(),
+            })?;
         }
         if let Some(v) = map.get("pri_queue_size") {
-            config.queue_config.pri_queue_size = v.parse()
+            config.queue_config.pri_queue_size = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid pri_queue_size".into() })?;
         }
 
         // Parse cache configuration
         if let Some(v) = map.get("tlb_cache_size") {
-            config.cache_config.tlb_cache_size = v.parse()
+            config.cache_config.tlb_cache_size = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid tlb_cache_size".into() })?;
         }
         if let Some(v) = map.get("cache_max_age_ms") {
-            config.cache_config.cache_max_age_ms = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid cache_max_age_ms".into() })?;
+            config.cache_config.cache_max_age_ms = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid cache_max_age_ms".into(),
+            })?;
         }
         if let Some(v) = map.get("enable_caching") {
-            config.cache_config.enable_caching = v.parse()
+            config.cache_config.enable_caching = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid enable_caching".into() })?;
         }
 
         // Parse address configuration
         if let Some(v) = map.get("max_iova_bits") {
-            config.address_config.max_iova_bits = v.parse()
+            config.address_config.max_iova_bits = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_iova_bits".into() })?;
         }
         if let Some(v) = map.get("max_pa_bits") {
-            config.address_config.max_pa_bits = v.parse()
+            config.address_config.max_pa_bits = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_pa_bits".into() })?;
         }
         if let Some(v) = map.get("max_stream_count") {
-            config.address_config.max_stream_count = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_stream_count".into() })?;
+            config.address_config.max_stream_count = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid max_stream_count".into(),
+            })?;
         }
         if let Some(v) = map.get("max_pasid_count") {
-            config.address_config.max_pasid_count = v.parse()
+            config.address_config.max_pasid_count = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_pasid_count".into() })?;
         }
 
         // Parse resource limits
         if let Some(v) = map.get("max_memory_usage") {
-            config.resource_limits.max_memory_usage = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_memory_usage".into() })?;
+            config.resource_limits.max_memory_usage = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid max_memory_usage".into(),
+            })?;
         }
         if let Some(v) = map.get("max_thread_count") {
-            config.resource_limits.max_thread_count = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_thread_count".into() })?;
+            config.resource_limits.max_thread_count = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: "invalid max_thread_count".into(),
+            })?;
         }
         if let Some(v) = map.get("timeout_ms") {
-            config.resource_limits.timeout_ms = v.parse()
+            config.resource_limits.timeout_ms = v
+                .parse()
                 .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid timeout_ms".into() })?;
         }
         if let Some(v) = map.get("enable_resource_tracking") {
-            config.resource_limits.enable_resource_tracking = v.parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid enable_resource_tracking".into() })?;
+            config.resource_limits.enable_resource_tracking =
+                v.parse().map_err(|_| ValidationError::InvalidConfiguration {
+                    reason: "invalid enable_resource_tracking".into(),
+                })?;
         }
 
         // Validate the final configuration

@@ -38,7 +38,7 @@
 //! ```
 
 use crate::fault::queue::FaultQueue;
-use crate::types::{FaultRecord, FaultType, PASID, StreamID};
+use crate::types::{FaultRecord, FaultType, StreamID, PASID};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -66,7 +66,7 @@ impl std::fmt::Display for FaultProcessingError {
         match self {
             Self::Terminated(fault) => {
                 write!(f, "Fault terminated: {:?}", fault.fault_type())
-            }
+            },
             Self::QueueFull => write!(f, "Fault queue is full"),
             Self::NoStalledFault => write!(f, "No stalled fault available"),
             Self::InvalidResume => write!(f, "Invalid fault resume"),
@@ -225,18 +225,16 @@ impl FaultProcessor {
             FaultMode::Terminate => {
                 // Immediate termination
                 Err(FaultProcessingError::Terminated(fault))
-            }
+            },
             FaultMode::Stall => {
                 // Queue for stall
                 if let Some(ref queue) = self.stall_queue {
-                    queue
-                        .push(fault)
-                        .map_err(|_| FaultProcessingError::QueueFull)?;
+                    queue.push(fault).map_err(|_| FaultProcessingError::QueueFull)?;
                     Ok(())
                 } else {
                     Err(FaultProcessingError::Terminated(fault))
                 }
-            }
+            },
         }
     }
 
@@ -295,11 +293,7 @@ impl FaultProcessor {
     /// let result = processor.resume_stalled_fault(stalled, true);
     /// assert!(result.is_ok());
     /// ```
-    pub fn resume_stalled_fault(
-        &self,
-        _fault: FaultRecord,
-        _success: bool,
-    ) -> Result<(), FaultProcessingError> {
+    pub fn resume_stalled_fault(&self, _fault: FaultRecord, _success: bool) -> Result<(), FaultProcessingError> {
         // In a real implementation, this would update internal state
         // For now, just validate that we're in the right mode
         if self.mode != FaultMode::Stall {
@@ -426,10 +420,7 @@ impl FaultProcessor {
     /// Gets currently queued faults (Stall mode only)
     #[must_use]
     pub fn get_queued_faults(&self) -> Vec<FaultRecord> {
-        self.stall_queue
-            .as_ref()
-            .map(|q| q.get_all())
-            .unwrap_or_default()
+        self.stall_queue.as_ref().map(|q| q.get_all()).unwrap_or_default()
     }
 
     /// Gets number of queued faults (Stall mode only)
@@ -508,10 +499,8 @@ impl FaultProcessor {
     /// Gets current timestamp in microseconds
     #[must_use]
     pub fn get_current_timestamp(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64 // Truncation acceptable: would require 584K+ years to overflow
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+        // Truncation acceptable: would require 584K+ years to overflow
     }
 
     /// Records an event in the event queue
@@ -532,17 +521,17 @@ impl FaultProcessor {
         match fault.fault_type() {
             FaultType::TranslationFault => {
                 self.translation_faults.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             FaultType::PermissionFault => {
                 self.permission_faults.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             FaultType::AccessFlagFault => {
                 self.access_faults.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             FaultType::AddressSizeFault => {
                 self.address_size_faults.fetch_add(1, Ordering::Relaxed);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 }
@@ -550,7 +539,7 @@ impl FaultProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AccessType, FaultType, StreamID, PASID, IOVA};
+    use crate::types::{AccessType, FaultType, StreamID, IOVA, PASID};
 
     fn create_test_fault(stream_id: u32, fault_type: FaultType) -> FaultRecord {
         FaultRecord::builder()

@@ -891,10 +891,7 @@ fn test_add_offset_with_zero_all_types() {
 #[test]
 fn test_alignment_operations_comprehensive() {
     // Test a range of addresses for all alignment operations
-    let test_values = [
-        0x0, 0x1, 0xFFF, 0x1000, 0x1001, 0x1FFF,
-        0x2000, 0x10000, 0xFFFFF, 0x100000
-    ];
+    let test_values = [0x0, 0x1, 0xFFF, 0x1000, 0x1001, 0x1FFF, 0x2000, 0x10000, 0xFFFFF, 0x100000];
 
     for &addr in &test_values {
         let iova = IOVA::new(addr).unwrap();

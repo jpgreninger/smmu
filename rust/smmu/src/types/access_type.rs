@@ -177,9 +177,7 @@ impl AccessType {
     pub const fn intersect(self, other: Self) -> Self {
         let bits = self as u8 & other as u8;
         // Safe because we're ANDing two valid bit patterns
-        match Self::from_bits_unchecked(bits) {
-            bits => bits,
-        }
+        Self::from_bits_unchecked(bits)
     }
 
     /// Compute the union of two permission sets

@@ -483,10 +483,7 @@ fn test_pri_queue_filtering_by_access_type() {
         PRIEntry::new(10, 20, 0x4000, AccessType::Execute),
     ];
 
-    let read_requests: Vec<_> = queue
-        .iter()
-        .filter(|e| e.access_type == AccessType::Read)
-        .collect();
+    let read_requests: Vec<_> = queue.iter().filter(|e| e.access_type == AccessType::Read).collect();
 
     assert_eq!(read_requests.len(), 2);
 }

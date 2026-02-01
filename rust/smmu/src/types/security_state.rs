@@ -134,11 +134,12 @@ impl SecurityState {
     #[inline]
     #[must_use]
     pub const fn can_access(self, target: Self) -> bool {
-        matches!((self, target),
+        matches!(
+            (self, target),
             // Same state can always access itself
-            (Self::Secure, Self::Secure) | (Self::NonSecure, Self::NonSecure) | (Self::Realm, Self::Realm) |
-            // Secure can access NonSecure (downgrade)
-            (Self::Secure, Self::NonSecure)
+            (Self::Secure, Self::Secure | Self::NonSecure)
+                | (Self::NonSecure, Self::NonSecure)
+                | (Self::Realm, Self::Realm)
         )
     }
 

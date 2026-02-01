@@ -252,12 +252,7 @@ fn test_event_entry_new_all_event_types() {
     ];
 
     for (i, &event_type) in event_types.iter().enumerate() {
-        let entry = EventEntry::new(
-            event_type,
-            i as u32,
-            (i * 2) as u32,
-            (i * 0x1000) as u64,
-        );
+        let entry = EventEntry::new(event_type, i as u32, (i * 2) as u32, (i * 0x1000) as u64);
 
         assert_eq!(entry.event_type, event_type);
         assert_eq!(entry.stream_id, i as u32);
@@ -434,11 +429,7 @@ fn test_event_entry_with_realm_state() {
 
 #[test]
 fn test_event_entry_all_security_states() {
-    let security_states = [
-        SecurityState::Secure,
-        SecurityState::NonSecure,
-        SecurityState::Realm,
-    ];
+    let security_states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
 
     for &state in &security_states {
         let mut entry = EventEntry::new(EventType::InternalError, 1, 2, 3);
@@ -737,10 +728,7 @@ fn test_event_entry_filtering_by_type() {
     events.push(EventEntry::new(EventType::PermissionFault, 4, 5, 6));
     events.push(EventEntry::new(EventType::TranslationFault, 7, 8, 9));
 
-    let translation_faults: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == EventType::TranslationFault)
-        .collect();
+    let translation_faults: Vec<_> = events.iter().filter(|e| e.event_type == EventType::TranslationFault).collect();
 
     assert_eq!(translation_faults.len(), 2);
 }

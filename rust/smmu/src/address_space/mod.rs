@@ -25,8 +25,8 @@
 #![warn(missing_docs)]
 
 use crate::types::{
-    AccessType, PageEntry, PagePermissions, SecurityState, TranslationData, TranslationError,
-    TranslationResult, IOVA, PA, PAGE_SIZE,
+    AccessType, PageEntry, PagePermissions, SecurityState, TranslationData, TranslationError, TranslationResult, IOVA,
+    PA, PAGE_SIZE,
 };
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -103,10 +103,7 @@ impl Iterator for AddressRangeIterator {
             let iova = IOVA::new(self.current).ok()?;
             let page_number = self.current >> 12;
             self.current += PAGE_SIZE;
-            Some(PageInfo {
-                iova,
-                page_number,
-            })
+            Some(PageInfo { iova, page_number })
         } else {
             None
         }
@@ -319,9 +316,7 @@ impl Clone for AddressSpace {
     fn clone(&self) -> Self {
         Self {
             page_table: self.page_table.clone(),
-            invalidation_generation: AtomicU64::new(
-                self.invalidation_generation.load(Ordering::Acquire),
-            ),
+            invalidation_generation: AtomicU64::new(self.invalidation_generation.load(Ordering::Acquire)),
             invalidation_map: self
                 .invalidation_map
                 .iter()
@@ -413,9 +408,7 @@ impl AddressSpace {
     ) -> Result<(), AddressSpaceError> {
         // Validate IOVA is within supported address space
         if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
         }
 
         // Validate PA is within supported address space
@@ -471,9 +464,7 @@ impl AddressSpace {
     pub fn unmap_page(&mut self, iova: IOVA) -> Result<(), AddressSpaceError> {
         // Validate IOVA is within supported address space
         if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
         }
 
         let page_num = self.page_number(iova);
@@ -528,10 +519,7 @@ impl AddressSpace {
         let page_num = self.page_number(iova);
 
         // Look up page entry
-        let entry = self
-            .page_table
-            .get(&page_num)
-            .ok_or(TranslationError::PageNotMapped)?;
+        let entry = self.page_table.get(&page_num).ok_or(TranslationError::PageNotMapped)?;
 
         // Verify entry is valid
         if !entry.is_valid() {
@@ -553,11 +541,7 @@ impl AddressSpace {
         let translated_pa = PA::new(entry.physical_address().as_u64() + page_offset).unwrap();
 
         // Return successful translation
-        Ok(TranslationData::new(
-            translated_pa,
-            entry.permissions(),
-            entry.security_state(),
-        ))
+        Ok(TranslationData::new(translated_pa, entry.permissions(), entry.security_state()))
     }
 
     /// Checks if a page is mapped
@@ -589,9 +573,7 @@ impl AddressSpace {
     pub fn is_page_mapped(&self, iova: IOVA) -> Result<bool, AddressSpaceError> {
         // Validate IOVA is within supported address space
         if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
         }
 
         let page_num = self.page_number(iova);
@@ -629,9 +611,7 @@ impl AddressSpace {
     pub fn get_page_permissions(&self, iova: IOVA) -> Result<PagePermissions, AddressSpaceError> {
         // Validate IOVA is within supported address space
         if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
         }
 
         let page_num = self.page_number(iova);
@@ -729,22 +709,16 @@ impl AddressSpace {
     ) -> Result<(), AddressSpaceError> {
         // Validate range
         if end_iova.as_u64() < start_iova.as_u64() {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: end_iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: end_iova.as_u64() });
         }
 
         // Validate addresses
         if start_iova.as_u64() > MAX_VIRTUAL_ADDRESS || end_iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: start_iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: start_iova.as_u64() });
         }
 
         if start_pa.as_u64() > MAX_PHYSICAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: start_pa.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: start_pa.as_u64() });
         }
 
         // Validate permissions
@@ -796,23 +770,15 @@ impl AddressSpace {
     /// addr_space.map_range(start_iova, end_iova, start_pa, `PagePermissions`::read_only()).unwrap();
     /// addr_space.unmap_range(start_iova, end_iova).unwrap();
     /// ```
-    pub fn unmap_range(
-        &mut self,
-        start_iova: IOVA,
-        end_iova: IOVA,
-    ) -> Result<(), AddressSpaceError> {
+    pub fn unmap_range(&mut self, start_iova: IOVA, end_iova: IOVA) -> Result<(), AddressSpaceError> {
         // Validate range
         if end_iova.as_u64() < start_iova.as_u64() {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: end_iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: end_iova.as_u64() });
         }
 
         // Validate addresses
         if start_iova.as_u64() > MAX_VIRTUAL_ADDRESS || end_iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-            return Err(AddressSpaceError::InvalidAddress {
-                address: start_iova.as_u64(),
-            });
+            return Err(AddressSpaceError::InvalidAddress { address: start_iova.as_u64() });
         }
 
         // Calculate page numbers
@@ -820,8 +786,7 @@ impl AddressSpace {
         let end_page_num = self.page_number(end_iova);
 
         // Check if any pages in the range are mapped
-        let any_mapped = (start_page_num..=end_page_num)
-            .any(|page_num| self.page_table.contains_key(&page_num));
+        let any_mapped = (start_page_num..=end_page_num).any(|page_num| self.page_table.contains_key(&page_num));
 
         if !any_mapped {
             return Err(AddressSpaceError::PageNotMapped);
@@ -879,9 +844,7 @@ impl AddressSpace {
         // Validate all mappings first
         for &(iova, pa) in mappings {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-                return Err(AddressSpaceError::InvalidAddress {
-                    address: iova.as_u64(),
-                });
+                return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
             }
             if pa.as_u64() > MAX_PHYSICAL_ADDRESS {
                 return Err(AddressSpaceError::InvalidAddress { address: pa.as_u64() });
@@ -931,16 +894,12 @@ impl AddressSpace {
         // Validate all IOVAs first
         for &iova in iovas {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-                return Err(AddressSpaceError::InvalidAddress {
-                    address: iova.as_u64(),
-                });
+                return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
             }
         }
 
         // Check if at least some pages are mapped
-        let any_mapped = iovas
-            .iter()
-            .any(|&iova| self.page_table.contains_key(&self.page_number(iova)));
+        let any_mapped = iovas.iter().any(|&iova| self.page_table.contains_key(&self.page_number(iova)));
 
         if !any_mapped {
             return Err(AddressSpaceError::PageNotMapped);
@@ -1106,10 +1065,7 @@ impl AddressSpace {
     pub fn iter(&self) -> impl Iterator<Item = PageEntryRef> + '_ {
         self.page_table.iter().map(|(page_num, entry)| {
             let iova = IOVA::new(page_num << 12).unwrap();
-            PageEntryRef {
-                iova,
-                entry: entry.clone(),
-            }
+            PageEntryRef { iova, entry: entry.clone() }
         })
     }
 
@@ -1182,9 +1138,7 @@ impl AddressSpace {
         // Validate all mappings first (transactional semantics)
         for &(iova, pa) in mappings {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-                return Err(AddressSpaceError::InvalidAddress {
-                    address: iova.as_u64(),
-                });
+                return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
             }
             if pa.as_u64() > MAX_PHYSICAL_ADDRESS {
                 return Err(AddressSpaceError::InvalidAddress { address: pa.as_u64() });
@@ -1212,16 +1166,12 @@ impl AddressSpace {
         // Validate all IOVAs first
         for &iova in iovas {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-                return Err(AddressSpaceError::InvalidAddress {
-                    address: iova.as_u64(),
-                });
+                return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
             }
         }
 
         // Check if at least some pages are mapped
-        let any_mapped = iovas
-            .iter()
-            .any(|&iova| self.page_table.contains_key(&self.page_number(iova)));
+        let any_mapped = iovas.iter().any(|&iova| self.page_table.contains_key(&self.page_number(iova)));
 
         if !any_mapped {
             return Err(AddressSpaceError::PageNotMapped);
@@ -1250,9 +1200,7 @@ impl AddressSpace {
         // Validate all IOVAs first
         for &iova in iovas {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
-                return Err(AddressSpaceError::InvalidAddress {
-                    address: iova.as_u64(),
-                });
+                return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
             }
         }
 
@@ -1274,8 +1222,7 @@ impl AddressSpace {
         let page_num = self.page_number(iova);
 
         // Increment global generation counter
-        self.invalidation_generation
-            .fetch_add(1, Ordering::Release);
+        self.invalidation_generation.fetch_add(1, Ordering::Release);
 
         // Track per-page invalidation
         self.invalidation_map
@@ -1303,8 +1250,7 @@ impl AddressSpace {
         }
 
         if count > 0 {
-            self.invalidation_generation
-                .fetch_add(count as u64, Ordering::Release);
+            self.invalidation_generation.fetch_add(count as u64, Ordering::Release);
         }
 
         count
@@ -1335,9 +1281,7 @@ impl AddressSpace {
     #[must_use]
     pub fn is_invalidated_with_ordering(&self, iova: IOVA, ordering: Ordering) -> bool {
         let page_num = self.page_number(iova);
-        self.invalidation_map
-            .get(&page_num)
-            .map_or(false, |gen| gen.load(ordering) > 0)
+        self.invalidation_map.get(&page_num).map_or(false, |gen| gen.load(ordering) > 0)
     }
 
     /// Returns the current invalidation generation counter
@@ -1350,22 +1294,13 @@ impl AddressSpace {
     ///
     /// Returns true if the invalidation succeeded (state transitioned from
     /// current to new), false otherwise.
-    pub fn compare_exchange_invalidate(
-        &mut self,
-        iova: IOVA,
-        current: bool,
-        new: bool,
-        ordering: Ordering,
-    ) -> bool {
+    pub fn compare_exchange_invalidate(&mut self, iova: IOVA, current: bool, new: bool, ordering: Ordering) -> bool {
         let page_num = self.page_number(iova);
 
         let current_val = if current { 1u64 } else { 0u64 };
         let new_val = if new { 1u64 } else { 0u64 };
 
-        let entry = self
-            .invalidation_map
-            .entry(page_num)
-            .or_insert_with(|| AtomicU64::new(0));
+        let entry = self.invalidation_map.entry(page_num).or_insert_with(|| AtomicU64::new(0));
 
         entry
             .compare_exchange(current_val, new_val, ordering, Ordering::Relaxed)

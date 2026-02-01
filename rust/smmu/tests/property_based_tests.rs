@@ -13,8 +13,7 @@ use proptest::prelude::*;
 use smmu::address_space::AddressSpace;
 use smmu::stream_context::StreamContext;
 use smmu::types::{
-    AccessType, PagePermissions, SecurityState, TranslationStage,
-    IOVA, IPA, PA, PASID, PAGE_SIZE, StreamID,
+    AccessType, PagePermissions, SecurityState, StreamID, TranslationStage, IOVA, IPA, PA, PAGE_SIZE, PASID,
 };
 
 // ============================================================================

@@ -87,20 +87,16 @@ fn bench_translation_multi_pasid(c: &mut Criterion) {
     let mut group = c.benchmark_group("translation_multi_pasid");
 
     for num_pasids in [1, 2, 4, 8, 16, 32].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pasids),
-            num_pasids,
-            |b, &num_pasids| {
-                let _smmu = SMMU::new();
+        group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
+            let _smmu = SMMU::new();
 
-                b.iter(|| {
-                    // TODO: Implement when PASID support is ready
-                    // Measure translation with varying number of PASIDs
-                    // Verify O(1) or O(log n) lookup performance
-                    black_box(num_pasids);
-                });
-            },
-        );
+            b.iter(|| {
+                // TODO: Implement when PASID support is ready
+                // Measure translation with varying number of PASIDs
+                // Verify O(1) or O(log n) lookup performance
+                black_box(num_pasids);
+            });
+        });
     }
 
     group.finish();
@@ -115,19 +111,15 @@ fn bench_translation_page_sizes(c: &mut Criterion) {
 
     // Test with different page sizes: 4K, 2M, 1G
     for page_size in [4096, 2 * 1024 * 1024, 1024 * 1024 * 1024].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(page_size),
-            page_size,
-            |b, &page_size| {
-                let _smmu = SMMU::new();
+        group.bench_with_input(BenchmarkId::from_parameter(page_size), page_size, |b, &page_size| {
+            let _smmu = SMMU::new();
 
-                b.iter(|| {
-                    // TODO: Implement when page size configuration is ready
-                    // Measure translation with different page sizes
-                    black_box(page_size);
-                });
-            },
-        );
+            b.iter(|| {
+                // TODO: Implement when page size configuration is ready
+                // Measure translation with different page sizes
+                black_box(page_size);
+            });
+        });
     }
 
     group.finish();
@@ -142,21 +134,17 @@ fn bench_translation_throughput(c: &mut Criterion) {
 
     // Measure throughput with batches of translations
     for batch_size in [10, 100, 1000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(batch_size),
-            batch_size,
-            |b, &batch_size| {
-                let _smmu = SMMU::new();
+        group.bench_with_input(BenchmarkId::from_parameter(batch_size), batch_size, |b, &batch_size| {
+            let _smmu = SMMU::new();
 
-                b.iter(|| {
-                    // TODO: Implement when translation API is ready
-                    // Measure throughput (ops/sec) for batch translations
-                    for _ in 0..batch_size {
-                        black_box(());
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                // TODO: Implement when translation API is ready
+                // Measure throughput (ops/sec) for batch translations
+                for _ in 0..batch_size {
+                    black_box(());
+                }
+            });
+        });
     }
 
     group.finish();

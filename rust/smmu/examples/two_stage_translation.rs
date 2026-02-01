@@ -53,9 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stage 1 mapping (Guest OS perspective)
     println!("  Stage 1 (Guest OS): Map guest virtual to guest physical");
-    let guest_va = IOVA::new(0x1000)?;  // Guest virtual address
+    let guest_va = IOVA::new(0x1000)?; // Guest virtual address
     let guest_pa = IOVA::new(0x10000)?; // Guest physical (= IPA for Stage 2)
-    let stage1_pa = PA::new(0x10000)?;  // Must match IPA
+    let stage1_pa = PA::new(0x10000)?; // Must match IPA
 
     smmu.map_page(
         stream_id,
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stage 2 mapping (Hypervisor perspective)
     println!("  Stage 2 (Hypervisor): Map guest physical to host physical");
-    let host_pa = PA::new(0x100000)?;  // Actual physical address
+    let host_pa = PA::new(0x100000)?; // Actual physical address
 
     smmu.map_stage2_page(
         stream_id,
@@ -83,10 +83,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Perform two-stage translation
     println!("\n  Combined Translation:");
     let result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read)?;
-    println!("    IOVA 0x{:x} → IPA 0x{:x} → PA 0x{:x}",
-             guest_va.as_u64(),
-             guest_pa.as_u64(),
-             result.physical_address().as_u64());
+    println!(
+        "    IOVA 0x{:x} → IPA 0x{:x} → PA 0x{:x}",
+        guest_va.as_u64(),
+        guest_pa.as_u64(),
+        result.physical_address().as_u64()
+    );
 
     assert_eq!(result.physical_address().as_u64(), host_pa.as_u64());
     println!("    ✓ Two-stage translation successful!\n");
@@ -103,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(stream_id, vm2_pasid)?;
 
     // Both VMs can use same guest virtual addresses
-    let vm2_guest_va = IOVA::new(0x1000)?;  // Same as VM1!
+    let vm2_guest_va = IOVA::new(0x1000)?; // Same as VM1!
     let vm2_guest_pa = IOVA::new(0x20000)?; // Different guest physical
     let vm2_stage1_pa = PA::new(0x20000)?;
 
@@ -130,15 +132,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  Translation comparison (same IOVA, different VMs):");
 
     let vm1_result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read)?;
-    println!("    VM1: IOVA 0x{:x} → PA 0x{:x}",
-             guest_va.as_u64(), vm1_result.physical_address().as_u64());
+    println!(
+        "    VM1: IOVA 0x{:x} → PA 0x{:x}",
+        guest_va.as_u64(),
+        vm1_result.physical_address().as_u64()
+    );
 
     let vm2_result = smmu.translate(stream_id, vm2_pasid, vm2_guest_va, AccessType::Read)?;
-    println!("    VM2: IOVA 0x{:x} → PA 0x{:x}",
-             vm2_guest_va.as_u64(), vm2_result.physical_address().as_u64());
+    println!(
+        "    VM2: IOVA 0x{:x} → PA 0x{:x}",
+        vm2_guest_va.as_u64(),
+        vm2_result.physical_address().as_u64()
+    );
 
-    assert_ne!(vm1_result.physical_address().as_u64(),
-               vm2_result.physical_address().as_u64());
+    assert_ne!(vm1_result.physical_address().as_u64(), vm2_result.physical_address().as_u64());
     println!("    ✓ VM isolation verified!\n");
 
     // Example 3: Stage 2 permission enforcement
@@ -154,11 +161,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vm_pasid,
         perm_va,
         perm_stage1_pa,
-        PagePermissions::read_write(),  // Guest allows RW
+        PagePermissions::read_write(), // Guest allows RW
         SecurityState::NonSecure,
     )?;
-    println!("  Stage 1: IOVA 0x{:x} → IPA 0x{:x} (RW permissions)",
-             perm_va.as_u64(), perm_ipa.as_u64());
+    println!(
+        "  Stage 1: IOVA 0x{:x} → IPA 0x{:x} (RW permissions)",
+        perm_va.as_u64(),
+        perm_ipa.as_u64()
+    );
 
     // Hypervisor restricts to read-only in Stage 2
     let perm_host_pa = PA::new(0x300000)?;
@@ -166,11 +176,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stream_id,
         perm_ipa,
         perm_host_pa,
-        PagePermissions::read_only(),  // Hypervisor restricts to RO
+        PagePermissions::read_only(), // Hypervisor restricts to RO
         SecurityState::NonSecure,
     )?;
-    println!("  Stage 2: IPA 0x{:x} → PA 0x{:x} (RO permissions - restricted!)",
-             perm_ipa.as_u64(), perm_host_pa.as_u64());
+    println!(
+        "  Stage 2: IPA 0x{:x} → PA 0x{:x} (RO permissions - restricted!)",
+        perm_ipa.as_u64(),
+        perm_host_pa.as_u64()
+    );
 
     // Read should succeed
     println!("\n  Testing read access:");
@@ -186,7 +199,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("      Fault type: {:?}", fault.fault_type());
             println!("      Stage: {:?}", fault.translation_stage());
             assert_eq!(fault.translation_stage(), TranslationStage::Stage2);
-        }
+        },
         Err(e) => println!("    Unexpected error: {}", e),
     }
 
@@ -203,7 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("      Stage: {:?}", fault.translation_stage());
             println!("      Address: 0x{:x}", fault.address().as_u64());
             assert_eq!(fault.translation_stage(), TranslationStage::Stage1);
-        }
+        },
         Err(e) => println!("    Error: {}", e),
     }
 
@@ -222,8 +235,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PagePermissions::read_write(),
         SecurityState::NonSecure,
     )?;
-    println!("    Stage 1 mapped: IOVA 0x{:x} → IPA 0x{:x}",
-             stage2_fault_va.as_u64(), stage2_fault_ipa.as_u64());
+    println!(
+        "    Stage 1 mapped: IOVA 0x{:x} → IPA 0x{:x}",
+        stage2_fault_va.as_u64(),
+        stage2_fault_ipa.as_u64()
+    );
 
     // Don't map in Stage 2 - will cause Stage 2 fault
     match smmu.translate(stream_id, vm_pasid, stage2_fault_va, AccessType::Read) {
@@ -233,7 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("      Stage: {:?}", fault.translation_stage());
             println!("      Address (IPA): 0x{:x}", fault.address().as_u64());
             assert_eq!(fault.translation_stage(), TranslationStage::Stage2);
-        }
+        },
         Err(e) => println!("    Error: {}", e),
     }
 

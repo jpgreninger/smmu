@@ -21,7 +21,7 @@
 
 #![warn(missing_docs)]
 
-use crate::types::{IOVA, PA, PagePermissions, SecurityState, StreamID, PASID};
+use crate::types::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 use smallvec::SmallVec;
 
 // ============================================================================
@@ -69,12 +69,7 @@ impl CacheEntry {
     ///
     /// Security state defaults to NonSecure.
     #[inline]
-    pub const fn new(
-        iova: IOVA,
-        physical_address: PA,
-        permissions: PagePermissions,
-        timestamp: u64,
-    ) -> Self {
+    pub const fn new(iova: IOVA, physical_address: PA, permissions: PagePermissions, timestamp: u64) -> Self {
         Self {
             iova,
             physical_address,
@@ -146,18 +141,8 @@ pub struct CacheKey {
 impl CacheKey {
     /// Create a new cache key
     #[inline]
-    pub const fn new(
-        stream_id: StreamID,
-        pasid: PASID,
-        iova: IOVA,
-        security_state: SecurityState,
-    ) -> Self {
-        Self {
-            stream_id,
-            pasid,
-            iova,
-            security_state,
-        }
+    pub const fn new(stream_id: StreamID, pasid: PASID, iova: IOVA, security_state: SecurityState) -> Self {
+        Self { stream_id, pasid, iova, security_state }
     }
 }
 
@@ -275,9 +260,9 @@ impl StreamPASIDKeyHash {
 // TLB Cache Implementation
 // ============================================================================
 
+use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use dashmap::DashMap;
 
 /// Replacement policy for cache eviction
 ///
@@ -618,11 +603,11 @@ impl TlbCache {
                     .iter()
                     .min_by_key(|entry| entry.value().timestamp)
                     .map(|entry| *entry.key())
-            }
+            },
             ReplacementPolicy::Fifo => {
                 // Just take first entry for FIFO
                 self.entries.iter().next().map(|entry| *entry.key())
-            }
+            },
         };
 
         if let Some(key) = key_to_evict {
@@ -651,9 +636,7 @@ impl TlbCache {
         let count = self.entries.len();
         self.entries.clear();
 
-        self.statistics
-            .invalidations
-            .fetch_add(count as u64, Ordering::Relaxed);
+        self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
     /// Invalidate all entries for a specific `StreamID`
@@ -689,9 +672,7 @@ impl TlbCache {
             removed_count += 1;
         }
 
-        self.statistics
-            .invalidations
-            .fetch_add(removed_count, Ordering::Relaxed);
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
     /// Invalidate all entries for a specific `PASID`
@@ -726,9 +707,7 @@ impl TlbCache {
             removed_count += 1;
         }
 
-        self.statistics
-            .invalidations
-            .fetch_add(removed_count, Ordering::Relaxed);
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
     /// Invalidate all entries for a specific `StreamID` and `PASID` combination
@@ -766,9 +745,7 @@ impl TlbCache {
             removed_count += 1;
         }
 
-        self.statistics
-            .invalidations
-            .fetch_add(removed_count, Ordering::Relaxed);
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
     /// Invalidate entries within a virtual address range
@@ -790,13 +767,7 @@ impl TlbCache {
     /// let end = `IOVA`::new(0x5000).unwrap();
     /// cache.invalidate_by_va_range(stream_id, pasid, start, end);
     /// ```
-    pub fn invalidate_by_va_range(
-        &self,
-        stream_id: StreamID,
-        pasid: PASID,
-        start: IOVA,
-        end: IOVA,
-    ) {
+    pub fn invalidate_by_va_range(&self, stream_id: StreamID, pasid: PASID, start: IOVA, end: IOVA) {
         let mut removed_count = 0;
 
         // Use SmallVec to avoid heap allocation for common case
@@ -820,9 +791,7 @@ impl TlbCache {
             removed_count += 1;
         }
 
-        self.statistics
-            .invalidations
-            .fetch_add(removed_count, Ordering::Relaxed);
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
     /// Invalidate a specific entry by exact key match
@@ -993,9 +962,7 @@ mod tests {
         let pa = PA::new(0x4000).unwrap();
         let perms = PagePermissions::read_write();
 
-        let entry = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::NonSecure, 100
-        );
+        let entry = CacheEntry::new_with_security(iova, pa, perms, SecurityState::NonSecure, 100);
 
         assert_eq!(entry.security_state, SecurityState::NonSecure);
         assert_eq!(entry.timestamp, 100);
@@ -1007,9 +974,7 @@ mod tests {
         let pa = PA::new(0x6000).unwrap();
         let perms = PagePermissions::all();
 
-        let entry = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::Secure, 200
-        );
+        let entry = CacheEntry::new_with_security(iova, pa, perms, SecurityState::Secure, 200);
 
         assert_eq!(entry.security_state, SecurityState::Secure);
         assert_eq!(entry.timestamp, 200);
@@ -1021,9 +986,7 @@ mod tests {
         let pa = PA::new(0x8000).unwrap();
         let perms = PagePermissions::read_execute();
 
-        let entry = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::Realm, 300
-        );
+        let entry = CacheEntry::new_with_security(iova, pa, perms, SecurityState::Realm, 300);
 
         assert_eq!(entry.security_state, SecurityState::Realm);
         assert_eq!(entry.timestamp, 300);
@@ -1104,12 +1067,8 @@ mod tests {
         let pa = PA::new(0x2000).unwrap();
         let perms = PagePermissions::read_only();
 
-        let entry1 = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::NonSecure, 42
-        );
-        let entry2 = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::Secure, 42
-        );
+        let entry1 = CacheEntry::new_with_security(iova, pa, perms, SecurityState::NonSecure, 42);
+        let entry2 = CacheEntry::new_with_security(iova, pa, perms, SecurityState::Secure, 42);
 
         assert_ne!(entry1, entry2);
     }
@@ -1244,12 +1203,8 @@ mod tests {
 
     #[test]
     fn test_cache_entry_const_new() {
-        const ENTRY: CacheEntry = CacheEntry::new(
-            IOVA::const_new(0x1000),
-            PA::const_new(0x2000),
-            PagePermissions::none(),
-            42,
-        );
+        const ENTRY: CacheEntry =
+            CacheEntry::new(IOVA::const_new(0x1000), PA::const_new(0x2000), PagePermissions::none(), 42);
 
         assert_eq!(ENTRY.iova.as_u64(), 0x1000);
         assert_eq!(ENTRY.physical_address.as_u64(), 0x2000);
@@ -1315,15 +1270,9 @@ mod tests {
         let perms = PagePermissions::read_only();
 
         // Test all three security states
-        let entry_nonsecure = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::NonSecure, 0
-        );
-        let entry_secure = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::Secure, 0
-        );
-        let entry_realm = CacheEntry::new_with_security(
-            iova, pa, perms, SecurityState::Realm, 0
-        );
+        let entry_nonsecure = CacheEntry::new_with_security(iova, pa, perms, SecurityState::NonSecure, 0);
+        let entry_secure = CacheEntry::new_with_security(iova, pa, perms, SecurityState::Secure, 0);
+        let entry_realm = CacheEntry::new_with_security(iova, pa, perms, SecurityState::Realm, 0);
 
         assert_eq!(entry_nonsecure.security_state, SecurityState::NonSecure);
         assert_eq!(entry_secure.security_state, SecurityState::Secure);
@@ -2544,12 +2493,7 @@ mod tests {
         cache.lookup(&key); // hit
         cache.lookup(&key); // hit
 
-        let other_key = CacheKey::new(
-            StreamID::new(99).unwrap(),
-            pasid,
-            iova,
-            SecurityState::NonSecure,
-        );
+        let other_key = CacheKey::new(StreamID::new(99).unwrap(), pasid, iova, SecurityState::NonSecure);
         cache.lookup(&other_key); // miss
         cache.lookup(&other_key); // miss
 
@@ -2700,13 +2644,8 @@ mod tests {
         );
 
         let key_secure = CacheKey::new(stream_id, pasid, iova, SecurityState::Secure);
-        let entry_secure = CacheEntry::new_with_security(
-            iova,
-            pa_secure,
-            PagePermissions::read_only(),
-            SecurityState::Secure,
-            0,
-        );
+        let entry_secure =
+            CacheEntry::new_with_security(iova, pa_secure, PagePermissions::read_only(), SecurityState::Secure, 0);
 
         cache.insert(key_nonsecure, entry_nonsecure);
         cache.insert(key_secure, entry_secure);

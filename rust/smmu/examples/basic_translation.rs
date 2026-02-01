@@ -23,10 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream_id = StreamID::new(42)?;
 
     // Create stream configuration for Stage-1 translation only
-    let stream_config = StreamConfig::builder()
-        .stage1_enabled(true)
-        .pasid_enabled(true)
-        .build()?;
+    let stream_config = StreamConfig::builder().stage1_enabled(true).pasid_enabled(true).build()?;
 
     smmu.configure_stream(stream_id, stream_config)?;
     println!("  ✓ Stream {} configured for Stage-1 translation\n", stream_id.as_u32());
@@ -51,8 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PagePermissions::read_write(),
         SecurityState::NonSecure,
     )?;
-    println!("  ✓ Mapped IOVA 0x{:04x} -> PA 0x{:05x} (RW)",
-             iova1.as_u64(), pa1.as_u64());
+    println!("  ✓ Mapped IOVA 0x{:04x} -> PA 0x{:05x} (RW)", iova1.as_u64(), pa1.as_u64());
 
     // Map page at IOVA 0x2000 to PA 0x20000 with read-only permissions
     let iova2 = IOVA::new(0x2000)?;
@@ -65,28 +61,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PagePermissions::read_only(),
         SecurityState::NonSecure,
     )?;
-    println!("  ✓ Mapped IOVA 0x{:04x} -> PA 0x{:05x} (RO)\n",
-             iova2.as_u64(), pa2.as_u64());
+    println!("  ✓ Mapped IOVA 0x{:04x} -> PA 0x{:05x} (RO)\n", iova2.as_u64(), pa2.as_u64());
 
     // Step 5: Perform address translation
     println!("Step 5: Performing translations...");
 
     // Translate read access to first page
     let result1 = smmu.translate(stream_id, pasid, iova1, AccessType::Read)?;
-    println!("  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
-             iova1.as_u64(), result1.physical_address().as_u64());
+    println!(
+        "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
+        iova1.as_u64(),
+        result1.physical_address().as_u64()
+    );
     assert_eq!(result1.physical_address().as_u64(), pa1.as_u64());
 
     // Translate write access to first page
     let result2 = smmu.translate(stream_id, pasid, iova1, AccessType::Write)?;
-    println!("  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Write)",
-             iova1.as_u64(), result2.physical_address().as_u64());
+    println!(
+        "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Write)",
+        iova1.as_u64(),
+        result2.physical_address().as_u64()
+    );
     assert_eq!(result2.physical_address().as_u64(), pa1.as_u64());
 
     // Translate read access to second page (read-only)
     let result3 = smmu.translate(stream_id, pasid, iova2, AccessType::Read)?;
-    println!("  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
-             iova2.as_u64(), result3.physical_address().as_u64());
+    println!(
+        "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
+        iova2.as_u64(),
+        result3.physical_address().as_u64()
+    );
     assert_eq!(result3.physical_address().as_u64(), pa2.as_u64());
 
     // Demonstrate permission fault - try to write to read-only page
@@ -97,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  ✓ Permission fault detected as expected:");
             println!("    Fault type: {:?}", fault.fault_type());
             println!("    Address: 0x{:x}", fault.address().as_u64());
-        }
+        },
         Err(e) => println!("  ✗ Unexpected error: {}", e),
     }
 
@@ -110,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  ✓ Translation fault detected as expected:");
             println!("    Fault type: {:?}", fault.fault_type());
             println!("    Address: 0x{:x}", fault.address().as_u64());
-        }
+        },
         Err(e) => println!("  ✗ Unexpected error: {}", e),
     }
 

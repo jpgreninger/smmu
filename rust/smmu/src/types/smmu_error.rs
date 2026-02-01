@@ -142,7 +142,7 @@ mod tests {
             SMMUError::StreamLimitExceeded { current, limit } => {
                 assert_eq!(current, 10);
                 assert_eq!(limit, 5);
-            }
+            },
             _ => panic!("Expected StreamLimitExceeded"),
         }
     }

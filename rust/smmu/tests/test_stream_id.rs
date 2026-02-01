@@ -372,13 +372,13 @@ fn test_arm_spec_stream_id_zero_valid() {
 fn test_arm_spec_typical_hardware_values() {
     // Common StreamID values in real hardware
     let typical_values = vec![
-        0,      // Often reserved or first device
-        1,      // First user device
-        128,    // Mid-range device
-        256,    // Another common allocation
-        1024,   // Larger systems
-        4095,   // Common maximum in some configs
-        65535,  // Maximum 16-bit value
+        0,     // Often reserved or first device
+        1,     // First user device
+        128,   // Mid-range device
+        256,   // Another common allocation
+        1024,  // Larger systems
+        4095,  // Common maximum in some configs
+        65535, // Maximum 16-bit value
     ];
 
     for value in typical_values {

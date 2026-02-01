@@ -22,8 +22,8 @@ fn configure_criterion() -> Criterion {
 // ============================================================================
 
 fn bench_tlb_hit(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     // Setup: Create cache and populate with entries
     let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
@@ -40,12 +40,7 @@ fn bench_tlb_hit(c: &mut Criterion) {
     }
 
     // Benchmark: Lookup existing entry (hit)
-    let lookup_key = CacheKey::new(
-        stream_id,
-        pasid,
-        IOVA::new(50 * 0x1000).unwrap(),
-        SecurityState::NonSecure,
-    );
+    let lookup_key = CacheKey::new(stream_id, pasid, IOVA::new(50 * 0x1000).unwrap(), SecurityState::NonSecure);
 
     c.bench_function("tlb_hit", |b| {
         b.iter(|| {
@@ -56,8 +51,8 @@ fn bench_tlb_hit(c: &mut Criterion) {
 }
 
 fn bench_tlb_miss(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
+    use smmu::cache::{CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
 
     // Setup: Create empty cache (no entries)
     let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
@@ -79,41 +74,37 @@ fn bench_tlb_miss(c: &mut Criterion) {
 }
 
 fn bench_tlb_hit_rate(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     let mut group = c.benchmark_group("tlb_hit_rate");
 
     // Test with different working set sizes
     for num_pages in [10, 100, 1000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pages),
-            num_pages,
-            |b, &num_pages| {
-                let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
-                let stream_id = StreamID::new(1).unwrap();
-                let pasid = PASID::new(0).unwrap();
+        group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
+            let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+            let stream_id = StreamID::new(1).unwrap();
+            let pasid = PASID::new(0).unwrap();
 
-                // Populate cache with 1024 entries
-                for page in 0..1024 {
-                    let iova = IOVA::new(page * 0x1000).unwrap();
-                    let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+            // Populate cache with 1024 entries
+            for page in 0..1024 {
+                let iova = IOVA::new(page * 0x1000).unwrap();
+                let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+                let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
+                cache.insert(key, entry);
+            }
+
+            // Access pattern: cycle through num_pages
+            // Small working sets should have high hit rates
+            b.iter(|| {
+                for page in 0..num_pages {
+                    let iova = IOVA::new((page % num_pages) * 0x1000).unwrap();
                     let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-                    let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
-                    cache.insert(key, entry);
+                    black_box(cache.lookup(&key));
                 }
-
-                // Access pattern: cycle through num_pages
-                // Small working sets should have high hit rates
-                b.iter(|| {
-                    for page in 0..num_pages {
-                        let iova = IOVA::new((page % num_pages) * 0x1000).unwrap();
-                        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-                        black_box(cache.lookup(&key));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -124,8 +115,8 @@ fn bench_tlb_hit_rate(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_tlb_invalidate_all(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     c.bench_function("tlb_invalidate_all", |b| {
         b.iter_batched(
@@ -155,8 +146,8 @@ fn bench_tlb_invalidate_all(c: &mut Criterion) {
 }
 
 fn bench_tlb_invalidate_by_stream(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     c.bench_function("tlb_invalidate_by_stream", |b| {
         b.iter_batched(
@@ -216,17 +207,13 @@ fn bench_tlb_size_impact(c: &mut Criterion) {
 
     // Test with different TLB sizes
     for tlb_entries in [64, 128, 256, 512, 1024].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(tlb_entries),
-            tlb_entries,
-            |b, &tlb_entries| {
-                b.iter(|| {
-                    // TODO: Measure performance with different TLB sizes
-                    // Larger TLB = better hit rate for larger working sets
-                    black_box(tlb_entries);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(tlb_entries), tlb_entries, |b, &tlb_entries| {
+            b.iter(|| {
+                // TODO: Measure performance with different TLB sizes
+                // Larger TLB = better hit rate for larger working sets
+                black_box(tlb_entries);
+            });
+        });
     }
 
     group.finish();
@@ -321,8 +308,8 @@ fn bench_l2_tlb_performance(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_concurrent_tlb_access(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
     use std::sync::Arc;
     use std::thread;
 
@@ -350,12 +337,7 @@ fn bench_concurrent_tlb_access(c: &mut Criterion) {
                     for _ in 0..100 {
                         let page = (thread_id * 25) % 100;
                         let iova = IOVA::new(page * 0x1000).unwrap();
-                        let key = CacheKey::new(
-                            stream_id,
-                            pasid,
-                            iova,
-                            SecurityState::NonSecure,
-                        );
+                        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                         black_box(cache_clone.lookup(&key));
                     }
                 });
@@ -416,8 +398,8 @@ fn bench_cache_eviction_cost(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_cache_comparison(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     let mut group = c.benchmark_group("cache_comparison");
 
@@ -436,12 +418,7 @@ fn bench_cache_comparison(c: &mut Criterion) {
             cache.insert(key, entry);
         }
 
-        let lookup_key = CacheKey::new(
-            stream_id,
-            pasid,
-            IOVA::new(50 * 0x1000).unwrap(),
-            SecurityState::NonSecure,
-        );
+        let lookup_key = CacheKey::new(stream_id, pasid, IOVA::new(50 * 0x1000).unwrap(), SecurityState::NonSecure);
 
         b.iter(|| {
             let result = cache.lookup(black_box(&lookup_key));

@@ -5,8 +5,7 @@
 
 use smmu::fault::{FaultDetector, FaultMode, FaultProcessor, FaultQueue, FaultRecovery, RecoveryStrategy};
 use smmu::types::{
-    AccessType, FaultRecord, FaultSeverity, FaultType, PagePermissions, SecurityState, StreamID,
-    IOVA, PA, PASID,
+    AccessType, FaultRecord, FaultSeverity, FaultType, PagePermissions, SecurityState, StreamID, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -130,8 +129,10 @@ fn test_fault_filtering_by_stream() {
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
 
-    smmu.configure_stream(stream1, smmu::types::StreamConfig::stage1_only()).unwrap();
-    smmu.configure_stream(stream2, smmu::types::StreamConfig::stage1_only()).unwrap();
+    smmu.configure_stream(stream1, smmu::types::StreamConfig::stage1_only())
+        .unwrap();
+    smmu.configure_stream(stream2, smmu::types::StreamConfig::stage1_only())
+        .unwrap();
     smmu.create_pasid(stream1, pasid).unwrap();
     smmu.create_pasid(stream2, pasid).unwrap();
 

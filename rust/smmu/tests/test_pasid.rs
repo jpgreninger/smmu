@@ -604,12 +604,7 @@ fn test_pasid_spec_20bit_range() {
 fn test_pasid_spec_full_range_valid() {
     // Verify that all values in the valid range can be created
     // Test samples across the range
-    let test_values = [
-        0, 1, 100, 1000, 10000, 100000,
-        PASID_MAX / 2,
-        PASID_MAX - 1,
-        PASID_MAX,
-    ];
+    let test_values = [0, 1, 100, 1000, 10000, 100000, PASID_MAX / 2, PASID_MAX - 1, PASID_MAX];
 
     for &value in &test_values {
         let pasid = PASID::new(value);
@@ -624,7 +619,7 @@ fn test_pasid_spec_out_of_range_invalid() {
     let invalid_values = [
         PASID_MAX + 1,
         PASID_MAX + 100,
-        0x100000,  // 2^20
+        0x100000, // 2^20
         0x200000,
         0xFFFFFFFF, // u32::MAX
     ];

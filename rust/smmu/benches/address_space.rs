@@ -109,16 +109,12 @@ fn bench_sparse_iteration(c: &mut Criterion) {
 
     // Test iteration over different numbers of mappings
     for num_pages in [100, 1000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pages),
-            num_pages,
-            |b, &num_pages| {
-                b.iter(|| {
-                    // TODO: Measure iteration performance
-                    black_box(num_pages);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
+            b.iter(|| {
+                // TODO: Measure iteration performance
+                black_box(num_pages);
+            });
+        });
     }
 
     group.finish();
@@ -133,17 +129,13 @@ fn bench_memory_usage_sparse(c: &mut Criterion) {
 
     // Measure memory overhead with sparse mappings
     for num_pages in [1000, 10000, 100000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pages),
-            num_pages,
-            |b, &num_pages| {
-                b.iter(|| {
-                    // TODO: Create address space with sparse mappings
-                    // Measure actual memory usage
-                    black_box(num_pages);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
+            b.iter(|| {
+                // TODO: Create address space with sparse mappings
+                // Measure actual memory usage
+                black_box(num_pages);
+            });
+        });
     }
 
     group.finish();
@@ -158,16 +150,12 @@ fn bench_large_page_operations(c: &mut Criterion) {
 
     // Test with different page sizes
     for page_size in [4096, 2 * 1024 * 1024, 1024 * 1024 * 1024].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(page_size),
-            page_size,
-            |b, &page_size| {
-                b.iter(|| {
-                    // TODO: Measure operations with different page sizes
-                    black_box(page_size);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(page_size), page_size, |b, &page_size| {
+            b.iter(|| {
+                // TODO: Measure operations with different page sizes
+                black_box(page_size);
+            });
+        });
     }
 
     group.finish();
@@ -182,17 +170,13 @@ fn bench_bulk_mapping(c: &mut Criterion) {
 
     // Measure bulk mapping performance
     for num_pages in [10, 100, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pages),
-            num_pages,
-            |b, &num_pages| {
-                b.iter(|| {
-                    // TODO: Map multiple pages at once
-                    // Measure if there's benefit to bulk operations
-                    black_box(num_pages);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
+            b.iter(|| {
+                // TODO: Map multiple pages at once
+                // Measure if there's benefit to bulk operations
+                black_box(num_pages);
+            });
+        });
     }
 
     group.finish();
@@ -202,16 +186,12 @@ fn bench_bulk_unmapping(c: &mut Criterion) {
     let mut group = c.benchmark_group("bulk_unmapping");
 
     for num_pages in [10, 100, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pages),
-            num_pages,
-            |b, &num_pages| {
-                b.iter(|| {
-                    // TODO: Unmap multiple pages at once
-                    black_box(num_pages);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
+            b.iter(|| {
+                // TODO: Unmap multiple pages at once
+                black_box(num_pages);
+            });
+        });
     }
 
     group.finish();

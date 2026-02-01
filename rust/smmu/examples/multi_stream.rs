@@ -17,9 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create SMMU instance
     println!("Creating SMMU instance with capacity for multiple streams...");
-    let config = SMMUConfig::builder()
-        .max_streams(1024)
-        .build()?;
+    let config = SMMUConfig::builder().max_streams(1024).build()?;
     let smmu = SMMU::with_config(config);
     println!("  ✓ SMMU created\n");
 
@@ -97,7 +95,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage_stream = StreamID::new(30)?;
     let storage_config = StreamConfig::bypass();
     smmu.configure_stream(storage_stream, storage_config)?;
-    println!("  ✓ Storage controller configured (Stream ID: {}, Bypass mode)\n", storage_stream.as_u32());
+    println!(
+        "  ✓ Storage controller configured (Stream ID: {}, Bypass mode)\n",
+        storage_stream.as_u32()
+    );
 
     // Demonstrate stream independence
     println!("Demonstrating stream independence...\n");
@@ -105,22 +106,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Network card translation
     println!("Network Card Translation:");
     let net_result = smmu.translate(net_stream, net_pasid, net_iova, AccessType::Read)?;
-    println!("  Stream {}: IOVA 0x{:x} -> PA 0x{:x}",
-             net_stream.as_u32(), net_iova.as_u64(), net_result.physical_address().as_u64());
+    println!(
+        "  Stream {}: IOVA 0x{:x} -> PA 0x{:x}",
+        net_stream.as_u32(),
+        net_iova.as_u64(),
+        net_result.physical_address().as_u64()
+    );
     assert_eq!(net_result.physical_address().as_u64(), net_pa.as_u64());
 
     // GPU translations for different PASIDs
     println!("\nGPU Translations:");
     let gpu_result1 = smmu.translate(gpu_stream, gpu_pasid1, gpu_iova, AccessType::Read)?;
-    println!("  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
-             gpu_stream.as_u32(), gpu_pasid1.as_u32(),
-             gpu_iova.as_u64(), gpu_result1.physical_address().as_u64());
+    println!(
+        "  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
+        gpu_stream.as_u32(),
+        gpu_pasid1.as_u32(),
+        gpu_iova.as_u64(),
+        gpu_result1.physical_address().as_u64()
+    );
     assert_eq!(gpu_result1.physical_address().as_u64(), gpu_pa1.as_u64());
 
     let gpu_result2 = smmu.translate(gpu_stream, gpu_pasid2, gpu_iova, AccessType::Read)?;
-    println!("  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
-             gpu_stream.as_u32(), gpu_pasid2.as_u32(),
-             gpu_iova.as_u64(), gpu_result2.physical_address().as_u64());
+    println!(
+        "  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
+        gpu_stream.as_u32(),
+        gpu_pasid2.as_u32(),
+        gpu_iova.as_u64(),
+        gpu_result2.physical_address().as_u64()
+    );
     assert_eq!(gpu_result2.physical_address().as_u64(), gpu_pa2.as_u64());
 
     // Storage controller bypass (IOVA == PA)
@@ -128,8 +141,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage_pasid = PASID::new(0)?;
     let storage_iova = IOVA::new(0x500000)?;
     let storage_result = smmu.translate(storage_stream, storage_pasid, storage_iova, AccessType::Read)?;
-    println!("  Stream {}: IOVA 0x{:x} -> PA 0x{:x} (identity mapping)",
-             storage_stream.as_u32(), storage_iova.as_u64(), storage_result.physical_address().as_u64());
+    println!(
+        "  Stream {}: IOVA 0x{:x} -> PA 0x{:x} (identity mapping)",
+        storage_stream.as_u32(),
+        storage_iova.as_u64(),
+        storage_result.physical_address().as_u64()
+    );
     assert_eq!(storage_result.physical_address().as_u64(), storage_iova.as_u64());
 
     // Demonstrate isolation: Network can't access GPU memory via same IOVA
@@ -139,14 +156,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => println!("  ✗ ERROR: Should not be able to access GPU memory from network stream!"),
         Err(TranslationError::Fault(_)) => {
             println!("  ✓ Stream isolation verified: Network stream cannot access unmapped GPU address");
-        }
+        },
         Err(e) => println!("  Unexpected error: {}", e),
     }
 
     // Show statistics
     println!("\n=== Stream Configuration Summary ===");
     println!("Stream {}: Network card - Stage-1 enabled, no PASID", net_stream.as_u32());
-    println!("Stream {}: GPU - Stage-1 enabled, PASID support (2 contexts)", gpu_stream.as_u32());
+    println!(
+        "Stream {}: GPU - Stage-1 enabled, PASID support (2 contexts)",
+        gpu_stream.as_u32()
+    );
     println!("Stream {}: Storage - Bypass mode (identity mapping)", storage_stream.as_u32());
 
     println!("\n=== Example completed successfully! ===");

@@ -2,10 +2,8 @@
 //!
 //! Demonstrates the main translate() API and two-stage translation support.
 
+use smmu::types::{AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID};
 use smmu::SMMU;
-use smmu::types::{
-    AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID,
-};
 
 fn main() {
     println!("=== ARM SMMU v3 Section 5.2: Translation Engine ===\n");
@@ -48,10 +46,13 @@ fn main() {
     let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
     match result {
         Ok(data) => {
-            println!("✓ Read translation: IOVA 0x{:x} → PA 0x{:x}",
-                iova.as_u64(), data.physical_address().as_u64());
+            println!(
+                "✓ Read translation: IOVA 0x{:x} → PA 0x{:x}",
+                iova.as_u64(),
+                data.physical_address().as_u64()
+            );
             assert_eq!(data.physical_address().as_u64(), 0x2000);
-        }
+        },
         Err(e) => panic!("Translation failed: {}", e),
     }
 
@@ -60,10 +61,13 @@ fn main() {
     let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
     match result {
         Ok(data) => {
-            println!("✓ Write translation: IOVA 0x{:x} → PA 0x{:x}",
-                iova.as_u64(), data.physical_address().as_u64());
+            println!(
+                "✓ Write translation: IOVA 0x{:x} → PA 0x{:x}",
+                iova.as_u64(),
+                data.physical_address().as_u64()
+            );
             assert_eq!(data.physical_address().as_u64(), 0x3000);
-        }
+        },
         Err(e) => panic!("Translation failed: {}", e),
     }
 
@@ -73,9 +77,8 @@ fn main() {
     match result {
         Ok(_) => panic!("Translation should have failed for unmapped address"),
         Err(e) => {
-            println!("✓ Translation fault detected: {} (IOVA 0x{:x})",
-                e, unmapped_iova.as_u64());
-        }
+            println!("✓ Translation fault detected: {} (IOVA 0x{:x})", e, unmapped_iova.as_u64());
+        },
     }
 
     // Test 4: Stream not found error
@@ -85,9 +88,8 @@ fn main() {
     match result {
         Ok(_) => panic!("Translation should have failed for non-existent stream"),
         Err(e) => {
-            println!("✓ Stream not found error: {} (StreamID {})",
-                e, bad_stream.as_u32());
-        }
+            println!("✓ Stream not found error: {} (StreamID {})", e, bad_stream.as_u32());
+        },
     }
 
     println!("\n--- Fault Recording ---\n");
@@ -96,11 +98,13 @@ fn main() {
     let faults = smmu.get_faults();
     println!("✓ {} faults recorded:", faults.len());
     for (i, fault) in faults.iter().enumerate() {
-        println!("  Fault {}: Type={:?}, IOVA=0x{:x}, StreamID={}",
+        println!(
+            "  Fault {}: Type={:?}, IOVA=0x{:x}, StreamID={}",
             i + 1,
             fault.fault_type(),
             fault.address().as_u64(),
-            fault.stream_id().as_u32());
+            fault.stream_id().as_u32()
+        );
     }
 
     println!("\n--- Translation Statistics ---\n");
@@ -129,10 +133,13 @@ fn main() {
     let result = smmu.translate(stream_id2, pasid, iova, AccessType::Read);
     match result {
         Ok(data) => {
-            println!("✓ Bypass translation: IOVA 0x{:x} = PA 0x{:x}",
-                iova.as_u64(), data.physical_address().as_u64());
+            println!(
+                "✓ Bypass translation: IOVA 0x{:x} = PA 0x{:x}",
+                iova.as_u64(),
+                data.physical_address().as_u64()
+            );
             assert_eq!(data.physical_address().as_u64(), iova.as_u64());
-        }
+        },
         Err(e) => panic!("Bypass translation failed: {}", e),
     }
 

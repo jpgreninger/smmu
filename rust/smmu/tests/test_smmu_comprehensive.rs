@@ -13,9 +13,8 @@
 //! Current coverage: 69.63% → Target: 100%
 
 use smmu::types::{
-    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType,
-    PagePermissions, PRIEntry, QueueStatistics, SecurityState, SMMUConfig, SMMUError, StreamConfig,
-    StreamID, TranslationError, IOVA, PA, PASID,
+    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
+    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, TranslationError, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -45,7 +44,7 @@ fn test_configure_stream_at_max_limit() {
         SMMUError::StreamLimitExceeded { current, limit } => {
             assert_eq!(current, 1);
             assert_eq!(limit, 1);
-        }
+        },
         _ => panic!("Expected StreamLimitExceeded error"),
     }
 }
@@ -63,7 +62,7 @@ fn test_configure_stream_duplicate() {
     let result = smmu.configure_stream(stream_id, config);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::StreamAlreadyExists(_) => {}
+        SMMUError::StreamAlreadyExists(_) => {},
         _ => panic!("Expected StreamAlreadyExists error"),
     }
 }
@@ -106,7 +105,7 @@ fn test_remove_stream_not_found() {
     let result = smmu.remove_stream(stream_id);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::StreamNotFound(_) => {}
+        SMMUError::StreamNotFound(_) => {},
         _ => panic!("Expected StreamNotFound error"),
     }
 }
@@ -218,7 +217,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
     let result = smmu.submit_command(command);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::InvalidCommandParameters(_) => {}
+        SMMUError::InvalidCommandParameters(_) => {},
         _ => panic!("Expected InvalidCommandParameters error"),
     }
 }
@@ -381,8 +380,8 @@ fn test_command_queue_process_multiple_commands() {
             pasid: 0,
             start_address: 0,
             end_address: 0,
-        flags: 0,
-        timestamp: 0,
+            flags: 0,
+            timestamp: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -466,8 +465,8 @@ fn test_command_queue_clear() {
             pasid: 0,
             start_address: 0,
             end_address: 0,
-        flags: 0,
-        timestamp: 0,
+            flags: 0,
+            timestamp: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -493,8 +492,8 @@ fn test_command_queue_is_full() {
             pasid: 0,
             start_address: 0,
             end_address: 0,
-        flags: 0,
-        timestamp: 0,
+            flags: 0,
+            timestamp: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -597,7 +596,7 @@ fn test_event_queue_overflow_with_small_queue() {
     let result = smmu.submit_event(overflow_event);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::EventQueueFull => {}
+        SMMUError::EventQueueFull => {},
         _ => panic!("Expected EventQueueFull error"),
     }
 }
@@ -785,7 +784,7 @@ fn test_pri_queue_submit_multiple_requests() {
             requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
-        timestamp: 0,
+            timestamp: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -808,7 +807,7 @@ fn test_pri_queue_overflow_with_small_queue() {
             requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
-        timestamp: 0,
+            timestamp: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -828,7 +827,7 @@ fn test_pri_queue_overflow_with_small_queue() {
     let result = smmu.submit_page_request(overflow_entry);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::PriQueueFull => {}
+        SMMUError::PriQueueFull => {},
         _ => panic!("Expected PriQueueFull error"),
     }
 }
@@ -845,7 +844,7 @@ fn test_pri_queue_get_all_requests() {
             requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
-        timestamp: 0,
+            timestamp: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -895,7 +894,7 @@ fn test_pri_queue_process_multiple_requests() {
             requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
-        timestamp: 0,
+            timestamp: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -929,7 +928,7 @@ fn test_pri_queue_clear() {
             requested_address: (u64::from(i)) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
-        timestamp: 0,
+            timestamp: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1088,8 +1087,8 @@ fn test_cache_statistics_invalidation_count() {
             pasid: 0,
             start_address: 0,
             end_address: 0,
-        flags: 0,
-        timestamp: 0,
+            flags: 0,
+            timestamp: 0,
         })
         .unwrap();
     }
@@ -1177,7 +1176,7 @@ fn test_shutdown_idempotent() {
     let result = smmu.shutdown();
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::ShutdownInProgress => {}
+        SMMUError::ShutdownInProgress => {},
         _ => panic!("Expected ShutdownInProgress error"),
     }
 }
@@ -1218,7 +1217,7 @@ fn test_operations_after_shutdown_fail() {
     let result = smmu.configure_stream(stream_id, config);
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::ShutdownInProgress => {}
+        SMMUError::ShutdownInProgress => {},
         _ => panic!("Expected ShutdownInProgress error"),
     }
 }
@@ -1233,7 +1232,7 @@ fn test_initialize_after_shutdown_fails() {
     let result = smmu.initialize();
     assert!(result.is_err());
     match result.unwrap_err() {
-        SMMUError::ShutdownInProgress => {}
+        SMMUError::ShutdownInProgress => {},
         _ => panic!("Expected ShutdownInProgress error"),
     }
 }
@@ -1511,13 +1510,7 @@ fn test_stage2_address_space_operations() {
     let ipa = IOVA::new(0x2000).unwrap();
     let pa = PA::new(0x3000).unwrap();
     assert!(smmu
-        .map_stage2_page(
-            stream_id,
-            ipa,
-            pa,
-            PagePermissions::read_write(),
-            SecurityState::NonSecure
-        )
+        .map_stage2_page(stream_id, ipa, pa, PagePermissions::read_write(), SecurityState::NonSecure)
         .is_ok());
 }
 

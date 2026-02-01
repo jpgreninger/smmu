@@ -716,17 +716,17 @@ fn test_command_type_ordering_in_queue() {
 fn test_spec_compliance_all_command_types_present() {
     // Verify all 11 command types from ARM SMMU v3 Section 6.4 are present
     let command_types = vec![
-        CommandType::PrefetchConfig,  // 0
-        CommandType::PrefetchAddr,    // 1
-        CommandType::CfgiSte,         // 2
-        CommandType::CfgiAll,         // 3
-        CommandType::TlbiNhAll,       // 4
-        CommandType::TlbiEl2All,      // 5
-        CommandType::TlbiS12Vmall,    // 6
-        CommandType::AtcInv,          // 7
-        CommandType::PriResp,         // 8
-        CommandType::Resume,          // 9
-        CommandType::Sync,            // 10
+        CommandType::PrefetchConfig, // 0
+        CommandType::PrefetchAddr,   // 1
+        CommandType::CfgiSte,        // 2
+        CommandType::CfgiAll,        // 3
+        CommandType::TlbiNhAll,      // 4
+        CommandType::TlbiEl2All,     // 5
+        CommandType::TlbiS12Vmall,   // 6
+        CommandType::AtcInv,         // 7
+        CommandType::PriResp,        // 8
+        CommandType::Resume,         // 9
+        CommandType::Sync,           // 10
     ];
 
     assert_eq!(command_types.len(), 11);

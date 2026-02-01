@@ -13,7 +13,7 @@
 //! Estimated Tests: 25+ tests
 //! ARM SMMU v3 Section 6.2 Compliance
 
-use smmu::fault::processing::{FaultMode, FaultProcessor, FaultProcessingError};
+use smmu::fault::processing::{FaultMode, FaultProcessingError, FaultProcessor};
 use smmu::types::{AccessType, FaultRecord, FaultType, SecurityState, StreamID, IOVA, PASID};
 use std::time::Duration;
 
@@ -34,12 +34,7 @@ fn create_fault(stream_id: u32, pasid: u32, fault_type: FaultType) -> FaultRecor
 }
 
 /// Create a fault with custom address
-fn create_fault_with_address(
-    stream_id: u32,
-    pasid: u32,
-    address: u64,
-    fault_type: FaultType,
-) -> FaultRecord {
+fn create_fault_with_address(stream_id: u32, pasid: u32, address: u64, fault_type: FaultType) -> FaultRecord {
     FaultRecord::builder()
         .stream_id(StreamID::new(stream_id).unwrap())
         .pasid(PASID::new(pasid).unwrap())
@@ -51,11 +46,7 @@ fn create_fault_with_address(
 }
 
 /// Create a fault with custom access type
-fn create_fault_with_access(
-    stream_id: u32,
-    fault_type: FaultType,
-    access_type: AccessType,
-) -> FaultRecord {
+fn create_fault_with_access(stream_id: u32, fault_type: FaultType, access_type: AccessType) -> FaultRecord {
     FaultRecord::builder()
         .stream_id(StreamID::new(stream_id).unwrap())
         .pasid(PASID::new(1).unwrap())
@@ -67,11 +58,7 @@ fn create_fault_with_access(
 }
 
 /// Create a fault with timestamp
-fn create_fault_with_timestamp(
-    stream_id: u32,
-    fault_type: FaultType,
-    timestamp: u64,
-) -> FaultRecord {
+fn create_fault_with_timestamp(stream_id: u32, fault_type: FaultType, timestamp: u64) -> FaultRecord {
     FaultRecord::builder()
         .stream_id(StreamID::new(stream_id).unwrap())
         .pasid(PASID::new(1).unwrap())
@@ -99,7 +86,7 @@ fn test_terminate_mode_basic_processing() {
         Err(FaultProcessingError::Terminated(f)) => {
             assert_eq!(f.fault_type(), fault.fault_type());
             assert_eq!(f.stream_id(), fault.stream_id());
-        }
+        },
         _ => panic!("Expected Terminated error"),
     }
 }
@@ -142,7 +129,7 @@ fn test_terminate_mode_timestamp_auto_generation() {
     match result {
         Err(FaultProcessingError::Terminated(f)) => {
             assert!(f.timestamp() > 0, "Timestamp should be auto-generated");
-        }
+        },
         _ => panic!("Expected Terminated error"),
     }
 }
@@ -157,7 +144,7 @@ fn test_terminate_mode_error_display() {
         Err(e) => {
             let display = format!("{}", e);
             assert!(display.contains("Fault terminated"));
-        }
+        },
         _ => panic!("Expected error"),
     }
 }
@@ -251,7 +238,7 @@ fn test_stall_mode_invalid_resume_in_terminate_mode() {
     let result = processor.resume_stalled_fault(fault, true);
     assert!(result.is_err());
     match result {
-        Err(FaultProcessingError::InvalidResume) => {}
+        Err(FaultProcessingError::InvalidResume) => {},
         _ => panic!("Expected InvalidResume error"),
     }
 }
@@ -272,7 +259,7 @@ fn test_stall_mode_queue_full_error() {
     let result = processor.process_fault(create_fault(0x300, 1, FaultType::AccessFlagFault));
     assert!(result.is_err());
     match result {
-        Err(FaultProcessingError::QueueFull) => {}
+        Err(FaultProcessingError::QueueFull) => {},
         _ => panic!("Expected QueueFull error"),
     }
 }
@@ -302,18 +289,9 @@ fn test_stall_mode_fifo_ordering() {
     processor.process_fault(fault3).unwrap();
 
     // Should pop in FIFO order
-    assert_eq!(
-        processor.get_next_stalled_fault().unwrap().stream_id().as_u32(),
-        0x100
-    );
-    assert_eq!(
-        processor.get_next_stalled_fault().unwrap().stream_id().as_u32(),
-        0x200
-    );
-    assert_eq!(
-        processor.get_next_stalled_fault().unwrap().stream_id().as_u32(),
-        0x300
-    );
+    assert_eq!(processor.get_next_stalled_fault().unwrap().stream_id().as_u32(), 0x100);
+    assert_eq!(processor.get_next_stalled_fault().unwrap().stream_id().as_u32(), 0x200);
+    assert_eq!(processor.get_next_stalled_fault().unwrap().stream_id().as_u32(), 0x300);
 }
 
 // ============================================================================
@@ -411,18 +389,9 @@ fn test_get_fault_count_by_type() {
     let _ = processor.process_fault(create_fault(0x200, 1, FaultType::TranslationFault));
     let _ = processor.process_fault(create_fault(0x300, 1, FaultType::PermissionFault));
 
-    assert_eq!(
-        processor.get_fault_count_by_type(FaultType::TranslationFault),
-        2
-    );
-    assert_eq!(
-        processor.get_fault_count_by_type(FaultType::PermissionFault),
-        1
-    );
-    assert_eq!(
-        processor.get_fault_count_by_type(FaultType::AccessFlagFault),
-        0
-    );
+    assert_eq!(processor.get_fault_count_by_type(FaultType::TranslationFault), 2);
+    assert_eq!(processor.get_fault_count_by_type(FaultType::PermissionFault), 1);
+    assert_eq!(processor.get_fault_count_by_type(FaultType::AccessFlagFault), 0);
 }
 
 // ============================================================================
@@ -812,7 +781,7 @@ fn test_timestamp_preservation() {
     match result {
         Err(FaultProcessingError::Terminated(f)) => {
             assert_eq!(f.timestamp(), timestamp, "Timestamp should be preserved");
-        }
+        },
         _ => panic!("Expected Terminated error"),
     }
 }
@@ -868,21 +837,9 @@ fn test_get_queued_faults_terminate_mode() {
 fn test_various_access_types() {
     let processor = FaultProcessor::new(FaultMode::Terminate);
 
-    let _ = processor.process_fault(create_fault_with_access(
-        0x100,
-        FaultType::TranslationFault,
-        AccessType::Read,
-    ));
-    let _ = processor.process_fault(create_fault_with_access(
-        0x200,
-        FaultType::PermissionFault,
-        AccessType::Write,
-    ));
-    let _ = processor.process_fault(create_fault_with_access(
-        0x300,
-        FaultType::AccessFlagFault,
-        AccessType::Execute,
-    ));
+    let _ = processor.process_fault(create_fault_with_access(0x100, FaultType::TranslationFault, AccessType::Read));
+    let _ = processor.process_fault(create_fault_with_access(0x200, FaultType::PermissionFault, AccessType::Write));
+    let _ = processor.process_fault(create_fault_with_access(0x300, FaultType::AccessFlagFault, AccessType::Execute));
 
     assert_eq!(processor.get_total_fault_count(), 3);
 }
@@ -891,18 +848,8 @@ fn test_various_access_types() {
 fn test_various_addresses() {
     let processor = FaultProcessor::new(FaultMode::Terminate);
 
-    let _ = processor.process_fault(create_fault_with_address(
-        0x100,
-        1,
-        0x1000,
-        FaultType::TranslationFault,
-    ));
-    let _ = processor.process_fault(create_fault_with_address(
-        0x200,
-        1,
-        0xFFFF_FFFF,
-        FaultType::PermissionFault,
-    ));
+    let _ = processor.process_fault(create_fault_with_address(0x100, 1, 0x1000, FaultType::TranslationFault));
+    let _ = processor.process_fault(create_fault_with_address(0x200, 1, 0xFFFF_FFFF, FaultType::PermissionFault));
     let _ = processor.process_fault(create_fault_with_address(
         0x300,
         1,

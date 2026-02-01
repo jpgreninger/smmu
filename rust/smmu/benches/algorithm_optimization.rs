@@ -13,10 +13,7 @@
 //! 5. SmallVec Optimization - Stack allocation for batched operations
 //! 6. Baseline Comparisons - Compare against 135ns C++ target
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
-    Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
@@ -98,40 +95,36 @@ fn bench_btreemap_lookup_complexity(c: &mut Criterion) {
 /// Benchmark cache key lookup scaling with TLB size
 fn bench_cache_lookup_scaling(c: &mut Criterion) {
     use smmu::cache::{CacheKey, CacheKeyHash};
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
 
     let mut group = c.benchmark_group("cache_lookup_scaling");
 
     // Test cache lookup performance at different cache sizes
     for cache_size in [64, 256, 1024, 4096, 16384].iter() {
         group.throughput(Throughput::Elements(*cache_size as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(cache_size),
-            cache_size,
-            |b, &cache_size| {
-                // Setup: Populate cache with entries
-                let mut cache_map: HashMap<u64, u64> = HashMap::with_capacity(cache_size);
-                let stream_id = StreamID::new(1).unwrap();
-                let pasid = PASID::new(0).unwrap();
+        group.bench_with_input(BenchmarkId::from_parameter(cache_size), cache_size, |b, &cache_size| {
+            // Setup: Populate cache with entries
+            let mut cache_map: HashMap<u64, u64> = HashMap::with_capacity(cache_size);
+            let stream_id = StreamID::new(1).unwrap();
+            let pasid = PASID::new(0).unwrap();
 
-                for page in 0..cache_size {
-                    let iova = IOVA::new((page as u64) * 0x1000).unwrap();
-                    let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-                    let hash = CacheKeyHash::hash(&key);
-                    cache_map.insert(hash, page as u64);
-                }
+            for page in 0..cache_size {
+                let iova = IOVA::new((page as u64) * 0x1000).unwrap();
+                let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                let hash = CacheKeyHash::hash(&key);
+                cache_map.insert(hash, page as u64);
+            }
 
-                // Benchmark: Lookup should be O(1)
-                b.iter(|| {
-                    let page = black_box((cache_size / 2) as u64);
-                    let iova = IOVA::new(page * 0x1000).unwrap();
-                    let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
-                    let hash = CacheKeyHash::hash(&key);
-                    let result = cache_map.get(&hash);
-                    black_box(result);
-                });
-            },
-        );
+            // Benchmark: Lookup should be O(1)
+            b.iter(|| {
+                let page = black_box((cache_size / 2) as u64);
+                let iova = IOVA::new(page * 0x1000).unwrap();
+                let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+                let hash = CacheKeyHash::hash(&key);
+                let result = cache_map.get(&hash);
+                black_box(result);
+            });
+        });
     }
 
     group.finish();
@@ -146,25 +139,21 @@ fn bench_pasid_lookup_complexity(c: &mut Criterion) {
     // Test with increasing numbers of PASIDs per stream
     for num_pasids in [1, 4, 16, 64, 256, 1024].iter() {
         group.throughput(Throughput::Elements(*num_pasids as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_pasids),
-            num_pasids,
-            |b, &num_pasids| {
-                // Setup: Create PASID map (simulating StreamContext)
-                let mut pasid_map: HashMap<u32, u64> = HashMap::with_capacity(num_pasids);
-                for i in 0..num_pasids {
-                    let pasid = PASID::new(i as u32).unwrap();
-                    pasid_map.insert(pasid.as_u32(), i as u64);
-                }
+        group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
+            // Setup: Create PASID map (simulating StreamContext)
+            let mut pasid_map: HashMap<u32, u64> = HashMap::with_capacity(num_pasids);
+            for i in 0..num_pasids {
+                let pasid = PASID::new(i as u32).unwrap();
+                pasid_map.insert(pasid.as_u32(), i as u64);
+            }
 
-                // Benchmark: PASID lookup should be O(1)
-                b.iter(|| {
-                    let pasid = PASID::new(black_box((num_pasids / 2) as u32)).unwrap();
-                    let result = pasid_map.get(&pasid.as_u32());
-                    black_box(result);
-                });
-            },
-        );
+            // Benchmark: PASID lookup should be O(1)
+            b.iter(|| {
+                let pasid = PASID::new(black_box((num_pasids / 2) as u32)).unwrap();
+                let result = pasid_map.get(&pasid.as_u32());
+                black_box(result);
+            });
+        });
     }
 
     group.finish();
@@ -177,7 +166,7 @@ fn bench_pasid_lookup_complexity(c: &mut Criterion) {
 /// Benchmark custom FNV-1a hash function performance
 fn bench_fnv1a_hash(c: &mut Criterion) {
     use smmu::cache::{CacheKey, CacheKeyHash};
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
 
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(0).unwrap();
@@ -195,7 +184,7 @@ fn bench_fnv1a_hash(c: &mut Criterion) {
 /// Compare hash function quality by distribution
 fn bench_hash_distribution(c: &mut Criterion) {
     use smmu::cache::{CacheKey, CacheKeyHash};
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
 
     let mut group = c.benchmark_group("hash_distribution");
 
@@ -237,7 +226,7 @@ fn bench_hash_distribution(c: &mut Criterion) {
 /// Benchmark hash collision rate
 fn bench_hash_collisions(c: &mut Criterion) {
     use smmu::cache::{CacheKey, CacheKeyHash};
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
     use std::collections::HashSet;
 
     c.bench_function("hash_collision_detection", |b| {
@@ -442,33 +431,25 @@ fn bench_smallvec_batched_ops(c: &mut Criterion) {
 
     // Test with different batch sizes
     for batch_size in [4, 8, 16, 32, 64].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("vec", batch_size),
-            batch_size,
-            |b, &batch_size| {
-                b.iter(|| {
-                    let mut batch = Vec::with_capacity(batch_size);
-                    for i in 0..batch_size {
-                        batch.push(i as u64);
-                    }
-                    black_box(batch);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("vec", batch_size), batch_size, |b, &batch_size| {
+            b.iter(|| {
+                let mut batch = Vec::with_capacity(batch_size);
+                for i in 0..batch_size {
+                    batch.push(i as u64);
+                }
+                black_box(batch);
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("smallvec", batch_size),
-            batch_size,
-            |b, &batch_size| {
-                b.iter(|| {
-                    let mut batch: SmallVec<[u64; 32]> = SmallVec::new();
-                    for i in 0..batch_size {
-                        batch.push(i as u64);
-                    }
-                    black_box(batch);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("smallvec", batch_size), batch_size, |b, &batch_size| {
+            b.iter(|| {
+                let mut batch: SmallVec<[u64; 32]> = SmallVec::new();
+                for i in 0..batch_size {
+                    batch.push(i as u64);
+                }
+                black_box(batch);
+            });
+        });
     }
 
     group.finish();
@@ -476,8 +457,8 @@ fn bench_smallvec_batched_ops(c: &mut Criterion) {
 
 /// Benchmark SmallVec for TLB invalidation batches
 fn bench_smallvec_invalidation_batches(c: &mut Criterion) {
-    use smmu::{StreamID, PASID, IOVA, SecurityState};
     use smmu::cache::CacheKey;
+    use smmu::{SecurityState, StreamID, IOVA, PASID};
 
     let mut group = c.benchmark_group("smallvec_invalidation_batches");
 
@@ -539,8 +520,8 @@ fn bench_translation_baseline_comparison(c: &mut Criterion) {
 
 /// Benchmark cache hit performance vs baseline
 fn bench_cache_hit_baseline(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     let mut group = c.benchmark_group("cache_hit_baseline");
 
@@ -558,12 +539,7 @@ fn bench_cache_hit_baseline(c: &mut Criterion) {
             cache.insert(key, entry);
         }
 
-        let lookup_key = CacheKey::new(
-            stream_id,
-            pasid,
-            IOVA::new(50 * 0x1000).unwrap(),
-            SecurityState::NonSecure,
-        );
+        let lookup_key = CacheKey::new(stream_id, pasid, IOVA::new(50 * 0x1000).unwrap(), SecurityState::NonSecure);
 
         // Benchmark: Should be much faster than 135ns baseline
         b.iter(|| {

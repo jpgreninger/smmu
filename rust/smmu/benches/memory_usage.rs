@@ -13,10 +13,8 @@
 //! 5. Peak Memory Usage - Identify memory usage peaks
 //! 6. Memory Efficiency Metrics - Calculate efficiency ratios
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
-use std::collections::{HashMap, BTreeMap};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 // ============================================================================
@@ -41,27 +39,19 @@ fn bench_allocation_overhead(c: &mut Criterion) {
     for capacity in [64, 256, 1024, 4096, 16384].iter() {
         group.throughput(Throughput::Elements(*capacity as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new("hashmap_alloc", capacity),
-            capacity,
-            |b, &capacity| {
-                b.iter(|| {
-                    let map: HashMap<u64, u64> = HashMap::with_capacity(capacity);
-                    black_box(map);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("hashmap_alloc", capacity), capacity, |b, &capacity| {
+            b.iter(|| {
+                let map: HashMap<u64, u64> = HashMap::with_capacity(capacity);
+                black_box(map);
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("vec_alloc", capacity),
-            capacity,
-            |b, &capacity| {
-                b.iter(|| {
-                    let vec: Vec<u64> = Vec::with_capacity(capacity);
-                    black_box(vec);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("vec_alloc", capacity), capacity, |b, &capacity| {
+            b.iter(|| {
+                let vec: Vec<u64> = Vec::with_capacity(capacity);
+                black_box(vec);
+            });
+        });
     }
 
     group.finish();
@@ -131,7 +121,7 @@ fn bench_reallocation_frequency(c: &mut Criterion) {
 /// Simulate memory pooling for cache entries
 fn bench_memory_pooling(c: &mut Criterion) {
     use smmu::cache::CacheEntry;
-    use smmu::{IOVA, PA, PagePermissions};
+    use smmu::{PagePermissions, IOVA, PA};
 
     let mut group = c.benchmark_group("memory_pooling");
 
@@ -268,28 +258,24 @@ fn bench_alignment_overhead(c: &mut Criterion) {
     // Poorly aligned struct (requires padding)
     #[repr(C)]
     struct PaddedStruct {
-        flag: u8,     // 1 byte + 7 padding
-        value: u64,   // 8 bytes
-        flag2: u8,    // 1 byte + 7 padding
+        flag: u8,   // 1 byte + 7 padding
+        value: u64, // 8 bytes
+        flag2: u8,  // 1 byte + 7 padding
     }
 
     // Well-aligned struct (minimal padding)
     #[repr(C)]
     struct AlignedStruct {
-        value: u64,   // 8 bytes
-        flag: u8,     // 1 byte
-        flag2: u8,    // 1 byte + 6 padding
+        value: u64, // 8 bytes
+        flag: u8,   // 1 byte
+        flag2: u8,  // 1 byte + 6 padding
     }
 
     group.bench_function("padded_struct", |b| {
         b.iter(|| {
             let mut structs = Vec::with_capacity(1000);
             for i in 0..1000 {
-                structs.push(PaddedStruct {
-                    flag: 1,
-                    value: i,
-                    flag2: 2,
-                });
+                structs.push(PaddedStruct { flag: 1, value: i, flag2: 2 });
             }
             black_box(structs);
         });
@@ -299,11 +285,7 @@ fn bench_alignment_overhead(c: &mut Criterion) {
         b.iter(|| {
             let mut structs = Vec::with_capacity(1000);
             for i in 0..1000 {
-                structs.push(AlignedStruct {
-                    value: i,
-                    flag: 1,
-                    flag2: 2,
-                });
+                structs.push(AlignedStruct { value: i, flag: 1, flag2: 2 });
             }
             black_box(structs);
         });
@@ -371,8 +353,8 @@ fn bench_fragmentation_pattern(c: &mut Criterion) {
 
 /// Benchmark memory usage during peak load
 fn bench_peak_memory_usage(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
-    use smmu::{StreamID, PASID, IOVA, PA, PagePermissions, SecurityState};
+    use smmu::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
+    use smmu::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
 
     let mut group = c.benchmark_group("peak_memory_usage");
 
@@ -498,21 +480,17 @@ fn bench_sparse_efficiency(c: &mut Criterion) {
 
 /// Benchmark memory usage with different cache sizes
 fn bench_cache_size_memory_usage(c: &mut Criterion) {
-    use smmu::cache::{TlbCache, ReplacementPolicy};
+    use smmu::cache::{ReplacementPolicy, TlbCache};
 
     let mut group = c.benchmark_group("cache_size_memory_usage");
 
     for cache_size in [256, 1024, 4096, 16384].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(cache_size),
-            cache_size,
-            |b, &cache_size| {
-                b.iter(|| {
-                    let cache = TlbCache::new(cache_size, ReplacementPolicy::Lru);
-                    black_box(cache);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(cache_size), cache_size, |b, &cache_size| {
+            b.iter(|| {
+                let cache = TlbCache::new(cache_size, ReplacementPolicy::Lru);
+                black_box(cache);
+            });
+        });
     }
 
     group.finish();
