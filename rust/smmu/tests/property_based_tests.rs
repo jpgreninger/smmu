@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Property-based tests using proptest
 //!
 //! Tests invariants and properties across random input spaces to find
@@ -312,7 +321,7 @@ proptest! {
 // ============================================================================
 // Phase 4.2: Address Type Properties (Alignment, Overflow, Page Calculations)
 // ============================================================================
-// Note: Using ProptestConfig::with_cases(10000) for thorough testing
+// Note: Using ProptestConfig::with_cases(10_000) for thorough testing
 
 proptest! {
     #[test]
@@ -423,7 +432,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_add_offset_wrapping_behavior(addr in 0u64..(1u64 << 48), offset in 0u64..0x10000) {
+    fn prop_add_offset_wrapping_behavior(addr in 0u64..(1u64 << 48), offset in 0u64..0x1_0000) {
         let iova = IOVA::new(addr).unwrap();
         let result = iova.add_offset(offset);
 
@@ -447,13 +456,13 @@ proptest! {
 proptest! {
     #[test]
     fn prop_translation_deterministic(
-        iova in 0x1000u64..0x100000,
+        iova in 0x1000u64..0x10_0000,
         pasid_val in 0u32..100,
     ) {
         let stream_context = StreamContext::new();
         let pasid = PASID::new(pasid_val).unwrap();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
-        let pa = PA::new(0x50000).unwrap();
+        let pa = PA::new(0x5_0000).unwrap();
 
         stream_context.create_pasid(pasid).unwrap();
         stream_context.map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
@@ -474,7 +483,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_translation_consistent_across_lookups(iova in 0x1000u64..0x100000) {
+    fn prop_translation_consistent_across_lookups(iova in 0x1000u64..0x10_0000) {
         let mut addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
@@ -490,14 +499,14 @@ proptest! {
 
     #[test]
     fn prop_different_iovas_independent_translations(
-        iova1 in 0x1000u64..0x50000,
-        iova2 in 0x50000u64..0x100000,
+        iova1 in 0x1000u64..0x5_0000,
+        iova2 in 0x50000u64..0x10_0000,
     ) {
         let mut addr_space = AddressSpace::new();
         let iova1 = IOVA::new(iova1 & !0xFFF).unwrap();
         let iova2 = IOVA::new(iova2 & !0xFFF).unwrap();
-        let pa1 = PA::new(0x10000).unwrap();
-        let pa2 = PA::new(0x20000).unwrap();
+        let pa1 = PA::new(0x1_0000).unwrap();
+        let pa2 = PA::new(0x2_0000).unwrap();
 
         addr_space.map_page(iova1, pa1, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
         addr_space.map_page(iova2, pa2, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
@@ -515,14 +524,14 @@ proptest! {
     fn prop_pasid_isolation_in_translation(
         pasid1_val in 0u32..50,
         pasid2_val in 50u32..100,
-        iova in 0x1000u64..0x10000,
+        iova in 0x1000u64..0x1_0000,
     ) {
         let stream_context = StreamContext::new();
         let pasid1 = PASID::new(pasid1_val).unwrap();
         let pasid2 = PASID::new(pasid2_val).unwrap();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
-        let pa1 = PA::new(0x10000).unwrap();
-        let pa2 = PA::new(0x20000).unwrap();
+        let pa1 = PA::new(0x1_0000).unwrap();
+        let pa2 = PA::new(0x2_0000).unwrap();
 
         stream_context.create_pasid(pasid1).unwrap();
         stream_context.create_pasid(pasid2).unwrap();
@@ -546,7 +555,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_page_count_invariant_under_overwrites(
-        iova in 0x1000u64..0x10000,
+        iova in 0x1000u64..0x1_0000,
         iterations in 1usize..50,
     ) {
         let mut addr_space = AddressSpace::new();
@@ -554,7 +563,7 @@ proptest! {
 
         // Repeatedly overwrite same page
         for i in 0..iterations {
-            let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x1_0000 + (i as u64) * PAGE_SIZE).unwrap();
             addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
         }
 
@@ -563,7 +572,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_unmap_idempotent(iova in 0x1000u64..0x10000) {
+    fn prop_unmap_idempotent(iova in 0x1000u64..0x1_0000) {
         let mut addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
@@ -582,7 +591,7 @@ proptest! {
 
     #[test]
     fn prop_security_state_enforcement(
-        iova in 0x1000u64..0x10000,
+        iova in 0x1000u64..0x1_0000,
         map_secure: bool,
         translate_secure: bool,
     ) {
@@ -602,11 +611,11 @@ proptest! {
     }
 
     #[test]
-    fn prop_pasid_limit_enforcement(pasid_val in 0u32..=2000000) {
+    fn prop_pasid_limit_enforcement(pasid_val in 0u32..=2_000_000) {
         let result = PASID::new(pasid_val);
 
-        // Valid PASIDs: 0 to 1048575 (2^20 - 1)
-        if pasid_val <= 1048575 {
+        // Valid PASIDs: 0 to 1_048_575 (2^20 - 1)
+        if pasid_val <= 1_048_575 {
             assert!(result.is_ok());
         } else {
             assert!(result.is_err());
@@ -614,11 +623,11 @@ proptest! {
     }
 
     #[test]
-    fn prop_stream_id_validation(stream_val in 0u32..=100000) {
+    fn prop_stream_id_validation(stream_val in 0u32..=100_000) {
         let result = StreamID::new(stream_val);
 
-        // Valid StreamIDs: 0 to 65535 (16-bit)
-        if stream_val <= 65535 {
+        // Valid StreamIDs: 0 to 65_535 (16-bit)
+        if stream_val <= 65_535 {
             assert!(result.is_ok());
         } else {
             assert!(result.is_err());

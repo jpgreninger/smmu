@@ -98,6 +98,7 @@ pub enum TranslationError {
 ///
 /// assert_eq!(data.physical_address(), pa);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TranslationData {
     /// Physical address (translation result)

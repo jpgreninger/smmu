@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Unit tests for fault handling subsystem
 //!
 //! Tests all 15 ARM SMMU v3 fault types, fault filtering, statistics,
@@ -5,7 +14,7 @@
 
 use smmu::fault::{FaultDetector, FaultMode, FaultProcessor, FaultQueue, FaultRecovery, RecoveryStrategy};
 use smmu::types::{
-    AccessType, FaultRecord, FaultSeverity, FaultType, PagePermissions, SecurityState, StreamID, IOVA, PA, PASID,
+    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamID, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -286,7 +295,7 @@ fn test_fault_queue_creation() {
 
 #[test]
 fn test_fault_queue_enqueue() {
-    let mut queue = FaultQueue::new(100);
+    let queue = FaultQueue::new(100);
     let fault = FaultRecord::new(
         StreamID::new(1).unwrap(),
         PASID::new(1).unwrap(),
@@ -302,7 +311,7 @@ fn test_fault_queue_enqueue() {
 
 #[test]
 fn test_fault_queue_dequeue() {
-    let mut queue = FaultQueue::new(100);
+    let queue = FaultQueue::new(100);
     let fault = FaultRecord::new(
         StreamID::new(1).unwrap(),
         PASID::new(1).unwrap(),
@@ -319,7 +328,7 @@ fn test_fault_queue_dequeue() {
 
 #[test]
 fn test_fault_queue_clear() {
-    let mut queue = FaultQueue::new(100);
+    let queue = FaultQueue::new(100);
     for i in 0..10 {
         let fault = FaultRecord::new(
             StreamID::new(1).unwrap(),
@@ -387,7 +396,7 @@ fn test_large_scale_fault_handling() {
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Generate 10,000 faults
-    for i in 0..10000 {
+    for i in 0..10_000 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
         let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
     }

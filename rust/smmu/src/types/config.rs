@@ -22,6 +22,7 @@ use std::collections::HashMap;
 ///
 /// Defines how the `SMMU` handles translation faults for a stream.
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FaultMode {
     /// Terminate access on fault - abort transaction immediately
@@ -50,6 +51,7 @@ impl fmt::Display for FaultMode {
 ///
 /// Defines translation behavior for a single stream, including stage enablement,
 /// `PASID` support, and fault handling mode.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreamConfig {
     /// Enable translation for this stream
@@ -64,7 +66,7 @@ pub struct StreamConfig {
     /// `PASID` support enabled for this stream
     pub pasid_enabled: bool,
 
-    /// Maximum `PASID` value allowed (default: 1048575, 20-bit)
+    /// Maximum `PASID` value allowed (default: 1_048_575, 20-bit)
     pub max_pasid: u32,
 
     /// Fault handling mode
@@ -303,6 +305,7 @@ impl Default for StreamConfigBuilder {
 }
 
 /// Queue configuration for `SMMU` event, command, and PRI queues
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueConfig {
     /// Event queue size (default: 512)
@@ -320,7 +323,7 @@ impl QueueConfig {
     pub const MIN_QUEUE_SIZE: usize = 16;
 
     /// Maximum queue size per ARM `SMMU` v3 spec
-    pub const MAX_QUEUE_SIZE: usize = 65536;
+    pub const MAX_QUEUE_SIZE: usize = 65_536;
 
     /// Default event queue size
     pub const DEFAULT_EVENT_QUEUE_SIZE: usize = 512;
@@ -501,6 +504,7 @@ impl Default for QueueConfigBuilder {
 }
 
 /// Cache configuration for TLB and other caches
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CacheConfig {
     /// TLB cache size in entries (default: 1024)
@@ -644,6 +648,7 @@ impl Default for CacheConfigBuilder {
 }
 
 /// Address space configuration
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AddressConfig {
     /// Maximum `IOVA` address space size in bits (default: 48-bit)
@@ -652,10 +657,10 @@ pub struct AddressConfig {
     /// Maximum physical address space size in bits (default: 52-bit)
     pub max_pa_bits: u8,
 
-    /// Maximum number of streams (default: 65536)
+    /// Maximum number of streams (default: 65_536)
     pub max_stream_count: u32,
 
-    /// Maximum PASIDs per stream (default: 1048576)
+    /// Maximum PASIDs per stream (default: 1_048_576)
     pub max_pasid_count: u32,
 }
 
@@ -691,7 +696,7 @@ impl AddressConfig {
     pub const DEFAULT_PA_BITS: u8 = 52;
 
     /// Default stream count (16-bit `StreamID`)
-    pub const DEFAULT_STREAM_COUNT: u32 = 65536;
+    pub const DEFAULT_STREAM_COUNT: u32 = 65_536;
 
     /// Default `PASID` count (20-bit `PASID`)
     pub const DEFAULT_PASID_COUNT: u32 = 1_048_576;
@@ -834,6 +839,7 @@ impl Default for AddressConfigBuilder {
 }
 
 /// Resource limits for memory and threading
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResourceLimits {
     /// Maximum memory usage in bytes
@@ -1035,6 +1041,7 @@ impl Default for ResourceLimitsBuilder {
 }
 
 /// Configuration error type for detailed validation
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ConfigurationErrorType {
     /// Invalid queue size
@@ -1068,6 +1075,7 @@ impl fmt::Display for ConfigurationErrorType {
 }
 
 /// Configuration error with detailed information
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigurationError {
     /// Error type
@@ -1116,6 +1124,7 @@ impl From<ValidationError> for ConfigurationError {
 }
 
 /// Validation result with detailed errors and warnings
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidationResult {
     /// Whether the validation passed
@@ -1206,6 +1215,7 @@ impl ConfigConstants {
 }
 
 /// Global `SMMU` configuration combining all configuration types
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SMMUConfig {
     /// Queue configuration
@@ -1244,8 +1254,8 @@ impl SMMUConfig {
                 pri_queue_size: 512,
             },
             cache_config: CacheConfig {
-                tlb_cache_size: 16384,
-                cache_max_age_ms: 10000,
+                tlb_cache_size: 16_384,
+                cache_max_age_ms: 10_000,
                 enable_caching: true,
             },
             address_config: AddressConfig::default(),
@@ -1321,8 +1331,8 @@ impl SMMUConfig {
                 pri_queue_size: 1024,
             },
             cache_config: CacheConfig {
-                tlb_cache_size: 32768,
-                cache_max_age_ms: 15000,
+                tlb_cache_size: 32_768,
+                cache_max_age_ms: 15_000,
                 enable_caching: true,
             },
             address_config: AddressConfig::default(),
@@ -1374,7 +1384,7 @@ impl SMMUConfig {
             resource_limits: ResourceLimits {
                 max_memory_usage: 2 * 1024 * 1024 * 1024, // 2GB
                 max_thread_count: 8,
-                timeout_ms: 10000, // Longer timeout for debugging
+                timeout_ms: 10_000, // Longer timeout for debugging
                 enable_resource_tracking: true,
             },
         }
@@ -1854,7 +1864,7 @@ mod tests {
     #[test]
     fn test_smmu_config_update_cache_settings() {
         let mut config = SMMUConfig::default();
-        assert!(config.update_cache_settings(2048, 10000, true).is_ok());
+        assert!(config.update_cache_settings(2048, 10_000, true).is_ok());
     }
 
     #[test]

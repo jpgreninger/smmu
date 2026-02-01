@@ -186,7 +186,7 @@ impl FaultSyndromeBuilder {
 ///     .fault_type(`FaultType`::PermissionFault)
 ///     .access_type(`AccessType`::Write)
 ///     .security_state(`SecurityState`::Secure)
-///     .timestamp(12345)
+///     .timestamp(12_345)
 ///     .build();
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]

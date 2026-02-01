@@ -15,7 +15,7 @@ fn main() {
     let start = Instant::now();
     for page in 0..1024 {
         let iova = IOVA::new((page as u64) * 0x1000).unwrap();
-        let pa = PA::new((page as u64) * 0x1000 + 0x10000).unwrap();
+        let pa = PA::new((page as u64) * 0x1000 + 0x1_0000).unwrap();
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page as u64);
         cache.insert(key, entry);
@@ -28,7 +28,7 @@ fn main() {
     let start = Instant::now();
     for page in 1024..2048 {
         let iova = IOVA::new((page as u64) * 0x1000).unwrap();
-        let pa = PA::new((page as u64) * 0x1000 + 0x10000).unwrap();
+        let pa = PA::new((page as u64) * 0x1000 + 0x1_0000).unwrap();
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page as u64);
         cache.insert(key, entry);

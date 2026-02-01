@@ -49,13 +49,37 @@ quickcheck_macros = "1.0"
 workspace = true
 
 [features]
-default = ["std"]
+# Default features - standard library support with all core functionality
+default = ["std", "pasid", "two-stage", "cache"]
+
+# Standard library support (required for most use cases)
+# Disable this for no_std embedded environments
 std = []
+
+# Optional serialization support via serde
+# Enable this to serialize/deserialize SMMU types
 serde = ["dep:serde"]
-# Future feature flags for optional functionality
-# pasid = []
-# two-stage = []
-# cache = []
+
+# PASID (Process Address Space ID) support
+# Enable this to use multiple address spaces per stream
+# Disable to reduce code size in simple single-address-space scenarios
+pasid = []
+
+# Two-stage translation support (Stage-1 → Stage-2)
+# Enable this for nested/virtualized translation
+# Disable if only using Stage-1 or bypass mode
+two-stage = []
+
+# TLB cache support for improved performance
+# Enable this for production deployments
+# Disable to reduce memory footprint in resource-constrained environments
+cache = []
+
+# Convenience feature to enable all optional functionality
+full = ["std", "serde", "pasid", "two-stage", "cache"]
+
+# Minimal feature set for embedded/resource-constrained environments
+minimal = ["std"]
 
 [package.metadata.docs.rs]
 all-features = true

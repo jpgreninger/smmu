@@ -181,7 +181,7 @@ impl PerformanceFixture {
             num_streams: 256,
             num_pasids: 16,
             pages_per_context: 1024,
-            iterations: 10000,
+            iterations: 10_000,
         }
     }
 
@@ -203,7 +203,7 @@ impl PerformanceFixture {
             num_streams: 1024,
             num_pasids: 64,
             pages_per_context: 4096,
-            iterations: 100000,
+            iterations: 100_000,
         }
     }
 

@@ -8,6 +8,7 @@ use crate::types::SecurityState;
 ///
 /// Defines the types of events that can be queued in the event queue.
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum EventType {
     /// Translation fault - page not mapped
@@ -36,6 +37,7 @@ impl Default for EventType {
 ///
 /// Contains all information about a single event in the event queue.
 /// Follows ARM `SMMU` v3 event record format.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EventEntry {
     /// Type of event

@@ -1,7 +1,16 @@
-//! Comprehensive test coverage for types/translation_result.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive test coverage for `types/translation_result.rs`
 //!
-//! This test suite achieves 100% coverage of TranslationResult, TranslationData,
-//! TranslationError, and TranslationDataBuilder, covering all variants, conversions,
+//! This test suite achieves 100% coverage of `TranslationResult`, `TranslationData`,
+//! `TranslationError`, and `TranslationDataBuilder`, covering all variants, conversions,
 //! and display formatting.
 
 use smmu::types::{
@@ -237,14 +246,14 @@ fn test_builder_different_order() {
 #[test]
 fn test_error_page_not_mapped() {
     let error = TranslationError::PageNotMapped;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Page not mapped in address space");
 }
 
 #[test]
 fn test_error_permission_violation() {
     let error = TranslationError::PermissionViolation { access: AccessType::Write };
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Permission violation"));
     assert!(msg.contains("Write"));
 }
@@ -252,21 +261,21 @@ fn test_error_permission_violation() {
 #[test]
 fn test_error_permission_violation_read() {
     let error = TranslationError::PermissionViolation { access: AccessType::Read };
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Read"));
 }
 
 #[test]
 fn test_error_permission_violation_execute() {
     let error = TranslationError::PermissionViolation { access: AccessType::Execute };
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Execute"));
 }
 
 #[test]
 fn test_error_invalid_address() {
-    let error = TranslationError::InvalidAddress { address: 0xDEADBEEF };
-    let msg = format!("{}", error);
+    let error = TranslationError::InvalidAddress { address: 0xDEAD_BEEF };
+    let msg = format!("{error}");
     assert!(msg.contains("Invalid address"));
     assert!(msg.contains("deadbeef"));
 }
@@ -274,70 +283,70 @@ fn test_error_invalid_address() {
 #[test]
 fn test_error_invalid_stream_id() {
     let error = TranslationError::InvalidStreamID;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Invalid StreamID");
 }
 
 #[test]
 fn test_error_invalid_pasid() {
     let error = TranslationError::InvalidPASID;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Invalid PASID");
 }
 
 #[test]
 fn test_error_pasid_not_found() {
     let error = TranslationError::PASIDNotFound;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "PASID not found");
 }
 
 #[test]
 fn test_error_stream_not_configured() {
     let error = TranslationError::StreamNotConfigured;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Stream not configured");
 }
 
 #[test]
 fn test_error_stream_disabled() {
     let error = TranslationError::StreamDisabled;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Stream disabled");
 }
 
 #[test]
 fn test_error_address_size_error() {
     let error = TranslationError::AddressSizeError;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Address size error"));
 }
 
 #[test]
 fn test_error_alignment_error() {
     let error = TranslationError::AlignmentError;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("alignment error"));
 }
 
 #[test]
 fn test_error_security_violation() {
     let error = TranslationError::SecurityViolation;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Security"));
 }
 
 #[test]
 fn test_error_external_abort() {
     let error = TranslationError::ExternalAbort;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("External abort"));
 }
 
 #[test]
 fn test_error_tlb_conflict() {
     let error = TranslationError::TlbConflict;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("TLB conflict"));
 }
 
@@ -367,7 +376,7 @@ fn test_error_equality_with_fields() {
 
 #[test]
 fn test_error_clone() {
-    let error = TranslationError::InvalidAddress { address: 0x12345 };
+    let error = TranslationError::InvalidAddress { address: 0x1_2345 };
     let cloned = error.clone();
     assert_eq!(error, cloned);
 }
@@ -427,7 +436,7 @@ fn test_result_err_permission_violation() {
 
 #[test]
 fn test_result_err_invalid_address() {
-    let result: TranslationResult = Err(TranslationError::InvalidAddress { address: 0x99999 });
+    let result: TranslationResult = Err(TranslationError::InvalidAddress { address: 0x9_9999 });
     assert!(result.is_err());
 }
 
@@ -549,14 +558,14 @@ fn test_translation_data_max_address() {
 #[test]
 fn test_error_invalid_address_zero() {
     let error = TranslationError::InvalidAddress { address: 0 };
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("0x0"));
 }
 
 #[test]
 fn test_error_invalid_address_max() {
     let error = TranslationError::InvalidAddress { address: 0xFFFF_FFFF_FFFF_FFFF };
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert!(msg.contains("Invalid address"));
 }
 
@@ -569,7 +578,7 @@ fn test_builder_clone() {
     let pa = PA::new(0x1000).unwrap();
     let builder = TranslationData::builder().physical_address(pa);
 
-    let cloned = builder.clone();
+    let cloned = builder;
     let data1 = builder.build();
     let data2 = cloned.build();
 

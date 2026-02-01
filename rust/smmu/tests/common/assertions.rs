@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn test_assert_page_aligned_success() {
         assert_page_aligned(0x1000);
-        assert_page_aligned(0x10000);
+        assert_page_aligned(0x1_0000);
     }
 
     #[test]

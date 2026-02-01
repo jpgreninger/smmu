@@ -1,4 +1,13 @@
-//! Unit tests for AddressSpace module
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Unit tests for `AddressSpace` module
 //!
 //! Tests core address translation functionality including page mapping,
 //! unmapping, translation, and permission checks per ARM SMMU v3 specification.
@@ -249,7 +258,7 @@ fn test_sparse_mapping() {
 
     // Map pages at very different addresses (sparse)
     let iova1 = IOVA::new(0x1000).unwrap();
-    let iova2 = IOVA::new(0x100000000).unwrap(); // 4GB offset
+    let iova2 = IOVA::new(0x1_0000_0000).unwrap(); // 4GB offset
     let pa = PA::new(0x2000).unwrap();
 
     addr_space
@@ -268,7 +277,7 @@ fn test_sparse_efficiency() {
 
     // Map 10 pages spread across wide address range
     for i in 0..10 {
-        let iova = IOVA::new(0x1000 + i * 0x10000000).unwrap(); // 256MB apart
+        let iova = IOVA::new(0x1000 + i * 0x1000_0000).unwrap(); // 256MB apart
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
@@ -666,7 +675,7 @@ fn test_get_mapped_ranges_sparse() {
         .unwrap();
     addr_space
         .map_page(
-            IOVA::new(0x100000).unwrap(),
+            IOVA::new(0x10_0000).unwrap(),
             PA::new(0x2000).unwrap(),
             PagePermissions::read_only(),
             SecurityState::NonSecure,
@@ -727,8 +736,8 @@ fn test_has_overlapping_mappings_no_overlap() {
         .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
         .unwrap();
 
-    let start = IOVA::new(0x10000).unwrap();
-    let end = IOVA::new(0x20000).unwrap();
+    let start = IOVA::new(0x1_0000).unwrap();
+    let end = IOVA::new(0x2_0000).unwrap();
 
     assert!(!addr_space.has_overlapping_mappings(start, end));
 }
@@ -1281,7 +1290,7 @@ fn test_page_info_accessors() {
     let end = IOVA::new(0x1000 + 2 * PAGE_SIZE).unwrap();
     let range = AddressRange::new(start, end);
 
-    for page_info in range.into_iter() {
+    for page_info in range {
         let _ = page_info.iova(); // Test iova() accessor
         let _ = page_info.page_number(); // Test page_number() accessor
     }
@@ -1294,7 +1303,7 @@ fn test_page_info_accessors() {
 #[test]
 fn test_map_page_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52); // Just over max
+    let max_iova = 1u64 << 52; // Just over max
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let pa = PA::new(0x2000).unwrap();
@@ -1307,7 +1316,7 @@ fn test_map_page_invalid_iova_max() {
 fn test_map_page_invalid_pa_max() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
-    let max_pa = (1u64 << 52); // Just over max
+    let max_pa = 1u64 << 52; // Just over max
 
     if let Ok(pa) = PA::new(max_pa) {
         let result = addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure);
@@ -1318,7 +1327,7 @@ fn test_map_page_invalid_pa_max() {
 #[test]
 fn test_unmap_page_invalid_iova() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let result = addr_space.unmap_page(iova);
@@ -1329,7 +1338,7 @@ fn test_unmap_page_invalid_iova() {
 #[test]
 fn test_is_page_mapped_invalid_iova() {
     let addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let result = addr_space.is_page_mapped(iova);
@@ -1340,7 +1349,7 @@ fn test_is_page_mapped_invalid_iova() {
 #[test]
 fn test_get_page_permissions_invalid_iova() {
     let addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let result = addr_space.get_page_permissions(iova);
@@ -1351,7 +1360,7 @@ fn test_get_page_permissions_invalid_iova() {
 #[test]
 fn test_map_range_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(start_iova) = IOVA::new(max_iova - PAGE_SIZE) {
         if let Ok(end_iova) = IOVA::new(max_iova) {
@@ -1367,7 +1376,7 @@ fn test_map_range_invalid_pa_max() {
     let mut addr_space = AddressSpace::new();
     let start_iova = IOVA::new(0x1000).unwrap();
     let end_iova = IOVA::new(0x5000).unwrap();
-    let max_pa = (1u64 << 52);
+    let max_pa = 1u64 << 52;
 
     if let Ok(pa) = PA::new(max_pa) {
         let result = addr_space.map_range(start_iova, end_iova, pa, PagePermissions::read_only());
@@ -1378,7 +1387,7 @@ fn test_map_range_invalid_pa_max() {
 #[test]
 fn test_unmap_range_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(start_iova) = IOVA::new(max_iova - PAGE_SIZE) {
         if let Ok(end_iova) = IOVA::new(max_iova) {
@@ -1391,7 +1400,7 @@ fn test_unmap_range_invalid_iova_max() {
 #[test]
 fn test_map_pages_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let pa = PA::new(0x2000).unwrap();
@@ -1406,7 +1415,7 @@ fn test_map_pages_invalid_iova_max() {
 fn test_map_pages_invalid_pa_max() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
-    let max_pa = (1u64 << 52);
+    let max_pa = 1u64 << 52;
 
     if let Ok(pa) = PA::new(max_pa) {
         let mappings = vec![(iova, pa)];
@@ -1419,7 +1428,7 @@ fn test_map_pages_invalid_pa_max() {
 #[test]
 fn test_unmap_pages_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let iovas = vec![iova];
@@ -1432,7 +1441,7 @@ fn test_unmap_pages_invalid_iova_max() {
 #[test]
 fn test_map_pages_batched_invalid_iova_max() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let pa = PA::new(0x2000).unwrap();
@@ -1447,7 +1456,7 @@ fn test_map_pages_batched_invalid_iova_max() {
 fn test_map_pages_batched_invalid_pa_max() {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
-    let max_pa = (1u64 << 52);
+    let max_pa = 1u64 << 52;
 
     if let Ok(pa) = PA::new(max_pa) {
         let mappings = vec![(iova, pa)];
@@ -1460,7 +1469,7 @@ fn test_map_pages_batched_invalid_pa_max() {
 #[test]
 fn test_unmap_pages_batched_invalid_iova() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let iovas = vec![iova];
@@ -1473,7 +1482,7 @@ fn test_unmap_pages_batched_invalid_iova() {
 #[test]
 fn test_update_permissions_batched_invalid_iova() {
     let mut addr_space = AddressSpace::new();
-    let max_iova = (1u64 << 52);
+    let max_iova = 1u64 << 52;
 
     if let Ok(iova) = IOVA::new(max_iova) {
         let iovas = vec![iova];
@@ -1549,7 +1558,7 @@ fn test_query_range_statistics_partial() {
 
 #[test]
 fn test_translate_invalid_entry() {
-    use smmu::types::PageEntry;
+    
 
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();

@@ -26,6 +26,7 @@ use super::{AccessType, SecurityState, PA};
 /// let read_write = `PagePermissions`::read_write();
 /// assert!(read_write.read() && read_write.write());
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PagePermissions {
     /// Read permission allowed
@@ -233,6 +234,7 @@ impl Default for PagePermissions {
 /// assert!(entry.is_valid());
 /// assert_eq!(entry.physical_address(), pa);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageEntry {
     /// Physical address mapping

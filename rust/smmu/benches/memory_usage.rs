@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Memory Usage Benchmarks (Section 7.2)
 //!
 //! Comprehensive benchmarks for memory usage optimization and monitoring.
@@ -36,7 +41,7 @@ fn configure_criterion() -> Criterion {
 fn bench_allocation_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("allocation_overhead");
 
-    for capacity in [64, 256, 1024, 4096, 16384].iter() {
+    for capacity in &[64, 256, 1024, 4096, 16_384] {
         group.throughput(Throughput::Elements(*capacity as u64));
 
         group.bench_with_input(BenchmarkId::new("hashmap_alloc", capacity), capacity, |b, &capacity| {
@@ -360,14 +365,14 @@ fn bench_peak_memory_usage(c: &mut Criterion) {
 
     group.bench_function("max_cache_population", |b| {
         b.iter(|| {
-            let cache = TlbCache::new(16384, ReplacementPolicy::Lru);
+            let cache = TlbCache::new(16_384, ReplacementPolicy::Lru);
             let stream_id = StreamID::new(1).unwrap();
             let pasid = PASID::new(0).unwrap();
 
             // Fill cache to maximum capacity
-            for page in 0..16384 {
+            for page in 0..16_384 {
                 let iova = IOVA::new((page as u64) * 0x1000).unwrap();
-                let pa = PA::new((page as u64) * 0x1000 + 0x10000).unwrap();
+                let pa = PA::new((page as u64) * 0x1000 + 0x1_0000).unwrap();
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page as u64);
                 cache.insert(key, entry);
@@ -378,7 +383,7 @@ fn bench_peak_memory_usage(c: &mut Criterion) {
 
     group.bench_function("multi_stream_peak", |b| {
         b.iter(|| {
-            let cache = TlbCache::new(16384, ReplacementPolicy::Lru);
+            let cache = TlbCache::new(16_384, ReplacementPolicy::Lru);
             let pasid = PASID::new(0).unwrap();
 
             // Multiple streams filling cache
@@ -386,7 +391,7 @@ fn bench_peak_memory_usage(c: &mut Criterion) {
                 let stream_id = StreamID::new(stream).unwrap();
                 for page in 0..512 {
                     let iova = IOVA::new((page as u64) * 0x1000).unwrap();
-                    let pa = PA::new((page as u64) * 0x1000 + 0x10000).unwrap();
+                    let pa = PA::new((page as u64) * 0x1000 + 0x1_0000).unwrap();
                     let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                     let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page as u64);
                     cache.insert(key, entry);
@@ -451,7 +456,7 @@ fn bench_sparse_efficiency(c: &mut Criterion) {
     group.bench_function("sparse_1_percent", |b| {
         b.iter(|| {
             let mut map = HashMap::new();
-            let total_space = 100000;
+            let _total_space = 100_000;
             let populated = 1000; // 1%
 
             for i in 0..populated {
@@ -465,8 +470,8 @@ fn bench_sparse_efficiency(c: &mut Criterion) {
     group.bench_function("dense_50_percent", |b| {
         b.iter(|| {
             let mut map = HashMap::new();
-            let total_space = 100000;
-            let populated = 50000; // 50%
+            let _total_space = 100_000;
+            let populated = 50_000; // 50%
 
             for i in 0..populated {
                 map.insert(i * 2, i * 0x1000);
@@ -484,7 +489,7 @@ fn bench_cache_size_memory_usage(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("cache_size_memory_usage");
 
-    for cache_size in [256, 1024, 4096, 16384].iter() {
+    for cache_size in &[256, 1024, 4096, 16_384] {
         group.bench_with_input(BenchmarkId::from_parameter(cache_size), cache_size, |b, &cache_size| {
             b.iter(|| {
                 let cache = TlbCache::new(cache_size, ReplacementPolicy::Lru);
@@ -498,7 +503,7 @@ fn bench_cache_size_memory_usage(c: &mut Criterion) {
 
 /// Benchmark memory usage during concurrent operations
 fn bench_concurrent_memory_usage(c: &mut Criterion) {
-    use std::sync::Arc;
+    
     use std::thread;
 
     let mut group = c.benchmark_group("concurrent_memory_usage");

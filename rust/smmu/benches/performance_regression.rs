@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Performance Regression Test Suite (Phase 4.4)
 //!
 //! Comprehensive benchmark suite for detecting performance regressions.
@@ -38,7 +43,7 @@ fn configure_criterion() -> Criterion {
 fn bench_translation_latency_simple(c: &mut Criterion) {
     let mut addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
-    let pa = PA::new(0x10000).unwrap();
+    let pa = PA::new(0x1_0000).unwrap();
 
     addr_space
         .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
@@ -56,7 +61,7 @@ fn bench_translation_latency_with_pasid(c: &mut Criterion) {
     let stream_context = StreamContext::new();
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
-    let pa = PA::new(0x10000).unwrap();
+    let pa = PA::new(0x1_0000).unwrap();
 
     stream_context.create_pasid(pasid).unwrap();
     stream_context
@@ -76,14 +81,14 @@ fn bench_translation_under_load(c: &mut Criterion) {
     let mut group = c.benchmark_group("translation_under_load");
     group.throughput(Throughput::Elements(1));
 
-    for num_mappings in [10, 100, 1000, 10000].iter() {
+    for num_mappings in &[10, 100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
             let mut addr_space = AddressSpace::new();
 
             // Create many mappings to simulate load
             for i in 0..num_mappings {
                 let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x1_0000 + (i as u64) * PAGE_SIZE).unwrap();
                 addr_space
                     .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
                     .unwrap();
@@ -115,7 +120,7 @@ fn bench_cache_hit_rate_sequential(c: &mut Criterion) {
     // Pre-populate cache with 512 entries (half capacity)
     for page in 0..512 {
         let iova = IOVA::new(page * 0x1000).unwrap();
-        let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+        let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
         cache.insert(key, entry);
@@ -141,7 +146,7 @@ fn bench_cache_hit_rate_random(c: &mut Criterion) {
     // Pre-populate cache
     for page in 0..1024 {
         let iova = IOVA::new(page * 0x1000).unwrap();
-        let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+        let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
         cache.insert(key, entry);
@@ -166,7 +171,7 @@ fn bench_cache_hit_rate_random(c: &mut Criterion) {
 fn bench_cache_hit_rate_working_set(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_hit_rate_working_set");
 
-    for working_set_size in [10, 100, 500, 1000, 2000].iter() {
+    for working_set_size in &[10, 100, 500, 1000, 2000] {
         group.bench_with_input(
             BenchmarkId::from_parameter(working_set_size),
             working_set_size,
@@ -178,7 +183,7 @@ fn bench_cache_hit_rate_working_set(c: &mut Criterion) {
                 // Fill cache
                 for page in 0..1024 {
                     let iova = IOVA::new(page * 0x1000).unwrap();
-                    let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+                    let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
                     let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                     let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
                     cache.insert(key, entry);
@@ -210,7 +215,7 @@ fn bench_stream_configuration_time(c: &mut Criterion) {
 
     c.bench_function("stream_configuration_time", |b| {
         b.iter_batched(
-            || SMMU::new(),
+            SMMU::new,
             |smmu| {
                 let stream_id = StreamID::new(1).unwrap();
                 let _ = black_box(smmu.configure_stream(black_box(stream_id), config.clone()));
@@ -226,11 +231,11 @@ fn bench_stream_configuration_multiple(c: &mut Criterion) {
     let mut group = c.benchmark_group("stream_configuration_multiple");
     group.throughput(Throughput::Elements(1));
 
-    for num_streams in [1, 10, 100, 1000].iter() {
+    for num_streams in &[1, 10, 100, 1000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_streams), num_streams, |b, &num_streams| {
             let cfg = config.clone();
             b.iter_batched(
-                || SMMU::new(),
+                SMMU::new,
                 |smmu| {
                     for i in 0..num_streams {
                         let stream_id = StreamID::new(i as u32).unwrap();
@@ -292,14 +297,14 @@ fn bench_fault_processing_throughput(c: &mut Criterion) {
 fn bench_memory_usage_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_usage_scaling");
 
-    for num_mappings in [100, 1000, 10000, 100000].iter() {
+    for num_mappings in &[100, 1000, 10_000, 100_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
             b.iter(|| {
                 let mut addr_space = AddressSpace::new();
 
                 for i in 0..num_mappings {
                     let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                    let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                    let pa = PA::new(0x1_0000 + (i as u64) * PAGE_SIZE).unwrap();
                     addr_space
                         .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
                         .unwrap();
@@ -316,7 +321,7 @@ fn bench_memory_usage_scaling(c: &mut Criterion) {
 fn bench_pasid_memory_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("pasid_memory_scaling");
 
-    for num_pasids in [10, 100, 500, 1000].iter() {
+    for num_pasids in &[10, 100, 500, 1000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
             b.iter(|| {
                 let stream_context = StreamContext::new();
@@ -328,7 +333,7 @@ fn bench_pasid_memory_scaling(c: &mut Criterion) {
                     // Map a few pages per PASID
                     for j in 0..10 {
                         let iova = IOVA::new(0x1000 + (j as u64) * PAGE_SIZE).unwrap();
-                        let pa = PA::new(0x10000 + (j as u64) * PAGE_SIZE).unwrap();
+                        let pa = PA::new(0x1_0000 + (j as u64) * PAGE_SIZE).unwrap();
                         stream_context
                             .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
                             .unwrap();
@@ -352,14 +357,14 @@ fn bench_complexity_translation_lookup(c: &mut Criterion) {
     group.plot_config(criterion::PlotConfiguration::default().summary_scale(criterion::AxisScale::Logarithmic));
 
     // Verify O(1) lookup regardless of address space size
-    for num_mappings in [100, 1000, 10000, 100000].iter() {
+    for num_mappings in &[100, 1000, 10_000, 100_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
             let mut addr_space = AddressSpace::new();
 
             // Create many mappings
             for i in 0..num_mappings {
                 let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
-                let pa = PA::new(0x10000 + (i as u64) * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x1_0000 + (i as u64) * PAGE_SIZE).unwrap();
                 addr_space
                     .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
                     .unwrap();
@@ -384,7 +389,7 @@ fn bench_complexity_pasid_lookup(c: &mut Criterion) {
     group.plot_config(criterion::PlotConfiguration::default().summary_scale(criterion::AxisScale::Logarithmic));
 
     // Verify O(1) PASID lookup regardless of number of PASIDs
-    for num_pasids in [10, 100, 500, 1000].iter() {
+    for num_pasids in &[10, 100, 500, 1000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
             let stream_context = StreamContext::new();
 
@@ -395,7 +400,7 @@ fn bench_complexity_pasid_lookup(c: &mut Criterion) {
 
                 // Add one mapping per PASID
                 let iova = IOVA::new(0x1000).unwrap();
-                let pa = PA::new(0x10000).unwrap();
+                let pa = PA::new(0x1_0000).unwrap();
                 stream_context
                     .map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
                     .unwrap();

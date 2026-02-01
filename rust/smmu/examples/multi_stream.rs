@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! Multi-Stream Management Example
 //!
 //! This example demonstrates how to manage multiple device streams simultaneously,
@@ -17,14 +20,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create SMMU instance
     println!("Creating SMMU instance with capacity for multiple streams...");
-    let config = SMMUConfig::builder().max_streams(1024).build()?;
-    let smmu = SMMU::with_config(config);
+    let smmu = SMMU::new();
     println!("  ✓ SMMU created\n");
 
     // Device 1: Network card - Stage-1 translation enabled
     println!("Configuring Device 1 (Network Card)...");
     let net_stream = StreamID::new(10)?;
     let net_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .pasid_enabled(false)  // Simple single address space
         .build()?;
@@ -33,9 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let net_pasid = PASID::new(0)?;
     smmu.create_pasid(net_stream, net_pasid)?;
 
-    // Map network buffers: IOVA 0x10000-0x11000 -> PA 0x100000-0x101000
-    let net_iova = IOVA::new(0x10000)?;
-    let net_pa = PA::new(0x100000)?;
+    // Map network buffers: IOVA 0x1_0000-0x1_1000 -> PA 0x10_0000-0x10_1000
+    let net_iova = IOVA::new(0x1_0000)?;
+    let net_pa = PA::new(0x10_0000)?;
     smmu.map_page(
         net_stream,
         net_pasid,
@@ -51,6 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Configuring Device 2 (GPU)...");
     let gpu_stream = StreamID::new(20)?;
     let gpu_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .pasid_enabled(true)  // Multiple contexts per process
         .max_pasid(256)
@@ -64,9 +68,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(gpu_stream, gpu_pasid2)?;
 
     // Map different memory regions for each GPU context
-    let gpu_iova = IOVA::new(0x20000)?;
-    let gpu_pa1 = PA::new(0x200000)?;
-    let gpu_pa2 = PA::new(0x300000)?;
+    let gpu_iova = IOVA::new(0x2_0000)?;
+    let gpu_pa1 = PA::new(0x20_0000)?;
+    let gpu_pa2 = PA::new(0x30_0000)?;
 
     smmu.map_page(
         gpu_stream,
@@ -139,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Storage controller bypass (IOVA == PA)
     println!("\nStorage Controller Translation (Bypass):");
     let storage_pasid = PASID::new(0)?;
-    let storage_iova = IOVA::new(0x500000)?;
+    let storage_iova = IOVA::new(0x50_0000)?;
     let storage_result = smmu.translate(storage_stream, storage_pasid, storage_iova, AccessType::Read)?;
     println!(
         "  Stream {}: IOVA 0x{:x} -> PA 0x{:x} (identity mapping)",
@@ -154,10 +158,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_iova_via_net = smmu.translate(net_stream, net_pasid, gpu_iova, AccessType::Read);
     match gpu_iova_via_net {
         Ok(_) => println!("  ✗ ERROR: Should not be able to access GPU memory from network stream!"),
-        Err(TranslationError::Fault(_)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Stream isolation verified: Network stream cannot access unmapped GPU address");
         },
-        Err(e) => println!("  Unexpected error: {}", e),
+        Err(e) => println!("  Unexpected error: {e}"),
     }
 
     // Show statistics

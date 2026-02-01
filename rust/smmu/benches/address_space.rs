@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Address space performance benchmarks
 //!
 //! Benchmarks for page table operations and memory efficiency
@@ -35,7 +40,7 @@ fn bench_page_table_walk_depths(c: &mut Criterion) {
     let mut group = c.benchmark_group("page_table_walk_depths");
 
     // Test with different table depths (levels)
-    for depth in [1, 2, 3, 4].iter() {
+    for depth in &[1, 2, 3, 4] {
         group.bench_with_input(BenchmarkId::from_parameter(depth), depth, |b, &depth| {
             b.iter(|| {
                 // TODO: Measure walk performance at different depths
@@ -108,7 +113,7 @@ fn bench_sparse_iteration(c: &mut Criterion) {
     let mut group = c.benchmark_group("sparse_iteration");
 
     // Test iteration over different numbers of mappings
-    for num_pages in [100, 1000, 10000].iter() {
+    for num_pages in &[100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
             b.iter(|| {
                 // TODO: Measure iteration performance
@@ -128,7 +133,7 @@ fn bench_memory_usage_sparse(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_usage_sparse");
 
     // Measure memory overhead with sparse mappings
-    for num_pages in [1000, 10000, 100000].iter() {
+    for num_pages in &[1000, 10_000, 100_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
             b.iter(|| {
                 // TODO: Create address space with sparse mappings
@@ -149,7 +154,7 @@ fn bench_large_page_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("large_page_operations");
 
     // Test with different page sizes
-    for page_size in [4096, 2 * 1024 * 1024, 1024 * 1024 * 1024].iter() {
+    for page_size in &[4096, 2 * 1024 * 1024, 1024 * 1024 * 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(page_size), page_size, |b, &page_size| {
             b.iter(|| {
                 // TODO: Measure operations with different page sizes
@@ -169,7 +174,7 @@ fn bench_bulk_mapping(c: &mut Criterion) {
     let mut group = c.benchmark_group("bulk_mapping");
 
     // Measure bulk mapping performance
-    for num_pages in [10, 100, 1000].iter() {
+    for num_pages in &[10, 100, 1000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
             b.iter(|| {
                 // TODO: Map multiple pages at once
@@ -185,7 +190,7 @@ fn bench_bulk_mapping(c: &mut Criterion) {
 fn bench_bulk_unmapping(c: &mut Criterion) {
     let mut group = c.benchmark_group("bulk_unmapping");
 
-    for num_pages in [10, 100, 1000].iter() {
+    for num_pages in &[10, 100, 1000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
             b.iter(|| {
                 // TODO: Unmap multiple pages at once
@@ -261,7 +266,7 @@ fn bench_address_space_comparison(c: &mut Criterion) {
 
     group.bench_function("large_sparse", |b| {
         b.iter(|| {
-            // TODO: Large sparse address space (> 10000 pages)
+            // TODO: Large sparse address space (> 10_000 pages)
             black_box(());
         });
     });

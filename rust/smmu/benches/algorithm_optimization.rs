@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Algorithm Optimization Benchmarks (Section 7.2)
 //!
 //! Comprehensive benchmarks for algorithm complexity validation and optimization.
@@ -8,9 +13,9 @@
 //!
 //! 1. Lookup Algorithm Complexity - Verify O(1)/O(log n) scaling
 //! 2. Hash Function Performance - Optimize cache key hashing
-//! 3. Sparse Data Structure Performance - HashMap vs BTreeMap
+//! 3. Sparse Data Structure Performance - `HashMap` vs `BTreeMap`
 //! 4. Memory Usage Optimization - Memory pooling and compact representations
-//! 5. SmallVec Optimization - Stack allocation for batched operations
+//! 5. `SmallVec` Optimization - Stack allocation for batched operations
 //! 6. Baseline Comparisons - Compare against 135ns C++ target
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
@@ -35,7 +40,7 @@ fn configure_criterion() -> Criterion {
 // 1. Lookup Algorithm Complexity Benchmarks
 // ============================================================================
 
-/// Benchmark HashMap lookup performance vs. size to verify O(1) complexity
+/// Benchmark `HashMap` lookup performance vs. size to verify O(1) complexity
 ///
 /// This benchmark tests that lookup time remains constant as the number of
 /// entries increases, validating O(1) average case performance.
@@ -43,7 +48,7 @@ fn bench_hashmap_lookup_complexity(c: &mut Criterion) {
     let mut group = c.benchmark_group("hashmap_lookup_complexity");
 
     // Test with exponentially increasing sizes to clearly show O(1) behavior
-    for size in [100, 500, 1000, 5000, 10000, 50000, 100000].iter() {
+    for size in &[100, 500, 1000, 5000, 10_000, 50_000, 100_000] {
         group.throughput(Throughput::Elements(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             // Setup: Create and populate HashMap
@@ -65,13 +70,13 @@ fn bench_hashmap_lookup_complexity(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark BTreeMap lookup performance vs. size to verify O(log n) complexity
+/// Benchmark `BTreeMap` lookup performance vs. size to verify O(log n) complexity
 ///
 /// This benchmark validates that lookup time grows logarithmically with size.
 fn bench_btreemap_lookup_complexity(c: &mut Criterion) {
     let mut group = c.benchmark_group("btreemap_lookup_complexity");
 
-    for size in [100, 500, 1000, 5000, 10000, 50000, 100000].iter() {
+    for size in &[100, 500, 1000, 5000, 10_000, 50_000, 100_000] {
         group.throughput(Throughput::Elements(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             // Setup: Create and populate BTreeMap
@@ -100,7 +105,7 @@ fn bench_cache_lookup_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_lookup_scaling");
 
     // Test cache lookup performance at different cache sizes
-    for cache_size in [64, 256, 1024, 4096, 16384].iter() {
+    for cache_size in &[64, 256, 1024, 4096, 16_384] {
         group.throughput(Throughput::Elements(*cache_size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(cache_size), cache_size, |b, &cache_size| {
             // Setup: Populate cache with entries
@@ -137,7 +142,7 @@ fn bench_pasid_lookup_complexity(c: &mut Criterion) {
     let mut group = c.benchmark_group("pasid_lookup_complexity");
 
     // Test with increasing numbers of PASIDs per stream
-    for num_pasids in [1, 4, 16, 64, 256, 1024].iter() {
+    for num_pasids in &[1, 4, 16, 64, 256, 1024] {
         group.throughput(Throughput::Elements(*num_pasids as u64));
         group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
             // Setup: Create PASID map (simulating StreamContext)
@@ -236,8 +241,8 @@ fn bench_hash_collisions(c: &mut Criterion) {
             let stream_id = StreamID::new(1).unwrap();
             let pasid = PASID::new(0).unwrap();
 
-            // Hash 10000 sequential pages
-            for page in 0..10000 {
+            // Hash 10_000 sequential pages
+            for page in 0..10_000 {
                 let iova = IOVA::new(page * 0x1000).unwrap();
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let hash = CacheKeyHash::hash(&key);
@@ -255,7 +260,7 @@ fn bench_hash_collisions(c: &mut Criterion) {
 // 3. Sparse Data Structure Performance Benchmarks
 // ============================================================================
 
-/// Compare HashMap vs BTreeMap for sparse page tables
+/// Compare `HashMap` vs `BTreeMap` for sparse page tables
 fn bench_sparse_structure_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("sparse_structure_comparison");
 
@@ -303,7 +308,7 @@ fn bench_sparse_structure_comparison(c: &mut Criterion) {
 
     group.bench_function("btreemap_sparse_insert", |b| {
         b.iter_batched(
-            || BTreeMap::new(),
+            BTreeMap::new,
             |mut map| {
                 for i in 0..100 {
                     map.insert(i * 100, i * 0x1000);
@@ -358,7 +363,7 @@ fn bench_memory_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_overhead");
 
     // Measure allocation overhead for different structure sizes
-    for num_entries in [100, 1000, 10000].iter() {
+    for num_entries in &[100, 1000, 10_000] {
         group.bench_with_input(
             BenchmarkId::new("hashmap_allocation", num_entries),
             num_entries,
@@ -425,12 +430,12 @@ fn bench_compact_representations(c: &mut Criterion) {
 // 5. SmallVec Optimization Benchmarks
 // ============================================================================
 
-/// Benchmark SmallVec vs Vec for batched operations
+/// Benchmark `SmallVec` vs Vec for batched operations
 fn bench_smallvec_batched_ops(c: &mut Criterion) {
     let mut group = c.benchmark_group("smallvec_batched_operations");
 
     // Test with different batch sizes
-    for batch_size in [4, 8, 16, 32, 64].iter() {
+    for batch_size in &[4, 8, 16, 32, 64] {
         group.bench_with_input(BenchmarkId::new("vec", batch_size), batch_size, |b, &batch_size| {
             b.iter(|| {
                 let mut batch = Vec::with_capacity(batch_size);
@@ -455,7 +460,7 @@ fn bench_smallvec_batched_ops(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark SmallVec for TLB invalidation batches
+/// Benchmark `SmallVec` for TLB invalidation batches
 fn bench_smallvec_invalidation_batches(c: &mut Criterion) {
     use smmu::cache::CacheKey;
     use smmu::{SecurityState, StreamID, IOVA, PASID};
@@ -533,7 +538,7 @@ fn bench_cache_hit_baseline(c: &mut Criterion) {
         // Pre-populate cache
         for page in 0..100 {
             let iova = IOVA::new(page * 0x1000).unwrap();
-            let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+            let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
             let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
             let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
             cache.insert(key, entry);

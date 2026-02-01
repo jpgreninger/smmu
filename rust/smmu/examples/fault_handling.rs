@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! Fault Handling Example
 //!
 //! This example demonstrates comprehensive fault detection and handling in the
@@ -24,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Part 1: Fault Mode = Terminate (abort on fault)\n");
     let stream_id = StreamID::new(1)?;
     let stream_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .fault_mode(FaultMode::Terminate)
         .build()?;
@@ -36,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up valid mapping for testing
     let valid_iova = IOVA::new(0x1000)?;
-    let valid_pa = PA::new(0x10000)?;
+    let valid_pa = PA::new(0x1_0000)?;
     smmu.map_page(
         stream_id,
         pasid,
@@ -51,72 +55,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let unmapped_iova = IOVA::new(0x5000)?;
     match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on unmapped page!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Translation fault detected");
-            println!("    Fault type: {:?}", fault.fault_type());
-            println!("    Address: 0x{:x}", fault.address().as_u64());
-            println!("    Access type: {:?}", fault.access_type());
-            println!("    Stream ID: {}", fault.stream_id().as_u32());
-            println!("    PASID: {}", fault.pasid().as_u32());
-            println!("    Severity: {:?}", fault.severity());
-
-            // Verify fault details
-            assert_eq!(fault.fault_type(), FaultType::Translation);
-            assert_eq!(fault.address().as_u64(), unmapped_iova.as_u64());
-            assert_eq!(fault.stream_id(), stream_id);
-            assert_eq!(fault.pasid(), pasid);
+            println!("    Error: Page not mapped");
+            println!("    Address: 0x{:x}", unmapped_iova.as_u64());
         },
-        Err(e) => println!("  ✗ Unexpected error: {}", e),
+        Err(e) => println!("  ✗ Unexpected error: {e}"),
     }
 
     // Fault Type 2: Permission Fault (read-only page)
     println!("\n2. Permission Fault - Writing to read-only page:");
     match smmu.translate(stream_id, pasid, valid_iova, AccessType::Write) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on permission violation!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected");
-            println!("    Fault type: {:?}", fault.fault_type());
-            println!("    Address: 0x{:x}", fault.address().as_u64());
-            println!("    Access type: {:?}", fault.access_type());
+            println!("    Access type: {access:?}");
+            println!("    Address: 0x{:x}", valid_iova.as_u64());
             println!("    Permission: Read-only, attempted Write");
 
-            assert_eq!(fault.fault_type(), FaultType::Permission);
-            assert_eq!(fault.address().as_u64(), valid_iova.as_u64());
-            assert_eq!(fault.access_type(), AccessType::Write);
+            assert_eq!(access, AccessType::Write);
         },
-        Err(e) => println!("  ✗ Unexpected error: {}", e),
+        Err(e) => println!("  ✗ Unexpected error: {e}"),
     }
 
     // Fault Type 3: Instruction Fetch Fault (execute on non-executable page)
     println!("\n3. Permission Fault - Instruction fetch from non-executable page:");
     match smmu.translate(stream_id, pasid, valid_iova, AccessType::Execute) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on execute violation!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected");
-            println!("    Fault type: {:?}", fault.fault_type());
-            println!("    Access type: {:?}", fault.access_type());
+            println!("    Access type: {access:?}");
             println!("    Permission: Non-executable, attempted Execute");
 
-            assert_eq!(fault.fault_type(), FaultType::Permission);
-            assert_eq!(fault.access_type(), AccessType::Execute);
+            assert_eq!(access, AccessType::Execute);
         },
-        Err(e) => println!("  ✗ Unexpected error: {}", e),
+        Err(e) => println!("  ✗ Unexpected error: {e}"),
     }
 
     // Demonstrate fault context information
     println!("\n4. Detailed Fault Context:");
     match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Fault context:");
-            println!("    Stage: {:?}", fault.translation_stage());
-            println!("    Step: {:?}", fault.translation_step());
-            println!("    Address type: {:?}", fault.address_type());
-            println!("    Security state: {:?}", fault.security_state());
-
-            // Access fault syndrome for low-level debugging
-            let syndrome = fault.syndrome();
-            println!("\n  Fault syndrome (low-level details):");
-            println!("    Syndrome value: 0x{:x}", syndrome.as_u64());
+            println!("    Error: Page not mapped");
+            println!("    Address: 0x{:x}", unmapped_iova.as_u64());
         },
         _ => println!("  ✗ Unexpected result"),
     }
@@ -126,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stall_stream = StreamID::new(2)?;
     let stall_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .fault_mode(FaultMode::Stall)
         .build()?;
@@ -137,13 +120,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("5. Stall mode - Fault is queued but translation continues:");
     match smmu.translate(stall_stream, pasid, unmapped_iova, AccessType::Read) {
         Ok(_) => println!("  ℹ In stall mode, translation may return partial result"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Fault recorded in event queue");
             println!("    Mode: Stall");
-            println!("    Fault type: {:?}", fault.fault_type());
+            println!("    Error: Page not mapped");
             println!("    Software can intervene and resolve fault");
         },
-        Err(e) => println!("  Error: {}", e),
+        Err(e) => println!("  Error: {e}"),
     }
 
     // Demonstrate fault recovery
@@ -154,13 +137,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recovery_iova = IOVA::new(0x6000)?;
     match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read) {
         Ok(_) => println!("     ✗ Should have faulted"),
-        Err(TranslationError::Fault(_)) => println!("     ✓ Translation fault as expected"),
-        Err(e) => println!("     Error: {}", e),
+        Err(TranslationError::PageNotMapped) => println!("     ✓ Translation fault as expected"),
+        Err(e) => println!("     Error: {e}"),
     }
 
     // Recover by mapping the page
     println!("  b) Map the page to recover:");
-    let recovery_pa = PA::new(0x60000)?;
+    let recovery_pa = PA::new(0x6_0000)?;
     smmu.map_page(
         stream_id,
         pasid,
@@ -187,7 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert_eq!(result.physical_address().as_u64(), recovery_pa.as_u64());
         },
-        Err(e) => println!("     ✗ Translation failed: {}", e),
+        Err(e) => println!("     ✗ Translation failed: {e}"),
     }
 
     // Security state faults
@@ -196,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Map page in non-secure state
     let secure_iova = IOVA::new(0x7000)?;
-    let secure_pa = PA::new(0x70000)?;
+    let secure_pa = PA::new(0x7_0000)?;
     smmu.map_page(
         stream_id,
         pasid,

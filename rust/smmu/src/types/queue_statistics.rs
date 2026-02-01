@@ -5,6 +5,7 @@
 /// Queue statistics structure
 ///
 /// Provides runtime statistics for all `SMMU` queues.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default)]
 pub struct QueueStatistics {
     /// Current event queue size

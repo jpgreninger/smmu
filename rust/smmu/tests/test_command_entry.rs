@@ -1,10 +1,19 @@
-//! Comprehensive tests for types/command_entry.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/command_entry.rs`
 //!
 //! Tests cover:
-//! - All 11 CommandType variants per ARM SMMU v3 Section 6.4
-//! - CommandType trait implementations (Copy, Clone, Debug, PartialEq, Eq, Hash, Default)
-//! - CommandEntry construction and field access
-//! - CommandEntry trait implementations (Copy, Clone, Debug, PartialEq, Eq)
+//! - All 11 `CommandType` variants per ARM SMMU v3 Section 6.4
+//! - `CommandType` trait implementations (Copy, Clone, Debug, `PartialEq`, Eq, Hash, Default)
+//! - `CommandEntry` construction and field access
+//! - `CommandEntry` trait implementations (Copy, Clone, Debug, `PartialEq`, Eq)
 //! - Const context validation
 //! - Discriminant value validation
 //! - Realistic command queue scenarios
@@ -134,7 +143,7 @@ fn test_command_type_copy() {
 #[test]
 fn test_command_type_clone() {
     let cmd1 = CommandType::TlbiNhAll;
-    let cmd2 = cmd1.clone();
+    let cmd2 = cmd1;
     assert_eq!(cmd1, cmd2);
     assert_eq!(cmd1 as u8, 4);
 }
@@ -305,7 +314,7 @@ fn test_command_entry_field_access() {
     entry.start_address = 0x1000;
     entry.end_address = 0x2000;
     entry.flags = 0x1;
-    entry.timestamp = 12345;
+    entry.timestamp = 12_345;
 
     assert_eq!(entry.cmd_type, CommandType::PrefetchAddr);
     assert_eq!(entry.stream_id, 10);
@@ -313,7 +322,7 @@ fn test_command_entry_field_access() {
     assert_eq!(entry.start_address, 0x1000);
     assert_eq!(entry.end_address, 0x2000);
     assert_eq!(entry.flags, 0x1);
-    assert_eq!(entry.timestamp, 12345);
+    assert_eq!(entry.timestamp, 12_345);
 }
 
 #[test]
@@ -323,16 +332,16 @@ fn test_command_entry_modify_all_fields() {
     entry.cmd_type = CommandType::AtcInv;
     entry.stream_id = 42;
     entry.pasid = 57;
-    entry.start_address = 0xDEADBEEF;
-    entry.end_address = 0xCAFEBABE;
+    entry.start_address = 0xDEAD_BEEF;
+    entry.end_address = 0xCAFE_BABE;
     entry.flags = 0xFF;
     entry.timestamp = u64::MAX;
 
     assert_eq!(entry.cmd_type, CommandType::AtcInv);
     assert_eq!(entry.stream_id, 42);
     assert_eq!(entry.pasid, 57);
-    assert_eq!(entry.start_address, 0xDEADBEEF);
-    assert_eq!(entry.end_address, 0xCAFEBABE);
+    assert_eq!(entry.start_address, 0xDEAD_BEEF);
+    assert_eq!(entry.end_address, 0xCAFE_BABE);
     assert_eq!(entry.flags, 0xFF);
     assert_eq!(entry.timestamp, u64::MAX);
 }
@@ -359,7 +368,7 @@ fn test_command_entry_clone() {
     entry1.flags = 0x5;
     entry1.timestamp = 999;
 
-    let entry2 = entry1.clone();
+    let entry2 = entry1;
 
     assert_eq!(entry1.cmd_type, entry2.cmd_type);
     assert_eq!(entry1.stream_id, entry2.stream_id);
@@ -391,7 +400,7 @@ fn test_command_entry_debug_with_all_fields() {
     entry.start_address = 0x1000;
     entry.end_address = 0x2000;
     entry.flags = 0x1;
-    entry.timestamp = 12345;
+    entry.timestamp = 12_345;
 
     let debug_string = format!("{entry:?}");
     assert!(debug_string.contains("CommandEntry"));
@@ -565,10 +574,8 @@ fn test_arm_spec_sync_command() {
 #[test]
 fn test_realistic_configuration_invalidation_sequence() {
     // Typical configuration change sequence
-    let commands = vec![
-        CommandEntry::new(CommandType::CfgiSte, 10, 0),
-        CommandEntry::new(CommandType::Sync, 0, 0),
-    ];
+    let commands = [CommandEntry::new(CommandType::CfgiSte, 10, 0),
+        CommandEntry::new(CommandType::Sync, 0, 0)];
 
     assert_eq!(commands.len(), 2);
     assert_eq!(commands[0].cmd_type, CommandType::CfgiSte);
@@ -578,10 +585,8 @@ fn test_realistic_configuration_invalidation_sequence() {
 #[test]
 fn test_realistic_tlb_invalidation_sequence() {
     // TLB invalidation after page table update
-    let commands = vec![
-        CommandEntry::new(CommandType::TlbiNhAll, 0, 0),
-        CommandEntry::new(CommandType::Sync, 0, 0),
-    ];
+    let commands = [CommandEntry::new(CommandType::TlbiNhAll, 0, 0),
+        CommandEntry::new(CommandType::Sync, 0, 0)];
 
     assert_eq!(commands[0].cmd_type, CommandType::TlbiNhAll);
     assert_eq!(commands[1].cmd_type, CommandType::Sync);
@@ -592,22 +597,20 @@ fn test_realistic_address_range_prefetch() {
     // Prefetch address range for performance
     let mut entry = CommandEntry::new(CommandType::PrefetchAddr, 5, 10);
     entry.start_address = 0x1000;
-    entry.end_address = 0x10000;
+    entry.end_address = 0x1_0000;
 
     assert_eq!(entry.cmd_type, CommandType::PrefetchAddr);
     assert_eq!(entry.start_address, 0x1000);
-    assert_eq!(entry.end_address, 0x10000);
+    assert_eq!(entry.end_address, 0x1_0000);
 }
 
 #[test]
 fn test_realistic_multi_stream_invalidation() {
     // Invalidate multiple streams
-    let commands = vec![
-        CommandEntry::new(CommandType::CfgiSte, 10, 0),
+    let commands = [CommandEntry::new(CommandType::CfgiSte, 10, 0),
         CommandEntry::new(CommandType::CfgiSte, 20, 0),
         CommandEntry::new(CommandType::CfgiSte, 30, 0),
-        CommandEntry::new(CommandType::Sync, 0, 0),
-    ];
+        CommandEntry::new(CommandType::Sync, 0, 0)];
 
     assert_eq!(commands.len(), 4);
     assert_eq!(commands[0].stream_id, 10);
@@ -619,9 +622,9 @@ fn test_realistic_multi_stream_invalidation() {
 fn test_realistic_command_with_timestamp() {
     // Command with timestamp for ordering
     let mut entry = CommandEntry::new(CommandType::CfgiAll, 0, 0);
-    entry.timestamp = 1234567890;
+    entry.timestamp = 1_234_567_890;
 
-    assert_eq!(entry.timestamp, 1234567890);
+    assert_eq!(entry.timestamp, 1_234_567_890);
 }
 
 #[test]
@@ -694,12 +697,10 @@ fn test_command_queue_vec() {
 
 #[test]
 fn test_command_type_ordering_in_queue() {
-    let commands = vec![
-        CommandEntry::new(CommandType::PrefetchConfig, 1, 0),
+    let commands = [CommandEntry::new(CommandType::PrefetchConfig, 1, 0),
         CommandEntry::new(CommandType::CfgiSte, 2, 0),
         CommandEntry::new(CommandType::TlbiNhAll, 0, 0),
-        CommandEntry::new(CommandType::Sync, 0, 0),
-    ];
+        CommandEntry::new(CommandType::Sync, 0, 0)];
 
     // Verify order is preserved
     assert_eq!(commands[0].cmd_type as u8, 0);

@@ -8,6 +8,7 @@ use crate::types::AccessType;
 ///
 /// Contains information about a page request in the PRI queue.
 /// Follows ARM `SMMU` v3 PRI format.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PRIEntry {
     /// Source stream identifier (raw u32 for simpler access)

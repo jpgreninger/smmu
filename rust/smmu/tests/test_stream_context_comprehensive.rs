@@ -1,7 +1,16 @@
-//! Comprehensive tests for StreamContext module coverage
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `StreamContext` module coverage
 //!
-//! This test suite targets uncovered code paths in stream_context/mod.rs
-//! to achieve 100% coverage per PLAN_100_PERCENT_COVERAGE.md section 2.3
+//! This test suite targets uncovered code paths in `stream_context/mod.rs`
+//! to achieve 100% coverage per `PLAN_100_PERCENT_COVERAGE.md` section 2.3
 
 use smmu::address_space::AddressSpace;
 use smmu::stream_context::{StreamConfigBuilder, StreamContext};
@@ -583,7 +592,7 @@ fn test_validate_config_pasid_limit_exceeds_maximum() {
 
 #[test]
 fn test_validate_config_reduce_limit_below_current_count() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
     ctx.create_pasid(PASID::new(2).unwrap()).unwrap();
 

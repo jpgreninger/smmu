@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Translation performance benchmarks
 //!
 //! Benchmarks for measuring translation latency and throughput.
@@ -86,7 +91,7 @@ fn bench_translation_uncached(c: &mut Criterion) {
 fn bench_translation_multi_pasid(c: &mut Criterion) {
     let mut group = c.benchmark_group("translation_multi_pasid");
 
-    for num_pasids in [1, 2, 4, 8, 16, 32].iter() {
+    for num_pasids in &[1, 2, 4, 8, 16, 32] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pasids), num_pasids, |b, &num_pasids| {
             let _smmu = SMMU::new();
 
@@ -110,7 +115,7 @@ fn bench_translation_page_sizes(c: &mut Criterion) {
     let mut group = c.benchmark_group("translation_page_sizes");
 
     // Test with different page sizes: 4K, 2M, 1G
-    for page_size in [4096, 2 * 1024 * 1024, 1024 * 1024 * 1024].iter() {
+    for page_size in &[4096, 2 * 1024 * 1024, 1024 * 1024 * 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(page_size), page_size, |b, &page_size| {
             let _smmu = SMMU::new();
 
@@ -133,7 +138,7 @@ fn bench_translation_throughput(c: &mut Criterion) {
     let mut group = c.benchmark_group("translation_throughput");
 
     // Measure throughput with batches of translations
-    for batch_size in [10, 100, 1000, 10000].iter() {
+    for batch_size in &[10, 100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(batch_size), batch_size, |b, &batch_size| {
             let _smmu = SMMU::new();
 

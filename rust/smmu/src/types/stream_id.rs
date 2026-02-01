@@ -4,7 +4,7 @@
 //!
 //! # ARM `SMMU` v3 Compliance
 //!
-//! `StreamID` is a hardware-dependent identifier, typically in the range 0-65535 (16-bit).
+//! `StreamID` is a hardware-dependent identifier, typically in the range 0-65_535 (16-bit).
 //! The implementation supports configurable maximum values.
 //!
 //! # Examples
@@ -25,12 +25,12 @@ use super::ValidationError;
 use std::fmt;
 
 /// Maximum `StreamID` value (typical hardware limit - 16-bit)
-const STREAM_ID_MAX: u32 = 65535;
+const STREAM_ID_MAX: u32 = 65_535;
 
 /// Type-safe `StreamID` wrapper
 ///
 /// Wraps a 32-bit unsigned integer with validation to ensure it falls within
-/// the hardware-supported range (typically 0-65535).
+/// the hardware-supported range (typically 0-65_535).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StreamID(u32);

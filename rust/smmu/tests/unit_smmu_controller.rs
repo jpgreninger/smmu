@@ -1,10 +1,19 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Unit tests for SMMU controller
 //!
 //! Tests stream configuration, translation orchestration, fault handling,
 //! and multi-stream independence per ARM SMMU v3 specification.
 
 use smmu::types::{
-    AccessType, PagePermissions, SMMUConfig, SecurityState, StreamConfig, StreamID, IOVA, PA, PAGE_SIZE, PASID,
+    AccessType, PagePermissions, SMMUConfig, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -87,8 +96,8 @@ fn test_enable_disable_stream() {
 #[test]
 #[ignore] // TODO: API doesn't have disable_stream method
 fn test_disable_nonexistent_stream() {
-    let smmu = SMMU::new();
-    let stream_id = StreamID::new(1).unwrap();
+    let _smmu = SMMU::new();
+    let _stream_id = StreamID::new(1).unwrap();
 
     // TODO: Test remove_stream on nonexistent stream instead
     // let result = smmu.remove_stream(stream_id);

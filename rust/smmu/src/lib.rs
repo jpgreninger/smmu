@@ -45,13 +45,72 @@
 //!   - ARM SMMU v3 specification compliance testing
 //!   - Benchmark suite included
 //!
+//! # Cargo Features
+//!
+//! This crate provides fine-grained feature flags for customizing functionality and reducing code size:
+//!
+//! ## Default Features
+//!
+//! ```toml
+//! [dependencies]
+//! smmu = "1.0"  # Includes: std, pasid, two-stage, cache
+//! ```
+//!
+//! ## Feature Flags
+//!
+//! - **`std`** (default): Standard library support
+//!   - Required for most use cases
+//!   - Disable for `no_std` embedded environments
+//!
+//! - **`serde`** (optional): Serialization/deserialization support
+//!   - Enables `Serialize`/`Deserialize` for all types
+//!   - Use for saving/loading SMMU state
+//!
+//! - **`pasid`** (default): PASID (Process Address Space ID) support
+//!   - Enables multiple address spaces per stream
+//!   - Disable for single-address-space scenarios to reduce code size
+//!
+//! - **`two-stage`** (default): Two-stage translation (Stage-1 → Stage-2)
+//!   - Required for nested/virtualized translation
+//!   - Disable if only using Stage-1 or bypass mode
+//!
+//! - **`cache`** (default): TLB cache support
+//!   - Improves translation performance significantly
+//!   - Disable to reduce memory footprint
+//!
+//! ## Feature Combinations
+//!
+//! **Full features (default):**
+//! ```toml
+//! [dependencies]
+//! smmu = "1.0"
+//! ```
+//!
+//! **Minimal configuration:**
+//! ```toml
+//! [dependencies]
+//! smmu = { version = "1.0", default-features = false, features = ["std"] }
+//! ```
+//!
+//! **With serialization:**
+//! ```toml
+//! [dependencies]
+//! smmu = { version = "1.0", features = ["serde"] }
+//! ```
+//!
+//! **Embedded (no cache):**
+//! ```toml
+//! [dependencies]
+//! smmu = { version = "1.0", default-features = false, features = ["std", "pasid", "two-stage"] }
+//! ```
+//!
 //! # Quick Start
 //!
 //! Add this to your `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! smmu = "0.1.0"
+//! smmu = "1.0"
 //! ```
 //!
 //! ## Basic Usage
@@ -368,7 +427,10 @@
 
 // Module declarations - organized by functionality
 pub mod address_space;
+
+#[cfg(feature = "cache")]
 pub mod cache;
+
 pub mod fault;
 pub mod smmu;
 pub mod stream_context;

@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! ARM SMMU v3 Edge Case and Error Testing Suite (Section 8.3)
 //!
 //! Comprehensive edge case testing covering:
@@ -30,7 +39,7 @@ use std::time::Duration;
 
 const VALID_STREAM_ID: u32 = 0x1000;
 const MAX_STREAM_ID: u32 = 0xFFFF_FFFF;
-const INVALID_STREAM_ID: u32 = 0x100000; // For testing (still valid technically)
+const INVALID_STREAM_ID: u32 = 0x10_0000; // For testing (still valid technically)
 
 const VALID_PASID: u32 = 0x1;
 const MAX_PASID: u32 = 0xF_FFFF; // 20-bit max
@@ -246,13 +255,13 @@ fn test_completely_unconfigured_stream() {
 fn test_invalid_stream_id_operations() {
     let smmu = SMMU::new();
 
-    // StreamID has a max value of 65535 (16-bit) in Rust implementation
+    // StreamID has a max value of 65_535 (16-bit) in Rust implementation
     // Values beyond this will fail at construction
     let result = StreamID::new(INVALID_STREAM_ID);
     assert!(result.is_err()); // Should fail at StreamID construction
 
     // Test with max valid StreamID
-    let max_stream_id = StreamID::new(65535).unwrap();
+    let max_stream_id = StreamID::new(65_535).unwrap();
     let config = StreamConfig::stage1_only();
     let result = smmu.configure_stream(max_stream_id, config);
     assert!(result.is_ok());
@@ -398,10 +407,10 @@ fn test_command_queue_overflow() {
 
         let result = smmu.submit_command(cmd);
         if i < 16 {
-            assert!(result.is_ok(), "Command {} should succeed", i);
+            assert!(result.is_ok(), "Command {i} should succeed");
         } else {
             // Should fail when queue is full (capacity is 16)
-            assert!(result.is_err(), "Command {} should fail when queue is full", i);
+            assert!(result.is_err(), "Command {i} should fail when queue is full");
         }
     }
 }
@@ -491,7 +500,7 @@ fn test_concurrent_queue_access_under_full_conditions() {
 
         let handle = thread::spawn(move || {
             for i in 0..25 {
-                let iova_val = 0x5000_0000 + (u64::from(t) * 0x10_0000) + (i * PAGE_SIZE);
+                let iova_val = 0x5000_0000 + (t as u64 * 0x10_0000) + (i * PAGE_SIZE);
                 let iova = IOVA::new(iova_val).unwrap();
 
                 let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
@@ -729,8 +738,8 @@ fn test_all_permission_combinations() {
     ];
 
     for (i, test) in tests.iter().enumerate() {
-        let iova = IOVA::new(0x1000_0000 + (u64::from(i) * PAGE_SIZE)).unwrap();
-        let pa = PA::new(0x4000_0000 + (u64::from(i) * PAGE_SIZE)).unwrap();
+        let iova = IOVA::new(0x1000_0000 + (i as u64 * PAGE_SIZE)).unwrap();
+        let pa = PA::new(0x4000_0000 + (i as u64 * PAGE_SIZE)).unwrap();
 
         smmu.map_page(stream_id, pasid, iova, pa, test.perms, SecurityState::NonSecure)
             .unwrap_or_else(|_| panic!("Failed to map page for test: {}", test.description));

@@ -1,10 +1,19 @@
-//! Comprehensive tests for types/stream_id.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/stream_id.rs`
 //!
 //! Tests cover:
-//! - StreamID construction with validation (new, try_from)
+//! - StreamID construction with validation (new, `try_from`)
 //! - Boundary value testing (0, MAX, MAX+1)
-//! - Value extraction (as_u32, into)
-//! - Trait implementations (Display, Debug, Default, Copy, Clone, PartialEq, Eq, Hash)
+//! - Value extraction (`as_u32`, into)
+//! - Trait implementations (Display, Debug, Default, Copy, Clone, `PartialEq`, Eq, Hash)
 //! - Error handling for invalid values
 //! - HashMap/HashSet integration
 //! - ARM SMMU v3 specification compliance
@@ -30,15 +39,15 @@ fn test_stream_id_new_zero() {
 
 #[test]
 fn test_stream_id_new_maximum() {
-    // Maximum valid StreamID (16-bit: 65535)
-    let stream_id = StreamID::new(65535).expect("Maximum is valid");
-    assert_eq!(stream_id.as_u32(), 65535);
+    // Maximum valid StreamID (16-bit: 65_535)
+    let stream_id = StreamID::new(65_535).expect("Maximum is valid");
+    assert_eq!(stream_id.as_u32(), 65_535);
 }
 
 #[test]
 fn test_stream_id_new_above_maximum() {
     // Just above maximum should fail
-    let result = StreamID::new(65536);
+    let result = StreamID::new(65_536);
     assert!(result.is_err());
 }
 
@@ -59,7 +68,7 @@ fn test_stream_id_new_u32_max() {
 #[test]
 fn test_stream_id_new_typical_values() {
     // Test several typical hardware StreamID values
-    for value in [1, 10, 100, 1000, 10000, 32768, 65535] {
+    for value in [1, 10, 100, 1000, 10_000, 32_768, 65_535] {
         let stream_id = StreamID::new(value).expect("Should be valid");
         assert_eq!(stream_id.as_u32(), value);
     }
@@ -67,13 +76,13 @@ fn test_stream_id_new_typical_values() {
 
 #[test]
 fn test_stream_id_validation_error_message() {
-    let result = StreamID::new(100000);
+    let result = StreamID::new(100_000);
     assert!(result.is_err());
 
     if let Err(err) = result {
         let error_msg = err.to_string();
         assert!(error_msg.contains("StreamID"));
-        assert!(error_msg.contains("100000"));
+        assert!(error_msg.contains("100_000"));
     }
 }
 
@@ -126,7 +135,7 @@ fn test_stream_id_try_from_invalid() {
 fn test_stream_id_try_from_boundary() {
     // Boundary: max valid value
     let stream_id: StreamID = 65535u32.try_into().unwrap();
-    assert_eq!(stream_id.as_u32(), 65535);
+    assert_eq!(stream_id.as_u32(), 65_535);
 
     // Boundary: max + 1 (invalid)
     let result: Result<StreamID, ValidationError> = 65536u32.try_into();
@@ -140,22 +149,22 @@ fn test_stream_id_try_from_boundary() {
 #[test]
 fn test_stream_id_display() {
     let stream_id = StreamID::new(42).unwrap();
-    let display_str = format!("{}", stream_id);
+    let display_str = format!("{stream_id}");
     assert_eq!(display_str, "StreamID(42)");
 }
 
 #[test]
 fn test_stream_id_display_zero() {
     let stream_id = StreamID::new(0).unwrap();
-    let display_str = format!("{}", stream_id);
+    let display_str = format!("{stream_id}");
     assert_eq!(display_str, "StreamID(0)");
 }
 
 #[test]
 fn test_stream_id_display_maximum() {
-    let stream_id = StreamID::new(65535).unwrap();
-    let display_str = format!("{}", stream_id);
-    assert_eq!(display_str, "StreamID(65535)");
+    let stream_id = StreamID::new(65_535).unwrap();
+    let display_str = format!("{stream_id}");
+    assert_eq!(display_str, "StreamID(65_535)");
 }
 
 // ============================================================================
@@ -191,7 +200,7 @@ fn test_stream_id_default() {
 #[test]
 fn test_stream_id_default_display() {
     let stream_id = StreamID::default();
-    assert_eq!(format!("{}", stream_id), "StreamID(0)");
+    assert_eq!(format!("{stream_id}"), "StreamID(0)");
 }
 
 // ============================================================================
@@ -210,7 +219,7 @@ fn test_stream_id_copy() {
 #[test]
 fn test_stream_id_clone() {
     let stream_id1 = StreamID::new(200).unwrap();
-    let stream_id2 = stream_id1.clone();
+    let stream_id2 = stream_id1;
 
     assert_eq!(stream_id1, stream_id2);
 }
@@ -321,20 +330,20 @@ fn test_stream_id_boundary_zero() {
 
 #[test]
 fn test_stream_id_boundary_max() {
-    let stream_id = StreamID::new(65535).unwrap();
-    assert_eq!(stream_id.as_u32(), 65535);
+    let stream_id = StreamID::new(65_535).unwrap();
+    assert_eq!(stream_id.as_u32(), 65_535);
 }
 
 #[test]
 fn test_stream_id_boundary_max_plus_one() {
-    let result = StreamID::new(65536);
+    let result = StreamID::new(65_536);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_stream_id_boundary_one_below_max() {
-    let stream_id = StreamID::new(65534).unwrap();
-    assert_eq!(stream_id.as_u32(), 65534);
+    let stream_id = StreamID::new(65_534).unwrap();
+    assert_eq!(stream_id.as_u32(), 65_534);
 }
 
 #[test]
@@ -342,7 +351,7 @@ fn test_stream_id_boundary_powers_of_two() {
     // Test powers of 2 within valid range
     for exp in 0..16 {
         let value = 1u32 << exp;
-        if value <= 65535 {
+        if value <= 65_535 {
             let stream_id = StreamID::new(value).unwrap();
             assert_eq!(stream_id.as_u32(), value);
         }
@@ -355,10 +364,10 @@ fn test_stream_id_boundary_powers_of_two() {
 
 #[test]
 fn test_arm_spec_16_bit_range() {
-    // ARM SMMU v3: StreamID typically 16-bit (0-65535)
+    // ARM SMMU v3: StreamID typically 16-bit (0-65_535)
     assert!(StreamID::new(0).is_ok());
-    assert!(StreamID::new(65535).is_ok());
-    assert!(StreamID::new(65536).is_err());
+    assert!(StreamID::new(65_535).is_ok());
+    assert!(StreamID::new(65_536).is_err());
 }
 
 #[test]
@@ -378,7 +387,7 @@ fn test_arm_spec_typical_hardware_values() {
         256,   // Another common allocation
         1024,  // Larger systems
         4095,  // Common maximum in some configs
-        65535, // Maximum 16-bit value
+        65_535, // Maximum 16-bit value
     ];
 
     for value in typical_values {
@@ -409,7 +418,7 @@ fn test_stream_id_round_trip_try_from_into() {
 
 #[test]
 fn test_stream_id_round_trip_multiple_values() {
-    for value in [0, 1, 100, 1000, 10000, 65535] {
+    for value in [0, 1, 100, 1000, 10_000, 65_535] {
         let stream_id = StreamID::new(value).unwrap();
         assert_eq!(stream_id.as_u32(), value);
 
@@ -438,11 +447,9 @@ fn test_stream_id_vec_operations() {
 
 #[test]
 fn test_stream_id_vec_contains() {
-    let vec = vec![
-        StreamID::new(10).unwrap(),
+    let vec = [StreamID::new(10).unwrap(),
         StreamID::new(20).unwrap(),
-        StreamID::new(30).unwrap(),
-    ];
+        StreamID::new(30).unwrap()];
 
     assert!(vec.contains(&StreamID::new(10).unwrap()));
     assert!(vec.contains(&StreamID::new(20).unwrap()));
@@ -462,16 +469,16 @@ fn test_stream_id_error_preserves_value() {
     assert!(result.is_err());
     if let Err(err) = result {
         let msg = err.to_string();
-        assert!(msg.contains("100000"));
+        assert!(msg.contains("100_000"));
     }
 }
 
 #[test]
 fn test_stream_id_multiple_invalid_values() {
-    let invalid_values = vec![65536, 100000, 1000000, u32::MAX];
+    let invalid_values = vec![65_536, 100_000, 1_000_000, u32::MAX];
 
     for value in invalid_values {
         let result = StreamID::new(value);
-        assert!(result.is_err(), "Value {} should be invalid", value);
+        assert!(result.is_err(), "Value {value} should be invalid");
     }
 }

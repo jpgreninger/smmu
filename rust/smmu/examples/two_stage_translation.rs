@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! Two-Stage Translation Example
 //!
 //! This example demonstrates two-stage translation (nested translation),
@@ -29,9 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Configure stream for two-stage translation");
     let stream_id = StreamID::new(1)?;
     let stream_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .stage2_enabled(true)
         .pasid_enabled(true)
+        .max_pasid(256)
         .build()?;
 
     smmu.configure_stream(stream_id, stream_config)?;
@@ -54,8 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stage 1 mapping (Guest OS perspective)
     println!("  Stage 1 (Guest OS): Map guest virtual to guest physical");
     let guest_va = IOVA::new(0x1000)?; // Guest virtual address
-    let guest_pa = IOVA::new(0x10000)?; // Guest physical (= IPA for Stage 2)
-    let stage1_pa = PA::new(0x10000)?; // Must match IPA
+    let guest_pa = IOVA::new(0x1_0000)?; // Guest physical (= IPA for Stage 2)
+    let stage1_pa = PA::new(0x1_0000)?; // Must match IPA
 
     smmu.map_page(
         stream_id,
@@ -69,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stage 2 mapping (Hypervisor perspective)
     println!("  Stage 2 (Hypervisor): Map guest physical to host physical");
-    let host_pa = PA::new(0x100000)?; // Actual physical address
+    let host_pa = PA::new(0x10_0000)?; // Actual physical address
 
     smmu.map_stage2_page(
         stream_id,
@@ -106,8 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Both VMs can use same guest virtual addresses
     let vm2_guest_va = IOVA::new(0x1000)?; // Same as VM1!
-    let vm2_guest_pa = IOVA::new(0x20000)?; // Different guest physical
-    let vm2_stage1_pa = PA::new(0x20000)?;
+    let vm2_guest_pa = IOVA::new(0x2_0000)?; // Different guest physical
+    let vm2_stage1_pa = PA::new(0x2_0000)?;
 
     smmu.map_page(
         stream_id,
@@ -119,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Hypervisor maps VM2's guest physical to different host physical
-    let vm2_host_pa = PA::new(0x200000)?;
+    let vm2_host_pa = PA::new(0x20_0000)?;
     smmu.map_stage2_page(
         stream_id,
         vm2_guest_pa,
@@ -153,8 +158,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Guest maps page with RW permissions in Stage 1
     let perm_va = IOVA::new(0x2000)?;
-    let perm_ipa = IOVA::new(0x30000)?;
-    let perm_stage1_pa = PA::new(0x30000)?;
+    let perm_ipa = IOVA::new(0x3_0000)?;
+    let perm_stage1_pa = PA::new(0x3_0000)?;
 
     smmu.map_page(
         stream_id,
@@ -171,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Hypervisor restricts to read-only in Stage 2
-    let perm_host_pa = PA::new(0x300000)?;
+    let perm_host_pa = PA::new(0x30_0000)?;
     smmu.map_stage2_page(
         stream_id,
         perm_ipa,
@@ -194,13 +199,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Testing write access:");
     match smmu.translate(stream_id, vm_pasid, perm_va, AccessType::Write) {
         Ok(_) => println!("    ✗ ERROR: Write should have been blocked by Stage 2!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PermissionViolation { access }) => {
             println!("    ✓ Write blocked by Stage 2 permission");
-            println!("      Fault type: {:?}", fault.fault_type());
-            println!("      Stage: {:?}", fault.translation_stage());
-            assert_eq!(fault.translation_stage(), TranslationStage::Stage2);
+            println!("      Access type: {access:?}");
+            assert_eq!(access, AccessType::Write);
         },
-        Err(e) => println!("    Unexpected error: {}", e),
+        Err(e) => println!("    Unexpected error: {e}"),
     }
 
     // Example 4: Fault handling in two-stage translation
@@ -211,20 +215,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let unmapped_va = IOVA::new(0x5000)?;
     match smmu.translate(stream_id, vm_pasid, unmapped_va, AccessType::Read) {
         Ok(_) => println!("    ✗ Should have faulted"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("    ✓ Stage 1 translation fault");
-            println!("      Stage: {:?}", fault.translation_stage());
-            println!("      Address: 0x{:x}", fault.address().as_u64());
-            assert_eq!(fault.translation_stage(), TranslationStage::Stage1);
+            println!("      Error: Page not mapped");
+            println!("      Address: 0x{:x}", unmapped_va.as_u64());
         },
-        Err(e) => println!("    Error: {}", e),
+        Err(e) => println!("    Error: {e}"),
     }
 
     // Stage 2 fault - mapped in Stage 1 but not Stage 2
     println!("\n  Stage 2 fault (mapped in guest, not in hypervisor):");
     let stage2_fault_va = IOVA::new(0x6000)?;
-    let stage2_fault_ipa = IOVA::new(0x60000)?;
-    let stage2_fault_stage1_pa = PA::new(0x60000)?;
+    let stage2_fault_ipa = IOVA::new(0x6_0000)?;
+    let stage2_fault_stage1_pa = PA::new(0x6_0000)?;
 
     // Map in Stage 1
     smmu.map_page(
@@ -244,13 +247,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Don't map in Stage 2 - will cause Stage 2 fault
     match smmu.translate(stream_id, vm_pasid, stage2_fault_va, AccessType::Read) {
         Ok(_) => println!("    ✗ Should have faulted at Stage 2"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("    ✓ Stage 2 translation fault");
-            println!("      Stage: {:?}", fault.translation_stage());
-            println!("      Address (IPA): 0x{:x}", fault.address().as_u64());
-            assert_eq!(fault.translation_stage(), TranslationStage::Stage2);
+            println!("      Error: Page not mapped");
+            println!("      Address (IPA): 0x{:x}", stage2_fault_ipa.as_u64());
         },
-        Err(e) => println!("    Error: {}", e),
+        Err(e) => println!("    Error: {e}"),
     }
 
     println!("\n=== Translation Summary ===");

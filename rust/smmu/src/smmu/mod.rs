@@ -172,7 +172,7 @@ impl SMMU {
     /// - Standard queue sizes (512 event, 256 command, 128 PRI)
     /// - 1024 TLB cache entries
     /// - 48-bit `IOVA` space, 52-bit `PA` space
-    /// - Maximum 65536 streams
+    /// - Maximum 65_536 streams
     ///
     /// # Examples
     ///

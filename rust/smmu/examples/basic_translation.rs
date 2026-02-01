@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! Basic Translation Example
 //!
 //! This example demonstrates the simplest use case for the ARM SMMU v3:
@@ -16,14 +19,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Create SMMU instance with default configuration
     println!("Step 1: Creating SMMU instance...");
     let smmu = SMMU::new();
-    println!("  ✓ SMMU created (version: {})\n", SMMU_IMPL_VERSION);
+    println!("  ✓ SMMU created (version: {SMMU_IMPL_VERSION})\n");
 
     // Step 2: Configure a stream (represents a device)
     println!("Step 2: Configuring stream...");
     let stream_id = StreamID::new(42)?;
 
     // Create stream configuration for Stage-1 translation only
-    let stream_config = StreamConfig::builder().stage1_enabled(true).pasid_enabled(true).build()?;
+    let stream_config = StreamConfig::builder()
+        .translation_enabled(true)
+        .stage1_enabled(true)
+        .pasid_enabled(true)
+        .max_pasid(256)
+        .build()?;
 
     smmu.configure_stream(stream_id, stream_config)?;
     println!("  ✓ Stream {} configured for Stage-1 translation\n", stream_id.as_u32());
@@ -37,9 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 4: Map virtual pages to physical pages
     println!("Step 4: Mapping pages...");
 
-    // Map page at IOVA 0x1000 to PA 0x10000 with read/write permissions
+    // Map page at IOVA 0x1000 to PA 0x1_0000 with read/write permissions
     let iova1 = IOVA::new(0x1000)?;
-    let pa1 = PA::new(0x10000)?;
+    let pa1 = PA::new(0x1_0000)?;
     smmu.map_page(
         stream_id,
         pasid,
@@ -50,9 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("  ✓ Mapped IOVA 0x{:04x} -> PA 0x{:05x} (RW)", iova1.as_u64(), pa1.as_u64());
 
-    // Map page at IOVA 0x2000 to PA 0x20000 with read-only permissions
+    // Map page at IOVA 0x2000 to PA 0x2_0000 with read-only permissions
     let iova2 = IOVA::new(0x2000)?;
-    let pa2 = PA::new(0x20000)?;
+    let pa2 = PA::new(0x2_0000)?;
     smmu.map_page(
         stream_id,
         pasid,
@@ -97,12 +105,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 6: Demonstrating permission fault...");
     match smmu.translate(stream_id, pasid, iova2, AccessType::Write) {
         Ok(_) => println!("  ✗ ERROR: Write to read-only page should have failed!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected as expected:");
-            println!("    Fault type: {:?}", fault.fault_type());
-            println!("    Address: 0x{:x}", fault.address().as_u64());
+            println!("    Access type: {access:?}");
+            println!("    Address: 0x{:x}", iova2.as_u64());
         },
-        Err(e) => println!("  ✗ Unexpected error: {}", e),
+        Err(e) => println!("  ✗ Unexpected error: {e}"),
     }
 
     // Demonstrate translation fault - unmapped address
@@ -110,12 +118,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let unmapped_iova = IOVA::new(0x5000)?;
     match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
         Ok(_) => println!("  ✗ ERROR: Unmapped address should have failed!"),
-        Err(TranslationError::Fault(fault)) => {
+        Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Translation fault detected as expected:");
-            println!("    Fault type: {:?}", fault.fault_type());
-            println!("    Address: 0x{:x}", fault.address().as_u64());
+            println!("    Error: Page not mapped");
+            println!("    Address: 0x{:x}", unmapped_iova.as_u64());
         },
-        Err(e) => println!("  ✗ Unexpected error: {}", e),
+        Err(e) => println!("  ✗ Unexpected error: {e}"),
     }
 
     println!("\n=== Example completed successfully! ===");

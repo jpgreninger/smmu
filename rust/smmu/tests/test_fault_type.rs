@@ -1,15 +1,24 @@
-//! Comprehensive tests for types/fault_type.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/fault_type.rs`
 //!
-//! This test suite achieves 100% coverage for types/fault_type.rs by testing:
-//! 1. All 15 FaultType variants and their properties
-//! 2. All classification methods (is_translation_fault, is_permission_fault, etc.)
+//! This test suite achieves 100% coverage for `types/fault_type.rs` by testing:
+//! 1. All 15 `FaultType` variants and their properties
+//! 2. All classification methods (`is_translation_fault`, `is_permission_fault`, etc.)
 //! 3. Severity levels for all fault types
 //! 4. Stage occurrence validation (Stage 1, Stage 2, stage-agnostic)
-//! 5. Fault code uniqueness and from_code() validation
-//! 6. FaultContext construction and all getters
+//! 5. Fault code uniqueness and `from_code()` validation
+//! 6. `FaultContext` construction and all getters
 //! 7. Display trait implementation
-//! 8. All enum trait implementations (Copy, Clone, Debug, PartialEq, Eq, Hash)
-//! 9. FaultSeverity, TranslationStep, and AddressType enums
+//! 8. All enum trait implementations (Copy, Clone, Debug, `PartialEq`, Eq, Hash)
+//! 9. `FaultSeverity`, `TranslationStep`, and `AddressType` enums
 //!
 //! Coverage Target: 0% → 100%
 //! Estimated Tests: 35+ tests
@@ -48,7 +57,7 @@ fn test_fault_type_codes_unique() {
     let mut codes = HashSet::new();
     for fault in &fault_types {
         let code = fault.code();
-        assert!(codes.insert(code), "Duplicate fault code: 0x{:02X}", code);
+        assert!(codes.insert(code), "Duplicate fault code: 0x{code:02X}");
     }
 
     assert_eq!(codes.len(), 15, "Expected 15 unique fault codes");
@@ -117,8 +126,8 @@ fn test_fault_type_descriptions() {
 
     for fault in &fault_types {
         let desc = fault.description();
-        assert!(!desc.is_empty(), "Fault {:?} has empty description", fault);
-        assert!(desc.len() > 10, "Fault {:?} description too short: {}", fault, desc);
+        assert!(!desc.is_empty(), "Fault {fault:?} has empty description");
+        assert!(desc.len() > 10, "Fault {fault:?} description too short: {desc}");
     }
 }
 
@@ -259,17 +268,15 @@ fn test_classification_mutually_exclusive() {
     ];
 
     for fault in &fault_types {
-        let categories = vec![
-            fault.is_translation_fault(),
+        let categories = [fault.is_translation_fault(),
             fault.is_permission_fault(),
             fault.is_configuration_fault(),
             fault.is_address_fault(),
-            fault.is_external_fault(),
-        ];
+            fault.is_external_fault()];
 
         let count = categories.iter().filter(|&&x| x).count();
         // Verify that a fault belongs to at most one category (mutually exclusive)
-        assert!(count <= 1, "Fault {:?} belongs to multiple categories", fault);
+        assert!(count <= 1, "Fault {fault:?} belongs to multiple categories");
     }
 }
 
@@ -336,9 +343,7 @@ fn test_severity_coverage() {
                 severity,
                 FaultSeverity::Warning | FaultSeverity::Error | FaultSeverity::Critical
             ),
-            "Fault {:?} has invalid severity: {:?}",
-            fault,
-            severity
+            "Fault {fault:?} has invalid severity: {severity:?}"
         );
     }
 }
@@ -483,8 +488,7 @@ fn test_stage_occurrence_consistency() {
             // Non-agnostic faults must occur in at least one stage
             assert!(
                 stage1 || stage2,
-                "Fault {:?} occurs in no stage but is not stage-agnostic",
-                fault
+                "Fault {fault:?} occurs in no stage but is not stage-agnostic"
             );
         }
     }
@@ -533,12 +537,12 @@ fn test_from_code_invalid_above_range() {
     let invalid_codes = [0x10, 0x11, 0x20, 0x50, 0xFF];
     for &code in &invalid_codes {
         let result = FaultType::from_code(code);
-        assert!(result.is_err(), "Code 0x{:02X} should be invalid", code);
+        assert!(result.is_err(), "Code 0x{code:02X} should be invalid");
         match result {
             Err(ValidationError::InvalidFaultType { code: err_code }) => {
                 assert_eq!(err_code, code);
             },
-            _ => panic!("Expected InvalidFaultType error for code 0x{:02X}", code),
+            _ => panic!("Expected InvalidFaultType error for code 0x{code:02X}"),
         }
     }
 }
@@ -567,7 +571,7 @@ fn test_from_code_roundtrip() {
     for fault in &fault_types {
         let code = fault.code();
         let reconstructed = FaultType::from_code(code).unwrap();
-        assert_eq!(*fault, reconstructed, "Roundtrip failed for fault {:?}", fault);
+        assert_eq!(*fault, reconstructed, "Roundtrip failed for fault {fault:?}");
     }
 }
 
@@ -611,7 +615,7 @@ fn test_copy_clone_traits() {
     // Test Copy and Clone traits
     let fault = FaultType::PermissionFault;
     let copied = fault; // Uses Copy
-    let cloned = fault.clone(); // Uses Clone
+    let cloned = fault; // Uses Clone
 
     assert_eq!(fault, copied);
     assert_eq!(fault, cloned);
@@ -624,7 +628,7 @@ fn test_partialeq_eq_traits() {
     assert_ne!(FaultType::TranslationFault, FaultType::PermissionFault);
 
     // Test in collections
-    let faults = vec![FaultType::TranslationFault, FaultType::PermissionFault];
+    let faults = [FaultType::TranslationFault, FaultType::PermissionFault];
     assert!(faults.contains(&FaultType::TranslationFault));
     assert!(!faults.contains(&FaultType::BadStreamID));
 }
@@ -763,7 +767,7 @@ fn test_fault_severity_variants() {
 
     // Test Copy/Clone
     let warning2 = warning;
-    let error2 = error.clone();
+    let error2 = error;
     let critical2 = critical;
 
     assert_eq!(warning, warning2);
@@ -808,7 +812,7 @@ fn test_translation_step_variants() {
 
     // Test Copy/Clone
     let stage1_copy = stage1;
-    let stage2_clone = stage2.clone();
+    let stage2_clone = stage2;
 
     assert_eq!(stage1, stage1_copy);
     assert_eq!(stage2, stage2_clone);
@@ -845,7 +849,7 @@ fn test_address_type_variants() {
 
     // Test Copy/Clone
     let iova_copy = iova;
-    let ipa_clone = ipa.clone();
+    let ipa_clone = ipa;
     let pa_copy = pa;
 
     assert_eq!(iova, iova_copy);

@@ -1,6 +1,15 @@
-//! Comprehensive test coverage for types/access_type.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive test coverage for `types/access_type.rs`
 //!
-//! This test suite achieves 100% coverage of AccessType, covering all access type
+//! This test suite achieves 100% coverage of `AccessType`, covering all access type
 //! combinations, bit flag operations, permission checking logic, and conversion methods.
 
 use smmu::types::{AccessType, ValidationError};
@@ -500,16 +509,12 @@ fn test_validate_against_all_combinations() {
             if available.has_permission(requested) {
                 assert!(
                     result.is_ok(),
-                    "Expected {:?}.validate_against({:?}) to succeed",
-                    requested,
-                    available
+                    "Expected {requested:?}.validate_against({available:?}) to succeed"
                 );
             } else {
                 assert!(
                     result.is_err(),
-                    "Expected {:?}.validate_against({:?}) to fail",
-                    requested,
-                    available
+                    "Expected {requested:?}.validate_against({available:?}) to fail"
                 );
             }
         }
@@ -619,7 +624,7 @@ fn test_copy() {
 #[test]
 fn test_clone() {
     let access = AccessType::ReadExecute;
-    let cloned = access.clone();
+    let cloned = access;
     assert_eq!(access, cloned);
 }
 

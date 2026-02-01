@@ -109,7 +109,7 @@ pub struct FaultProcessor {
 
 impl FaultProcessor {
     /// Default maximum event queue size
-    const DEFAULT_MAX_EVENTS: usize = 10000;
+    const DEFAULT_MAX_EVENTS: usize = 10_000;
 
     /// Default maximum stall queue size
     const DEFAULT_MAX_STALL_QUEUE: usize = 1000;

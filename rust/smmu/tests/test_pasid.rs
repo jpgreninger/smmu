@@ -1,10 +1,19 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive tests for PASID type
 //!
 //! This test suite achieves 100% coverage for types/pasid.rs by testing:
-//! - All trait implementations (Ord, PartialOrd, Hash, Display, Debug, Default)
+//! - All trait implementations (Ord, `PartialOrd`, Hash, Display, Debug, Default)
 //! - Boundary values (PASID 0, MAX-1, MAX)
 //! - Const constructor usage
-//! - TryFrom and From conversions
+//! - `TryFrom` and From conversions
 //! - Validation and error handling
 
 use smmu::types::{PASID, PASID_MAX};
@@ -23,8 +32,8 @@ fn test_pasid_new_valid_zero() {
 
 #[test]
 fn test_pasid_new_valid_middle_value() {
-    let pasid = PASID::new(12345).expect("Valid PASID");
-    assert_eq!(pasid.as_u32(), 12345);
+    let pasid = PASID::new(12_345).expect("Valid PASID");
+    assert_eq!(pasid.as_u32(), 12_345);
 }
 
 #[test]
@@ -47,7 +56,7 @@ fn test_pasid_new_invalid_exceeds_max() {
 
 #[test]
 fn test_pasid_new_invalid_large_value() {
-    let result = PASID::new(0x100000); // 1048576, exceeds 20-bit
+    let result = PASID::new(0x10_0000); // 1_048_576, exceeds 20-bit
     assert!(result.is_err());
 }
 
@@ -81,28 +90,28 @@ fn test_pasid_default_equals_new_zero() {
 #[test]
 fn test_pasid_display_zero() {
     let pasid = PASID::new(0).unwrap();
-    let display = format!("{}", pasid);
+    let display = format!("{pasid}");
     assert_eq!(display, "PASID(0)");
 }
 
 #[test]
 fn test_pasid_display_middle_value() {
-    let pasid = PASID::new(12345).unwrap();
-    let display = format!("{}", pasid);
-    assert_eq!(display, "PASID(12345)");
+    let pasid = PASID::new(12_345).unwrap();
+    let display = format!("{pasid}");
+    assert_eq!(display, "PASID(12_345)");
 }
 
 #[test]
 fn test_pasid_display_max() {
     let pasid = PASID::new(PASID_MAX).unwrap();
-    let display = format!("{}", pasid);
-    assert_eq!(display, format!("PASID({})", PASID_MAX));
+    let display = format!("{pasid}");
+    assert_eq!(display, format!("PASID({PASID_MAX})"));
 }
 
 #[test]
 fn test_pasid_display_formatting() {
     let pasid = PASID::new(999).unwrap();
-    assert_eq!(format!("{}", pasid), "PASID(999)");
+    assert_eq!(format!("{pasid}"), "PASID(999)");
     assert_eq!(format!("{pasid:?}"), "PASID(999)"); // Debug uses derived format
 }
 
@@ -123,7 +132,7 @@ fn test_pasid_debug_zero() {
     let pasid = PASID::default();
     let debug_str = format!("{pasid:?}");
     assert!(debug_str.contains("PASID"));
-    assert!(debug_str.contains("0"));
+    assert!(debug_str.contains('0'));
 }
 
 #[test]
@@ -131,7 +140,7 @@ fn test_pasid_debug_max() {
     let pasid = PASID::new(PASID_MAX).unwrap();
     let debug_str = format!("{pasid:?}");
     assert!(debug_str.contains("PASID"));
-    assert!(debug_str.contains(&format!("{}", PASID_MAX)));
+    assert!(debug_str.contains(&format!("{PASID_MAX}")));
 }
 
 // ============================================================================
@@ -295,7 +304,7 @@ fn test_pasid_try_from_valid_zero() {
 #[test]
 fn test_pasid_try_from_valid_value() {
     let pasid: PASID = 12345u32.try_into().expect("Valid PASID");
-    assert_eq!(pasid.as_u32(), 12345);
+    assert_eq!(pasid.as_u32(), 12_345);
 }
 
 #[test]
@@ -329,9 +338,9 @@ fn test_pasid_into_u32_zero() {
 
 #[test]
 fn test_pasid_into_u32_middle_value() {
-    let pasid = PASID::new(54321).unwrap();
+    let pasid = PASID::new(54_321).unwrap();
     let value: u32 = pasid.into();
-    assert_eq!(value, 54321);
+    assert_eq!(value, 54_321);
 }
 
 #[test]
@@ -363,7 +372,7 @@ fn test_pasid_copy() {
 #[test]
 fn test_pasid_clone() {
     let pasid1 = PASID::new(123).unwrap();
-    let pasid2 = pasid1.clone();
+    let pasid2 = pasid1;
     assert_eq!(pasid1, pasid2);
 }
 
@@ -436,14 +445,14 @@ fn test_pasid_boundary_max_minus_two() {
 fn test_pasid_boundary_max_minus_one() {
     let pasid = PASID::new(PASID_MAX - 1).expect("PASID MAX-1 should be valid");
     assert_eq!(pasid.as_u32(), PASID_MAX - 1);
-    assert_eq!(pasid.as_u32(), 0xFFFFE);
+    assert_eq!(pasid.as_u32(), 0xF_FFFE);
 }
 
 #[test]
 fn test_pasid_boundary_max() {
     let pasid = PASID::new(PASID_MAX).expect("PASID MAX should be valid");
     assert_eq!(pasid.as_u32(), PASID_MAX);
-    assert_eq!(pasid.as_u32(), 0xFFFFF);
+    assert_eq!(pasid.as_u32(), 0xF_FFFF);
 }
 
 #[test]
@@ -460,13 +469,13 @@ fn test_pasid_boundary_max_plus_one_invalid() {
 
 #[test]
 fn test_pasid_boundary_20bit_limit() {
-    // Verify that 20-bit maximum is exactly 0xFFFFF (1048575)
-    assert_eq!(PASID_MAX, 0xFFFFF);
-    assert_eq!(PASID_MAX, 1048575);
+    // Verify that 20-bit maximum is exactly 0xF_FFFF (1_048_575)
+    assert_eq!(PASID_MAX, 0xF_FFFF);
+    assert_eq!(PASID_MAX, 1_048_575);
 
     // Test exactly at boundary
-    assert!(PASID::new(0xFFFFF).is_ok());
-    assert!(PASID::new(0x100000).is_err()); // 21-bit value
+    assert!(PASID::new(0xF_FFFF).is_ok());
+    assert!(PASID::new(0x10_0000).is_err()); // 21-bit value
 }
 
 // ============================================================================
@@ -504,19 +513,19 @@ fn test_pasid_error_message_format() {
     assert!(result.is_err());
 
     if let Err(err) = result {
-        let msg = format!("{}", err);
+        let msg = format!("{err}");
         assert!(msg.contains("PASID"));
-        assert!(msg.contains("0xFFFFF")); // Should mention the maximum
+        assert!(msg.contains("0xF_FFFF")); // Should mention the maximum
     }
 }
 
 #[test]
 fn test_pasid_error_message_large_value() {
-    let result = PASID::new(0x200000); // Well over maximum
+    let result = PASID::new(0x20_0000); // Well over maximum
     assert!(result.is_err());
 
     if let Err(err) = result {
-        let msg = format!("{}", err);
+        let msg = format!("{err}");
         assert!(msg.contains("PASID"));
         assert!(msg.contains("20-bit"));
     }
@@ -528,7 +537,7 @@ fn test_pasid_error_message_large_value() {
 
 #[test]
 fn test_pasid_roundtrip_conversion() {
-    let original: u32 = 54321;
+    let original: u32 = 54_321;
     let pasid: PASID = original.try_into().expect("Valid PASID");
     let converted: u32 = pasid.into();
     assert_eq!(original, converted);
@@ -559,7 +568,7 @@ fn test_pasid_collection_usage() {
     let pasid3 = PASID::new(3).unwrap();
 
     // Vec
-    let vec = vec![pasid1, pasid2, pasid3];
+    let vec = [pasid1, pasid2, pasid3];
     assert_eq!(vec.len(), 3);
 
     // HashSet
@@ -590,9 +599,9 @@ fn test_pasid_spec_default_address_space() {
 
 #[test]
 fn test_pasid_spec_20bit_range() {
-    // Per ARM SMMU v3 spec Section 3.6: PASID is 20-bit (0-1048575)
-    assert_eq!(PASID_MAX, 0xFFFFF);
-    assert_eq!(PASID_MAX, 1048575);
+    // Per ARM SMMU v3 spec Section 3.6: PASID is 20-bit (0-1_048_575)
+    assert_eq!(PASID_MAX, 0xF_FFFF);
+    assert_eq!(PASID_MAX, 1_048_575);
 
     // Verify boundary enforcement
     assert!(PASID::new(0).is_ok());
@@ -604,11 +613,11 @@ fn test_pasid_spec_20bit_range() {
 fn test_pasid_spec_full_range_valid() {
     // Verify that all values in the valid range can be created
     // Test samples across the range
-    let test_values = [0, 1, 100, 1000, 10000, 100000, PASID_MAX / 2, PASID_MAX - 1, PASID_MAX];
+    let test_values = [0, 1, 100, 1000, 10_000, 100_000, PASID_MAX / 2, PASID_MAX - 1, PASID_MAX];
 
     for &value in &test_values {
         let pasid = PASID::new(value);
-        assert!(pasid.is_ok(), "PASID value {} should be valid", value);
+        assert!(pasid.is_ok(), "PASID value {value} should be valid");
         assert_eq!(pasid.unwrap().as_u32(), value);
     }
 }
@@ -619,13 +628,13 @@ fn test_pasid_spec_out_of_range_invalid() {
     let invalid_values = [
         PASID_MAX + 1,
         PASID_MAX + 100,
-        0x100000, // 2^20
-        0x200000,
-        0xFFFFFFFF, // u32::MAX
+        0x10_0000, // 2^20
+        0x20_0000,
+        0xFFFF_FFFF, // u32::MAX
     ];
 
     for &value in &invalid_values {
         let result = PASID::new(value);
-        assert!(result.is_err(), "PASID value {} should be invalid", value);
+        assert!(result.is_err(), "PASID value {value} should be invalid");
     }
 }

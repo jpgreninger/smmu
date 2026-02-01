@@ -1,6 +1,9 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! Section 5.2: Translation Engine Demo
 //!
-//! Demonstrates the main translate() API and two-stage translation support.
+//! Demonstrates the main `translate()` API and two-stage translation support.
 
 use smmu::types::{AccessType, PagePermissions, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID};
 use smmu::SMMU;
@@ -36,7 +39,7 @@ fn main() {
         let perms = PagePermissions::read_write();
         smmu.map_page(stream_id, pasid, iova, pa, perms, SecurityState::NonSecure)
             .unwrap();
-        println!("✓ Mapped IOVA 0x{:x} → PA 0x{:x}", iova_val, pa_val);
+        println!("✓ Mapped IOVA 0x{iova_val:x} → PA 0x{pa_val:x}");
     }
 
     println!("\n--- Translation Tests ---\n");
@@ -53,7 +56,7 @@ fn main() {
             );
             assert_eq!(data.physical_address().as_u64(), 0x2000);
         },
-        Err(e) => panic!("Translation failed: {}", e),
+        Err(e) => panic!("Translation failed: {e}"),
     }
 
     // Test 2: Successful write translation
@@ -68,7 +71,7 @@ fn main() {
             );
             assert_eq!(data.physical_address().as_u64(), 0x3000);
         },
-        Err(e) => panic!("Translation failed: {}", e),
+        Err(e) => panic!("Translation failed: {e}"),
     }
 
     // Test 3: Translation fault (unmapped address)
@@ -111,9 +114,9 @@ fn main() {
 
     // Get statistics
     let (total, successful, failed) = smmu.get_translation_stats();
-    println!("Total translations:      {}", total);
-    println!("Successful translations: {}", successful);
-    println!("Failed translations:     {}", failed);
+    println!("Total translations:      {total}");
+    println!("Successful translations: {successful}");
+    println!("Failed translations:     {failed}");
     println!("Success rate:            {:.1}%", (successful as f64 / total as f64) * 100.0);
 
     assert_eq!(total, 4, "Expected 4 total translations");
@@ -140,7 +143,7 @@ fn main() {
             );
             assert_eq!(data.physical_address().as_u64(), iova.as_u64());
         },
-        Err(e) => panic!("Bypass translation failed: {}", e),
+        Err(e) => panic!("Bypass translation failed: {e}"),
     }
 
     println!("\n--- Shutdown ---\n");

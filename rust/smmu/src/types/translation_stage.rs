@@ -12,6 +12,7 @@ use core::fmt;
 /// - Stage2: `IPA` → `PA` (guest/VM address space)
 /// - Stage1And2: `IOVA` → `IPA` → `PA` (nested virtualization)
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TranslationStage {
     /// No translation - direct passthrough

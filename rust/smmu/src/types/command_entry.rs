@@ -8,6 +8,7 @@
 ///
 /// Defines all ARM `SMMU` v3 command types supported by the command queue.
 #[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CommandType {
     /// Prefetch configuration
@@ -44,6 +45,7 @@ impl Default for CommandType {
 ///
 /// Contains all information about a single command in the command queue.
 /// Follows ARM `SMMU` v3 command format.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct CommandEntry {
     /// Command type

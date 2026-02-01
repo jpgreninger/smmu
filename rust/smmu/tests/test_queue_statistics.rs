@@ -1,7 +1,16 @@
-//! Comprehensive tests for types/queue_statistics.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/queue_statistics.rs`
 //!
 //! Tests cover:
-//! - QueueStatistics construction and initialization
+//! - `QueueStatistics` construction and initialization
 //! - All getter methods (const functions)
 //! - Utilization calculation for all three queue types
 //! - Edge cases: empty queues, full queues, zero capacity, over-capacity
@@ -138,7 +147,7 @@ fn test_event_queue_utilization_fractional() {
 fn test_event_queue_utilization_precision() {
     let stats = QueueStatistics::new(1, 0, 0, 3, 100, 100);
     let utilization = stats.event_queue_utilization();
-    assert!((utilization - 0.333333).abs() < 0.000001);
+    assert!((utilization - 0.333_333).abs() < 0.000_001);
 }
 
 // ============================================================================
@@ -185,7 +194,7 @@ fn test_command_queue_utilization_fractional() {
 fn test_command_queue_utilization_precision() {
     let stats = QueueStatistics::new(0, 2, 0, 100, 7, 100);
     let utilization = stats.command_queue_utilization();
-    assert!((utilization - 0.285714).abs() < 0.000001);
+    assert!((utilization - 0.285_714).abs() < 0.000_001);
 }
 
 // ============================================================================
@@ -214,7 +223,7 @@ fn test_pri_queue_utilization_full() {
 fn test_pri_queue_utilization_over_capacity() {
     let stats = QueueStatistics::new(0, 0, 400, 100, 100, 300);
     let utilization = stats.pri_queue_utilization();
-    assert!((utilization - 1.333333).abs() < 0.000001);
+    assert!((utilization - 1.333_333).abs() < 0.000_001);
 }
 
 #[test]
@@ -233,7 +242,7 @@ fn test_pri_queue_utilization_fractional() {
 fn test_pri_queue_utilization_precision() {
     let stats = QueueStatistics::new(0, 0, 5, 100, 100, 13);
     let utilization = stats.pri_queue_utilization();
-    assert!((utilization - 0.384615).abs() < 0.000001);
+    assert!((utilization - 0.384_615).abs() < 0.000_001);
 }
 
 // ============================================================================
@@ -292,7 +301,7 @@ fn test_all_queues_utilization_over_capacity() {
 #[test]
 fn test_clone_trait() {
     let stats1 = QueueStatistics::new(10, 20, 30, 100, 200, 300);
-    let stats2 = stats1.clone();
+    let stats2 = stats1;
 
     assert_eq!(stats2.event_queue_size(), 10);
     assert_eq!(stats2.command_queue_size(), 20);
@@ -362,7 +371,7 @@ fn test_edge_case_single_entry_queue() {
 
 #[test]
 fn test_edge_case_large_capacity_small_usage() {
-    let stats = QueueStatistics::new(1, 1, 1, 10000, 10000, 10000);
+    let stats = QueueStatistics::new(1, 1, 1, 10_000, 10_000, 10_000);
 
     assert_eq!(stats.event_queue_utilization(), 0.0001);
     assert_eq!(stats.command_queue_utilization(), 0.0001);
@@ -371,11 +380,11 @@ fn test_edge_case_large_capacity_small_usage() {
 
 #[test]
 fn test_edge_case_small_capacity_large_usage() {
-    let stats = QueueStatistics::new(10000, 10000, 10000, 1, 1, 1);
+    let stats = QueueStatistics::new(10_000, 10_000, 10_000, 1, 1, 1);
 
-    assert_eq!(stats.event_queue_utilization(), 10000.0);
-    assert_eq!(stats.command_queue_utilization(), 10000.0);
-    assert_eq!(stats.pri_queue_utilization(), 10000.0);
+    assert_eq!(stats.event_queue_utilization(), 10_000.0);
+    assert_eq!(stats.command_queue_utilization(), 10_000.0);
+    assert_eq!(stats.pri_queue_utilization(), 10_000.0);
 }
 
 #[test]

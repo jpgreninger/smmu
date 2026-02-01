@@ -1,6 +1,15 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive test coverage for fault/queue.rs
 //!
-//! This test suite achieves 100% coverage of the FaultQueue implementation,
+//! This test suite achieves 100% coverage of the `FaultQueue` implementation,
 //! covering all edge cases, error conditions, and FIFO ordering guarantees.
 
 use smmu::fault::queue::{FaultQueue, FaultQueueError};
@@ -10,7 +19,7 @@ fn create_test_fault(stream_id: u32, pasid_val: u32) -> FaultRecord {
     FaultRecord::builder()
         .stream_id(StreamID::new(stream_id).unwrap())
         .pasid(PASID::new(pasid_val).unwrap())
-        .address(IOVA::new(0x1000_0000 + (stream_id as u64 * 0x1000)).unwrap())
+        .address(IOVA::new(0x1000_0000 + (u64::from(stream_id) * 0x1000)).unwrap())
         .fault_type(FaultType::TranslationFault)
         .access_type(AccessType::Read)
         .build()
@@ -53,7 +62,7 @@ fn test_push_single_fault() {
     let queue = FaultQueue::new(10);
     let fault = create_test_fault(0x100, 1);
 
-    assert!(queue.push(fault.clone()).is_ok());
+    assert!(queue.push(fault).is_ok());
     assert_eq!(queue.len(), 1);
     assert!(!queue.is_empty());
     assert!(!queue.is_full());
@@ -396,21 +405,21 @@ fn test_clone_independence() {
 #[test]
 fn test_queue_full_error_display() {
     let error = FaultQueueError::QueueFull;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Fault queue is full");
 }
 
 #[test]
 fn test_queue_empty_error_display() {
     let error = FaultQueueError::QueueEmpty;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Fault queue is empty");
 }
 
 #[test]
 fn test_lock_poisoned_error_display() {
     let error = FaultQueueError::LockPoisoned;
-    let msg = format!("{}", error);
+    let msg = format!("{error}");
     assert_eq!(msg, "Fault queue lock is poisoned");
 }
 

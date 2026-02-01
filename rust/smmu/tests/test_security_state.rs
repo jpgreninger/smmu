@@ -1,6 +1,15 @@
-//! Comprehensive tests for SecurityState type
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `SecurityState` type
 //!
-//! This test suite achieves 100% coverage for types/security_state.rs by testing:
+//! This test suite achieves 100% coverage for `types/security_state.rs` by testing:
 //! - State transition validation (9 combinations)
 //! - Realm world state handling
 //! - Security violation detection
@@ -430,19 +439,19 @@ fn test_from_bits_roundtrip() {
 #[test]
 fn test_display_secure() {
     let state = SecurityState::Secure;
-    assert_eq!(format!("{}", state), "Secure");
+    assert_eq!(format!("{state}"), "Secure");
 }
 
 #[test]
 fn test_display_nonsecure() {
     let state = SecurityState::NonSecure;
-    assert_eq!(format!("{}", state), "NonSecure");
+    assert_eq!(format!("{state}"), "NonSecure");
 }
 
 #[test]
 fn test_display_realm() {
     let state = SecurityState::Realm;
-    assert_eq!(format!("{}", state), "Realm");
+    assert_eq!(format!("{state}"), "Realm");
 }
 
 #[test]
@@ -454,7 +463,7 @@ fn test_display_all_states() {
     ];
 
     for (state, expected) in &states {
-        assert_eq!(format!("{}", state), *expected);
+        assert_eq!(format!("{state}"), *expected);
     }
 }
 
@@ -524,7 +533,7 @@ fn test_copy() {
 #[test]
 fn test_clone() {
     let state1 = SecurityState::Realm;
-    let state2 = state1.clone();
+    let state2 = state1;
 
     assert_eq!(state1, state2);
 }
@@ -628,7 +637,7 @@ fn test_arm_cca_realm_complete_isolation() {
 #[test]
 fn test_all_state_combinations_access_matrix() {
     // Complete access matrix test (3x3 = 9 combinations)
-    let states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
+    let _states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
 
     let expected_access = [
         // From Secure:

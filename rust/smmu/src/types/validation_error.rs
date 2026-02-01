@@ -20,12 +20,13 @@ use core::fmt;
 ///
 /// let error = `ValidationError`::OutOfRange {
 ///     field: "`PASID`".to_string(),
-///     value: 1048576,
-///     max: 1048575,
+///     value: 1_048_576,
+///     max: 1_048_575,
 /// };
 ///
 /// println!("Validation failed: {}", error);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     /// Value is out of the valid range

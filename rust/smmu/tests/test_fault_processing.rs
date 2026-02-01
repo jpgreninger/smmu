@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive tests for fault/processing.rs
 //!
 //! This test suite achieves 100% coverage for fault/processing.rs by testing:
@@ -96,7 +105,7 @@ fn test_terminate_mode_event_recording() {
     let processor = FaultProcessor::new(FaultMode::Terminate);
     let fault = create_fault(0x100, 1, FaultType::PermissionFault);
 
-    let _ = processor.process_fault(fault.clone());
+    let _ = processor.process_fault(fault);
 
     // Event should be recorded even though fault terminated
     let events = processor.get_events();
@@ -123,7 +132,7 @@ fn test_terminate_mode_timestamp_auto_generation() {
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
 
     // Verify fault has no timestamp initially (timestamp() returns 0 by default)
-    let result = processor.process_fault(fault.clone());
+    let result = processor.process_fault(fault);
 
     // The processed fault should have a timestamp
     match result {
@@ -142,7 +151,7 @@ fn test_terminate_mode_error_display() {
     let result = processor.process_fault(fault);
     match result {
         Err(e) => {
-            let display = format!("{}", e);
+            let display = format!("{e}");
             assert!(display.contains("Fault terminated"));
         },
         _ => panic!("Expected error"),
@@ -158,7 +167,7 @@ fn test_stall_mode_basic_processing() {
     let processor = FaultProcessor::new(FaultMode::Stall);
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
 
-    let result = processor.process_fault(fault.clone());
+    let result = processor.process_fault(fault);
 
     // Should succeed and queue the fault
     assert!(result.is_ok());
@@ -188,7 +197,7 @@ fn test_stall_mode_get_next_stalled_fault() {
     let processor = FaultProcessor::new(FaultMode::Stall);
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
 
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
 
     let stalled = processor.get_next_stalled_fault();
     assert!(stalled.is_some());
@@ -211,7 +220,7 @@ fn test_stall_mode_resume_stalled_fault_success() {
     let processor = FaultProcessor::new(FaultMode::Stall);
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
 
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
     let stalled = processor.get_next_stalled_fault().unwrap();
 
     let result = processor.resume_stalled_fault(stalled, true);
@@ -223,7 +232,7 @@ fn test_stall_mode_resume_stalled_fault_failure() {
     let processor = FaultProcessor::new(FaultMode::Stall);
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
 
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
     let stalled = processor.get_next_stalled_fault().unwrap();
 
     let result = processor.resume_stalled_fault(stalled, false);
@@ -588,7 +597,7 @@ fn test_error_recovery_stall_mode_workflow() {
 
     // Simulate fault → stall → recovery workflow
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
 
     // Get stalled fault for recovery
     let stalled = processor.get_next_stalled_fault();
@@ -605,7 +614,7 @@ fn test_error_recovery_failed_recovery() {
     let processor = FaultProcessor::new(FaultMode::Stall);
 
     let fault = create_fault(0x100, 1, FaultType::PermissionFault);
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
 
     let stalled = processor.get_next_stalled_fault().unwrap();
 
@@ -671,7 +680,7 @@ fn test_fault_propagation_both_queues_stall_mode() {
     let processor = FaultProcessor::new(FaultMode::Stall);
 
     let fault = create_fault(0x100, 1, FaultType::TranslationFault);
-    processor.process_fault(fault.clone()).unwrap();
+    processor.process_fault(fault).unwrap();
 
     // In Stall mode, fault goes to both event queue and stall queue
     assert_eq!(processor.get_events().len(), 1);
@@ -727,28 +736,28 @@ fn test_fault_propagation_deserialization_non_empty() {
 #[test]
 fn test_error_display_queue_full() {
     let error = FaultProcessingError::QueueFull;
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert_eq!(display, "Fault queue is full");
 }
 
 #[test]
 fn test_error_display_no_stalled_fault() {
     let error = FaultProcessingError::NoStalledFault;
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert_eq!(display, "No stalled fault available");
 }
 
 #[test]
 fn test_error_display_invalid_resume() {
     let error = FaultProcessingError::InvalidResume;
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert_eq!(display, "Invalid fault resume");
 }
 
 #[test]
 fn test_error_display_serialization_error() {
     let error = FaultProcessingError::SerializationError("test error".to_string());
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert!(display.contains("Serialization error"));
     assert!(display.contains("test error"));
 }
@@ -761,7 +770,7 @@ fn test_error_display_serialization_error() {
 fn test_max_event_queue_size_enforcement() {
     let processor = FaultProcessor::new(FaultMode::Terminate);
 
-    // The default max is 10000 - we can't easily test it without creating 10001 faults
+    // The default max is 10_000 - we can't easily test it without creating 10_001 faults
     // but we can verify the mechanism works with statistics
     for i in 0..100 {
         let _ = processor.process_fault(create_fault(i, 1, FaultType::TranslationFault));
@@ -773,7 +782,7 @@ fn test_max_event_queue_size_enforcement() {
 #[test]
 fn test_timestamp_preservation() {
     let processor = FaultProcessor::new(FaultMode::Terminate);
-    let timestamp = 123456789;
+    let timestamp = 123_456_789;
     let fault = create_fault_with_timestamp(0x100, FaultType::TranslationFault, timestamp);
 
     let result = processor.process_fault(fault);
@@ -866,19 +875,19 @@ fn test_various_addresses() {
 
 #[test]
 fn test_max_event_queue_overflow() {
-    // FaultProcessor has DEFAULT_MAX_EVENTS = 10000
+    // FaultProcessor has DEFAULT_MAX_EVENTS = 10_000
     // We need to overflow this to test the removal logic
     let processor = FaultProcessor::new(FaultMode::Terminate);
 
-    // Add more than max events (10000) to trigger the removal logic
-    for i in 0..10100 {
+    // Add more than max events (10_000) to trigger the removal logic
+    for i in 0..10_100 {
         let fault = create_fault(i % 1000, 1, FaultType::TranslationFault);
         let _ = processor.process_fault(fault);
     }
 
     // Event queue should be capped at max size
     let events = processor.get_events();
-    assert!(events.len() <= 10000, "Event queue should not exceed max size");
+    assert!(events.len() <= 10_000, "Event queue should not exceed max size");
 }
 
 // ============================================================================

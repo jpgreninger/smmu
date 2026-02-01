@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! ARM SMMU v3 Integration Tests
 //!
 //! Comprehensive integration testing covering:
@@ -24,7 +33,7 @@ use std::time::Instant;
 // Helper Functions
 // ============================================================================
 
-/// Create a StreamConfig with Stage-1 translation enabled (non-bypass mode)
+/// Create a `StreamConfig` with Stage-1 translation enabled (non-bypass mode)
 fn stage1_config() -> StreamConfig {
     let mut config = StreamConfig::default();
     config.translation_enabled = true;
@@ -32,7 +41,7 @@ fn stage1_config() -> StreamConfig {
     config
 }
 
-/// Create a StreamConfig with two-stage translation enabled
+/// Create a `StreamConfig` with two-stage translation enabled
 fn two_stage_config() -> StreamConfig {
     let mut config = StreamConfig::default();
     config.translation_enabled = true;
@@ -61,9 +70,9 @@ fn test_basic_two_stage_translation() {
     smmu.create_stage2_address_space(stream_id).unwrap();
 
     // Setup two-stage mapping: IOVA -> IPA -> PA
-    let iova = IOVA::new(0x1001000).unwrap();
-    let ipa = PA::new(0x2001000).unwrap(); // IPA is PA type at intermediate stage
-    let final_pa = PA::new(0x3001000).unwrap();
+    let iova = IOVA::new(0x100_1000).unwrap();
+    let ipa = PA::new(0x200_1000).unwrap(); // IPA is PA type at intermediate stage
+    let final_pa = PA::new(0x300_1000).unwrap();
 
     let perms = PagePermissions::read_write();
 
@@ -113,9 +122,9 @@ fn test_two_stage_multiple_pages() {
 
     // Setup multiple two-stage mappings
     for i in 0..NUM_PAGES {
-        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let ipa = PA::new(0x2000000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x100_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let ipa = PA::new(0x200_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x300_0000 + i as u64 * PAGE_SIZE).unwrap();
 
         // Stage 1: IOVA -> IPA
         smmu.map_page(stream_id, pasid, iova, ipa, perms, SecurityState::NonSecure)
@@ -129,17 +138,16 @@ fn test_two_stage_multiple_pages() {
 
     // Test all translations
     for i in 0..NUM_PAGES {
-        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let expected_pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x100_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let expected_pa = PA::new(0x300_0000 + i as u64 * PAGE_SIZE).unwrap();
 
         let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
 
-        assert!(result.is_ok(), "Translation should succeed for page {}", i);
+        assert!(result.is_ok(), "Translation should succeed for page {i}");
         assert_eq!(
             result.unwrap().physical_address().as_u64(),
             expected_pa.as_u64(),
-            "PA mismatch for page {}",
-            i
+            "PA mismatch for page {i}"
         );
     }
 }
@@ -286,9 +294,9 @@ fn test_two_stage_concurrent_translations() {
 
     // Setup mappings for concurrent access
     for i in 0..(NUM_THREADS * TRANSLATIONS_PER_THREAD) {
-        let iova = IOVA::new(0x1000000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let ipa = PA::new(0x2000000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let pa = PA::new(0x3000000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let iova = IOVA::new(0x100_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let ipa = PA::new(0x200_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let pa = PA::new(0x300_0000 + i as u64 * PAGE_SIZE).unwrap();
 
         smmu.map_page(stream_id, pasid, iova, ipa, perms, SecurityState::NonSecure)
             .unwrap();
@@ -311,8 +319,8 @@ fn test_two_stage_concurrent_translations() {
         let handle = thread::spawn(move || {
             for i in 0..TRANSLATIONS_PER_THREAD {
                 let index = thread_id * TRANSLATIONS_PER_THREAD + i;
-                let iova = IOVA::new(0x1000000 + u64::from(index) * PAGE_SIZE).unwrap();
-                let expected_pa = PA::new(0x3000000 + u64::from(index) * PAGE_SIZE).unwrap();
+                let iova = IOVA::new(0x100_0000 + index as u64 * PAGE_SIZE).unwrap();
+                let expected_pa = PA::new(0x300_0000 + index as u64 * PAGE_SIZE).unwrap();
 
                 let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
 
@@ -360,9 +368,9 @@ fn test_basic_stream_isolation() {
     smmu.create_pasid(stream2, pasid).unwrap();
 
     // Map same IOVA to different PAs for each stream
-    let shared_iova = IOVA::new(0x1001000).unwrap();
-    let stream1_pa = PA::new(0x2001000).unwrap();
-    let stream2_pa = PA::new(0x3001000).unwrap();
+    let shared_iova = IOVA::new(0x100_1000).unwrap();
+    let stream1_pa = PA::new(0x200_1000).unwrap();
+    let stream2_pa = PA::new(0x300_1000).unwrap();
     let perms = PagePermissions::read_write();
 
     smmu.map_page(stream1, pasid, shared_iova, stream1_pa, perms, SecurityState::NonSecure)
@@ -520,10 +528,10 @@ fn test_concurrent_multi_stream_access() {
         // Map unique pages for each stream
         for j in 0..TRANSLATIONS_PER_STREAM {
             let iova =
-                IOVA::new(0x1000000 + (u64::from(i) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(j)) * PAGE_SIZE)
+                IOVA::new(0x100_0000 + (u64::from(i) * TRANSLATIONS_PER_STREAM as u64 + j as u64) * PAGE_SIZE)
                     .unwrap();
             let pa =
-                PA::new(0x2000000 + (u64::from(i) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(j)) * PAGE_SIZE)
+                PA::new(0x200_0000 + (u64::from(i) * TRANSLATIONS_PER_STREAM as u64 + j as u64) * PAGE_SIZE)
                     .unwrap();
 
             smmu.map_page(
@@ -553,13 +561,13 @@ fn test_concurrent_multi_stream_access() {
 
             for i in 0..TRANSLATIONS_PER_STREAM {
                 let iova = IOVA::new(
-                    0x1000000
-                        + (u64::from(stream_index) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(i)) * PAGE_SIZE,
+                    0x100_0000
+                        + (u64::from(stream_index) * TRANSLATIONS_PER_STREAM as u64 + i as u64) * PAGE_SIZE,
                 )
                 .unwrap();
                 let expected_pa = PA::new(
-                    0x2000000
-                        + (u64::from(stream_index) * u64::from(TRANSLATIONS_PER_STREAM) + u64::from(i)) * PAGE_SIZE,
+                    0x200_0000
+                        + (u64::from(stream_index) * TRANSLATIONS_PER_STREAM as u64 + i as u64) * PAGE_SIZE,
                 )
                 .unwrap();
 
@@ -611,7 +619,7 @@ fn test_cross_stream_pasid_isolation() {
     let pa_s1_p1 = PA::new(0xd000).unwrap();
     let pa_s1_p2 = PA::new(0xe000).unwrap();
     let pa_s2_p1 = PA::new(0xf000).unwrap();
-    let pa_s2_p2 = PA::new(0x10000).unwrap();
+    let pa_s2_p2 = PA::new(0x1_0000).unwrap();
 
     let perms = PagePermissions::read_write();
 
@@ -671,8 +679,8 @@ fn test_basic_pasid_context_switching() {
 
         // Map pages for this PASID
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-            let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+            let iova = IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
             smmu.map_page(
                 stream_id,
@@ -691,18 +699,16 @@ fn test_basic_pasid_context_switching() {
         let pasid = PASID::new(pasid_val).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-            let expected_pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+            let iova = IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+            let expected_pa = PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
             let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
 
-            assert!(result.is_ok(), "Translation should succeed for PASID {}", pasid_val);
+            assert!(result.is_ok(), "Translation should succeed for PASID {pasid_val}");
             assert_eq!(
                 result.unwrap().physical_address().as_u64(),
                 expected_pa.as_u64(),
-                "PA mismatch for PASID {}, page {}",
-                pasid_val,
-                i
+                "PA mismatch for PASID {pasid_val}, page {i}"
             );
         }
     }
@@ -725,11 +731,11 @@ fn test_pasid_context_isolation() {
 
     // Map pages for both PASIDs
     for i in 0..PAGES_PER_PASID {
-        let iova1 = IOVA::new(0x1000000 + 10 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let pa1 = PA::new(0x2000000 + 10 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let iova1 = IOVA::new(0x100_0000 + 10 * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let pa1 = PA::new(0x200_0000 + 10 * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
-        let iova2 = IOVA::new(0x1000000 + 20 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-        let pa2 = PA::new(0x2000000 + 20 * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+        let iova2 = IOVA::new(0x100_0000 + 20 * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+        let pa2 = PA::new(0x200_0000 + 20 * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
         smmu.map_page(
             stream_id,
@@ -754,8 +760,8 @@ fn test_pasid_context_isolation() {
 
     // Verify isolation: same offset within PASID range maps to different PAs
     let shared_offset = 0x1000u64;
-    let iova1 = IOVA::new(0x1000000 + 10 * 0x100000 + shared_offset).unwrap();
-    let iova2 = IOVA::new(0x1000000 + 20 * 0x100000 + shared_offset).unwrap();
+    let iova1 = IOVA::new(0x100_0000 + 10 * 0x10_0000 + shared_offset).unwrap();
+    let iova2 = IOVA::new(0x100_0000 + 20 * 0x10_0000 + shared_offset).unwrap();
 
     let result1 = smmu.translate(stream_id, pasid1, iova1, AccessType::Read).unwrap();
     let result2 = smmu.translate(stream_id, pasid2, iova2, AccessType::Read).unwrap();
@@ -826,8 +832,8 @@ fn test_large_scale_pasid_switching() {
         smmu.create_pasid(stream_id, pasid).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-            let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+            let iova = IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+            let pa = PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
             smmu.map_page(
                 stream_id,
@@ -846,18 +852,16 @@ fn test_large_scale_pasid_switching() {
         let pasid = PASID::new(pasid_val).unwrap();
 
         for i in 0..PAGES_PER_PASID {
-            let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
-            let expected_pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(i) * PAGE_SIZE).unwrap();
+            let iova = IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
+            let expected_pa = PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + i as u64 * PAGE_SIZE).unwrap();
 
             let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
 
-            assert!(result.is_ok(), "Translation should succeed for PASID {}", pasid_val);
+            assert!(result.is_ok(), "Translation should succeed for PASID {pasid_val}");
             assert_eq!(
                 result.unwrap().physical_address().as_u64(),
                 expected_pa.as_u64(),
-                "PA mismatch for PASID {}, page {}",
-                pasid_val,
-                i
+                "PA mismatch for PASID {pasid_val}, page {i}"
             );
         }
     }
@@ -884,8 +888,8 @@ fn test_concurrent_pasid_switching() {
             smmu.create_pasid(stream_id, pasid).unwrap();
 
             for j in 0..PAGES_PER_PASID {
-                let iova = IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(j) * PAGE_SIZE).unwrap();
-                let pa = PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(j) * PAGE_SIZE).unwrap();
+                let iova = IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + j as u64 * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + j as u64 * PAGE_SIZE).unwrap();
 
                 smmu.map_page(
                     stream_id,
@@ -921,9 +925,9 @@ fn test_concurrent_pasid_switching() {
 
                 let page_index = rng.gen_range(0..PAGES_PER_PASID);
                 let iova =
-                    IOVA::new(0x1000000 + u64::from(pasid_val) * 0x100000 + u64::from(page_index) * PAGE_SIZE).unwrap();
+                    IOVA::new(0x100_0000 + u64::from(pasid_val) * 0x10_0000 + page_index as u64 * PAGE_SIZE).unwrap();
                 let expected_pa =
-                    PA::new(0x2000000 + u64::from(pasid_val) * 0x100000 + u64::from(page_index) * PAGE_SIZE).unwrap();
+                    PA::new(0x200_0000 + u64::from(pasid_val) * 0x10_0000 + page_index as u64 * PAGE_SIZE).unwrap();
 
                 let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
 
@@ -987,15 +991,13 @@ fn test_large_scale_stream_configuration() {
     );
 
     println!(
-        "Large-scale configuration: {} streams with {} PASIDs each in {:?}",
-        NUM_STREAMS, PASIDS_PER_STREAM, setup_duration
+        "Large-scale configuration: {NUM_STREAMS} streams with {PASIDS_PER_STREAM} PASIDs each in {setup_duration:?}"
     );
 
     // Should complete within reasonable time (30 seconds)
     assert!(
         setup_duration.as_secs() < 30,
-        "Stream configuration took too long: {:?}",
-        setup_duration
+        "Stream configuration took too long: {setup_duration:?}"
     );
 }
 
@@ -1020,11 +1022,11 @@ fn test_massive_translation_load() {
 
             for k in 0..PAGES_PER_PASID {
                 let iova = IOVA::new(
-                    0x100000000 + u64::from(i) * 0x10000000 + u64::from(j) * 0x1000000 + k as u64 * PAGE_SIZE,
+                    0x1_0000_0000 + u64::from(i) * 0x1000_0000 + u64::from(j) * 0x100_0000 + k as u64 * PAGE_SIZE,
                 )
                 .unwrap();
                 let pa =
-                    PA::new(0x200000000 + u64::from(i) * 0x10000000 + u64::from(j) * 0x1000000 + k as u64 * PAGE_SIZE)
+                    PA::new(0x2_0000_0000 + u64::from(i) * 0x1000_0000 + u64::from(j) * 0x100_0000 + k as u64 * PAGE_SIZE)
                         .unwrap();
 
                 smmu.map_page(
@@ -1044,8 +1046,7 @@ fn test_massive_translation_load() {
     let total_translations = total_combinations * TRANSLATIONS_PER_COMBO;
 
     println!(
-        "Massive load test: {} unique mappings, {} total translations",
-        total_combinations, total_translations
+        "Massive load test: {total_combinations} unique mappings, {total_translations} total translations"
     );
 
     // Perform massive translation load
@@ -1061,9 +1062,9 @@ fn test_massive_translation_load() {
         let pasid = PASID::new(rng.gen_range(1..=PASIDS_PER_STREAM)).unwrap();
         let page_index = rng.gen_range(0..PAGES_PER_PASID);
 
-        let stream_base = stream_id.as_u32() as u64 * 0x10000000;
-        let pasid_base = pasid.as_u32() as u64 * 0x1000000;
-        let iova = IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE).unwrap();
+        let stream_base = u64::from(stream_id.as_u32()) * 0x1000_0000;
+        let pasid_base = u64::from(pasid.as_u32()) * 0x100_0000;
+        let iova = IOVA::new(0x1_0000_0000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE).unwrap();
 
         let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
 
@@ -1080,10 +1081,10 @@ fn test_massive_translation_load() {
     let avg_translation_time_us = (duration.as_micros() as f64) / (total_translations as f64);
 
     println!("Massive load results:");
-    println!("  Total translations: {}", total_translations);
-    println!("  Total time: {:.3} seconds", total_time_seconds);
-    println!("  Throughput: {:.0} translations/sec", throughput);
-    println!("  Avg time per translation: {:.3} μs", avg_translation_time_us);
+    println!("  Total translations: {total_translations}");
+    println!("  Total time: {total_time_seconds:.3} seconds");
+    println!("  Throughput: {throughput:.0} translations/sec");
+    println!("  Avg time per translation: {avg_translation_time_us:.3} μs");
 
     assert_eq!(successful, total_translations, "All translations should succeed");
     assert_eq!(failed, 0, "No translations should fail");
@@ -1091,12 +1092,11 @@ fn test_massive_translation_load() {
     // Performance validation: avg translation < 50 μs for large-scale
     assert!(
         avg_translation_time_us < 50.0,
-        "Average translation time too slow: {:.3} μs",
-        avg_translation_time_us
+        "Average translation time too slow: {avg_translation_time_us:.3} μs"
     );
 
     // Throughput > 20K ops/sec for large-scale
-    assert!(throughput > 20000.0, "Throughput too low: {:.0} ops/sec", throughput);
+    assert!(throughput > 20_000.0, "Throughput too low: {throughput:.0} ops/sec");
 }
 
 #[test]
@@ -1119,10 +1119,10 @@ fn test_concurrent_high_load_scalability() {
             smmu.create_pasid(stream_id, pasid).unwrap();
 
             for j in 0..PAGES_PER_STREAM {
-                let stream_base = stream_id.as_u32() as u64 * 0x10000000;
-                let pasid_base = 1u64 * 0x1000000;
-                let iova = IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(j) * PAGE_SIZE).unwrap();
-                let pa = PA::new(0x200000000 + stream_base + pasid_base + u64::from(j) * PAGE_SIZE).unwrap();
+                let stream_base = u64::from(stream_id.as_u32()) * 0x1000_0000;
+                let pasid_base = 0x100_0000;
+                let iova = IOVA::new(0x1_0000_0000 + stream_base + pasid_base + j as u64 * PAGE_SIZE).unwrap();
+                let pa = PA::new(0x2_0000_0000 + stream_base + pasid_base + j as u64 * PAGE_SIZE).unwrap();
 
                 smmu.map_page(
                     stream_id,
@@ -1160,10 +1160,10 @@ fn test_concurrent_high_load_scalability() {
                 let stream_id = StreamID::new((thread_id as u32 * STREAMS_PER_THREAD) + stream_index + 1).unwrap();
                 let page_index = rng.gen_range(0..PAGES_PER_STREAM);
 
-                let stream_base = stream_id.as_u32() as u64 * 0x10000000;
-                let pasid_base = 1u64 * 0x1000000;
+                let stream_base = u64::from(stream_id.as_u32()) * 0x1000_0000;
+                let pasid_base = 0x100_0000;
                 let iova =
-                    IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE).unwrap();
+                    IOVA::new(0x1_0000_0000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE).unwrap();
 
                 let pasid = PASID::new(1).unwrap();
                 let result = smmu_clone.translate(stream_id, pasid, iova, AccessType::Read);
@@ -1190,10 +1190,10 @@ fn test_concurrent_high_load_scalability() {
     let overall_throughput = total_operations.load(Ordering::Relaxed) as f64 / total_time_seconds;
 
     println!("Concurrent high-load results:");
-    println!("  Threads: {}", NUM_THREADS);
+    println!("  Threads: {NUM_THREADS}");
     println!("  Total operations: {}", total_operations.load(Ordering::Relaxed));
-    println!("  Total time: {:.3} seconds", total_time_seconds);
-    println!("  Overall throughput: {:.0} ops/sec", overall_throughput);
+    println!("  Total time: {total_time_seconds:.3} seconds");
+    println!("  Overall throughput: {overall_throughput:.0} ops/sec");
     println!("  Successful: {}", total_successful.load(Ordering::Relaxed));
     println!("  Failed: {}", total_failed.load(Ordering::Relaxed));
 
@@ -1212,9 +1212,8 @@ fn test_concurrent_high_load_scalability() {
 
     // Throughput > 20K ops/sec minimum
     assert!(
-        overall_throughput > 20000.0,
-        "Concurrent throughput should exceed minimum: {:.0} ops/sec",
-        overall_throughput
+        overall_throughput > 20_000.0,
+        "Concurrent throughput should exceed minimum: {overall_throughput:.0} ops/sec"
     );
 }
 
@@ -1242,10 +1241,10 @@ fn test_memory_scalability_under_load() {
                 smmu.create_pasid(stream_id, pasid).unwrap();
 
                 for k in 0..PAGES_PER_PASID {
-                    let stream_base = stream_id.as_u32() as u64 * 0x10000000;
-                    let pasid_base = pasid.as_u32() as u64 * 0x1000000;
-                    let iova = IOVA::new(0x100000000 + stream_base + pasid_base + k as u64 * PAGE_SIZE).unwrap();
-                    let pa = PA::new(0x200000000 + stream_base + pasid_base + k as u64 * PAGE_SIZE).unwrap();
+                    let stream_base = u64::from(stream_id.as_u32()) * 0x1000_0000;
+                    let pasid_base = u64::from(pasid.as_u32()) * 0x100_0000;
+                    let iova = IOVA::new(0x1_0000_0000 + stream_base + pasid_base + k as u64 * PAGE_SIZE).unwrap();
+                    let pa = PA::new(0x2_0000_0000 + stream_base + pasid_base + k as u64 * PAGE_SIZE).unwrap();
 
                     smmu.map_page(
                         stream_id,
@@ -1276,12 +1275,12 @@ fn test_memory_scalability_under_load() {
             let pasid = PASID::new(rng.gen_range(1..=PASIDS_PER_STREAM)).unwrap();
             let page_index = rng.gen_range(0..PAGES_PER_PASID);
 
-            let stream_base = stream_id.as_u32() as u64 * 0x10000000;
-            let pasid_base = pasid.as_u32() as u64 * 0x1000000;
-            let iova = IOVA::new(0x100000000 + stream_base + pasid_base + u64::from(page_index) * PAGE_SIZE).unwrap();
+            let stream_base = u64::from(stream_id.as_u32()) * 0x1000_0000;
+            let pasid_base = u64::from(pasid.as_u32()) * 0x100_0000;
+            let iova = IOVA::new(0x1_0000_0000 + stream_base + pasid_base + page_index as u64 * PAGE_SIZE).unwrap();
 
             let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
-            assert!(result.is_ok(), "Translation should succeed in batch {}", batch);
+            assert!(result.is_ok(), "Translation should succeed in batch {batch}");
         }
 
         let perf_duration = perf_start.elapsed();
@@ -1298,9 +1297,7 @@ fn test_memory_scalability_under_load() {
         // Performance should remain reasonable with scale (3x relaxed threshold)
         assert!(
             avg_translation_time < 150.0,
-            "Translation performance degraded too much at batch {}: {:.3} μs",
-            batch,
-            avg_translation_time
+            "Translation performance degraded too much at batch {batch}: {avg_translation_time:.3} μs"
         );
     }
 }

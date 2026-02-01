@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive test coverage for types/config.rs
 //!
 //! This test suite achieves 100% coverage for all configuration structures,
@@ -310,13 +319,13 @@ fn test_cache_config_default() {
 fn test_cache_config_builder_valid() {
     let config = CacheConfig::builder()
         .tlb_cache_size(2048)
-        .cache_max_age_ms(10000)
+        .cache_max_age_ms(10_000)
         .enable_caching(true)
         .build()
         .expect("valid config");
 
     assert_eq!(config.tlb_cache_size, 2048);
-    assert_eq!(config.cache_max_age_ms, 10000);
+    assert_eq!(config.cache_max_age_ms, 10_000);
     assert!(config.enable_caching);
 }
 
@@ -702,8 +711,8 @@ fn test_smmu_config_high_performance() {
     assert_eq!(config.queue_config.event_queue_size, 2048);
     assert_eq!(config.queue_config.command_queue_size, 1024);
     assert_eq!(config.queue_config.pri_queue_size, 512);
-    assert_eq!(config.cache_config.tlb_cache_size, 16384);
-    assert_eq!(config.cache_config.cache_max_age_ms, 10000);
+    assert_eq!(config.cache_config.tlb_cache_size, 16_384);
+    assert_eq!(config.cache_config.cache_max_age_ms, 10_000);
     assert!(config.cache_config.enable_caching);
     assert!(config.validate().is_ok());
 }
@@ -752,8 +761,8 @@ fn test_smmu_config_server_profile() {
     assert_eq!(config.queue_config.event_queue_size, 4096);
     assert_eq!(config.queue_config.command_queue_size, 2048);
     assert_eq!(config.queue_config.pri_queue_size, 1024);
-    assert_eq!(config.cache_config.tlb_cache_size, 32768);
-    assert_eq!(config.cache_config.cache_max_age_ms, 15000);
+    assert_eq!(config.cache_config.tlb_cache_size, 32_768);
+    assert_eq!(config.cache_config.cache_max_age_ms, 15_000);
     assert_eq!(config.resource_limits.max_memory_usage, 8 * 1024 * 1024 * 1024);
     assert_eq!(config.resource_limits.max_thread_count, 32);
     assert_eq!(config.resource_limits.timeout_ms, 5000);
@@ -787,7 +796,7 @@ fn test_smmu_config_development_profile() {
     assert_eq!(config.address_config, AddressConfig::default());
     assert_eq!(config.resource_limits.max_memory_usage, 2 * 1024 * 1024 * 1024);
     assert_eq!(config.resource_limits.max_thread_count, 8);
-    assert_eq!(config.resource_limits.timeout_ms, 10000);
+    assert_eq!(config.resource_limits.timeout_ms, 10_000);
     assert!(config.resource_limits.enable_resource_tracking);
     assert!(config.validate().is_ok());
 }
@@ -820,18 +829,18 @@ fn test_smmu_config_update_queue_sizes_invalid() {
 #[test]
 fn test_smmu_config_update_cache_settings_valid() {
     let mut config = SMMUConfig::default();
-    let result = config.update_cache_settings(2048, 10000, true);
+    let result = config.update_cache_settings(2048, 10_000, true);
 
     assert!(result.is_ok());
     assert_eq!(config.cache_config.tlb_cache_size, 2048);
-    assert_eq!(config.cache_config.cache_max_age_ms, 10000);
+    assert_eq!(config.cache_config.cache_max_age_ms, 10_000);
     assert!(config.cache_config.enable_caching);
 }
 
 #[test]
 fn test_smmu_config_update_cache_settings_invalid() {
     let mut config = SMMUConfig::default();
-    let result = config.update_cache_settings(32, 10000, true);
+    let result = config.update_cache_settings(32, 10_000, true);
 
     assert!(result.is_err());
     // Original config should be unchanged
@@ -1013,9 +1022,9 @@ fn test_smmu_config_to_string() {
 #[test]
 fn test_smmu_config_from_string_valid() {
     let config_str = "event_queue_size=1024\ncommand_queue_size=512\npri_queue_size=256\n\
-                      tlb_cache_size=2048\ncache_max_age_ms=10000\nenable_caching=true\n\
-                      max_iova_bits=48\nmax_pa_bits=52\nmax_stream_count=65536\nmax_pasid_count=1048576\n\
-                      max_memory_usage=1073741824\nmax_thread_count=8\ntimeout_ms=1000\nenable_resource_tracking=true";
+                      tlb_cache_size=2048\ncache_max_age_ms=10_000\nenable_caching=true\n\
+                      max_iova_bits=48\nmax_pa_bits=52\nmax_stream_count=65_536\nmax_pasid_count=1_048_576\n\
+                      max_memory_usage=1_073_741_824\nmax_thread_count=8\ntimeout_ms=1000\nenable_resource_tracking=true";
 
     let config = SMMUConfig::from_string(config_str).expect("valid config");
 
@@ -1023,7 +1032,7 @@ fn test_smmu_config_from_string_valid() {
     assert_eq!(config.queue_config.command_queue_size, 512);
     assert_eq!(config.queue_config.pri_queue_size, 256);
     assert_eq!(config.cache_config.tlb_cache_size, 2048);
-    assert_eq!(config.cache_config.cache_max_age_ms, 10000);
+    assert_eq!(config.cache_config.cache_max_age_ms, 10_000);
     assert!(config.cache_config.enable_caching);
 }
 
@@ -1145,7 +1154,7 @@ fn test_configuration_error_display() {
         "value out of range".to_string(),
     );
 
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert!(display.contains("Invalid queue size"));
     assert!(display.contains("event_queue_size"));
     assert!(display.contains("value out of range"));
@@ -1178,7 +1187,7 @@ fn test_configuration_error_from_validation_error() {
 
 #[test]
 fn test_configuration_error_from_invalid_pasid() {
-    let validation_error = ValidationError::InvalidPASID { value: 9999999 };
+    let validation_error = ValidationError::InvalidPASID { value: 9_999_999 };
 
     let config_error: ConfigurationError = validation_error.into();
     assert_eq!(config_error.error_type, ConfigurationErrorType::OutOfRange);
@@ -1441,22 +1450,22 @@ fn test_smmu_config_from_string_all_fields() {
                       command_queue_size=512\n\
                       pri_queue_size=256\n\
                       tlb_cache_size=2048\n\
-                      cache_max_age_ms=10000\n\
+                      cache_max_age_ms=10_000\n\
                       enable_caching=true\n\
                       max_iova_bits=48\n\
                       max_pa_bits=52\n\
-                      max_stream_count=65536\n\
-                      max_pasid_count=1048576\n\
-                      max_memory_usage=1073741824\n\
+                      max_stream_count=65_536\n\
+                      max_pasid_count=1_048_576\n\
+                      max_memory_usage=1_073_741_824\n\
                       max_thread_count=8\n\
                       timeout_ms=1000\n\
                       enable_resource_tracking=true";
 
     let config = SMMUConfig::from_string(config_str).expect("valid full config");
     assert_eq!(config.queue_config.event_queue_size, 1024);
-    assert_eq!(config.cache_config.enable_caching, true);
+    assert!(config.cache_config.enable_caching);
     assert_eq!(config.address_config.max_iova_bits, 48);
-    assert_eq!(config.resource_limits.enable_resource_tracking, true);
+    assert!(config.resource_limits.enable_resource_tracking);
 }
 
 #[cfg(feature = "std")]
@@ -1529,7 +1538,7 @@ fn test_fault_mode_equality() {
 #[test]
 fn test_fault_mode_clone() {
     let mode = FaultMode::Stall;
-    let cloned = mode.clone();
+    let cloned = mode;
     assert_eq!(mode, cloned);
 }
 
@@ -1595,7 +1604,7 @@ fn test_smmu_config_clone() {
 #[test]
 fn test_queue_config_constants_values() {
     assert_eq!(QueueConfig::MIN_QUEUE_SIZE, 16);
-    assert_eq!(QueueConfig::MAX_QUEUE_SIZE, 65536);
+    assert_eq!(QueueConfig::MAX_QUEUE_SIZE, 65_536);
     assert_eq!(QueueConfig::DEFAULT_EVENT_QUEUE_SIZE, 512);
     assert_eq!(QueueConfig::DEFAULT_COMMAND_QUEUE_SIZE, 256);
     assert_eq!(QueueConfig::DEFAULT_PRI_QUEUE_SIZE, 128);
@@ -1623,7 +1632,7 @@ fn test_address_config_constants_values() {
     assert_eq!(AddressConfig::MAX_PASID_COUNT, 1_048_576);
     assert_eq!(AddressConfig::DEFAULT_IOVA_BITS, 48);
     assert_eq!(AddressConfig::DEFAULT_PA_BITS, 52);
-    assert_eq!(AddressConfig::DEFAULT_STREAM_COUNT, 65536);
+    assert_eq!(AddressConfig::DEFAULT_STREAM_COUNT, 65_536);
     assert_eq!(AddressConfig::DEFAULT_PASID_COUNT, 1_048_576);
 }
 
@@ -1656,8 +1665,8 @@ fn test_validation_error_from_other_types() {
     // Test the catch-all case in From<ValidationError> for ConfigurationError
     let validation_error = ValidationError::OutOfRange {
         field: "stream_id".to_string(),
-        value: 999999,
-        max: 65536,
+        value: 999_999,
+        max: 65_536,
     };
     let config_error: ConfigurationError = validation_error.into();
     assert_eq!(config_error.error_type, ConfigurationErrorType::InvalidFormat);
@@ -1969,7 +1978,7 @@ fn test_configuration_error_clone() {
 #[test]
 fn test_configuration_error_type_clone() {
     let error_type = ConfigurationErrorType::InvalidQueueSize;
-    let cloned = error_type.clone();
+    let cloned = error_type;
     assert_eq!(error_type, cloned);
 }
 
@@ -2135,12 +2144,12 @@ fn test_queue_config_builder_all_fields_individually() {
 fn test_cache_config_builder_all_fields_individually() {
     let builder = CacheConfigBuilder::new();
     let builder = builder.tlb_cache_size(2048);
-    let builder = builder.cache_max_age_ms(10000);
+    let builder = builder.cache_max_age_ms(10_000);
     let builder = builder.enable_caching(false);
     let config = builder.build().expect("valid config");
 
     assert_eq!(config.tlb_cache_size, 2048);
-    assert_eq!(config.cache_max_age_ms, 10000);
+    assert_eq!(config.cache_max_age_ms, 10_000);
     assert!(!config.enable_caching);
 }
 
@@ -2208,7 +2217,7 @@ fn test_configuration_error_type_all_variants_display() {
     ];
 
     for (variant, expected_str) in &types {
-        assert_eq!(format!("{}", variant), *expected_str);
+        assert_eq!(format!("{variant}"), *expected_str);
     }
 }
 
@@ -2241,7 +2250,7 @@ fn test_stream_config_max_pasid_at_boundary() {
 fn test_config_constants_clone() {
     // ConfigConstants is Copy+Clone
     let c1 = ConfigConstants;
-    let c2 = c1.clone();
+    let c2 = c1;
     let _c3 = c2; // Test Copy
 }
 
@@ -2320,7 +2329,7 @@ fn test_address_config_all_valid_iova_bits() {
         let config = AddressConfig::builder()
             .max_iova_bits(bits)
             .build()
-            .expect(&format!("valid config with {} IOVA bits", bits));
+            .unwrap_or_else(|_| panic!("valid config with {bits} IOVA bits"));
         assert_eq!(config.max_iova_bits, bits);
     }
 }
@@ -2332,7 +2341,7 @@ fn test_address_config_all_valid_pa_bits() {
         let config = AddressConfig::builder()
             .max_pa_bits(bits)
             .build()
-            .expect(&format!("valid config with {} PA bits", bits));
+            .unwrap_or_else(|_| panic!("valid config with {bits} PA bits"));
         assert_eq!(config.max_pa_bits, bits);
     }
 }
@@ -2342,10 +2351,10 @@ fn test_address_config_all_valid_pa_bits() {
 fn test_resource_limits_timeout_duration_conversion() {
     // Test timeout conversion for various values
     let test_cases = [
-        (ResourceLimits::MIN_TIMEOUT_MS, ResourceLimits::MIN_TIMEOUT_MS as u128),
+        (ResourceLimits::MIN_TIMEOUT_MS, u128::from(ResourceLimits::MIN_TIMEOUT_MS)),
         (1000, 1000u128),
         (5000, 5000u128),
-        (ResourceLimits::MAX_TIMEOUT_MS, ResourceLimits::MAX_TIMEOUT_MS as u128),
+        (ResourceLimits::MAX_TIMEOUT_MS, u128::from(ResourceLimits::MAX_TIMEOUT_MS)),
     ];
 
     for (timeout_ms, expected_millis) in &test_cases {
@@ -2360,9 +2369,9 @@ fn test_resource_limits_timeout_duration_conversion() {
 fn test_cache_config_cache_max_age_duration_conversion() {
     // Test cache age conversion for various values
     let test_cases = [
-        (CacheConfig::MIN_CACHE_AGE_MS, CacheConfig::MIN_CACHE_AGE_MS as u128),
+        (CacheConfig::MIN_CACHE_AGE_MS, u128::from(CacheConfig::MIN_CACHE_AGE_MS)),
         (5000, 5000u128),
-        (CacheConfig::MAX_CACHE_AGE_MS, CacheConfig::MAX_CACHE_AGE_MS as u128),
+        (CacheConfig::MAX_CACHE_AGE_MS, u128::from(CacheConfig::MAX_CACHE_AGE_MS)),
     ];
 
     for (age_ms, expected_millis) in &test_cases {
@@ -2389,7 +2398,7 @@ fn test_resource_limits_memory_conversion_functions() {
 fn test_resource_limits_memory_conversion_edge_cases() {
     // Test with exact GB boundary
     let limits = ResourceLimits::builder()
-        .max_memory_usage(1 * 1024 * 1024 * 1024) // Exactly 1GB
+        .max_memory_usage(1024 * 1024 * 1024) // Exactly 1GB
         .build()
         .expect("valid limits");
 
@@ -2488,7 +2497,7 @@ fn test_configuration_error_from_all_validation_error_types() {
     // Test conversion from all possible ValidationError types
     let validation_errors: Vec<ValidationError> = vec![
         ValidationError::InvalidConfiguration { reason: "test".to_string() },
-        ValidationError::InvalidPASID { value: 999999 },
+        ValidationError::InvalidPASID { value: 999_999 },
         ValidationError::InvalidAlignment {
             address: 0x1001,
             required_alignment: 0x1000,
@@ -2773,7 +2782,7 @@ fn test_configuration_error_type_copy_semantics() {
     let copied = error_type;
     // Both should be usable after copy
     assert_eq!(error_type, copied);
-    assert_eq!(format!("{}", error_type), format!("{}", copied));
+    assert_eq!(format!("{error_type}"), format!("{}", copied));
 }
 
 #[test]
@@ -2879,7 +2888,7 @@ fn test_queue_config_edge_case_sizes() {
             .command_queue_size(*size)
             .pri_queue_size(*size)
             .build()
-            .expect(&format!("valid config with size {}", size));
+            .unwrap_or_else(|_| panic!("valid config with size {size}"));
 
         assert_eq!(config.event_queue_size, *size);
     }
@@ -2893,8 +2902,8 @@ fn test_cache_config_edge_case_sizes() {
         CacheConfig::MIN_CACHE_SIZE + 1,
         256,
         1024,
-        16384,
-        65536,
+        16_384,
+        65_536,
         CacheConfig::MAX_CACHE_SIZE - 1,
         CacheConfig::MAX_CACHE_SIZE,
     ];
@@ -2903,7 +2912,7 @@ fn test_cache_config_edge_case_sizes() {
         let config = CacheConfig::builder()
             .tlb_cache_size(*size)
             .build()
-            .expect(&format!("valid config with size {}", size));
+            .unwrap_or_else(|_| panic!("valid config with size {size}"));
 
         assert_eq!(config.tlb_cache_size, *size);
     }

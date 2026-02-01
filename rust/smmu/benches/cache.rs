@@ -1,3 +1,8 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+
+#![allow(clippy::cast_precision_loss)]
 //! Cache (TLB) performance benchmarks
 //!
 //! Benchmarks for measuring TLB hit rates, invalidation performance,
@@ -33,7 +38,7 @@ fn bench_tlb_hit(c: &mut Criterion) {
     // Pre-populate cache with 100 entries
     for page in 0..100 {
         let iova = IOVA::new(page * 0x1000).unwrap();
-        let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+        let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
         cache.insert(key, entry);
@@ -80,7 +85,7 @@ fn bench_tlb_hit_rate(c: &mut Criterion) {
     let mut group = c.benchmark_group("tlb_hit_rate");
 
     // Test with different working set sizes
-    for num_pages in [10, 100, 1000, 10000].iter() {
+    for num_pages in &[10, 100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_pages), num_pages, |b, &num_pages| {
             let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
             let stream_id = StreamID::new(1).unwrap();
@@ -89,7 +94,7 @@ fn bench_tlb_hit_rate(c: &mut Criterion) {
             // Populate cache with 1024 entries
             for page in 0..1024 {
                 let iova = IOVA::new(page * 0x1000).unwrap();
-                let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+                let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
                 cache.insert(key, entry);
@@ -128,7 +133,7 @@ fn bench_tlb_invalidate_all(c: &mut Criterion) {
 
                 for page in 0..1024 {
                     let iova = IOVA::new(page * 0x1000).unwrap();
-                    let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+                    let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
                     let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                     let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
                     cache.insert(key, entry);
@@ -162,7 +167,7 @@ fn bench_tlb_invalidate_by_stream(c: &mut Criterion) {
 
                     for page in 0..100 {
                         let iova = IOVA::new(page * 0x1000).unwrap();
-                        let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+                        let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
                         let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                         let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
                         cache.insert(key, entry);
@@ -206,7 +211,7 @@ fn bench_tlb_size_impact(c: &mut Criterion) {
     let mut group = c.benchmark_group("tlb_size_impact");
 
     // Test with different TLB sizes
-    for tlb_entries in [64, 128, 256, 512, 1024].iter() {
+    for tlb_entries in &[64, 128, 256, 512, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(tlb_entries), tlb_entries, |b, &tlb_entries| {
             b.iter(|| {
                 // TODO: Measure performance with different TLB sizes
@@ -269,7 +274,7 @@ fn bench_strided_access_pattern(c: &mut Criterion) {
     let mut group = c.benchmark_group("strided_access_pattern");
 
     // Test with different stride sizes
-    for stride in [1, 2, 4, 8, 16].iter() {
+    for stride in &[1, 2, 4, 8, 16] {
         group.bench_with_input(BenchmarkId::from_parameter(stride), stride, |b, &stride| {
             b.iter(|| {
                 // TODO: Strided access pattern (every Nth page)
@@ -321,7 +326,7 @@ fn bench_concurrent_tlb_access(c: &mut Criterion) {
         // Pre-populate cache
         for page in 0..100 {
             let iova = IOVA::new(page * 0x1000).unwrap();
-            let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+            let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
             let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
             let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
             cache.insert(key, entry);
@@ -412,7 +417,7 @@ fn bench_cache_comparison(c: &mut Criterion) {
         // Pre-populate cache
         for page in 0..100 {
             let iova = IOVA::new(page * 0x1000).unwrap();
-            let pa = PA::new(page * 0x1000 + 0x10000).unwrap();
+            let pa = PA::new(page * 0x1000 + 0x1_0000).unwrap();
             let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
             let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), page);
             cache.insert(key, entry);

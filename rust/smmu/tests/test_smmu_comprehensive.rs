@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive SMMU Controller Tests - Phase 2.4
 //!
 //! This test suite targets 100% coverage for smmu/mod.rs by testing:
@@ -13,8 +22,7 @@
 //! Current coverage: 69.63% → Target: 100%
 
 use smmu::types::{
-    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
-    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, TranslationError, IOVA, PA, PASID,
+    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -516,7 +524,7 @@ fn test_event_queue_submit_translation_fault() {
         address: 0x1000,
         security_state: SecurityState::NonSecure,
         error_code: 0,
-        timestamp: 12345,
+        timestamp: 12_345,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -534,7 +542,7 @@ fn test_event_queue_submit_permission_fault() {
         address: 0x2000,
         security_state: SecurityState::Secure,
         error_code: 0,
-        timestamp: 12346,
+        timestamp: 12_346,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -552,7 +560,7 @@ fn test_event_queue_submit_access_fault() {
         address: 0x3000,
         security_state: SecurityState::NonSecure,
         error_code: 0,
-        timestamp: 12347,
+        timestamp: 12_347,
     };
 
     smmu.submit_event(event).unwrap();
@@ -572,7 +580,7 @@ fn test_event_queue_overflow_with_small_queue() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (u64::from(i)) * 0x1000,
+            address: u64::from(i) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
@@ -587,7 +595,7 @@ fn test_event_queue_overflow_with_small_queue() {
         event_type: EventType::TranslationFault,
         stream_id: 99,
         pasid: 0,
-        address: 0x99000,
+        address: 0x9_9000,
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 9999,
@@ -612,7 +620,7 @@ fn test_event_queue_large_queue_no_overflow() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (u64::from(i)) * 0x1000,
+            address: u64::from(i) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
@@ -633,7 +641,7 @@ fn test_event_queue_get_all_events() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (u64::from(i)) * 0x1000,
+            address: u64::from(i) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
@@ -700,10 +708,10 @@ fn test_event_queue_filter_by_stream() {
             event_type: EventType::TranslationFault,
             stream_id: 1,
             pasid: 0,
-            address: (u64::from(i)) * 0x1000,
+            address: (i as u64) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
-            timestamp: u64::from(i),
+            timestamp: i as u64,
         })
         .unwrap();
     }
@@ -736,7 +744,7 @@ fn test_event_queue_clear() {
             event_type: EventType::TranslationFault,
             stream_id: i,
             pasid: 0,
-            address: (u64::from(i)) * 0x1000,
+            address: u64::from(i) * 0x1000,
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
@@ -781,7 +789,7 @@ fn test_pri_queue_submit_multiple_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: i,
-            requested_address: (u64::from(i)) * 0x1000,
+            requested_address: u64::from(i) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
@@ -804,7 +812,7 @@ fn test_pri_queue_overflow_with_small_queue() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (u64::from(i)) * 0x1000,
+            requested_address: (i as u64) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
@@ -818,7 +826,7 @@ fn test_pri_queue_overflow_with_small_queue() {
     let overflow_entry = PRIEntry {
         stream_id: 99,
         pasid: 99,
-        requested_address: 0x99000,
+        requested_address: 0x9_9000,
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
@@ -841,7 +849,7 @@ fn test_pri_queue_get_all_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (u64::from(i)) * 0x1000,
+            requested_address: (i as u64) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
@@ -891,7 +899,7 @@ fn test_pri_queue_process_multiple_requests() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: i,
-            requested_address: (u64::from(i)) * 0x1000,
+            requested_address: u64::from(i) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
@@ -925,7 +933,7 @@ fn test_pri_queue_clear() {
         let pri_entry = PRIEntry {
             stream_id: 1,
             pasid: 0,
-            requested_address: (u64::from(i)) * 0x1000,
+            requested_address: (i as u64) * 0x1000,
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
@@ -1018,7 +1026,7 @@ fn test_translation_stats_reset() {
     let iova = IOVA::new(0x1000).unwrap();
     let _result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
 
-    let (total, successful, failed) = smmu.get_translation_stats();
+    let (total, _successful, _failed) = smmu.get_translation_stats();
     assert!(total > 0);
 
     smmu.reset_translation_stats();

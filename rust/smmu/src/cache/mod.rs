@@ -1755,7 +1755,7 @@ mod tests {
             for pasid_val in 0..50 {
                 let stream_id = StreamID::new(stream).unwrap();
                 let pasid = PASID::new(pasid_val).unwrap();
-                let iova = IOVA::new(u64::from(stream) * 0x1000 + u64::from(pasid_val) * 0x10000).unwrap();
+                let iova = IOVA::new(u64::from(stream) * 0x1000 + u64::from(pasid_val) * 0x1_0000).unwrap();
 
                 let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                 let hash = CacheKeyHash::hash(&key);
@@ -2554,8 +2554,8 @@ mod tests {
                 for i in 0..10 {
                     let stream_id = StreamID::new(thread_id).unwrap();
                     let pasid = PASID::new(i).unwrap();
-                    let iova = IOVA::new((thread_id as u64) * 0x10000 + (i as u64) * 0x1000).unwrap();
-                    let pa = PA::new((thread_id as u64) * 0x20000 + (i as u64) * 0x2000).unwrap();
+                    let iova = IOVA::new((thread_id as u64) * 0x1_0000 + (i as u64) * 0x1000).unwrap();
+                    let pa = PA::new((thread_id as u64) * 0x2_0000 + (i as u64) * 0x2000).unwrap();
 
                     let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
                     let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), 0);
@@ -2664,7 +2664,7 @@ mod tests {
 
     #[test]
     fn test_tlb_cache_large_capacity() {
-        let cache = TlbCache::new(10000, ReplacementPolicy::Lru);
+        let cache = TlbCache::new(10_000, ReplacementPolicy::Lru);
 
         // Insert many entries
         for i in 0..1000 {

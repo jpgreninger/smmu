@@ -1,14 +1,23 @@
-//! Comprehensive tests for types/pri_entry.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/pri_entry.rs`
 //!
 //! Tests cover:
-//! - PRIEntry construction with all parameters
-//! - All AccessType variants (Read, Write, Execute, ReadWrite, etc.)
+//! - `PRIEntry` construction with all parameters
+//! - All `AccessType` variants (Read, Write, Execute, ReadWrite, etc.)
 //! - Field access and modification (6 fields)
-//! - Trait implementations (Copy, Clone, Debug, PartialEq, Eq)
+//! - Trait implementations (Copy, Clone, Debug, `PartialEq`, Eq)
 //! - Const context validation
 //! - ARM SMMU v3 PRI scenarios per Section 7
 //! - Realistic page request handling
-//! - Request grouping (is_last_request flag)
+//! - Request grouping (`is_last_request` flag)
 //! - Timestamp ordering
 //! - Edge cases and boundary conditions
 
@@ -26,7 +35,7 @@ fn test_pri_entry_new() {
     assert_eq!(entry.pasid, 20);
     assert_eq!(entry.requested_address, 0x1000);
     assert_eq!(entry.access_type, AccessType::Read);
-    assert_eq!(entry.is_last_request, false);
+    assert!(!entry.is_last_request);
     assert_eq!(entry.timestamp, 0);
 }
 
@@ -38,7 +47,7 @@ fn test_pri_entry_new_with_write() {
     assert_eq!(entry.pasid, 10);
     assert_eq!(entry.requested_address, 0x2000);
     assert_eq!(entry.access_type, AccessType::Write);
-    assert_eq!(entry.is_last_request, false);
+    assert!(!entry.is_last_request);
     assert_eq!(entry.timestamp, 0);
 }
 
@@ -100,7 +109,7 @@ fn test_pri_entry_default_fields() {
     // Verify constructor sets default values for optional fields
     let entry = PRIEntry::new(1, 2, 0x1000, AccessType::Read);
 
-    assert_eq!(entry.is_last_request, false);
+    assert!(!entry.is_last_request);
     assert_eq!(entry.timestamp, 0);
 }
 
@@ -145,15 +154,15 @@ fn test_pri_entry_modify_is_last_request() {
     let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
     entry.is_last_request = true;
 
-    assert_eq!(entry.is_last_request, true);
+    assert!(entry.is_last_request);
 }
 
 #[test]
 fn test_pri_entry_modify_timestamp() {
     let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    entry.timestamp = 12345;
+    entry.timestamp = 12_345;
 
-    assert_eq!(entry.timestamp, 12345);
+    assert_eq!(entry.timestamp, 12_345);
 }
 
 #[test]
@@ -162,16 +171,16 @@ fn test_pri_entry_modify_all_fields() {
 
     entry.stream_id = 42;
     entry.pasid = 57;
-    entry.requested_address = 0xDEADBEEF;
+    entry.requested_address = 0xDEAD_BEEF;
     entry.access_type = AccessType::ReadWriteExecute;
     entry.is_last_request = true;
     entry.timestamp = 9999;
 
     assert_eq!(entry.stream_id, 42);
     assert_eq!(entry.pasid, 57);
-    assert_eq!(entry.requested_address, 0xDEADBEEF);
+    assert_eq!(entry.requested_address, 0xDEAD_BEEF);
     assert_eq!(entry.access_type, AccessType::ReadWriteExecute);
-    assert_eq!(entry.is_last_request, true);
+    assert!(entry.is_last_request);
     assert_eq!(entry.timestamp, 9999);
 }
 
@@ -196,7 +205,7 @@ fn test_pri_entry_clone() {
     entry1.is_last_request = true;
     entry1.timestamp = 5555;
 
-    let entry2 = entry1.clone();
+    let entry2 = entry1;
 
     assert_eq!(entry1.stream_id, entry2.stream_id);
     assert_eq!(entry1.pasid, entry2.pasid);
@@ -226,7 +235,7 @@ fn test_pri_entry_debug() {
 fn test_pri_entry_debug_with_all_fields() {
     let mut entry = PRIEntry::new(1, 2, 0x1000, AccessType::Write);
     entry.is_last_request = true;
-    entry.timestamp = 12345;
+    entry.timestamp = 12_345;
 
     let debug_string = format!("{entry:?}");
     assert!(debug_string.contains("PRIEntry"));
@@ -299,7 +308,7 @@ fn test_pri_entry_const_constructor() {
     assert_eq!(ENTRY.pasid, 57);
     assert_eq!(ENTRY.requested_address, 0x1000);
     assert_eq!(ENTRY.access_type, AccessType::Read);
-    assert_eq!(ENTRY.is_last_request, false);
+    assert!(!ENTRY.is_last_request);
     assert_eq!(ENTRY.timestamp, 0);
 }
 
@@ -340,16 +349,16 @@ fn test_arm_spec_last_request_in_group() {
     let mut entry = PRIEntry::new(10, 5, 0x1000, AccessType::Read);
     entry.is_last_request = true;
 
-    assert_eq!(entry.is_last_request, true);
+    assert!(entry.is_last_request);
 }
 
 #[test]
 fn test_arm_spec_request_with_timestamp() {
     // ARM SMMU v3 Section 7: Request ordering via timestamp
     let mut entry = PRIEntry::new(10, 5, 0x1000, AccessType::Read);
-    entry.timestamp = 1234567890;
+    entry.timestamp = 1_234_567_890;
 
-    assert_eq!(entry.timestamp, 1234567890);
+    assert_eq!(entry.timestamp, 1_234_567_890);
 }
 
 // ============================================================================
@@ -359,13 +368,13 @@ fn test_arm_spec_request_with_timestamp() {
 #[test]
 fn test_realistic_single_page_request() {
     // Single page fault request
-    let entry = PRIEntry::new(10, 20, 0x10000, AccessType::Read);
+    let entry = PRIEntry::new(10, 20, 0x1_0000, AccessType::Read);
 
     assert_eq!(entry.stream_id, 10);
     assert_eq!(entry.pasid, 20);
-    assert_eq!(entry.requested_address, 0x10000);
+    assert_eq!(entry.requested_address, 0x1_0000);
     assert_eq!(entry.access_type, AccessType::Read);
-    assert_eq!(entry.is_last_request, false);
+    assert!(!entry.is_last_request);
 }
 
 #[test]
@@ -383,9 +392,9 @@ fn test_realistic_multi_request_group() {
     req3.is_last_request = true; // Last in group
     req3.timestamp = 102;
 
-    assert_eq!(req1.is_last_request, false);
-    assert_eq!(req2.is_last_request, false);
-    assert_eq!(req3.is_last_request, true);
+    assert!(!req1.is_last_request);
+    assert!(!req2.is_last_request);
+    assert!(req3.is_last_request);
 }
 
 #[test]
@@ -450,7 +459,7 @@ fn test_pri_queue_timestamp_ordering() {
     let mut req3 = PRIEntry::new(10, 20, 0x3000, AccessType::Read);
     req3.timestamp = 200;
 
-    let mut queue = vec![req1, req2, req3];
+    let mut queue = [req1, req2, req3];
     queue.sort_by_key(|e| e.timestamp);
 
     assert_eq!(queue[0].timestamp, 100);
@@ -460,12 +469,10 @@ fn test_pri_queue_timestamp_ordering() {
 
 #[test]
 fn test_pri_queue_filtering_by_pasid() {
-    let queue = vec![
-        PRIEntry::new(10, 1, 0x1000, AccessType::Read),
+    let queue = [PRIEntry::new(10, 1, 0x1000, AccessType::Read),
         PRIEntry::new(10, 2, 0x2000, AccessType::Read),
         PRIEntry::new(10, 1, 0x3000, AccessType::Read),
-        PRIEntry::new(10, 3, 0x4000, AccessType::Read),
-    ];
+        PRIEntry::new(10, 3, 0x4000, AccessType::Read)];
 
     let pasid_1_requests: Vec<_> = queue.iter().filter(|e| e.pasid == 1).collect();
 
@@ -476,12 +483,10 @@ fn test_pri_queue_filtering_by_pasid() {
 
 #[test]
 fn test_pri_queue_filtering_by_access_type() {
-    let queue = vec![
-        PRIEntry::new(10, 20, 0x1000, AccessType::Read),
+    let queue = [PRIEntry::new(10, 20, 0x1000, AccessType::Read),
         PRIEntry::new(10, 20, 0x2000, AccessType::Write),
         PRIEntry::new(10, 20, 0x3000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x4000, AccessType::Execute),
-    ];
+        PRIEntry::new(10, 20, 0x4000, AccessType::Execute)];
 
     let read_requests: Vec<_> = queue.iter().filter(|e| e.access_type == AccessType::Read).collect();
 
@@ -494,11 +499,9 @@ fn test_pri_queue_filtering_by_access_type() {
 
 #[test]
 fn test_request_group_identification() {
-    let mut requests = vec![
-        PRIEntry::new(10, 20, 0x1000, AccessType::Read),
+    let mut requests = [PRIEntry::new(10, 20, 0x1000, AccessType::Read),
         PRIEntry::new(10, 20, 0x2000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x3000, AccessType::Read),
-    ];
+        PRIEntry::new(10, 20, 0x3000, AccessType::Read)];
 
     // Mark last request in group
     requests[2].is_last_request = true;
@@ -624,9 +627,9 @@ fn test_spec_compliance_request_grouping() {
     let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
 
     // First request in group
-    assert_eq!(entry.is_last_request, false);
+    assert!(!entry.is_last_request);
 
     // Mark as last request
     entry.is_last_request = true;
-    assert_eq!(entry.is_last_request, true);
+    assert!(entry.is_last_request);
 }

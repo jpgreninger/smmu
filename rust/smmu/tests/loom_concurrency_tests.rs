@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive Loom-based Concurrency Testing
 //!
 //! This test suite uses Loom to exhaustively test concurrent access patterns
@@ -23,8 +32,8 @@
 //!
 //! ## Test Categories
 //!
-//! 1. **AddressSpace Concurrency** - Concurrent mapping/unmapping operations
-//! 2. **StreamContext Concurrency** - Concurrent PASID management
+//! 1. **`AddressSpace` Concurrency** - Concurrent mapping/unmapping operations
+//! 2. **`StreamContext` Concurrency** - Concurrent PASID management
 //! 3. **TLB Cache Concurrency** - Concurrent cache operations
 //! 4. **Fault Queue Concurrency** - Concurrent fault recording
 //! 5. **SMMU Concurrency** - Full SMMU concurrent operations

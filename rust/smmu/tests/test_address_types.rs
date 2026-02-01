@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Comprehensive test suite for ARM SMMU v3 address types
 //!
 //! Tests for 100% coverage of:
@@ -6,8 +15,8 @@
 //! - PA (Physical Address)
 //!
 //! Coverage areas:
-//! 1. Overflow handling (checked_add)
-//! 2. Wrapping operations (add_offset)
+//! 1. Overflow handling (`checked_add`)
+//! 2. Wrapping operations (`add_offset`)
 //! 3. Mask operations
 //! 4. Alignment operations
 //! 5. Accessor methods
@@ -129,7 +138,7 @@ fn test_iova_mask_various_patterns() {
 
 #[test]
 fn test_iova_mask_zero_returns_zero() {
-    let iova = IOVA::new(0x12345678).unwrap();
+    let iova = IOVA::new(0x1234_5678).unwrap();
     let masked = iova.mask(0);
     assert_eq!(masked.as_u64(), 0);
 }
@@ -195,13 +204,13 @@ fn test_iova_align_down_to_page() {
 
 #[test]
 fn test_iova_raw_returns_value() {
-    let iova = IOVA::new(0x12345678).unwrap();
-    assert_eq!(iova.raw(), 0x12345678);
+    let iova = IOVA::new(0x1234_5678).unwrap();
+    assert_eq!(iova.raw(), 0x1234_5678);
 }
 
 #[test]
 fn test_iova_as_u64_alias() {
-    let iova = IOVA::new(0x87654321).unwrap();
+    let iova = IOVA::new(0x8765_4321).unwrap();
     assert_eq!(iova.as_u64(), iova.raw());
 }
 
@@ -247,7 +256,7 @@ fn test_iova_page_offset_all_values_0_to_4095() {
 #[test]
 fn test_iova_display_format() {
     let iova = IOVA::new(0x1234).unwrap();
-    let formatted = format!("{}", iova);
+    let formatted = format!("{iova}");
 
     // Display format should be hex with 0x prefix
     assert!(formatted.starts_with("0x"));
@@ -269,11 +278,11 @@ fn test_iova_debug_format() {
 fn test_iova_format_edge_cases() {
     // Test zero
     let iova = IOVA::new(0).unwrap();
-    assert_eq!(format!("{}", iova), "0x0000000000000000");
+    assert_eq!(format!("{iova}"), "0x0000_0000_0000_0000");
 
     // Test max value
     let iova = IOVA::new(u64::MAX).unwrap();
-    assert!(format!("{}", iova).contains("ffffffffffffffff"));
+    assert!(format!("{iova}").contains("ffffffffffffffff"));
 }
 
 // ============================================================================
@@ -321,7 +330,7 @@ fn test_ipa_checked_add_overflow_returns_none() {
 
 #[test]
 fn test_ipa_checked_add_at_52bit_boundary() {
-    // 52-bit address boundary: 2^52 - 1 = 0xFFFFFFFFFFFFF
+    // 52-bit address boundary: 2^52 - 1 = 0xF_FFFF_FFFF_FFFF
     let max_52bit = (1u64 << 52) - 1;
     let ipa = IPA::new(max_52bit).unwrap();
 
@@ -382,7 +391,7 @@ fn test_ipa_mask_various_patterns() {
 
 #[test]
 fn test_ipa_mask_zero_returns_zero() {
-    let ipa = IPA::new(0xABCDEF).unwrap();
+    let ipa = IPA::new(0xAB_CDEF).unwrap();
     let masked = ipa.mask(0);
     assert_eq!(masked.as_u64(), 0);
 }
@@ -421,13 +430,13 @@ fn test_ipa_align_down_to_page() {
 
 #[test]
 fn test_ipa_raw_returns_value() {
-    let ipa = IPA::new(0xFEDCBA98).unwrap();
-    assert_eq!(ipa.raw(), 0xFEDCBA98);
+    let ipa = IPA::new(0xFEDC_BA98).unwrap();
+    assert_eq!(ipa.raw(), 0xFEDC_BA98);
 }
 
 #[test]
 fn test_ipa_as_u64_alias() {
-    let ipa = IPA::new(0x11223344).unwrap();
+    let ipa = IPA::new(0x1122_3344).unwrap();
     assert_eq!(ipa.as_u64(), ipa.raw());
 }
 
@@ -456,7 +465,7 @@ fn test_ipa_page_offset_calculation() {
 #[test]
 fn test_ipa_display_format() {
     let ipa = IPA::new(0x5678).unwrap();
-    let formatted = format!("{}", ipa);
+    let formatted = format!("{ipa}");
     assert!(formatted.starts_with("0x"));
     assert!(formatted.contains("5678"));
 }
@@ -472,10 +481,10 @@ fn test_ipa_debug_format() {
 #[test]
 fn test_ipa_format_edge_cases() {
     let ipa = IPA::new(0).unwrap();
-    assert_eq!(format!("{}", ipa), "0x0000000000000000");
+    assert_eq!(format!("{ipa}"), "0x0000_0000_0000_0000");
 
     let ipa = IPA::new(u64::MAX).unwrap();
-    let formatted = format!("{}", ipa);
+    let formatted = format!("{ipa}");
     assert!(formatted.contains("ffffffffffffffff"));
 }
 
@@ -612,7 +621,7 @@ fn test_pa_mask_various_patterns() {
 
 #[test]
 fn test_pa_mask_zero_returns_zero() {
-    let pa = PA::new(0x123456).unwrap();
+    let pa = PA::new(0x12_3456).unwrap();
     let masked = pa.mask(0);
     assert_eq!(masked.as_u64(), 0);
 }
@@ -673,13 +682,13 @@ fn test_pa_align_down_to_page() {
 
 #[test]
 fn test_pa_raw_returns_value() {
-    let pa = PA::new(0xDEADBEEF).unwrap();
-    assert_eq!(pa.raw(), 0xDEADBEEF);
+    let pa = PA::new(0xDEAD_BEEF).unwrap();
+    assert_eq!(pa.raw(), 0xDEAD_BEEF);
 }
 
 #[test]
 fn test_pa_as_u64_alias() {
-    let pa = PA::new(0xCAFEBABE).unwrap();
+    let pa = PA::new(0xCAFE_BABE).unwrap();
     assert_eq!(pa.as_u64(), pa.raw());
 }
 
@@ -716,7 +725,7 @@ fn test_pa_page_offset_all_values_0_to_4095() {
 #[test]
 fn test_pa_display_format() {
     let pa = PA::new(0x9ABC).unwrap();
-    let formatted = format!("{}", pa);
+    let formatted = format!("{pa}");
     assert!(formatted.starts_with("0x"));
     assert!(formatted.contains("9abc"));
 }
@@ -733,10 +742,10 @@ fn test_pa_debug_format() {
 #[test]
 fn test_pa_format_edge_cases() {
     let pa = PA::new(0).unwrap();
-    assert_eq!(format!("{}", pa), "0x0000000000000000");
+    assert_eq!(format!("{pa}"), "0x0000_0000_0000_0000");
 
     let pa = PA::new(u64::MAX).unwrap();
-    let formatted = format!("{}", pa);
+    let formatted = format!("{pa}");
     assert!(formatted.contains("ffffffffffffffff"));
 }
 
@@ -891,7 +900,7 @@ fn test_add_offset_with_zero_all_types() {
 #[test]
 fn test_alignment_operations_comprehensive() {
     // Test a range of addresses for all alignment operations
-    let test_values = [0x0, 0x1, 0xFFF, 0x1000, 0x1001, 0x1FFF, 0x2000, 0x10000, 0xFFFFF, 0x100000];
+    let test_values = [0x0, 0x1, 0xFFF, 0x1000, 0x1001, 0x1FFF, 0x2000, 0x1_0000, 0xF_FFFF, 0x10_0000];
 
     for &addr in &test_values {
         let iova = IOVA::new(addr).unwrap();

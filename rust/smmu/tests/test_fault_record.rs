@@ -1,13 +1,22 @@
-//! Comprehensive tests for types/fault_record.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `types/fault_record.rs`
 //!
 //! Tests cover:
-//! - FaultSyndrome construction (new, builder, default)
-//! - FaultSyndrome field access (5 getters)
-//! - FaultSyndromeBuilder pattern (5 setters + build)
-//! - FaultRecord construction (new, with_syndrome, builder, default)
-//! - FaultRecord field access (9 getters)
-//! - FaultRecordBuilder pattern (8 setters + build)
-//! - Trait implementations (Debug, Clone, PartialEq, Eq, Default)
+//! - `FaultSyndrome` construction (new, builder, default)
+//! - `FaultSyndrome` field access (5 getters)
+//! - `FaultSyndromeBuilder` pattern (5 setters + build)
+//! - `FaultRecord` construction (new, `with_syndrome`, builder, default)
+//! - `FaultRecord` field access (9 getters)
+//! - `FaultRecordBuilder` pattern (8 setters + build)
+//! - Trait implementations (Debug, Clone, `PartialEq`, Eq, Default)
 //! - Const correctness
 //! - ARM SMMU v3 fault reporting compliance
 //! - Builder validation and error handling
@@ -24,8 +33,8 @@ fn test_fault_syndrome_new() {
 
     assert_eq!(syndrome.syndrome_register(), 0);
     assert_eq!(syndrome.fault_level(), 0);
-    assert_eq!(syndrome.write_not_read(), false);
-    assert_eq!(syndrome.valid_syndrome(), true);
+    assert!(!syndrome.write_not_read());
+    assert!(syndrome.valid_syndrome());
     assert_eq!(syndrome.context_descriptor_index(), 0);
 }
 
@@ -35,8 +44,8 @@ fn test_fault_syndrome_default() {
 
     assert_eq!(syndrome.syndrome_register(), 0);
     assert_eq!(syndrome.fault_level(), 0);
-    assert_eq!(syndrome.write_not_read(), false);
-    assert_eq!(syndrome.valid_syndrome(), true);
+    assert!(!syndrome.write_not_read());
+    assert!(syndrome.valid_syndrome());
     assert_eq!(syndrome.context_descriptor_index(), 0);
 }
 
@@ -45,23 +54,23 @@ fn test_fault_syndrome_builder_basic() {
     let syndrome = FaultSyndrome::builder().build();
 
     assert_eq!(syndrome.syndrome_register(), 0);
-    assert_eq!(syndrome.valid_syndrome(), true);
+    assert!(syndrome.valid_syndrome());
 }
 
 #[test]
 fn test_fault_syndrome_builder_all_fields() {
     let syndrome = FaultSyndrome::builder()
-        .syndrome_register(0x12345678)
+        .syndrome_register(0x1234_5678)
         .fault_level(2)
         .write_not_read(true)
         .valid_syndrome(false)
         .context_descriptor_index(42)
         .build();
 
-    assert_eq!(syndrome.syndrome_register(), 0x12345678);
+    assert_eq!(syndrome.syndrome_register(), 0x1234_5678);
     assert_eq!(syndrome.fault_level(), 2);
-    assert_eq!(syndrome.write_not_read(), true);
-    assert_eq!(syndrome.valid_syndrome(), false);
+    assert!(syndrome.write_not_read());
+    assert!(!syndrome.valid_syndrome());
     assert_eq!(syndrome.context_descriptor_index(), 42);
 }
 
@@ -71,8 +80,8 @@ fn test_fault_syndrome_builder_partial_fields() {
 
     assert_eq!(syndrome.syndrome_register(), 0xABCD);
     assert_eq!(syndrome.fault_level(), 3);
-    assert_eq!(syndrome.write_not_read(), false); // Default
-    assert_eq!(syndrome.valid_syndrome(), true); // Default
+    assert!(!syndrome.write_not_read()); // Default
+    assert!(syndrome.valid_syndrome()); // Default
 }
 
 // ============================================================================
@@ -81,9 +90,9 @@ fn test_fault_syndrome_builder_partial_fields() {
 
 #[test]
 fn test_fault_syndrome_syndrome_register() {
-    let syndrome = FaultSyndrome::builder().syndrome_register(0xDEADBEEF).build();
+    let syndrome = FaultSyndrome::builder().syndrome_register(0xDEAD_BEEF).build();
 
-    assert_eq!(syndrome.syndrome_register(), 0xDEADBEEF);
+    assert_eq!(syndrome.syndrome_register(), 0xDEAD_BEEF);
 }
 
 #[test]
@@ -97,19 +106,19 @@ fn test_fault_syndrome_fault_level() {
 #[test]
 fn test_fault_syndrome_write_not_read_flags() {
     let read_syndrome = FaultSyndrome::builder().write_not_read(false).build();
-    assert_eq!(read_syndrome.write_not_read(), false);
+    assert!(!read_syndrome.write_not_read());
 
     let write_syndrome = FaultSyndrome::builder().write_not_read(true).build();
-    assert_eq!(write_syndrome.write_not_read(), true);
+    assert!(write_syndrome.write_not_read());
 }
 
 #[test]
 fn test_fault_syndrome_valid_syndrome_flag() {
     let valid = FaultSyndrome::builder().valid_syndrome(true).build();
-    assert_eq!(valid.valid_syndrome(), true);
+    assert!(valid.valid_syndrome());
 
     let invalid = FaultSyndrome::builder().valid_syndrome(false).build();
-    assert_eq!(invalid.valid_syndrome(), false);
+    assert!(!invalid.valid_syndrome());
 }
 
 #[test]
@@ -236,7 +245,7 @@ fn test_fault_record_builder_all_fields() {
         .access_type(AccessType::Execute)
         .security_state(SecurityState::Realm)
         .syndrome(syndrome)
-        .timestamp(12345)
+        .timestamp(12_345)
         .build();
 
     assert_eq!(record.stream_id(), StreamID::new(100).unwrap());
@@ -246,7 +255,7 @@ fn test_fault_record_builder_all_fields() {
     assert_eq!(record.access_type(), AccessType::Execute);
     assert_eq!(record.security_state(), SecurityState::Realm);
     assert_eq!(record.syndrome().syndrome_register(), 0x9876);
-    assert_eq!(record.timestamp(), 12345);
+    assert_eq!(record.timestamp(), 12_345);
 }
 
 // ============================================================================
@@ -431,7 +440,7 @@ fn test_permission_fault_scenario() {
     );
 
     assert_eq!(record.fault_type(), FaultType::PermissionFault);
-    assert_eq!(record.syndrome().write_not_read(), true);
+    assert!(record.syndrome().write_not_read());
 }
 
 #[test]
@@ -536,8 +545,8 @@ fn test_fault_record_timestamp_ordering() {
         .timestamp(50)
         .build();
 
-    let mut records = vec![record1, record2, record3];
-    records.sort_by_key(|r| r.timestamp());
+    let mut records = [record1, record2, record3];
+    records.sort_by_key(smmu::FaultRecord::timestamp);
 
     assert_eq!(records[0].timestamp(), 50);
     assert_eq!(records[1].timestamp(), 100);
@@ -577,8 +586,7 @@ fn test_fault_record_vec_operations() {
 
 #[test]
 fn test_fault_record_filtering() {
-    let records = vec![
-        FaultRecord::builder()
+    let records = [FaultRecord::builder()
             .stream_id(StreamID::new(1).unwrap())
             .pasid(PASID::new(0).unwrap())
             .address(IOVA::new(0x1000).unwrap())
@@ -595,8 +603,7 @@ fn test_fault_record_filtering() {
             .pasid(PASID::new(0).unwrap())
             .address(IOVA::new(0x3000).unwrap())
             .fault_type(FaultType::TranslationFault)
-            .build(),
-    ];
+            .build()];
 
     let translation_faults: Vec<_> = records
         .iter()

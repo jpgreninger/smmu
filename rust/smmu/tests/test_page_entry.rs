@@ -1,11 +1,20 @@
-//! Comprehensive tests for PageEntry and PagePermissions types
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive tests for `PageEntry` and `PagePermissions` types
 //!
-//! This test suite achieves 100% coverage for types/page_entry.rs by testing:
-//! - All PagePermissions factory methods and operations
+//! This test suite achieves 100% coverage for `types/page_entry.rs` by testing:
+//! - All `PagePermissions` factory methods and operations
 //! - Memory attribute combinations (device memory, cacheable, shareable)
 //! - Security state variations
 //! - Access flag manipulation
-//! - PageEntryBuilder pattern
+//! - `PageEntryBuilder` pattern
 //! - All permission combinations (8 variants)
 //! - Set operations (union, intersection, subset)
 
@@ -521,7 +530,7 @@ fn test_page_entry_normal_memory() {
 
 #[test]
 fn test_page_entry_normal_cacheable_shareable() {
-    let pa = PA::new(0x10000).unwrap();
+    let pa = PA::new(0x1_0000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::read_write());
 
     // Default is normal memory, cacheable, shareable
@@ -532,7 +541,7 @@ fn test_page_entry_normal_cacheable_shareable() {
 
 #[test]
 fn test_page_entry_normal_cacheable_non_shareable() {
-    let pa = PA::new(0x11000).unwrap();
+    let pa = PA::new(0x1_1000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::read_only()).with_shareable(false);
 
     assert!(!entry.is_device_memory());
@@ -542,7 +551,7 @@ fn test_page_entry_normal_cacheable_non_shareable() {
 
 #[test]
 fn test_page_entry_normal_non_cacheable_shareable() {
-    let pa = PA::new(0x12000).unwrap();
+    let pa = PA::new(0x1_2000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::execute_only()).with_cacheable(false);
 
     assert!(!entry.is_device_memory());
@@ -552,7 +561,7 @@ fn test_page_entry_normal_non_cacheable_shareable() {
 
 #[test]
 fn test_page_entry_normal_non_cacheable_non_shareable() {
-    let pa = PA::new(0x13000).unwrap();
+    let pa = PA::new(0x1_3000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::all())
         .with_cacheable(false)
         .with_shareable(false);
@@ -564,7 +573,7 @@ fn test_page_entry_normal_non_cacheable_non_shareable() {
 
 #[test]
 fn test_page_entry_device_non_cacheable_shareable() {
-    let pa = PA::new(0x14000).unwrap();
+    let pa = PA::new(0x1_4000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::read_write())
         .with_device_memory(true)
         .with_shareable(true);
@@ -576,7 +585,7 @@ fn test_page_entry_device_non_cacheable_shareable() {
 
 #[test]
 fn test_page_entry_device_non_cacheable_non_shareable() {
-    let pa = PA::new(0x15000).unwrap();
+    let pa = PA::new(0x1_5000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::read_only())
         .with_device_memory(true)
         .with_shareable(false);
@@ -592,7 +601,7 @@ fn test_page_entry_device_non_cacheable_non_shareable() {
 
 #[test]
 fn test_page_entry_with_permissions() {
-    let pa = PA::new(0x16000).unwrap();
+    let pa = PA::new(0x1_6000).unwrap();
     let entry = PageEntry::new(pa, PagePermissions::read_only());
 
     assert_eq!(entry.permissions(), PagePermissions::read_only());
@@ -603,7 +612,7 @@ fn test_page_entry_with_permissions() {
 
 #[test]
 fn test_page_entry_with_permissions_all_variants() {
-    let pa = PA::new(0x17000).unwrap();
+    let pa = PA::new(0x1_7000).unwrap();
     let base_entry = PageEntry::new(pa, PagePermissions::none());
 
     let variants = [
@@ -629,7 +638,7 @@ fn test_page_entry_with_permissions_all_variants() {
 
 #[test]
 fn test_page_entry_builder_basic() {
-    let pa = PA::new(0x20000).unwrap();
+    let pa = PA::new(0x2_0000).unwrap();
     let perms = PagePermissions::read_execute();
 
     let entry = PageEntry::builder().physical_address(pa).permissions(perms).build();
@@ -641,7 +650,7 @@ fn test_page_entry_builder_basic() {
 
 #[test]
 fn test_page_entry_builder_with_security_state() {
-    let pa = PA::new(0x21000).unwrap();
+    let pa = PA::new(0x2_1000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -654,7 +663,7 @@ fn test_page_entry_builder_with_security_state() {
 
 #[test]
 fn test_page_entry_builder_with_cacheable() {
-    let pa = PA::new(0x22000).unwrap();
+    let pa = PA::new(0x2_2000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -667,7 +676,7 @@ fn test_page_entry_builder_with_cacheable() {
 
 #[test]
 fn test_page_entry_builder_with_shareable() {
-    let pa = PA::new(0x23000).unwrap();
+    let pa = PA::new(0x2_3000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -680,7 +689,7 @@ fn test_page_entry_builder_with_shareable() {
 
 #[test]
 fn test_page_entry_builder_with_device_memory() {
-    let pa = PA::new(0x24000).unwrap();
+    let pa = PA::new(0x2_4000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -694,7 +703,7 @@ fn test_page_entry_builder_with_device_memory() {
 
 #[test]
 fn test_page_entry_builder_device_memory_overrides_cacheable() {
-    let pa = PA::new(0x25000).unwrap();
+    let pa = PA::new(0x2_5000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -709,7 +718,7 @@ fn test_page_entry_builder_device_memory_overrides_cacheable() {
 
 #[test]
 fn test_page_entry_builder_full_configuration() {
-    let pa = PA::new(0x26000).unwrap();
+    let pa = PA::new(0x2_6000).unwrap();
 
     let entry = PageEntry::builder()
         .physical_address(pa)
@@ -731,7 +740,7 @@ fn test_page_entry_builder_full_configuration() {
 
 #[test]
 fn test_page_entry_builder_default_values() {
-    let pa = PA::new(0x27000).unwrap();
+    let pa = PA::new(0x2_7000).unwrap();
 
     let entry = PageEntry::builder().physical_address(pa).build();
 
@@ -757,7 +766,7 @@ fn test_page_entry_builder_panics_without_physical_address() {
 
 #[test]
 fn test_page_entry_clone() {
-    let pa = PA::new(0x28000).unwrap();
+    let pa = PA::new(0x2_8000).unwrap();
     let entry1 = PageEntry::new(pa, PagePermissions::read_write());
     let entry2 = entry1.clone();
 
@@ -766,7 +775,7 @@ fn test_page_entry_clone() {
 
 #[test]
 fn test_page_entry_equality() {
-    let pa = PA::new(0x29000).unwrap();
+    let pa = PA::new(0x2_9000).unwrap();
     let perms = PagePermissions::read_only();
 
     let entry1 = PageEntry::new(pa, perms);
@@ -777,8 +786,8 @@ fn test_page_entry_equality() {
 
 #[test]
 fn test_page_entry_inequality_different_address() {
-    let pa1 = PA::new(0x2A000).unwrap();
-    let pa2 = PA::new(0x2B000).unwrap();
+    let pa1 = PA::new(0x2_A000).unwrap();
+    let pa2 = PA::new(0x2_B000).unwrap();
     let perms = PagePermissions::read_write();
 
     let entry1 = PageEntry::new(pa1, perms);
@@ -789,7 +798,7 @@ fn test_page_entry_inequality_different_address() {
 
 #[test]
 fn test_page_entry_inequality_different_permissions() {
-    let pa = PA::new(0x2C000).unwrap();
+    let pa = PA::new(0x2_C000).unwrap();
 
     let entry1 = PageEntry::new(pa, PagePermissions::read_only());
     let entry2 = PageEntry::new(pa, PagePermissions::read_write());
@@ -816,7 +825,7 @@ fn test_page_permissions_copy() {
 
 #[test]
 fn test_page_entry_method_chaining() {
-    let pa = PA::new(0x30000).unwrap();
+    let pa = PA::new(0x3_0000).unwrap();
 
     let entry = PageEntry::new(pa, PagePermissions::none())
         .with_permissions(PagePermissions::read_write())
@@ -834,7 +843,7 @@ fn test_page_entry_method_chaining() {
 
 #[test]
 fn test_page_entry_all_permission_combinations() {
-    let pa = PA::new(0x31000).unwrap();
+    let pa = PA::new(0x3_1000).unwrap();
 
     let permission_variants = [
         ("none", PagePermissions::none()),
@@ -856,7 +865,7 @@ fn test_page_entry_all_permission_combinations() {
 
 #[test]
 fn test_page_entry_all_security_states() {
-    let pa = PA::new(0x32000).unwrap();
+    let pa = PA::new(0x3_2000).unwrap();
     let perms = PagePermissions::read_write();
 
     let states = [SecurityState::NonSecure, SecurityState::Secure, SecurityState::Realm];

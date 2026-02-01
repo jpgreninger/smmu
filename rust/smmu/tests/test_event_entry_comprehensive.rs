@@ -1,7 +1,16 @@
-//! Comprehensive test coverage for types/event_entry.rs
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
+//! Comprehensive test coverage for `types/event_entry.rs`
 //!
-//! This test suite achieves 100% coverage of EventEntry and EventType, covering:
-//! - All 7 EventType variants
+//! This test suite achieves 100% coverage of `EventEntry` and `EventType`, covering:
+//! - All 7 `EventType` variants
 //! - Event entry construction with various parameters
 //! - Timestamp management
 //! - Security state integration
@@ -92,7 +101,7 @@ fn test_event_type_copy() {
 #[test]
 fn test_event_type_clone() {
     let event1 = EventType::ConfigurationError;
-    let event2 = event1.clone();
+    let event2 = event1;
     assert_eq!(event1, event2);
 }
 
@@ -228,12 +237,12 @@ fn test_event_entry_new_translation_fault() {
 
 #[test]
 fn test_event_entry_new_permission_fault() {
-    let entry = EventEntry::new(EventType::PermissionFault, 42, 1234, 0xDEADBEEF);
+    let entry = EventEntry::new(EventType::PermissionFault, 42, 1234, 0xDEAD_BEEF);
 
     assert_eq!(entry.event_type, EventType::PermissionFault);
     assert_eq!(entry.stream_id, 42);
     assert_eq!(entry.pasid, 1234);
-    assert_eq!(entry.address, 0xDEADBEEF);
+    assert_eq!(entry.address, 0xDEAD_BEEF);
     assert_eq!(entry.security_state, SecurityState::NonSecure);
     assert_eq!(entry.error_code, 0);
     assert_eq!(entry.timestamp, 0);
@@ -368,8 +377,8 @@ fn test_event_entry_modify_timestamp() {
 
     assert_eq!(entry.timestamp, 0);
 
-    entry.timestamp = 12345678;
-    assert_eq!(entry.timestamp, 12345678);
+    entry.timestamp = 12_345_678;
+    assert_eq!(entry.timestamp, 12_345_678);
 
     entry.timestamp = u64::MAX;
     assert_eq!(entry.timestamp, u64::MAX);
@@ -382,18 +391,18 @@ fn test_event_entry_modify_all_fields() {
     entry.event_type = EventType::InternalError;
     entry.stream_id = 999;
     entry.pasid = 888;
-    entry.address = 0xBADC0FFE;
+    entry.address = 0xBADC_0FFE;
     entry.security_state = SecurityState::Secure;
     entry.error_code = 0x123;
-    entry.timestamp = 0xDEADBEEF;
+    entry.timestamp = 0xDEAD_BEEF;
 
     assert_eq!(entry.event_type, EventType::InternalError);
     assert_eq!(entry.stream_id, 999);
     assert_eq!(entry.pasid, 888);
-    assert_eq!(entry.address, 0xBADC0FFE);
+    assert_eq!(entry.address, 0xBADC_0FFE);
     assert_eq!(entry.security_state, SecurityState::Secure);
     assert_eq!(entry.error_code, 0x123);
-    assert_eq!(entry.timestamp, 0xDEADBEEF);
+    assert_eq!(entry.timestamp, 0xDEAD_BEEF);
 }
 
 // ============================================================================
@@ -545,7 +554,7 @@ fn test_event_entry_copy() {
 #[test]
 fn test_event_entry_clone() {
     let entry1 = EventEntry::new(EventType::PermissionFault, 30, 40, 0x5000);
-    let entry2 = entry1.clone();
+    let entry2 = entry1;
 
     assert_eq!(entry1.event_type, entry2.event_type);
     assert_eq!(entry1.stream_id, entry2.stream_id);
@@ -649,12 +658,12 @@ fn test_event_entry_equality_with_all_fields_set() {
     let mut entry1 = EventEntry::new(EventType::InternalError, 123, 456, 0xABCD);
     entry1.security_state = SecurityState::Realm;
     entry1.error_code = 0x42;
-    entry1.timestamp = 98765;
+    entry1.timestamp = 98_765;
 
     let mut entry2 = EventEntry::new(EventType::InternalError, 123, 456, 0xABCD);
     entry2.security_state = SecurityState::Realm;
     entry2.error_code = 0x42;
-    entry2.timestamp = 98765;
+    entry2.timestamp = 98_765;
 
     assert_eq!(entry1, entry2);
 }
@@ -678,7 +687,7 @@ fn test_event_entry_debug_with_all_fields() {
     let mut entry = EventEntry::new(EventType::PermissionFault, 10, 20, 0x5678);
     entry.security_state = SecurityState::Secure;
     entry.error_code = 99;
-    entry.timestamp = 12345;
+    entry.timestamp = 12_345;
 
     let debug = format!("{entry:?}");
     assert!(!debug.is_empty());
@@ -712,7 +721,7 @@ fn test_event_entry_sorting_by_timestamp() {
     entry2.timestamp = 1000;
     entry3.timestamp = 2000;
 
-    let mut events = vec![entry1, entry2, entry3];
+    let mut events = [entry1, entry2, entry3];
     events.sort_by_key(|e| e.timestamp);
 
     assert_eq!(events[0].timestamp, 1000);
@@ -762,12 +771,12 @@ fn test_event_entry_arm_smmu_fault_recording() {
         EventType::TranslationFault,
         0x1234,     // StreamID
         0x5678,     // PASID
-        0xDEADBEEF, // Faulting address
+        0xDEAD_BEEF, // Faulting address
     );
 
     assert_eq!(entry.stream_id, 0x1234);
     assert_eq!(entry.pasid, 0x5678);
-    assert_eq!(entry.address, 0xDEADBEEF);
+    assert_eq!(entry.address, 0xDEAD_BEEF);
     assert_eq!(entry.event_type, EventType::TranslationFault);
 }
 

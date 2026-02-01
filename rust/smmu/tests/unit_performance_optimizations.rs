@@ -1,3 +1,12 @@
+#![allow(missing_docs)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::unnecessary_unwrap)]
+
 //! Unit tests for performance optimizations
 //!
 //! Tests algorithmic complexity, hash function performance, memory access
@@ -41,7 +50,7 @@ fn test_hash_function_sparse_addresses() {
     let mut addr_space = AddressSpace::new();
 
     // Map pages at very sparse addresses (good distribution test)
-    let sparse_addrs = [0x1000, 0x10000000, 0x100000000, 0x1000000000, 0x10000000000];
+    let sparse_addrs = [0x1000, 0x1000_0000, 0x1_0000_0000, 0x10_0000_0000, 0x100_0000_0000];
 
     for &addr in &sparse_addrs {
         let iova = IOVA::new(addr).unwrap();
@@ -63,7 +72,7 @@ fn test_o1_lookup_complexity() {
     let mut addr_space = AddressSpace::new();
 
     // Map 10,000 pages
-    for i in 0..10000 {
+    for i in 0..10_000 {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
         let pa = PA::new(0x2000 + i * PAGE_SIZE).unwrap();
         addr_space
@@ -85,13 +94,13 @@ fn test_o1_lookup_complexity() {
 
     // Times should be similar (within 10x) for O(1) operations
     let ratio = time_last.as_nanos() as f64 / time_first.as_nanos().max(1) as f64;
-    assert!(ratio < 10.0, "Lookup time ratio too large: {}", ratio);
+    assert!(ratio < 10.0, "Lookup time ratio too large: {ratio}");
 }
 
 #[test]
 fn test_scalability_10_to_10000() {
     // Test at different scales
-    for count in [10, 100, 1000, 10000].iter() {
+    for count in &[10, 100, 1000, 10_000] {
         let mut addr_space = AddressSpace::new();
 
         let start = Instant::now();
@@ -111,9 +120,9 @@ fn test_scalability_10_to_10000() {
         }
         let translate_time = start.elapsed();
 
-        println!("Scale {}: map={:?}, translate={:?}", count, map_time, translate_time);
+        println!("Scale {count}: map={map_time:?}, translate={translate_time:?}");
 
-        assert_eq!(addr_space.get_page_count().unwrap(), *usize::try_from(count).unwrap());
+        assert_eq!(addr_space.get_page_count().unwrap(), *count as usize);
     }
 }
 
@@ -142,7 +151,7 @@ fn test_sequential_access_pattern() {
     }
     let sequential_time = start.elapsed();
 
-    println!("Sequential access time: {:?}", sequential_time);
+    println!("Sequential access time: {sequential_time:?}");
 }
 
 #[test]
@@ -167,7 +176,7 @@ fn test_random_access_pattern() {
     }
     let random_time = start.elapsed();
 
-    println!("Random access time: {:?}", random_time);
+    println!("Random access time: {random_time:?}");
 }
 
 // ============================================================================
@@ -192,7 +201,7 @@ fn test_pasid_lookup_performance() {
     }
     let lookup_time = start.elapsed();
 
-    println!("PASID lookup time (1000 ops): {:?}", lookup_time);
+    println!("PASID lookup time (1000 ops): {lookup_time:?}");
 }
 
 #[test]
@@ -220,7 +229,7 @@ fn test_multi_pasid_translation_performance() {
     }
     let translate_time = start.elapsed();
 
-    println!("Multi-PASID translation time (1000 ops): {:?}", translate_time);
+    println!("Multi-PASID translation time (1000 ops): {translate_time:?}");
 }
 
 // ============================================================================
@@ -262,7 +271,7 @@ fn test_multi_stream_performance() {
     }
     let translate_time = start.elapsed();
 
-    println!("Multi-stream translation time (1000 ops): {:?}", translate_time);
+    println!("Multi-stream translation time (1000 ops): {translate_time:?}");
 }
 
 // ============================================================================
@@ -280,7 +289,7 @@ fn test_translation_latency_target() {
         .unwrap();
 
     // Measure average translation time
-    let iterations = 10000;
+    let iterations = 10_000;
     let start = Instant::now();
     for _ in 0..iterations {
         let _ = addr_space.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
@@ -288,7 +297,7 @@ fn test_translation_latency_target() {
     let total_time = start.elapsed();
     let avg_time_ns = total_time.as_nanos() / iterations;
 
-    println!("Average translation time: {} ns", avg_time_ns);
+    println!("Average translation time: {avg_time_ns} ns");
 
     // Target: sub-microsecond (< 1000 ns)
     // Relaxed for debug builds
@@ -300,7 +309,7 @@ fn test_translation_latency_target() {
 fn test_mapping_throughput() {
     let mut addr_space = AddressSpace::new();
 
-    let iterations = 10000;
+    let iterations = 10_000;
     let start = Instant::now();
     for i in 0..iterations {
         let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
@@ -312,7 +321,7 @@ fn test_mapping_throughput() {
     let total_time = start.elapsed();
     let throughput = iterations as f64 / total_time.as_secs_f64();
 
-    println!("Mapping throughput: {:.0} ops/sec", throughput);
+    println!("Mapping throughput: {throughput:.0} ops/sec");
 
     // Should handle at least 1M mappings/sec
     #[cfg(not(debug_assertions))]
@@ -338,7 +347,7 @@ fn test_batch_operation_efficiency() {
     addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
     let batch_time = start.elapsed();
 
-    println!("Batch mapping time (1000 pages): {:?}", batch_time);
+    println!("Batch mapping time (1000 pages): {batch_time:?}");
 
-    assert_eq!(addr_space.get_page_count().unwrap(), usize::try_from(count).unwrap());
+    assert_eq!(addr_space.get_page_count().unwrap(), count as usize);
 }

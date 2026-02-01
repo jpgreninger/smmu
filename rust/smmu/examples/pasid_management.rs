@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::cast_possible_truncation)]
+
 //! PASID Management Example
 //!
 //! This example demonstrates Process Address Space ID (PASID) management,
@@ -23,6 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Configuring stream with PASID support...");
     let stream_id = StreamID::new(1)?;
     let stream_config = StreamConfig::builder()
+        .translation_enabled(true)
         .stage1_enabled(true)
         .pasid_enabled(true)
         .max_pasid(1024)  // Support up to 1024 PASIDs
@@ -43,8 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(stream_id, ml_pasid)?;
 
     // Map ML training data buffer
-    let ml_data_iova = IOVA::new(0x1000000)?;
-    let ml_data_pa = PA::new(0x10000000)?;
+    let ml_data_iova = IOVA::new(0x100_0000)?;
+    let ml_data_pa = PA::new(0x1000_0000)?;
     smmu.map_page(
         stream_id,
         ml_pasid,
@@ -55,8 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Map ML model buffer
-    let ml_model_iova = IOVA::new(0x2000000)?;
-    let ml_model_pa = PA::new(0x20000000)?;
+    let ml_model_iova = IOVA::new(0x200_0000)?;
+    let ml_model_pa = PA::new(0x2000_0000)?;
     smmu.map_page(
         stream_id,
         ml_pasid,
@@ -84,8 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(stream_id, gfx_pasid)?;
 
     // Map framebuffer
-    let gfx_fb_iova = IOVA::new(0x1000000)?; // Same IOVA as ML, different PASID!
-    let gfx_fb_pa = PA::new(0x30000000)?;
+    let gfx_fb_iova = IOVA::new(0x100_0000)?; // Same IOVA as ML, different PASID!
+    let gfx_fb_pa = PA::new(0x3000_0000)?;
     smmu.map_page(
         stream_id,
         gfx_pasid,
@@ -96,8 +100,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Map texture buffer
-    let gfx_tex_iova = IOVA::new(0x2000000)?;
-    let gfx_tex_pa = PA::new(0x40000000)?;
+    let gfx_tex_iova = IOVA::new(0x200_0000)?;
+    let gfx_tex_pa = PA::new(0x4000_0000)?;
     smmu.map_page(
         stream_id,
         gfx_pasid,
@@ -125,8 +129,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     smmu.create_pasid(stream_id, video_pasid)?;
 
     // Map video input buffer
-    let video_in_iova = IOVA::new(0x3000000)?;
-    let video_in_pa = PA::new(0x50000000)?;
+    let video_in_iova = IOVA::new(0x300_0000)?;
+    let video_in_pa = PA::new(0x5000_0000)?;
     smmu.map_page(
         stream_id,
         video_pasid,
@@ -137,8 +141,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Map video output buffer
-    let video_out_iova = IOVA::new(0x4000000)?;
-    let video_out_pa = PA::new(0x60000000)?;
+    let video_out_iova = IOVA::new(0x400_0000)?;
+    let video_out_pa = PA::new(0x6000_0000)?;
     smmu.map_page(
         stream_id,
         video_pasid,
@@ -219,20 +223,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Graphics process trying to write textures (RO permission):");
     match smmu.translate(stream_id, gfx_pasid, gfx_tex_iova, AccessType::Write) {
         Ok(_) => println!("    ✗ ERROR: Write to read-only texture should have failed!"),
-        Err(TranslationError::Fault(fault)) => {
-            println!("    ✓ Permission fault as expected: {:?}", fault.fault_type());
+        Err(TranslationError::PermissionViolation { access }) => {
+            println!("    ✓ Permission fault as expected: {access:?}");
         },
-        Err(e) => println!("    Unexpected error: {}", e),
+        Err(e) => println!("    Unexpected error: {e}"),
     }
 
     // Video encoder can't read output buffer (write-only)
     println!("  Video encoder trying to read output buffer (WO permission):");
     match smmu.translate(stream_id, video_pasid, video_out_iova, AccessType::Read) {
         Ok(_) => println!("    ✗ ERROR: Read from write-only buffer should have failed!"),
-        Err(TranslationError::Fault(fault)) => {
-            println!("    ✓ Permission fault as expected: {:?}", fault.fault_type());
+        Err(TranslationError::PermissionViolation { access }) => {
+            println!("    ✓ Permission fault as expected: {access:?}");
         },
-        Err(e) => println!("    Unexpected error: {}", e),
+        Err(e) => println!("    Unexpected error: {e}"),
     }
 
     // PASID 0 support - legacy compatibility
@@ -240,8 +244,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let legacy_pasid = PASID::new(0)?;
     smmu.create_pasid(stream_id, legacy_pasid)?;
 
-    let legacy_iova = IOVA::new(0x8000000)?;
-    let legacy_pa = PA::new(0x80000000)?;
+    let legacy_iova = IOVA::new(0x800_0000)?;
+    let legacy_pa = PA::new(0x8000_0000)?;
     smmu.map_page(
         stream_id,
         legacy_pasid,
