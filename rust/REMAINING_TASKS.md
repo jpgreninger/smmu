@@ -154,8 +154,8 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
 
 ## 🟡 INCOMPLETE TASKS
 
-### 4. Build System Finalization (Task 10.1) - INCOMPLETE
-**Status**: ⚠️ **NOT STARTED**
+### 4. Build System Finalization (Task 10.1) - IN PROGRESS
+**Status**: ⚠️ **IN PROGRESS** (8 hours complete, 6-10 hours remaining)
 **From**: TASKS-RUST.md:3184-3206
 **Estimated Time**: 14-18 hours
 
@@ -179,23 +179,32 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
 - **Status**: ✅ **COMPLETE**
 - **Result**: Full feature flag support with flexible configurations
 
-**4.2 Packaging for crates.io** (3 hours)
-- [ ] Review and finalize Cargo.toml metadata
-- [ ] Add comprehensive keywords and categories
-- [ ] Prepare README.md for crates.io display
-- [ ] Add badges for CI, docs, crates.io version
-- [ ] Verify all required metadata fields
-- **Current Status**: Basic metadata exists, needs polish
-- **Priority**: P2 (Medium)
+**4.2 Packaging for crates.io** ✅ **COMPLETED** (3 hours)
+- [x] Review and finalize Cargo.toml metadata ✅
+- [x] Add comprehensive keywords and categories ✅
+- [x] Prepare README.md for crates.io display ✅
+- [x] Add badges for CI, docs, crates.io version ✅
+- [x] Verify all required metadata fields ✅
+- [x] Created LICENSE-MIT and LICENSE-APACHE files ✅
+- [x] Configured include patterns to exclude development files ✅
+- [x] Fixed categories (replaced "no-std" with "simulation") ✅
+- [x] Updated keywords for better discoverability ✅
+- [x] Package verified: 104 files, 234.2 KiB compressed ✅
+- **Status**: ✅ **COMPLETE**
+- **Result**: Package ready for crates.io publication
 
-**4.3 Release Build Configurations** (2 hours)
+**4.3 Release Build Configurations** ✅ **COMPLETED** (2 hours)
 - [x] Configure release profile optimizations ✅
 - [x] Add LTO and codegen-units settings ✅
 - [x] Setup stripped binaries ✅
-- [ ] Add profile for size-optimized builds (`opt-level = "z"`)
-- [ ] Add profile for debug-optimized builds
-- **Current Status**: 75% complete
-- **Priority**: P2 (Medium)
+- [x] Add profile for size-optimized builds (`opt-level = "z"`) ✅
+- [x] Add profile for debug-optimized builds ✅
+- [x] Created comprehensive BUILD_PROFILES.md documentation ✅
+- [x] Tested all four profiles (dev, dev-opt, release, release-small) ✅
+- [x] Measured and documented binary sizes and performance characteristics ✅
+- [x] Updated README.md with build profile information ✅
+- **Status**: ✅ **COMPLETE**
+- **Result**: Four production-ready build profiles with comprehensive documentation
 
 **4.4 Cross-Platform Support** (6 hours)
 - [ ] Test on Linux (primary platform) - **Partially done**
@@ -299,10 +308,13 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
 | Category | Tasks | Estimated Time | Priority |
 |----------|-------|----------------|----------|
 | **Critical Fixes** | 0 | **0 hours** | - |
-| **Incomplete Tasks** | 1 | **14-18 hours** | P1 |
+| **Incomplete Tasks** | 1 | **6-10 hours** | P1 |
 | **Future Enhancements** | 4 | **72+ hours** | P3 |
 | **Completed (Phase 1)** | 3 | ~~8 hours~~ ✅ | - |
-| **Total Remaining** | 5 | **86-90 hours** | - |
+| **Completed (Task 4.1)** | 1 | ~~3 hours~~ ✅ | - |
+| **Completed (Task 4.2)** | 1 | ~~3 hours~~ ✅ | - |
+| **Completed (Task 4.3)** | 1 | ~~2 hours~~ ✅ | - |
+| **Total Remaining** | 5 | **78-82 hours** | - |
 
 ### Current Test Status
 - **Total Test Files**: 59 (tests + examples)

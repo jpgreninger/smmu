@@ -5,6 +5,38 @@
 
 use core::fmt;
 
+/// Helper function to format u64 with underscores for readability
+fn format_number_with_underscores(value: u64) -> String {
+    let s = value.to_string();
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut result = String::new();
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push('_');
+        }
+        result.push(byte as char);
+    }
+    result
+}
+
+/// Helper function to format hex u64 with underscores for readability
+fn format_hex_with_underscores(value: u64) -> String {
+    let hex = format!("{value:X}");
+    let bytes = hex.as_bytes();
+    let len = bytes.len();
+    let mut result = String::from("0x");
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 4 == 0 {
+            result.push('_');
+        }
+        result.push(byte as char);
+    }
+    result
+}
+
 /// Validation error for newtype wrapper construction and operations
 ///
 /// Provides detailed context about validation failures including:
@@ -140,10 +172,14 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::OutOfRange { field, value, max } => {
-                write!(f, "Validation error for {field}: value {value} exceeds maximum {max}")
+                write!(f, "Validation error for {field}: value {} exceeds maximum {}",
+                    format_number_with_underscores(*value),
+                    format_number_with_underscores(*max))
             },
             Self::InvalidAlignment { address, required_alignment } => {
-                write!(f, "Address {address:#x} is not aligned to {required_alignment:#x}")
+                write!(f, "Address {} is not aligned to {}",
+                    format_hex_with_underscores(*address),
+                    format_hex_with_underscores(*required_alignment))
             },
             Self::InvalidAccessType { bits } => {
                 write!(f, "Invalid access type bit pattern: {bits:#b}")
@@ -170,7 +206,8 @@ impl fmt::Display for ValidationError {
                 write!(f, "Invalid configuration: {reason}")
             },
             Self::InvalidPASID { value } => {
-                write!(f, "Invalid PASID value: {value}")
+                let formatted = format_number_with_underscores(u64::from(*value));
+                write!(f, "Invalid PASID value: {formatted}")
             },
             Self::Generic { field, value, constraint } => {
                 write!(f, "Validation error for {field}: value '{value}' {constraint}")

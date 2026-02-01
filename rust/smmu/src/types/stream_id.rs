@@ -27,6 +27,22 @@ use std::fmt;
 /// Maximum `StreamID` value (typical hardware limit - 16-bit)
 const STREAM_ID_MAX: u32 = 65_535;
 
+/// Helper function to format u32 with underscores for readability
+fn format_with_underscores(value: u32) -> String {
+    let s = value.to_string();
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut result = String::new();
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push('_');
+        }
+        result.push(byte as char);
+    }
+    result
+}
+
 /// Type-safe `StreamID` wrapper
 ///
 /// Wraps a 32-bit unsigned integer with validation to ensure it falls within
@@ -59,8 +75,8 @@ impl StreamID {
         if value > STREAM_ID_MAX {
             return Err(ValidationError::new(
                 "StreamID",
-                &value.to_string(),
-                &format!("must be <= {STREAM_ID_MAX}"),
+                &format_with_underscores(value),
+                "must be <= 65_535",
             ));
         }
         Ok(Self(value))
@@ -82,7 +98,7 @@ impl StreamID {
 
 impl fmt::Display for StreamID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StreamID({})", self.0)
+        write!(f, "StreamID({})", format_with_underscores(self.0))
     }
 }
 

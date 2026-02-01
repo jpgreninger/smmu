@@ -271,7 +271,7 @@ fn test_validation_error_invalid_pasid_max() {
     let error = ValidationError::InvalidPASID { value: u32::MAX };
 
     let display = format!("{error}");
-    assert_eq!(display, format!("Invalid PASID value: {}", u32::MAX));
+    assert_eq!(display, "Invalid PASID value: 4_294_967_295");
 }
 
 // ============================================================================
@@ -502,7 +502,7 @@ fn test_validation_error_large_values() {
     };
 
     let display = format!("{error}");
-    assert!(display.contains(&format!("{}", u64::MAX)));
+    assert!(display.contains("18_446_744_073_709_551_615"));
 }
 
 #[test]

@@ -1575,6 +1575,13 @@ impl SMMUConfig {
         let mut config = Self::default();
         let mut map = HashMap::new();
 
+        // Helper function to parse numeric values, handling underscores
+        fn parse_numeric<T: std::str::FromStr>(value: &str, field_name: &str) -> Result<T, ValidationError> {
+            value.replace('_', "").parse().map_err(|_| ValidationError::InvalidConfiguration {
+                reason: format!("invalid {field_name}"),
+            })
+        }
+
         // Parse key-value pairs
         for line in s.lines() {
             let line = line.trim();
@@ -1593,31 +1600,21 @@ impl SMMUConfig {
 
         // Parse queue configuration
         if let Some(v) = map.get("event_queue_size") {
-            config.queue_config.event_queue_size = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid event_queue_size".into(),
-            })?;
+            config.queue_config.event_queue_size = parse_numeric(v, "event_queue_size")?;
         }
         if let Some(v) = map.get("command_queue_size") {
-            config.queue_config.command_queue_size = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid command_queue_size".into(),
-            })?;
+            config.queue_config.command_queue_size = parse_numeric(v, "command_queue_size")?;
         }
         if let Some(v) = map.get("pri_queue_size") {
-            config.queue_config.pri_queue_size = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid pri_queue_size".into() })?;
+            config.queue_config.pri_queue_size = parse_numeric(v, "pri_queue_size")?;
         }
 
         // Parse cache configuration
         if let Some(v) = map.get("tlb_cache_size") {
-            config.cache_config.tlb_cache_size = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid tlb_cache_size".into() })?;
+            config.cache_config.tlb_cache_size = parse_numeric(v, "tlb_cache_size")?;
         }
         if let Some(v) = map.get("cache_max_age_ms") {
-            config.cache_config.cache_max_age_ms = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid cache_max_age_ms".into(),
-            })?;
+            config.cache_config.cache_max_age_ms = parse_numeric(v, "cache_max_age_ms")?;
         }
         if let Some(v) = map.get("enable_caching") {
             config.cache_config.enable_caching = v
@@ -1627,41 +1624,27 @@ impl SMMUConfig {
 
         // Parse address configuration
         if let Some(v) = map.get("max_iova_bits") {
-            config.address_config.max_iova_bits = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_iova_bits".into() })?;
+            config.address_config.max_iova_bits = parse_numeric(v, "max_iova_bits")?;
         }
         if let Some(v) = map.get("max_pa_bits") {
-            config.address_config.max_pa_bits = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_pa_bits".into() })?;
+            config.address_config.max_pa_bits = parse_numeric(v, "max_pa_bits")?;
         }
         if let Some(v) = map.get("max_stream_count") {
-            config.address_config.max_stream_count = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid max_stream_count".into(),
-            })?;
+            config.address_config.max_stream_count = parse_numeric(v, "max_stream_count")?;
         }
         if let Some(v) = map.get("max_pasid_count") {
-            config.address_config.max_pasid_count = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid max_pasid_count".into() })?;
+            config.address_config.max_pasid_count = parse_numeric(v, "max_pasid_count")?;
         }
 
         // Parse resource limits
         if let Some(v) = map.get("max_memory_usage") {
-            config.resource_limits.max_memory_usage = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid max_memory_usage".into(),
-            })?;
+            config.resource_limits.max_memory_usage = parse_numeric(v, "max_memory_usage")?;
         }
         if let Some(v) = map.get("max_thread_count") {
-            config.resource_limits.max_thread_count = v.parse().map_err(|_| ValidationError::InvalidConfiguration {
-                reason: "invalid max_thread_count".into(),
-            })?;
+            config.resource_limits.max_thread_count = parse_numeric(v, "max_thread_count")?;
         }
         if let Some(v) = map.get("timeout_ms") {
-            config.resource_limits.timeout_ms = v
-                .parse()
-                .map_err(|_| ValidationError::InvalidConfiguration { reason: "invalid timeout_ms".into() })?;
+            config.resource_limits.timeout_ms = parse_numeric(v, "timeout_ms")?;
         }
         if let Some(v) = map.get("enable_resource_tracking") {
             config.resource_limits.enable_resource_tracking =

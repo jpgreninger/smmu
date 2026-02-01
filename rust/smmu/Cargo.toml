@@ -9,9 +9,19 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "ARM SMMU v3 (System Memory Management Unit) implementation - Production-grade translation engine"
-keywords = ["smmu", "iommu", "memory-management", "arm", "translation"]
-categories = ["embedded", "hardware-support", "no-std"]
+keywords = ["smmu", "iommu", "memory-management", "arm", "virtualization"]
+categories = ["embedded", "hardware-support", "simulation"]
 readme = "../README.md"
+include = [
+    "src/**/*.rs",
+    "benches/**/*.rs",
+    "tests/**/*.rs",
+    "examples/**/*.rs",
+    "Cargo.toml",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "../README.md",
+]
 
 [lib]
 name = "smmu"

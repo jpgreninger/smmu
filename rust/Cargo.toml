@@ -31,6 +31,26 @@ opt-level = 0
 debug = true
 split-debuginfo = "unpacked"
 
+# Size-optimized release profile for embedded/resource-constrained environments
+# Usage: cargo build --profile release-small
+[profile.release-small]
+inherits = "release"
+opt-level = "z"          # Optimize for size rather than speed
+lto = true               # Link-time optimization for smaller binaries
+codegen-units = 1        # Better optimization at cost of compile time
+strip = true             # Remove debug symbols
+panic = "abort"          # Smaller panic handler
+overflow-checks = false  # Disable overflow checks for smaller size
+
+# Debug-optimized profile for development with reasonable performance
+# Usage: cargo build --profile dev-opt
+[profile.dev-opt]
+inherits = "dev"
+opt-level = 2            # Moderate optimization for better performance
+debug = true             # Keep full debug information
+incremental = true       # Enable incremental compilation
+overflow-checks = true   # Keep safety checks during development
+
 [workspace.lints.rust]
 unsafe_code = "warn"
 missing_docs = "warn"

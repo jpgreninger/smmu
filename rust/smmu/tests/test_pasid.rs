@@ -105,7 +105,7 @@ fn test_pasid_display_middle_value() {
 fn test_pasid_display_max() {
     let pasid = PASID::new(PASID_MAX).unwrap();
     let display = format!("{pasid}");
-    assert_eq!(display, format!("PASID({PASID_MAX})"));
+    assert_eq!(display, "PASID(1_048_575)");
 }
 
 #[test]

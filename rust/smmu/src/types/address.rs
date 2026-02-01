@@ -203,7 +203,12 @@ impl fmt::Debug for IOVA {
 
 impl fmt::Display for IOVA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:#018x}", self.0)
+        // Format as 0x0000_0000_0000_0000 (with underscores for readability)
+        write!(f, "{:#06x}_{:04x}_{:04x}_{:04x}",
+            (self.0 >> 48) & 0xFFFF,
+            (self.0 >> 32) & 0xFFFF,
+            (self.0 >> 16) & 0xFFFF,
+            self.0 & 0xFFFF)
     }
 }
 
@@ -346,7 +351,12 @@ impl fmt::Debug for IPA {
 
 impl fmt::Display for IPA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:#018x}", self.0)
+        // Format as 0x0000_0000_0000_0000 (with underscores for readability)
+        write!(f, "{:#06x}_{:04x}_{:04x}_{:04x}",
+            (self.0 >> 48) & 0xFFFF,
+            (self.0 >> 32) & 0xFFFF,
+            (self.0 >> 16) & 0xFFFF,
+            self.0 & 0xFFFF)
     }
 }
 
@@ -488,7 +498,12 @@ impl fmt::Debug for PA {
 
 impl fmt::Display for PA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:#018x}", self.0)
+        // Format as 0x0000_0000_0000_0000 (with underscores for readability)
+        write!(f, "{:#06x}_{:04x}_{:04x}_{:04x}",
+            (self.0 >> 48) & 0xFFFF,
+            (self.0 >> 32) & 0xFFFF,
+            (self.0 >> 16) & 0xFFFF,
+            self.0 & 0xFFFF)
     }
 }
 

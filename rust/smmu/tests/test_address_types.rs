@@ -282,7 +282,7 @@ fn test_iova_format_edge_cases() {
 
     // Test max value
     let iova = IOVA::new(u64::MAX).unwrap();
-    assert!(format!("{iova}").contains("ffffffffffffffff"));
+    assert_eq!(format!("{iova}"), "0xffff_ffff_ffff_ffff");
 }
 
 // ============================================================================
@@ -484,8 +484,7 @@ fn test_ipa_format_edge_cases() {
     assert_eq!(format!("{ipa}"), "0x0000_0000_0000_0000");
 
     let ipa = IPA::new(u64::MAX).unwrap();
-    let formatted = format!("{ipa}");
-    assert!(formatted.contains("ffffffffffffffff"));
+    assert_eq!(format!("{ipa}"), "0xffff_ffff_ffff_ffff");
 }
 
 // ============================================================================
@@ -745,8 +744,7 @@ fn test_pa_format_edge_cases() {
     assert_eq!(format!("{pa}"), "0x0000_0000_0000_0000");
 
     let pa = PA::new(u64::MAX).unwrap();
-    let formatted = format!("{pa}");
-    assert!(formatted.contains("ffffffffffffffff"));
+    assert_eq!(format!("{pa}"), "0xffff_ffff_ffff_ffff");
 }
 
 // ============================================================================

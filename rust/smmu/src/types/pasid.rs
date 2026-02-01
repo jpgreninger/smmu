@@ -35,6 +35,22 @@ use std::fmt;
 /// ARM `SMMU` v3 `PASID` maximum value (20-bit)
 pub const PASID_MAX: u32 = 0xF_FFFF;
 
+/// Helper function to format u32 with underscores for readability
+fn format_with_underscores(value: u32) -> String {
+    let s = value.to_string();
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut result = String::new();
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push('_');
+        }
+        result.push(byte as char);
+    }
+    result
+}
+
 /// Type-safe `PASID` wrapper
 ///
 /// Wraps a 32-bit unsigned integer with validation to ensure it is a valid 20-bit
@@ -75,7 +91,7 @@ impl PASID {
             return Err(ValidationError::new(
                 "PASID",
                 &format!("0x{value:X}"),
-                &format!("must be <= 0x{PASID_MAX:X} (20-bit maximum)"),
+                "must be <= 0xF_FFFF (20-bit maximum)",
             ));
         }
         Ok(Self(value))
@@ -97,7 +113,7 @@ impl PASID {
 
 impl fmt::Display for PASID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PASID({})", self.0)
+        write!(f, "PASID({})", format_with_underscores(self.0))
     }
 }
 
