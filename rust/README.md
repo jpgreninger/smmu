@@ -11,7 +11,7 @@
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION QUALITY v1.0.0** - 100% Complete ✅
+## ✅ **PRODUCTION QUALITY v1.0.1** - 100% Complete ✅
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with comprehensive quality assurance.
 
@@ -491,7 +491,7 @@ See [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) for complete te
 
 ## Implementation Status
 
-**Current Status**: ✅ **VERSION 1.0.0 - 100% COMPLETE (Production-Ready)**
+**Current Status**: ✅ **VERSION 1.0.1 - 100% COMPLETE (Production-Ready)**
 
 **Implementation Phases (10 of 10 Complete)**:
 1. ✅ Project Setup and Infrastructure - 100%
@@ -532,7 +532,7 @@ See `TASKS-RUST.md` for complete implementation details, `QA_REPORT.md` for qual
 
 ## Semantic Versioning and Stability
 
-This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly from version 1.0.0 onwards.
+This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly from version 1.0.1 onwards.
 
 ### Version Format
 
@@ -610,4 +610,4 @@ Dual-licensed under MIT OR Apache-2.0
 
 ---
 
-**Project Status**: Production Ready ✅ | **Version**: 1.0.0 | **Tests**: 2,039/2,039 passing | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
+**Project Status**: Production Ready ✅ | **Version**: 1.0.1 | **Tests**: 2,039/2,039 passing | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
