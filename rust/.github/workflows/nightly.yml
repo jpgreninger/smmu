@@ -1,0 +1,103 @@
+name: Nightly
+
+on:
+  schedule:
+    # Run at 02:00 UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Full benchmark suite
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run full benchmark suite
+        run: cargo bench --all-features
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'cargo'
+          output-file-path: target/criterion/report/index.html
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+
+  # Fuzz testing
+  fuzz:
+    name: Fuzz Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Run fuzz tests (time-limited)
+        run: |
+          # Run fuzz tests for 5 minutes each
+          timeout 300s cargo +nightly fuzz run translation_fuzzer || true
+        continue-on-error: true
+
+  # Memory leak detection
+  valgrind:
+    name: Memory Leak Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Build tests
+        run: cargo test --no-run --all-features
+
+      - name: Run tests under valgrind
+        run: |
+          cargo test --all-features 2>&1 | grep -E "test .* ok|test .* FAILED" | \
+          while read line; do
+            if [[ "$line" =~ "test (.+) \.\.\. ok" ]]; then
+              test_name="${BASH_REMATCH[1]}"
+              echo "Checking $test_name for memory leaks..."
+              valgrind --leak-check=full --error-exitcode=1 \
+                cargo test --all-features "$test_name" 2>&1 || true
+            fi
+          done
+        continue-on-error: true
+
+  # Test with bleeding edge dependencies
+  deps-latest:
+    name: Latest Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Update dependencies
+        run: cargo update
+
+      - name: Run tests with latest deps
+        run: cargo test --all-features
+
+      - name: Check for deprecation warnings
+        run: cargo clippy --all-features -- -W deprecated

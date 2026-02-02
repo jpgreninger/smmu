@@ -18,6 +18,28 @@ rustdocflags = [
 # Use all CPU cores for parallel builds
 jobs = -1
 
+# Cross-compilation target configurations
+[target.x86_64-pc-windows-gnu]
+# Use MinGW linker for Windows GNU target
+linker = "x86_64-w64-mingw32-gcc"
+
+[target.x86_64-pc-windows-msvc]
+# Windows MSVC uses system linker
+
+[target.x86_64-apple-darwin]
+# macOS Intel uses system linker
+
+[target.aarch64-apple-darwin]
+# macOS Apple Silicon uses system linker
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 Linux cross-compilation
+linker = "aarch64-linux-gnu-gcc"
+
+[target.x86_64-unknown-linux-musl]
+# musl static linking
+linker = "x86_64-linux-musl-gcc"
+
 [term]
 # Colored output
 color = "auto"
