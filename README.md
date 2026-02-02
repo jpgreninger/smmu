@@ -1,8 +1,8 @@
-# ARM SMMU v3 C++11 Implementation
+# ARM SMMU v3 C++11 and Rust Implementations
 
 ## ✅ **PRODUCTION RELEASE v1.0.0** - 100% Complete ✅
 
-A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance for development, simulation, and testing environments.
+A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments.
 
 **🏆 Quality Status**: Production Ready (5/5 stars) | **📊 Test Coverage**: 88.51% (51/51 tests passing) | **⚡ Performance**: 135ns translation latency
 
