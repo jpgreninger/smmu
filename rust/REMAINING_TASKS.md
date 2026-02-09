@@ -291,19 +291,25 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
   - 151 mutants identified in baseline files
 - **Status**: ✅ Framework operational, ready for execution
 
-## 🟢 FUTURE ENHANCEMENTS (Post-1.0)
+## ✅ COMPLETED ENHANCEMENTS (Post-1.0)
 
 ### 6. Documentation Enhancements
-**Priority**: P3 (Nice to Have)
 
-**6.1 Architecture Diagrams**
-- [ ] Create Mermaid diagrams for:
-  - Translation flow
-  - Fault handling flow
-  - Cache architecture
-  - Stream/PASID hierarchy
-- [ ] Embed in documentation and DESIGN.md
-- **Estimated Time**: 4 hours
+**6.1 Architecture Diagrams** ✅ **COMPLETE** (February 8, 2026)
+- [x] Create Mermaid diagrams for: ✅
+  - Translation flow ✅
+  - Fault handling flow ✅
+  - Cache architecture ✅
+  - Stream/PASID hierarchy ✅
+- [x] Embed in documentation and DESIGN.md ✅
+- **Deliverables**:
+  - ARCHITECTURE_DIAGRAMS.md (650+ lines, 4 comprehensive diagrams)
+  - Updated DESIGN.md with embedded diagrams
+  - All diagrams interactive and GitHub-rendered
+- **Status**: ✅ Complete - All 4 diagrams created and documented
+- **Time**: 2 hours (vs 4 hours estimated = 50% efficiency)
+
+## 🟢 FUTURE ENHANCEMENTS (Post-1.0)
 
 **6.2 Video Tutorials**
 - [ ] Create getting started video
@@ -349,7 +355,7 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
 |----------|-------|----------------|----------|
 | **Critical Fixes** | 0 | **0 hours** | - |
 | **Incomplete Tasks** | 0 | **0 hours** | - |
-| **Future Enhancements** | 3 | **50+ hours** | P3 |
+| **Future Enhancements** | 2 | **46+ hours** | P3 |
 | **Completed (Phase 1)** | 3 | ~~8 hours~~ ✅ | - |
 | **Completed (Task 4.1)** | 1 | ~~3 hours~~ ✅ | - |
 | **Completed (Task 4.2)** | 1 | ~~3 hours~~ ✅ | - |
@@ -357,7 +363,8 @@ The ARM SMMU v3 Rust implementation is at **version 1.0.0** with **9 of 10 phase
 | **Completed (Task 4.4)** | 1 | ~~6 hours~~ ✅ | - |
 | **Completed (Task 4.5)** | 1 | ~~4 hours~~ ✅ | - |
 | **Completed (Section 5)** | 3 | ~~13 hours~~ ✅ | - |
-| **Total Remaining** | 3 | **50+ hours** | P3 |
+| **Completed (Task 6.1)** | 1 | ~~2 hours~~ ✅ | - |
+| **Total Remaining** | 2 | **46+ hours** | P3 |
 
 ### Current Test Status
 - **Total Test Files**: 59 (tests + examples)

@@ -54,6 +54,15 @@ The ARM SMMU v3 Rust implementation follows a layered architecture with clear se
 4. **Fault/Event Management**: Error detection, classification, and reporting
 5. **Caching**: TLB implementation for performance optimization
 
+### Interactive Architecture Diagrams
+
+For detailed interactive diagrams of the architecture, see [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md):
+
+1. **[Translation Flow](ARCHITECTURE_DIAGRAMS.md#1-translation-flow)**: Complete translation path with cache lookups and fault handling
+2. **[Fault Handling Flow](ARCHITECTURE_DIAGRAMS.md#2-fault-handling-flow)**: Fault detection, classification, and recovery
+3. **[Cache Architecture](ARCHITECTURE_DIAGRAMS.md#3-cache-architecture)**: TLB structure, lookup, and invalidation
+4. **[Stream/PASID Hierarchy](ARCHITECTURE_DIAGRAMS.md#4-streampasid-hierarchy)**: Ownership and lifecycle management
+
 ## Core Design Principles
 
 ### 1. Memory Safety First
@@ -999,6 +1008,246 @@ pub fn translate(...) -> Result<TranslationResult, TranslationError> {
 ```
 
 **Benefit**: Clean error handling without nesting
+
+## Architecture Flow Diagrams
+
+This section provides interactive Mermaid diagrams illustrating the key architectural flows and structures. For the full-size versions with detailed annotations, see [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md).
+
+### Translation Flow
+
+The translation flow shows the complete path from a translation request through stream lookup, PASID resolution, cache checking, and fault handling.
+
+```mermaid
+flowchart TD
+    Start([Translation Request]) --> ValidateInput[Validate Input<br/>StreamID, PASID, IOVA, AccessType]
+    ValidateInput --> |Valid| LookupStream[Lookup Stream<br/>in DashMap]
+    ValidateInput --> |Invalid| ReturnError1[Return Error]
+
+    LookupStream --> |Found| CheckEnabled{Translation<br/>Enabled?}
+    LookupStream --> |Not Found| ReturnError1
+
+    CheckEnabled --> |Yes| LookupPASID[Lookup PASID]
+    CheckEnabled --> |No| ReturnError1
+
+    LookupPASID --> |Found| CheckCache{TLB<br/>Hit?}
+    LookupPASID --> |Not Found| CreateDefault{Create<br/>PASID 0?}
+
+    CreateDefault --> |Yes| CheckCache
+    CreateDefault --> |No| ReturnError1
+
+    CheckCache --> |Hit| ValidateCached{Valid?}
+    CheckCache --> |Miss| PageTableWalk[Page Table<br/>Walk]
+
+    ValidateCached --> |Valid| CheckPerm1{Check<br/>Permissions}
+    ValidateCached --> |Invalid| PageTableWalk
+
+    PageTableWalk --> |Found| CheckPerm2{Check<br/>Permissions}
+    PageTableWalk --> |Not Found| Fault1[Page Not<br/>Mapped Fault]
+
+    CheckPerm1 --> |Granted| Success1[Return PA<br/>from Cache]
+    CheckPerm1 --> |Denied| Fault2[Permission<br/>Fault]
+
+    CheckPerm2 --> |Granted| UpdateCache[Update<br/>TLB Cache]
+    CheckPerm2 --> |Denied| Fault2
+
+    UpdateCache --> Success2[Return PA]
+
+    Fault1 --> RecordFault[Record Fault]
+    Fault2 --> RecordFault
+
+    RecordFault --> ReturnFault[Return Fault]
+
+    Success1 --> End([Complete])
+    Success2 --> End
+    ReturnError1 --> End
+    ReturnFault --> End
+
+    style Start fill:#e1f5e1
+    style End fill:#e1f5e1
+    style CheckCache fill:#fff4e6
+    style Success1 fill:#e6f3ff
+    style Success2 fill:#e6f3ff
+    style Fault1 fill:#ffe6e6
+    style Fault2 fill:#ffe6e6
+```
+
+### Fault Handling Flow
+
+The fault handling flow illustrates fault detection, classification, recording, and event generation.
+
+```mermaid
+flowchart TD
+    Start([Fault Detected]) --> Classify{Classify<br/>Fault Type}
+
+    Classify --> |Page Not Mapped| Type1[PageNotMapped]
+    Classify --> |Permission| Type2[PermissionViolation]
+    Classify --> |Address Size| Type3[AddressSizeFault]
+    Classify --> |Other| Type4[Other Types]
+
+    Type1 --> CreateRecord[Create FaultRecord<br/>with Context]
+    Type2 --> CreateRecord
+    Type3 --> CreateRecord
+    Type4 --> CreateRecord
+
+    CreateRecord --> Populate[Populate:<br/>StreamID, PASID,<br/>IOVA, Timestamp]
+
+    Populate --> CheckQueue{Queue<br/>Has Space?}
+
+    CheckQueue --> |Yes| AppendQueue[Append to<br/>Fault Queue]
+    CheckQueue --> |No| HandleOverflow[Handle<br/>Overflow]
+
+    HandleOverflow --> AppendQueue
+
+    AppendQueue --> CheckEvent{Event<br/>Enabled?}
+
+    CheckEvent --> |Yes| CreateEvent[Create<br/>EventEntry]
+    CheckEvent --> |No| UpdateStats
+
+    CreateEvent --> CheckFilter{Passes<br/>Filter?}
+
+    CheckFilter --> |Yes| AppendEvent[Append to<br/>Event Queue]
+    CheckFilter --> |No| UpdateStats
+
+    AppendEvent --> CheckInt{Interrupt<br/>Enabled?}
+
+    CheckInt --> |Yes| RaiseInt[Raise<br/>Interrupt]
+    CheckInt --> |No| UpdateStats
+
+    RaiseInt --> UpdateStats[Update<br/>Statistics]
+
+    UpdateStats --> CheckRecovery{Recoverable?}
+
+    CheckRecovery --> |Yes| Recover[Attempt<br/>Recovery]
+    CheckRecovery --> |No| LogFault[Log Fault]
+
+    Recover --> CheckSuccess{Success?}
+
+    CheckSuccess --> |Yes| ReturnSuccess[Return<br/>Success]
+    CheckSuccess --> |No| LogFault
+
+    LogFault --> ReturnError[Return<br/>Error]
+
+    ReturnSuccess --> End([Complete])
+    ReturnError --> End
+
+    style Start fill:#ffe6e6
+    style End fill:#e1f5e1
+    style ReturnSuccess fill:#e6f3ff
+    style ReturnError fill:#ffe6e6
+```
+
+### Stream/PASID Hierarchy
+
+The hierarchy shows the relationship between SMMU, streams, PASIDs, and address spaces.
+
+```mermaid
+flowchart TD
+    subgraph SMMU["SMMU Controller"]
+        SMMUNode[SMMU Instance<br/>Global Config<br/>Queues & Stats]
+        StreamTable[Stream Table<br/>DashMap<br/>StreamID → StreamContext]
+        SMMUNode --> StreamTable
+    end
+
+    subgraph Streams["Stream Contexts"]
+        SC1[Stream 1<br/>Device A<br/>StreamID: 0x0001]
+        SC2[Stream 2<br/>Device B<br/>StreamID: 0x0002]
+        SCN[Stream N<br/>Device N<br/>StreamID: 0xFFFF]
+
+        StreamTable --> SC1
+        StreamTable --> SC2
+        StreamTable --> SCN
+    end
+
+    subgraph PASIDs["PASID Contexts"]
+        PT1[PASID Table<br/>HashMap<br/>PASID → AddressSpace]
+
+        P0[PASID 0<br/>Default]
+        P1[PASID 1<br/>Process 1]
+        P2[PASID 2<br/>Process 2]
+
+        SC1 --> PT1
+        PT1 --> P0
+        PT1 --> P1
+        PT1 --> P2
+    end
+
+    subgraph AddressSpaces["Address Spaces"]
+        AS0[AddressSpace 0<br/>Shared Default]
+        AS1[AddressSpace 1<br/>Process 1]
+        AS2[AddressSpace 2<br/>Process 2]
+
+        P0 --> AS0
+        P1 --> AS1
+        P2 --> AS2
+    end
+
+    subgraph PageTables["Page Tables"]
+        PT[Page Table<br/>HashMap<br/>IOVA → PageEntry]
+
+        PE[Page Entry:<br/>PA, Permissions,<br/>Security, Attributes]
+
+        AS1 --> PT
+        PT --> PE
+    end
+
+    style SMMU fill:#e6f3ff
+    style Streams fill:#e1f5e1
+    style PASIDs fill:#fff4e6
+    style AddressSpaces fill:#ffe6f0
+    style PageTables fill:#f0e6ff
+```
+
+### Cache Architecture
+
+The TLB cache structure showing lookup, insertion, and invalidation operations.
+
+```mermaid
+flowchart TD
+    subgraph TLB["TLB Structure"]
+        TLBMap[LRU HashMap<br/>Key: StreamID, PASID, IOVA<br/>Value: CachedTranslation]
+        Entry[Cache Entry:<br/>PA, Permissions,<br/>Valid, Timestamp]
+        TLBMap -.-> Entry
+    end
+
+    Start([Cache Op]) --> OpType{Operation?}
+
+    OpType --> |Lookup| Lookup[Compute Key<br/>Hash Lookup]
+    OpType --> |Insert| Insert[Check Capacity<br/>Evict if Needed]
+    OpType --> |Invalidate| Invalidate[Select Scope<br/>Remove Entries]
+
+    Lookup --> CheckHit{Hit?}
+    CheckHit --> |Yes| ValidCheck{Valid?}
+    CheckHit --> |No| Miss[Cache Miss<br/>Increment Counter]
+
+    ValidCheck --> |Yes| Hit[Cache Hit<br/>Return Translation]
+    ValidCheck --> |No| Miss
+
+    Insert --> InsertEntry[Insert Entry<br/>Update LRU]
+    InsertEntry --> IncrInsert[Increment<br/>Insert Counter]
+
+    Invalidate --> InvScope{Scope?}
+    InvScope --> |All| InvAll[Clear All]
+    InvScope --> |Stream| InvStream[Remove Stream]
+    InvScope --> |PASID| InvPASID[Remove PASID]
+    InvScope --> |Address| InvAddr[Remove Range]
+
+    InvAll --> IncrInv[Increment<br/>Invalidation Counter]
+    InvStream --> IncrInv
+    InvPASID --> IncrInv
+    InvAddr --> IncrInv
+
+    Hit --> End([Complete])
+    Miss --> End
+    IncrInsert --> End
+    IncrInv --> End
+
+    style TLB fill:#e6f3ff
+    style Hit fill:#e1f5e1
+    style Miss fill:#fff4e6
+    style InvAll fill:#ffe6e6
+```
+
+**Note**: These are simplified versions. For full diagrams with detailed annotations and all fault types, see [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md).
 
 ## Conclusion
 
