@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5ba3b1356edd39f75b726eb07997a0fe67c27482e3e91993ec19150b26ae8577 # shrinks to iova = IOVA(0x0000000000001000), map_perms = PagePermissions { read: false, write: false, execute: false }, access = Read

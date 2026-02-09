@@ -1,0 +1,7 @@
+# cargo-mutants configuration for ARM SMMU v3 implementation
+
+exclude_globs = [
+    "tests/**",
+    "benches/**",
+    "examples/**",
+]
