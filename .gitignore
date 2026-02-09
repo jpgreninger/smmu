@@ -54,6 +54,13 @@ Cargo.lock
 **/*.rs.bk
 *.pdb
 
+# Mutation testing
+rust/mutants.out/
+rust/mutants.out.old/
+rust/json/
+rust/mutation-test.log
+rust/mutation-test-report.txt
+
 # Temporary files
 *.tmp
 *.log
