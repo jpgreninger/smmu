@@ -341,6 +341,7 @@ fn test_requires_page_tables_all_except_bypass() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_supports_page_size_all_except_bypass() {
     let page_size_4k = 4096;
     let page_size_2m = 2 * 1024 * 1024;

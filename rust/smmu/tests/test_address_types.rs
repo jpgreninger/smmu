@@ -810,6 +810,7 @@ fn test_new_page_aligned_failure() {
 }
 
 #[test]
+#[allow(clippy::verbose_bit_mask)]
 fn test_is_page_aligned_consistency() {
     for addr in [0x0, 0x1000, 0x2000, 0xFFF, 0x1001, 0x1FFF] {
         let iova = IOVA::new(addr).unwrap();

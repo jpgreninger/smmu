@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 #![allow(clippy::float_cmp)]
 #![allow(clippy::cast_possible_truncation)]
-
 #![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_sign_loss)]
 //! Memory Usage Benchmarks (Section 7.2)
 //!
 //! Comprehensive benchmarks for memory usage optimization and monitoring.
@@ -206,7 +206,9 @@ fn bench_compact_layouts(c: &mut Criterion) {
     let mut group = c.benchmark_group("compact_layouts");
 
     // Standard struct layout
+    #[allow(clippy::items_after_statements)]
     #[derive(Clone, Copy)]
+    #[allow(dead_code)]
     struct StandardEntry {
         iova: u64,
         pa: u64,
@@ -216,6 +218,7 @@ fn bench_compact_layouts(c: &mut Criterion) {
 
     // Compact layout using bit packing
     #[derive(Clone, Copy)]
+    #[allow(dead_code)]
     struct CompactEntry {
         // Pack IOVA (48-bit) + permissions (8-bit) + security (8-bit)
         iova_and_flags: u64,
@@ -262,6 +265,7 @@ fn bench_alignment_overhead(c: &mut Criterion) {
 
     // Poorly aligned struct (requires padding)
     #[repr(C)]
+    #[allow(clippy::items_after_statements)]
     struct PaddedStruct {
         flag: u8,   // 1 byte + 7 padding
         value: u64, // 8 bytes
@@ -270,6 +274,7 @@ fn bench_alignment_overhead(c: &mut Criterion) {
 
     // Well-aligned struct (minimal padding)
     #[repr(C)]
+    #[allow(clippy::items_after_statements)]
     struct AlignedStruct {
         value: u64, // 8 bytes
         flag: u8,   // 1 byte
@@ -456,8 +461,7 @@ fn bench_sparse_efficiency(c: &mut Criterion) {
     group.bench_function("sparse_1_percent", |b| {
         b.iter(|| {
             let mut map = HashMap::new();
-            let _total_space = 100_000;
-            let populated = 1000; // 1%
+            let populated = 1000; // 1% of 100,000
 
             for i in 0..populated {
                 map.insert(i * 100, i * 0x1000);
@@ -470,8 +474,7 @@ fn bench_sparse_efficiency(c: &mut Criterion) {
     group.bench_function("dense_50_percent", |b| {
         b.iter(|| {
             let mut map = HashMap::new();
-            let _total_space = 100_000;
-            let populated = 50_000; // 50%
+            let populated = 50_000; // 50% of 100,000
 
             for i in 0..populated {
                 map.insert(i * 2, i * 0x1000);

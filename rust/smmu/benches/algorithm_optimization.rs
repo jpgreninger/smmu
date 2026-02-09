@@ -1,8 +1,9 @@
 #![allow(missing_docs)]
 #![allow(clippy::float_cmp)]
 #![allow(clippy::cast_possible_truncation)]
-
 #![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::items_after_statements)]
 //! Algorithm Optimization Benchmarks (Section 7.2)
 //!
 //! Comprehensive benchmarks for algorithm complexity validation and optimization.
@@ -508,8 +509,8 @@ fn bench_smallvec_invalidation_batches(c: &mut Criterion) {
 fn bench_translation_baseline_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("baseline_comparison");
 
-    // Set explicit target for comparison
-    const CPP_BASELINE_NS: u128 = 135;
+    // Set explicit target for comparison: 135ns C++ baseline
+    // Note: C++ baseline is 135ns
 
     group.bench_function("translation_latency", |b| {
         // TODO: Implement when full translation path is ready

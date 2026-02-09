@@ -6,6 +6,7 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::cast_precision_loss)]
 
 //! Unit tests for performance optimizations
 //!
@@ -243,7 +244,7 @@ fn test_multi_stream_performance() {
     // Configure 10 streams with PASIDs
     for i in 0..10 {
         let stream_id = smmu::types::StreamID::new(i).unwrap();
-        smmu.configure_stream(stream_id, Default::default()).unwrap();
+        smmu.configure_stream(stream_id, smmu::types::StreamConfig::default()).unwrap();
 
         let pasid = PASID::new(1).unwrap();
         smmu.create_pasid(stream_id, pasid).unwrap();

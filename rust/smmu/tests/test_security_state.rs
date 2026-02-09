@@ -635,6 +635,7 @@ fn test_arm_cca_realm_complete_isolation() {
 }
 
 #[test]
+#[allow(clippy::no_effect_underscore_binding)]
 fn test_all_state_combinations_access_matrix() {
     // Complete access matrix test (3x3 = 9 combinations)
     let _states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];

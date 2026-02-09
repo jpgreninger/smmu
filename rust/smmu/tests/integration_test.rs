@@ -1002,6 +1002,7 @@ fn test_large_scale_stream_configuration() {
 }
 
 #[test]
+#[allow(clippy::cast_precision_loss)]
 fn test_massive_translation_load() {
     let smmu = SMMU::new();
 
@@ -1100,6 +1101,7 @@ fn test_massive_translation_load() {
 }
 
 #[test]
+#[allow(clippy::cast_precision_loss)]
 fn test_concurrent_high_load_scalability() {
     let smmu = Arc::new(SMMU::new());
 
@@ -1218,6 +1220,7 @@ fn test_concurrent_high_load_scalability() {
 }
 
 #[test]
+#[allow(clippy::cast_precision_loss)]
 fn test_memory_scalability_under_load() {
     let smmu = SMMU::new();
 

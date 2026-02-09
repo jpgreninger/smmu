@@ -698,12 +698,13 @@ fn test_event_entry_debug_with_all_fields() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_event_entry_in_vec() {
-    let mut events = Vec::new();
-
-    events.push(EventEntry::new(EventType::TranslationFault, 1, 2, 3));
-    events.push(EventEntry::new(EventType::PermissionFault, 4, 5, 6));
-    events.push(EventEntry::new(EventType::ConfigurationError, 7, 8, 9));
+    let events = vec![
+        EventEntry::new(EventType::TranslationFault, 1, 2, 3),
+        EventEntry::new(EventType::PermissionFault, 4, 5, 6),
+        EventEntry::new(EventType::ConfigurationError, 7, 8, 9),
+    ];
 
     assert_eq!(events.len(), 3);
     assert_eq!(events[0].event_type, EventType::TranslationFault);
@@ -730,16 +731,15 @@ fn test_event_entry_sorting_by_timestamp() {
 }
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_event_entry_filtering_by_type() {
-    let mut events = Vec::new();
+    let events = vec![
+        EventEntry::new(EventType::TranslationFault, 1, 2, 3),
+        EventEntry::new(EventType::PermissionFault, 4, 5, 6),
+        EventEntry::new(EventType::TranslationFault, 7, 8, 9),
+    ];
 
-    events.push(EventEntry::new(EventType::TranslationFault, 1, 2, 3));
-    events.push(EventEntry::new(EventType::PermissionFault, 4, 5, 6));
-    events.push(EventEntry::new(EventType::TranslationFault, 7, 8, 9));
-
-    let translation_faults: Vec<_> = events.iter().filter(|e| e.event_type == EventType::TranslationFault).collect();
-
-    assert_eq!(translation_faults.len(), 2);
+    assert_eq!(events.iter().filter(|e| e.event_type == EventType::TranslationFault).count(), 2);
 }
 
 // ============================================================================

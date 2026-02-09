@@ -62,9 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let high_streams = smmu.streams().filter(|id| id.as_u32() > 3).count();
     println!("  Streams with ID > 3: {high_streams}");
 
-    // Collect into a vector
-    let stream_vec: Vec<StreamID> = smmu.streams().collect();
-    println!("  Collected {} streams into vector\n", stream_vec.len());
+    // Collect into a vector (count without collecting)
+    println!("  Collected {} streams into vector\n", smmu.streams().count());
 
     // Example 2: Iterating over PASIDs
     println!("Example 2: PASID Iteration\n");

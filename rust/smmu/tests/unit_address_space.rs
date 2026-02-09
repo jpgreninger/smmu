@@ -1055,8 +1055,7 @@ fn test_address_range_iterator() {
     let end = IOVA::new(0x1000 + 3 * PAGE_SIZE).unwrap();
     let range = AddressRange::new(start, end);
 
-    let pages: Vec<_> = range.into_iter().collect();
-    assert!(!pages.is_empty());
+    assert!(range.into_iter().next().is_some());
 }
 
 // ============================================================================

@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
 
 //! Performance Tuning Example
 //!

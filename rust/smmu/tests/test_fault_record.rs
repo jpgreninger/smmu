@@ -523,6 +523,7 @@ fn test_realm_fault_record() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_fault_record_timestamp_ordering() {
     let record1 = FaultRecord::builder()
         .stream_id(StreamID::new(1).unwrap())
@@ -558,26 +559,26 @@ fn test_fault_record_timestamp_ordering() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_fault_record_vec_operations() {
-    let mut records = Vec::new();
-
-    records.push(FaultRecord::new(
-        StreamID::new(1).unwrap(),
-        PASID::new(0).unwrap(),
-        IOVA::new(0x1000).unwrap(),
-        FaultType::TranslationFault,
-        AccessType::Read,
-        SecurityState::NonSecure,
-    ));
-
-    records.push(FaultRecord::new(
-        StreamID::new(2).unwrap(),
-        PASID::new(0).unwrap(),
-        IOVA::new(0x2000).unwrap(),
-        FaultType::PermissionFault,
-        AccessType::Write,
-        SecurityState::NonSecure,
-    ));
+    let records = vec![
+        FaultRecord::new(
+            StreamID::new(1).unwrap(),
+            PASID::new(0).unwrap(),
+            IOVA::new(0x1000).unwrap(),
+            FaultType::TranslationFault,
+            AccessType::Read,
+            SecurityState::NonSecure,
+        ),
+        FaultRecord::new(
+            StreamID::new(2).unwrap(),
+            PASID::new(0).unwrap(),
+            IOVA::new(0x2000).unwrap(),
+            FaultType::PermissionFault,
+            AccessType::Write,
+            SecurityState::NonSecure,
+        ),
+    ];
 
     assert_eq!(records.len(), 2);
     assert_eq!(records[0].fault_type(), FaultType::TranslationFault);
@@ -605,12 +606,13 @@ fn test_fault_record_filtering() {
             .fault_type(FaultType::TranslationFault)
             .build()];
 
-    let translation_faults: Vec<_> = records
-        .iter()
-        .filter(|r| r.fault_type() == FaultType::TranslationFault)
-        .collect();
-
-    assert_eq!(translation_faults.len(), 2);
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.fault_type() == FaultType::TranslationFault)
+            .count(),
+        2
+    );
 }
 
 // ============================================================================

@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::similar_names)]
 
 //! Two-Stage Translation Example
 //!

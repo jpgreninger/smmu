@@ -435,12 +435,13 @@ fn test_realistic_stack_page_fault() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_pri_queue_vec_operations() {
-    let mut queue = Vec::new();
-
-    queue.push(PRIEntry::new(10, 20, 0x1000, AccessType::Read));
-    queue.push(PRIEntry::new(10, 20, 0x2000, AccessType::Write));
-    queue.push(PRIEntry::new(10, 20, 0x3000, AccessType::Execute));
+    let queue = vec![
+        PRIEntry::new(10, 20, 0x1000, AccessType::Read),
+        PRIEntry::new(10, 20, 0x2000, AccessType::Write),
+        PRIEntry::new(10, 20, 0x3000, AccessType::Execute),
+    ];
 
     assert_eq!(queue.len(), 3);
     assert_eq!(queue[0].requested_address, 0x1000);
@@ -488,9 +489,10 @@ fn test_pri_queue_filtering_by_access_type() {
         PRIEntry::new(10, 20, 0x3000, AccessType::Read),
         PRIEntry::new(10, 20, 0x4000, AccessType::Execute)];
 
-    let read_requests: Vec<_> = queue.iter().filter(|e| e.access_type == AccessType::Read).collect();
-
-    assert_eq!(read_requests.len(), 2);
+    assert_eq!(
+        queue.iter().filter(|e| e.access_type == AccessType::Read).count(),
+        2
+    );
 }
 
 // ============================================================================
@@ -513,6 +515,7 @@ fn test_request_group_identification() {
 }
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_multiple_request_groups() {
     let mut requests = vec![
         PRIEntry::new(10, 20, 0x1000, AccessType::Read),
@@ -524,9 +527,7 @@ fn test_multiple_request_groups() {
     requests[1].is_last_request = true;
     requests[3].is_last_request = true;
 
-    let group_ends: Vec<_> = requests.iter().filter(|e| e.is_last_request).collect();
-
-    assert_eq!(group_ends.len(), 2);
+    assert_eq!(requests.iter().filter(|e| e.is_last_request).count(), 2);
 }
 
 // ============================================================================

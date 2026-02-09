@@ -31,7 +31,7 @@ use smmu::types::{
 
 proptest! {
     #[test]
-    fn prop_map_then_unmap_restores_state(iova in 0x1000u64..0x100000u64) {
+    fn prop_map_then_unmap_restores_state(iova in 0x1000u64..0x0010_0000_u64) {
         let mut addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
@@ -46,7 +46,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_translation_preserves_page_offset(iova in 0x1000u64..0x100000u64) {
+    fn prop_translation_preserves_page_offset(iova in 0x1000u64..0x0010_0000_u64) {
         let mut addr_space = AddressSpace::new();
         let page_base = iova & !0xFFF;
         let offset = iova & 0xFFF;
@@ -61,7 +61,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_overwrite_changes_mapping(iova in 0x1000u64..0x100000u64, pa1 in 0x1000u64..0x100000u64, pa2 in 0x1000u64..0x100000u64) {
+    fn prop_overwrite_changes_mapping(iova in 0x1000u64..0x0010_0000_u64, pa1 in 0x1000u64..0x0010_0000_u64, pa2 in 0x1000u64..0x0010_0000_u64) {
         let mut addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa1 = PA::new(pa1 & !0xFFF).unwrap();
@@ -204,7 +204,7 @@ proptest! {
     }
 
     #[test]
-    fn prop_pasid_validation(val in 0u32..=1048575u32) {
+    fn prop_pasid_validation(val in 0u32..=1_048_575_u32) {
         // Valid PASIDs (0 to 2^20-1) should succeed
         let result = PASID::new(val);
         assert!(result.is_ok());
@@ -657,11 +657,10 @@ proptest! {
         let max_page = ((1u64 << 48) - PAGE_SIZE) & !(PAGE_SIZE - 1);
         let addr = max_page + offset;
 
+        let iova = IOVA::new(addr);
         if addr < (1u64 << 48) {
-            let iova = IOVA::new(addr);
             assert!(iova.is_ok());
         } else {
-            let iova = IOVA::new(addr);
             assert!(iova.is_err());
         }
     }

@@ -78,7 +78,7 @@ fn test_validation_error_invalid_alignment_64kb() {
 
 #[test]
 fn test_validation_error_invalid_access_type_display() {
-    let error = ValidationError::InvalidAccessType { bits: 0b11111111 };
+    let error = ValidationError::InvalidAccessType { bits: 0b1111_1111 };
 
     let display = format!("{error}");
     assert_eq!(display, "Invalid access type bit pattern: 0b11111111");
@@ -329,6 +329,7 @@ fn test_validation_error_new_display() {
 }
 
 #[test]
+#[allow(clippy::no_effect_underscore_binding)]
 fn test_validation_error_construct_all_variants() {
     // Test construction of all variants to ensure they can be created
 

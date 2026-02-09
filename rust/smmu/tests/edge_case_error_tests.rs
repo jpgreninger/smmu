@@ -625,6 +625,7 @@ fn test_execute_violation_on_non_executable_page() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn test_all_permission_combinations() {
     let smmu = SMMU::new();
     setup_basic_stream(&smmu, VALID_STREAM_ID);

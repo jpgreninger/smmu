@@ -212,6 +212,7 @@ fn test_page_permissions_allows_write_execute() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_page_permissions_allows_read_write_execute() {
     let all_perms = PagePermissions::all();
     assert!(all_perms.allows(AccessType::ReadWriteExecute));

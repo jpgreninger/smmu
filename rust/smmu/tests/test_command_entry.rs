@@ -682,12 +682,13 @@ fn test_edge_case_all_flags_set() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_command_queue_vec() {
-    let mut queue = Vec::new();
-
-    queue.push(CommandEntry::new(CommandType::CfgiAll, 0, 0));
-    queue.push(CommandEntry::new(CommandType::TlbiNhAll, 0, 0));
-    queue.push(CommandEntry::new(CommandType::Sync, 0, 0));
+    let queue = vec![
+        CommandEntry::new(CommandType::CfgiAll, 0, 0),
+        CommandEntry::new(CommandType::TlbiNhAll, 0, 0),
+        CommandEntry::new(CommandType::Sync, 0, 0),
+    ];
 
     assert_eq!(queue.len(), 3);
     assert_eq!(queue[0].cmd_type, CommandType::CfgiAll);

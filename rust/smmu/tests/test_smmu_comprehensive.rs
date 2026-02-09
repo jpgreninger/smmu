@@ -1369,6 +1369,7 @@ fn test_stream_limit_allows_reconfiguration_after_removal() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::no_effect_underscore_binding)]
 fn test_update_config_transactional() {
     let smmu = SMMU::new();
 

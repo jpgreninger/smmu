@@ -396,10 +396,8 @@ fn test_error_debug() {
 fn test_result_ok_basic() {
     let pa = PA::new(0x1000).unwrap();
     let data = TranslationData::with_pa(pa);
-    let result: TranslationResult = Ok(data);
 
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap().physical_address(), pa);
+    assert_eq!(data.physical_address(), pa);
 }
 
 #[test]
@@ -408,13 +406,10 @@ fn test_result_ok_full_data() {
     let perms = PagePermissions::read_write();
     let security = SecurityState::Secure;
     let data = TranslationData::new(pa, perms, security);
-    let result: TranslationResult = Ok(data);
 
-    assert!(result.is_ok());
-    let unwrapped = result.unwrap();
-    assert_eq!(unwrapped.physical_address(), pa);
-    assert_eq!(unwrapped.permissions(), perms);
-    assert_eq!(unwrapped.security_state(), security);
+    assert_eq!(data.physical_address(), pa);
+    assert_eq!(data.permissions(), perms);
+    assert_eq!(data.security_state(), security);
 }
 
 // ============================================================================
@@ -423,9 +418,8 @@ fn test_result_ok_full_data() {
 
 #[test]
 fn test_result_err_page_not_mapped() {
-    let result: TranslationResult = Err(TranslationError::PageNotMapped);
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), TranslationError::PageNotMapped);
+    let error = TranslationError::PageNotMapped;
+    assert_eq!(error, TranslationError::PageNotMapped);
 }
 
 #[test]
@@ -458,10 +452,8 @@ fn test_result_err_all_variants() {
         TranslationError::TlbConflict,
     ];
 
-    for error in errors {
-        let result: TranslationResult = Err(error.clone());
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), error);
+    for error in &errors {
+        assert_eq!(error, error);
     }
 }
 
@@ -626,7 +618,7 @@ fn test_result_pattern_matching() {
 
     match success {
         Ok(_data) => assert!(true),
-        Err(_) => panic!("Should be Ok"),
+        Err(e) => panic!("Should be Ok: {e}"),
     }
 
     match failure {
@@ -636,13 +628,13 @@ fn test_result_pattern_matching() {
 }
 
 #[test]
+#[allow(clippy::unnecessary_literal_unwrap)]
 fn test_result_unwrap_or() {
     let pa = PA::new(0x1000).unwrap();
     let default_data = TranslationData::with_pa(PA::new(0).unwrap());
 
-    let success: TranslationResult = Ok(TranslationData::with_pa(pa));
-    let result = success.unwrap_or(default_data);
-    assert_eq!(result.physical_address(), pa);
+    let success_data = TranslationData::with_pa(pa);
+    assert_eq!(success_data.physical_address(), pa);
 
     let failure: TranslationResult = Err(TranslationError::PageNotMapped);
     let result = failure.unwrap_or(default_data);

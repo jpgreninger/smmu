@@ -19,7 +19,7 @@
 //! - Burst load handling
 //! - Long-running concurrent operations
 //!
-//! Running with ThreadSanitizer (if available):
+//! Running with `ThreadSanitizer` (if available):
 //! ```bash
 //! RUSTFLAGS="-Z sanitizer=thread" cargo +nightly test --tests -Z build-std --target x86_64-unknown-linux-gnu
 //! ```
@@ -119,8 +119,10 @@ fn stress_address_space_concurrent_random_maps() {
     }
 
     // Verify final state
-    let guard = addr_space.lock().unwrap();
-    let page_count = guard.get_page_count().unwrap_or(0);
+    let page_count = {
+        let guard = addr_space.lock().unwrap();
+        guard.get_page_count().unwrap_or(0)
+    };
     assert!(
         page_count > 0,
         "Address space should have mappings after concurrent operations"
@@ -197,8 +199,7 @@ fn stress_address_space_mixed_read_write() {
     }
 
     // Verify consistency
-    let guard = addr_space.read().unwrap();
-    assert!(guard.get_page_count().unwrap() > 0);
+    assert!(addr_space.read().unwrap().get_page_count().unwrap() > 0);
 }
 
 #[test]
@@ -647,8 +648,10 @@ fn stress_smmu_cache_thrashing() {
     }
 
     // Verify that operations completed successfully
-    let guard = smmu.lock().unwrap();
-    let (total, successful, _failed) = guard.get_translation_stats();
+    let (total, successful, _failed) = {
+        let guard = smmu.lock().unwrap();
+        guard.get_translation_stats()
+    };
     assert!(total > 0, "Should have recorded translations");
     assert!(successful > 0, "Should have successful translations");
 }
@@ -658,7 +661,7 @@ fn stress_smmu_cache_thrashing() {
 // ============================================================================
 
 #[test]
-#[ignore] // Run with --ignored for extended testing
+#[ignore = "Run with --ignored for extended testing"]
 fn stress_long_running_concurrent_operations() {
     const NUM_THREADS: usize = 8;
     const DURATION_SECONDS: u64 = 10;
@@ -689,51 +692,48 @@ fn stress_long_running_concurrent_operations() {
                 let iova = random_page_aligned_iova();
                 let pa = random_pa();
 
-                let guard = smmu_clone.lock().unwrap();
+                {
+                    let guard = smmu_clone.lock().unwrap();
 
-                match rng.gen_range(0..10) {
-                    0..=3 => {
-                        // Map (40%)
-                        let _ = guard.map_page(
-                            stream_id,
-                            pasid,
-                            iova,
-                            pa,
-                            random_permissions(),
-                            random_security_state(),
-                        );
-                    }
-                    4..=8 => {
-                        // Translate (50%)
-                        let _ = guard.translate(
-                            stream_id,
-                            pasid,
-                            iova,
-                            random_access_type(),
-                        );
-                    }
-                    _ => {
-                        // Invalidate/Remap (10%)
-                        let _ = guard.map_page(
-                            stream_id,
-                            pasid,
-                            iova,
-                            pa,
-                            PagePermissions::none(),
-                            random_security_state(),
-                        );
+                    match rng.gen_range(0..10) {
+                        0..=3 => {
+                            // Map (40%)
+                            let _ = guard.map_page(
+                                stream_id,
+                                pasid,
+                                iova,
+                                pa,
+                                random_permissions(),
+                                random_security_state(),
+                            );
+                        }
+                        4..=8 => {
+                            // Translate (50%)
+                            let _ = guard.translate(
+                                stream_id,
+                                pasid,
+                                iova,
+                                random_access_type(),
+                            );
+                        }
+                        _ => {
+                            // Invalidate/Remap (10%)
+                            let _ = guard.map_page(
+                                stream_id,
+                                pasid,
+                                iova,
+                                pa,
+                                PagePermissions::none(),
+                                random_security_state(),
+                            );
+                        }
                     }
                 }
 
                 op_count += 1;
             }
 
-            println!(
-                "Thread {} completed {} operations in {} seconds",
-                thread_id,
-                op_count,
-                DURATION_SECONDS
-            );
+            println!("Thread {thread_id} completed {op_count} operations in {DURATION_SECONDS} seconds");
         });
 
         handles.push(handle);

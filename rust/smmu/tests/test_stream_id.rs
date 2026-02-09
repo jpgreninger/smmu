@@ -127,7 +127,7 @@ fn test_stream_id_try_from_valid() {
 
 #[test]
 fn test_stream_id_try_from_invalid() {
-    let result: Result<StreamID, ValidationError> = 100000u32.try_into();
+    let result: Result<StreamID, ValidationError> = 100_000_u32.try_into();
     assert!(result.is_err());
 }
 
@@ -432,12 +432,13 @@ fn test_stream_id_round_trip_multiple_values() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::useless_vec)]
 fn test_stream_id_vec_operations() {
-    let mut vec = Vec::new();
-
-    vec.push(StreamID::new(1).unwrap());
-    vec.push(StreamID::new(2).unwrap());
-    vec.push(StreamID::new(3).unwrap());
+    let vec = vec![
+        StreamID::new(1).unwrap(),
+        StreamID::new(2).unwrap(),
+        StreamID::new(3).unwrap(),
+    ];
 
     assert_eq!(vec.len(), 3);
     assert_eq!(vec[0].as_u32(), 1);
@@ -463,7 +464,7 @@ fn test_stream_id_vec_contains() {
 
 #[test]
 fn test_stream_id_error_preserves_value() {
-    let invalid_value = 100000u32;
+    let invalid_value = 100_000_u32;
     let result = StreamID::new(invalid_value);
 
     assert!(result.is_err());

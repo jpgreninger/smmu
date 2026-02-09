@@ -4,14 +4,18 @@
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::field_reassign_with_default)]
 #![allow(clippy::cast_sign_loss)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::use_self)]
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::option_if_let_else)]
 
-//! QuickCheck-Based Property Testing (Task 5.1)
+//! `QuickCheck`-Based Property Testing (Task 5.1)
 //!
-//! This module provides QuickCheck integration for property-based testing
-//! as an alternative to PropTest. QuickCheck has different shrinking strategies
+//! This module provides `QuickCheck` integration for property-based testing
+//! as an alternative to `PropTest`. `QuickCheck` has different shrinking strategies
 //! and can find different edge cases.
 //!
-//! Key Differences from PropTest:
+//! Key Differences from `PropTest`:
 //! - Different random generation strategies
 //! - Alternative shrinking algorithms
 //! - Simpler test syntax for some cases

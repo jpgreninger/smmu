@@ -83,7 +83,7 @@ fn test_configure_stream_zero() {
 // ============================================================================
 
 #[test]
-#[ignore] // TODO: API doesn't have enable_stream/disable_stream methods
+#[ignore = "TODO: API doesn't have enable_stream/disable_stream methods"]
 fn test_enable_disable_stream() {
     let smmu = SMMU::new();
     let stream_id = StreamID::new(1).unwrap();
@@ -94,7 +94,7 @@ fn test_enable_disable_stream() {
 }
 
 #[test]
-#[ignore] // TODO: API doesn't have disable_stream method
+#[ignore = "TODO: API doesn't have disable_stream method"]
 fn test_disable_nonexistent_stream() {
     let _smmu = SMMU::new();
     let _stream_id = StreamID::new(1).unwrap();

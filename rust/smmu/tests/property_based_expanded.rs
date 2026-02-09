@@ -6,6 +6,9 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::unnecessary_unwrap)]
+#![allow(dead_code)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::uninlined_format_args)]
 
 //! Expanded Property-Based Testing (Task 5.1)
 //!

@@ -123,11 +123,9 @@ fn test_fault_filtering_by_type() {
     assert!(!faults.is_empty());
 
     // Filter by translation faults
-    let translation_faults: Vec<_> = faults
+    assert!(faults
         .iter()
-        .filter(|f| matches!(f.fault_type(), FaultType::TranslationFault))
-        .collect();
-    assert!(!translation_faults.is_empty());
+        .any(|f| matches!(f.fault_type(), FaultType::TranslationFault)));
 }
 
 #[test]

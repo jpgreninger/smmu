@@ -723,8 +723,7 @@ fn test_query_pasids_iterator() {
     ctx.create_pasid(PASID::new(2).unwrap()).unwrap();
 
     let query = ctx.query();
-    let pasids: Vec<PASID> = query.pasids().collect();
-    assert_eq!(pasids.len(), 2);
+    assert_eq!(query.pasids().count(), 2);
 }
 
 #[test]
@@ -759,9 +758,8 @@ fn test_query_pasids_by_security_state() {
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
 
     let query = ctx.query();
-    let pasids: Vec<PASID> = query.pasids_by_security_state(SecurityState::NonSecure).collect();
     // Currently returns empty iterator (TODO in implementation)
-    assert_eq!(pasids.len(), 0);
+    assert_eq!(query.pasids_by_security_state(SecurityState::NonSecure).count(), 0);
 }
 
 // ========================================================================

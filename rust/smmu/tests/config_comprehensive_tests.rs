@@ -2079,6 +2079,7 @@ fn test_smmu_config_update_resource_limits_preserves_tracking() {
 }
 
 #[test]
+#[allow(clippy::no_effect_underscore_binding)]
 fn test_config_constants_copy() {
     let _c1 = ConfigConstants;
     let _c2 = ConfigConstants;
@@ -2247,6 +2248,7 @@ fn test_stream_config_max_pasid_at_boundary() {
 }
 
 #[test]
+#[allow(clippy::no_effect_underscore_binding)]
 fn test_config_constants_clone() {
     // ConfigConstants is Copy+Clone
     let c1 = ConfigConstants;
@@ -2465,6 +2467,7 @@ fn test_stream_config_all_predefined_configs_valid() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
 fn test_configuration_error_type_hash_uniqueness() {
     use std::collections::hash_map::DefaultHasher;
     use std::collections::HashSet;

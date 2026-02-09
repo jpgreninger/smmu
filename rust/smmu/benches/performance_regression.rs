@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 #![allow(clippy::float_cmp)]
 #![allow(clippy::cast_possible_truncation)]
-
 #![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_sign_loss)]
 //! Performance Regression Test Suite (Phase 4.4)
 //!
 //! Comprehensive benchmark suite for detecting performance regressions.
