@@ -32,7 +32,7 @@ use smmu::types::{
 proptest! {
     #[test]
     fn prop_map_then_unmap_restores_state(iova in 0x1000u64..0x0010_0000_u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -47,7 +47,7 @@ proptest! {
 
     #[test]
     fn prop_translation_preserves_page_offset(iova in 0x1000u64..0x0010_0000_u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let page_base = iova & !0xFFF;
         let offset = iova & 0xFFF;
         let iova_base = IOVA::new(page_base).unwrap();
@@ -62,7 +62,7 @@ proptest! {
 
     #[test]
     fn prop_overwrite_changes_mapping(iova in 0x1000u64..0x0010_0000_u64, pa1 in 0x1000u64..0x0010_0000_u64, pa2 in 0x1000u64..0x0010_0000_u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa1 = PA::new(pa1 & !0xFFF).unwrap();
         let pa2 = PA::new(pa2 & !0xFFF).unwrap();
@@ -98,7 +98,7 @@ proptest! {
 
     #[test]
     fn prop_multiple_pages_independent(count in 1usize..50) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
 
         // Map multiple pages
         for i in 0..count {
@@ -218,7 +218,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_read_only_denies_write(iova in 0x1000u64..0x10000u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -233,7 +233,7 @@ proptest! {
 
     #[test]
     fn prop_read_write_allows_both(iova in 0x1000u64..0x10000u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -246,7 +246,7 @@ proptest! {
 
     #[test]
     fn prop_execute_only_denies_read_write(iova in 0x1000u64..0x10000u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -268,7 +268,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_page_count_equals_mappings(count in 1usize..100) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
 
         for i in 0..count {
             let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
@@ -281,7 +281,7 @@ proptest! {
 
     #[test]
     fn prop_is_mapped_consistent_with_translation(iova in 0x1000u64..0x10000u64) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -484,7 +484,7 @@ proptest! {
 
     #[test]
     fn prop_translation_consistent_across_lookups(iova in 0x1000u64..0x10_0000) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -502,7 +502,7 @@ proptest! {
         iova1 in 0x1000u64..0x5_0000,
         iova2 in 0x50000u64..0x10_0000,
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova1 = IOVA::new(iova1 & !0xFFF).unwrap();
         let iova2 = IOVA::new(iova2 & !0xFFF).unwrap();
         let pa1 = PA::new(0x1_0000).unwrap();
@@ -558,7 +558,7 @@ proptest! {
         iova in 0x1000u64..0x1_0000,
         iterations in 1usize..50,
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
 
         // Repeatedly overwrite same page
@@ -573,7 +573,7 @@ proptest! {
 
     #[test]
     fn prop_unmap_idempotent(iova in 0x1000u64..0x1_0000) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -595,7 +595,7 @@ proptest! {
         map_secure: bool,
         translate_secure: bool,
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(iova & !0xFFF).unwrap();
         let pa = PA::new(0x2000).unwrap();
 

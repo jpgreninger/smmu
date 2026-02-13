@@ -32,7 +32,7 @@ use smmu::types::{
     StreamID, IOVA, PA, PAGE_SIZE, PASID,
 };
 use smmu::SMMU;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -106,7 +106,7 @@ fn stress_address_space_concurrent_random_maps() {
                 let perms = random_permissions();
                 let security = random_security_state();
 
-                let mut guard = addr_space_clone.lock().unwrap();
+                let guard = addr_space_clone.lock().unwrap();
                 let _ = guard.map_page(iova, pa, perms, security);
             }
         });
@@ -222,7 +222,7 @@ fn stress_address_space_high_contention() {
                 let iova = IOVA::new((page_idx * 0x1000) as u64).unwrap();
                 let pa = random_pa();
 
-                let mut guard = addr_space_clone.lock().unwrap();
+                let guard = addr_space_clone.lock().unwrap();
 
                 // Random operation
                 match rng.gen_range(0..3) {

@@ -1,3 +1,5 @@
+//! Tests for timestamp optimization in fault recording
+
 #[cfg(test)]
 mod timestamp_tests {
     use smmu::prelude::*;
@@ -53,7 +55,7 @@ mod timestamp_tests {
         }
 
         let duration = start.elapsed();
-        println!("1000 faults generated in {:?}", duration);
+        println!("1000 faults generated in {duration:?}");
 
         // With atomic counter-based timestamps, this should be very fast
         // Each fault now involves:
@@ -64,6 +66,6 @@ mod timestamp_tests {
         //
         // Note: If we had SystemTime::now() calls, each would add 20-50ns syscall overhead
         // which would push total time to 5-10ms+ due to repeated syscalls.
-        assert!(duration.as_micros() < 3000, "Fault recording took too long: {:?}", duration);
+        assert!(duration.as_micros() < 3000, "Fault recording took too long: {duration:?}");
     }
 }

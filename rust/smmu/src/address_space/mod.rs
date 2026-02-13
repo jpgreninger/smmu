@@ -241,8 +241,8 @@ impl<'a> AddressSpaceQuery<'a> {
         self.addr_space.page_table.contains_key(&page_num)
     }
 
-    /// Returns an iterator over all mapped pages
-    pub fn iter(&self) -> Vec<PageEntry> {
+    /// Returns all mapped pages as a vector
+    pub fn get_all_entries(&self) -> Vec<PageEntry> {
         // DashMap doesn't have values() - collect from iter()
         self.addr_space.page_table.iter().map(|entry| entry.value().clone()).collect()
     }
@@ -318,7 +318,7 @@ impl Clone for AddressSpace {
     fn clone(&self) -> Self {
         // Clone DashMap entries
         let new_invalidation_map = DashMap::new();
-        for entry in self.invalidation_map.iter() {
+        for entry in &self.invalidation_map {
             new_invalidation_map.insert(*entry.key(), AtomicU64::new(entry.value().load(Ordering::Acquire)));
         }
 
@@ -1369,7 +1369,7 @@ mod tests {
 
     #[test]
     fn test_map_single_page() {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -1383,7 +1383,7 @@ mod tests {
 
     #[test]
     fn test_translate_page() {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
 
@@ -1400,7 +1400,7 @@ mod tests {
 
     #[test]
     fn test_permission_violation() {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
 

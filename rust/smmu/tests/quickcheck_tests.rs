@@ -142,7 +142,7 @@ impl Arbitrary for ValidPA {
 
 #[quickcheck]
 fn qc_map_unmap_restores_state(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map page
     addr_space
@@ -166,7 +166,7 @@ fn qc_map_unmap_restores_state(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
 
 #[quickcheck]
 fn qc_translation_deterministic(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     addr_space
         .map_page(
@@ -201,7 +201,7 @@ fn qc_page_offset_preserved(iova: PageAlignedIOVA, pa: ValidPA, offset: u64) -> 
         return TestResult::discard();
     }
 
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
     let iova_base = iova.0;
 
     let iova_with_offset = match IOVA::new(iova_base.as_u64() + offset) {
@@ -238,7 +238,7 @@ fn qc_overwrite_updates_mapping(
         return TestResult::discard();
     }
 
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map first PA
     addr_space
@@ -278,7 +278,7 @@ fn qc_overwrite_updates_mapping(
 
 #[quickcheck]
 fn qc_read_only_denies_write(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     addr_space
         .map_page(
@@ -301,7 +301,7 @@ fn qc_read_only_denies_write(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
 
 #[quickcheck]
 fn qc_read_write_allows_both(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     addr_space
         .map_page(
@@ -636,7 +636,7 @@ fn qc_page_count_consistent(count: u8) -> TestResult {
         return TestResult::discard();
     }
 
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map multiple pages
     for i in 0..count {
@@ -656,7 +656,7 @@ fn qc_page_count_consistent(count: u8) -> TestResult {
 
 #[quickcheck]
 fn qc_is_mapped_consistent_with_translation(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Before mapping
     let not_mapped_before = !addr_space.is_page_mapped(iova.0).unwrap_or(true);
@@ -688,7 +688,7 @@ fn qc_is_mapped_consistent_with_translation(iova: PageAlignedIOVA, pa: ValidPA) 
 
 #[quickcheck]
 fn qc_security_state_enforcement(iova: PageAlignedIOVA, pa: ValidPA) -> bool {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map in NonSecure state
     addr_space

@@ -2,6 +2,8 @@
 #![allow(clippy::float_cmp)]
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cast_lossless)]
 //! Translation performance benchmarks
 //!
 //! Benchmarks for measuring translation latency and throughput.

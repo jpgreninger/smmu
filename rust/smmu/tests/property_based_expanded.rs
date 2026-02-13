@@ -118,7 +118,7 @@ proptest! {
         map_perms in any_permissions(),
         access in any_access_type(),
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let pa = PA::new(0x1_0000).unwrap();
 
         // Skip if permissions are none (invalid)
@@ -235,7 +235,7 @@ proptest! {
         map_sec in any_security_state(),
         trans_sec in any_security_state(),
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let pa = PA::new(0x1_0000).unwrap();
 
         // Map page in one security state
@@ -258,7 +258,7 @@ proptest! {
         map_sec in any_security_state(),
         trans_sec in any_security_state(),
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let pa = PA::new(0x1_0000).unwrap();
 
         // Map page in one security state
@@ -288,7 +288,7 @@ proptest! {
     fn prop_two_stage_composition(
         iova in page_aligned_iova(),
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
 
         // Stage 1: IOVA -> IPA
         let ipa = IPA::new(0x4_0000).unwrap();
@@ -322,8 +322,8 @@ proptest! {
         // In two-stage translation, effective permissions are intersection of both stages
         // This property verifies that if either stage denies access, translation fails
 
-        let mut stage1_space = AddressSpace::new();
-        let mut stage2_space = AddressSpace::new();
+        let stage1_space = AddressSpace::new();
+        let stage2_space = AddressSpace::new();
 
         let ipa = IPA::new(0x4_0000).unwrap();
         let pa = PA::new(0x8_0000).unwrap();
@@ -479,7 +479,7 @@ proptest! {
         page_num in 0u64..0x1_0000u64,
         offset in 0u64..PAGE_SIZE,
     ) {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
         let page_base = page_num * PAGE_SIZE;
         let iova_aligned = IOVA::new(page_base).unwrap();
         let iova_offset = IOVA::new(page_base + offset).unwrap();

@@ -6,6 +6,8 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::cast_precision_loss)]
 
 //! TLB Cache Integration Tests
 //!

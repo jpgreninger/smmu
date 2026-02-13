@@ -1,6 +1,6 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.0.4 (C++) / v1.2.0 (Rust)** - Optimized & Complete ✅
+## ✅ **PRODUCTION RELEASE v1.0.4 (C++) / v1.2.1 (Rust)** - Optimized & Complete ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver world-class performance through extensive optimizations.
 
@@ -231,15 +231,15 @@ if (result.success) {
 
 ---
 
-## 🦀 Rust Implementation - Production Ready v1.2.0
+## 🦀 Rust Implementation - Production Ready v1.2.1
 
 A high-performance, memory-safe Rust reimplementation of the ARM SMMU v3 with comprehensive testing, quality assurance, and world-class performance optimizations. Located in `rust/smmu/`.
 
-### ✅ **PRODUCTION READY v1.2.0** - Hardware-Exceeding Performance Achieved
+### ✅ **PRODUCTION READY v1.2.1** - Hardware-Exceeding Performance Achieved
 
 **Quality Status**: ⭐⭐⭐⭐⭐ 5/5 Stars | **Clippy**: 0 warnings | **Tests**: 2,239/2,239 passing (100%) | **Performance**: 18.5ns concurrent, 37.7ns fastest | **Mutation Score**: 99.2%
 
-**Latest Update (February 13, 2026)**: Version 1.2.0 released with 3 critical P1 optimizations achieving **sub-50ns translation latencies** - exceeding hardware SMMU performance targets
+**Latest Update (February 13, 2026)**: Version 1.2.1 released with comprehensive clippy lint fixes and code quality improvements on top of v1.2.0's **sub-50ns translation latencies** - exceeding hardware SMMU performance targets
 
 ### Production Achievements
 
@@ -509,7 +509,7 @@ match result {
 
 ### Rust Production Certification
 
-**✅ APPROVED FOR PRODUCTION v1.2.0** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
+**✅ APPROVED FOR PRODUCTION v1.2.1** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
 
 1. **Zero Clippy Warnings**: Pedantic mode with -D warnings passed ✅
 2. **Zero Security Vulnerabilities**: cargo-deny audit passed ✅

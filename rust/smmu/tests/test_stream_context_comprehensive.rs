@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_pasid_limit_enforcement_at_limit() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_max_pasids_per_stream(2);
 
     // Fill to limit
@@ -38,7 +38,7 @@ fn test_pasid_limit_enforcement_at_limit() {
 
 #[test]
 fn test_pasid_limit_enforcement_add_pasid() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_max_pasids_per_stream(1);
 
     // Create first PASID
@@ -113,7 +113,7 @@ fn test_get_pasid_address_space_not_found() {
 
 #[test]
 fn test_two_stage_translation_complete_path() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(true);
     ctx.set_stage2_enabled(true);
 
@@ -142,7 +142,7 @@ fn test_two_stage_translation_complete_path() {
 
 #[test]
 fn test_two_stage_translation_stage1_fault() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(true);
     ctx.set_stage2_enabled(true);
 
@@ -167,7 +167,7 @@ fn test_two_stage_translation_stage1_fault() {
 
 #[test]
 fn test_two_stage_translation_stage2_fault() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(true);
     ctx.set_stage2_enabled(true);
 
@@ -191,7 +191,7 @@ fn test_two_stage_translation_stage2_fault() {
 
 #[test]
 fn test_two_stage_pasid_not_found() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(true);
     ctx.set_stage2_enabled(true);
 
@@ -203,7 +203,7 @@ fn test_two_stage_pasid_not_found() {
 
 #[test]
 fn test_two_stage_no_stage2_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(true);
     ctx.set_stage2_enabled(true);
 
@@ -227,7 +227,7 @@ fn test_two_stage_no_stage2_address_space() {
 
 #[test]
 fn test_stage2_only_translation_success() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(true);
 
@@ -249,7 +249,7 @@ fn test_stage2_only_translation_success() {
 
 #[test]
 fn test_stage2_only_translation_fault() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(true);
 
@@ -268,7 +268,7 @@ fn test_stage2_only_translation_fault() {
 
 #[test]
 fn test_stage2_only_no_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(true);
 
@@ -287,7 +287,7 @@ fn test_stage2_only_no_address_space() {
 
 #[test]
 fn test_bypass_mode_translation() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(false);
 
@@ -305,7 +305,7 @@ fn test_bypass_mode_translation() {
 
 #[test]
 fn test_bypass_mode_full_permissions() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(false);
 
@@ -344,7 +344,7 @@ fn test_fault_recording_on_translation_error() {
 
 #[test]
 fn test_fault_rate_limiting() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_fault_rate_limit(2);
 
     let pasid = PASID::new(1).unwrap();
@@ -413,7 +413,7 @@ fn test_fault_statistics_by_pasid() {
 
 #[test]
 fn test_fault_statistics_rate_limited_flag() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.set_fault_rate_limit(2);
 
     let pasid = PASID::new(1).unwrap();
@@ -431,7 +431,7 @@ fn test_fault_statistics_rate_limited_flag() {
 
 #[test]
 fn test_clear_fault_records() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
@@ -447,7 +447,7 @@ fn test_clear_fault_records() {
 
 #[test]
 fn test_reset_fault_statistics() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
@@ -463,7 +463,7 @@ fn test_reset_fault_statistics() {
 
 #[test]
 fn test_enable_fault_retry() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.enable_fault_retry(true);
     // Just verify it doesn't panic
     assert!(true);
@@ -486,13 +486,13 @@ fn test_translate_with_retry() {
 
 #[test]
 fn test_create_stage2_address_space_success() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     assert!(ctx.create_stage2_address_space().is_ok());
 }
 
 #[test]
 fn test_create_stage2_address_space_already_exists() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.create_stage2_address_space().unwrap();
 
     let result = ctx.create_stage2_address_space();
@@ -502,7 +502,7 @@ fn test_create_stage2_address_space_already_exists() {
 
 #[test]
 fn test_map_stage2_page_success() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.create_stage2_address_space().unwrap();
 
     let ipa = IOVA::new(0x2000).unwrap();
@@ -514,7 +514,7 @@ fn test_map_stage2_page_success() {
 
 #[test]
 fn test_map_stage2_page_no_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
 
     let ipa = IOVA::new(0x2000).unwrap();
     let pa = PA::new(0x3000).unwrap();
@@ -526,7 +526,7 @@ fn test_map_stage2_page_no_address_space() {
 
 #[test]
 fn test_set_stage2_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let stage2 = Arc::new(AddressSpace::new());
     ctx.set_stage2_address_space(Some(stage2));
     // Just verify it doesn't panic
@@ -547,7 +547,7 @@ fn test_update_config_builder_creation() {
 
 #[test]
 fn test_apply_config_max_pasids() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let config = StreamConfigBuilder::new().max_pasids_per_stream(512).build();
 
     assert!(ctx.apply_config(config).is_ok());
@@ -556,7 +556,7 @@ fn test_apply_config_max_pasids() {
 
 #[test]
 fn test_apply_config_stage_flags() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let stage2 = Arc::new(AddressSpace::new());
     let config = StreamConfigBuilder::new()
         .stage1_enabled(false)
@@ -571,7 +571,7 @@ fn test_apply_config_stage_flags() {
 
 #[test]
 fn test_apply_config_stage2_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let stage2 = Arc::new(AddressSpace::new());
     let config = StreamConfigBuilder::new().stage2_address_space(Some(stage2)).build();
 
@@ -634,7 +634,7 @@ fn test_validate_config_stage2_enabled_with_address_space() {
 
 #[test]
 fn test_enable_stream() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.disable();
     assert!(!ctx.is_enabled());
 
@@ -644,7 +644,7 @@ fn test_enable_stream() {
 
 #[test]
 fn test_disable_stream_clears_pasids() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
     ctx.create_pasid(PASID::new(2).unwrap()).unwrap();
     assert_eq!(ctx.pasid_count(), 2);
@@ -656,7 +656,7 @@ fn test_disable_stream_clears_pasids() {
 
 #[test]
 fn test_create_pasid_when_disabled() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.disable();
 
     let result = ctx.create_pasid(PASID::new(1).unwrap());
@@ -666,7 +666,7 @@ fn test_create_pasid_when_disabled() {
 
 #[test]
 fn test_translate_when_disabled() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
@@ -679,7 +679,7 @@ fn test_translate_when_disabled() {
 
 #[test]
 fn test_map_page_when_disabled() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
@@ -728,7 +728,7 @@ fn test_query_pasids_iterator() {
 
 #[test]
 fn test_query_is_enabled() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let query = ctx.query();
     assert!(query.is_enabled());
 
@@ -783,7 +783,7 @@ fn test_stream_config_builder_fluent_api() {
         .build();
 
     // Just verify fluent API works
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     let _result = ctx.apply_config(config);
     assert!(true);
 }
@@ -866,7 +866,7 @@ fn test_fault_statistics_empty() {
 
 #[test]
 fn test_validate_config_stage2_enabled_with_existing_address_space() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     // First create a Stage-2 address space
     ctx.create_stage2_address_space().unwrap();
 

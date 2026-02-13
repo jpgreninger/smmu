@@ -25,7 +25,7 @@ use std::time::Instant;
 
 #[test]
 fn test_hash_function_distribution() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map 1000 pages with sequential addresses
     for i in 0..1000 {
@@ -48,7 +48,7 @@ fn test_hash_function_distribution() {
 
 #[test]
 fn test_hash_function_sparse_addresses() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map pages at very sparse addresses (good distribution test)
     let sparse_addrs = [0x1000, 0x1000_0000, 0x1_0000_0000, 0x10_0000_0000, 0x100_0000_0000];
@@ -70,7 +70,7 @@ fn test_hash_function_sparse_addresses() {
 
 #[test]
 fn test_o1_lookup_complexity() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map 10,000 pages
     for i in 0..10_000 {
@@ -102,7 +102,7 @@ fn test_o1_lookup_complexity() {
 fn test_scalability_10_to_10000() {
     // Test at different scales
     for count in &[10, 100, 1000, 10_000] {
-        let mut addr_space = AddressSpace::new();
+        let addr_space = AddressSpace::new();
 
         let start = Instant::now();
         for i in 0..*count {
@@ -133,7 +133,7 @@ fn test_scalability_10_to_10000() {
 
 #[test]
 fn test_sequential_access_pattern() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map 1000 sequential pages
     for i in 0..1000 {
@@ -157,7 +157,7 @@ fn test_sequential_access_pattern() {
 
 #[test]
 fn test_random_access_pattern() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Map 1000 pages
     for i in 0..1000 {
@@ -281,7 +281,7 @@ fn test_multi_stream_performance() {
 
 #[test]
 fn test_translation_latency_target() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
@@ -308,7 +308,7 @@ fn test_translation_latency_target() {
 
 #[test]
 fn test_mapping_throughput() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     let iterations = 10_000;
     let start = Instant::now();
@@ -331,7 +331,7 @@ fn test_mapping_throughput() {
 
 #[test]
 fn test_batch_operation_efficiency() {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
 
     // Create batch of mappings
     let count = 1000;

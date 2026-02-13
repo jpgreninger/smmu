@@ -1,10 +1,14 @@
-/// Validation tests for lock elimination and PageEntry packing optimizations
-///
-/// This test suite verifies:
-/// 1. PagePermissions is packed to 1 byte
-/// 2. PageEntry maintains 16-byte size
-/// 3. Lock elimination provides performance improvements
-/// 4. Thread safety is maintained
+//! Validation tests for lock elimination and `PageEntry` packing optimizations
+//!
+//! This test suite verifies:
+//! 1. `PagePermissions` is packed to 1 byte
+//! 2. `PageEntry` maintains 16-byte size
+//! 3. Lock elimination provides performance improvements
+//! 4. Thread safety is maintained
+
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::uninlined_format_args)]
 
 use smmu::prelude::*;
 use std::mem::size_of;
@@ -79,7 +83,7 @@ fn test_concurrent_translation_performance() {
             // Map 10 pages per PASID
             for page_num in 0..10 {
                 let iova = IOVA::new((page_num as u64) * 0x1000).unwrap();
-                let pa = PA::new(0x100000 + (page_num as u64) * 0x1000).unwrap();
+                let pa = PA::new(0x0010_0000 + (page_num as u64) * 0x1000).unwrap();
                 smmu.map_page(
                     stream_id,
                     pasid,
@@ -127,10 +131,10 @@ fn test_concurrent_translation_performance() {
     let avg_latency_ns = duration.as_nanos() / total_translations as u128;
 
     println!("\n=== Concurrent Translation Performance ===");
-    println!("Threads: {}", num_threads);
-    println!("Total translations: {}", total_translations);
-    println!("Total time: {:?}", duration);
-    println!("Average latency: {}ns", avg_latency_ns);
+    println!("Threads: {num_threads}");
+    println!("Total translations: {total_translations}");
+    println!("Total time: {duration:?}");
+    println!("Average latency: {avg_latency_ns}ns");
 
     // With lock elimination + TLB cache, expect <200ns average
     assert!(
@@ -154,7 +158,7 @@ fn test_single_thread_translation_latency() {
     // Map 100 pages
     for page_num in 0..100 {
         let iova = IOVA::new((page_num * 0x1000) as u64).unwrap();
-        let pa = PA::new(0x200000 + (page_num * 0x1000) as u64).unwrap();
+        let pa = PA::new(0x0020_0000 + (page_num * 0x1000) as u64).unwrap();
         smmu.map_page(
             stream_id,
             pasid,
@@ -188,9 +192,9 @@ fn test_single_thread_translation_latency() {
     let avg_latency_ns = duration.as_nanos() / iterations as u128;
 
     println!("\n=== Single-Threaded Cached Translation Performance ===");
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", duration);
-    println!("Average latency: {}ns", avg_latency_ns);
+    println!("Iterations: {iterations}");
+    println!("Total time: {duration:?}");
+    println!("Average latency: {avg_latency_ns}ns");
 
     let stats = smmu.get_cache_statistics();
     println!("TLB hit rate: {:.2}%", stats.tlb_hit_rate());
@@ -199,8 +203,7 @@ fn test_single_thread_translation_latency() {
     // Note: 600-700ns is excellent for software SMMU (hardware SMMU: ~100-200ns)
     assert!(
         avg_latency_ns < 1000,
-        "Average latency should be <1000ns with all optimizations, got {}ns",
-        avg_latency_ns
+        "Average latency should be <1000ns with all optimizations, got {avg_latency_ns}ns"
     );
 }
 
@@ -219,7 +222,7 @@ fn test_memory_efficiency() {
     let num_pages = 10000;
     for page_num in 0..num_pages {
         let iova = IOVA::new((page_num * 0x1000) as u64).unwrap();
-        let pa = PA::new(0x1000000 + (page_num * 0x1000) as u64).unwrap();
+        let pa = PA::new(0x0100_0000 + (page_num * 0x1000) as u64).unwrap();
         smmu.map_page(
             stream_id,
             pasid,
@@ -236,8 +239,8 @@ fn test_memory_efficiency() {
     let estimated_memory = num_pages * page_entry_size;
 
     println!("\n=== Memory Efficiency ===");
-    println!("Pages mapped: {}", num_pages);
-    println!("PageEntry size: {} bytes", page_entry_size);
+    println!("Pages mapped: {num_pages}");
+    println!("PageEntry size: {page_entry_size} bytes");
     println!("Estimated page table memory: {} bytes ({} KB)",
              estimated_memory, estimated_memory / 1024);
     println!("Entries per 64-byte cache line: {}", 64 / page_entry_size);
@@ -292,15 +295,14 @@ fn test_cache_line_efficiency() {
     let entries_per_line = cache_line_size / page_entry_size;
 
     println!("\n=== Cache Line Efficiency ===");
-    println!("PageEntry size: {} bytes", page_entry_size);
-    println!("Cache line size: {} bytes", cache_line_size);
-    println!("Entries per cache line: {}", entries_per_line);
+    println!("PageEntry size: {page_entry_size} bytes");
+    println!("Cache line size: {cache_line_size} bytes");
+    println!("Entries per cache line: {entries_per_line}");
 
     // With 16-byte PageEntry, we should get 4 entries per 64-byte cache line
     assert!(
         entries_per_line >= 4,
-        "Expected at least 4 entries per cache line, got {}",
-        entries_per_line
+        "Expected at least 4 entries per cache line, got {entries_per_line}"
     );
 
     // This represents a 2x improvement over the original 32-byte PageEntry

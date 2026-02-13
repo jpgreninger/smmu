@@ -41,7 +41,7 @@ fn configure_criterion() -> Criterion {
 // ============================================================================
 
 fn bench_translation_latency_simple(c: &mut Criterion) {
-    let mut addr_space = AddressSpace::new();
+    let addr_space = AddressSpace::new();
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x1_0000).unwrap();
 
@@ -83,7 +83,7 @@ fn bench_translation_under_load(c: &mut Criterion) {
 
     for num_mappings in &[10, 100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
-            let mut addr_space = AddressSpace::new();
+            let addr_space = AddressSpace::new();
 
             // Create many mappings to simulate load
             for i in 0..num_mappings {
@@ -300,7 +300,7 @@ fn bench_memory_usage_scaling(c: &mut Criterion) {
     for num_mappings in &[100, 1000, 10_000, 100_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
             b.iter(|| {
-                let mut addr_space = AddressSpace::new();
+                let addr_space = AddressSpace::new();
 
                 for i in 0..num_mappings {
                     let iova = IOVA::new(0x1000 + (i as u64) * PAGE_SIZE).unwrap();
@@ -359,7 +359,7 @@ fn bench_complexity_translation_lookup(c: &mut Criterion) {
     // Verify O(1) lookup regardless of address space size
     for num_mappings in &[100, 1000, 10_000, 100_000] {
         group.bench_with_input(BenchmarkId::from_parameter(num_mappings), num_mappings, |b, &num_mappings| {
-            let mut addr_space = AddressSpace::new();
+            let addr_space = AddressSpace::new();
 
             // Create many mappings
             for i in 0..num_mappings {

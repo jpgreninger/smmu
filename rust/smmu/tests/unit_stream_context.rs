@@ -218,7 +218,7 @@ fn test_multiple_pasids_independent() {
 
 #[test]
 fn test_enable_disable_stream() {
-    let mut stream_context = StreamContext::new();
+    let stream_context = StreamContext::new();
     let pasid = PASID::new(1).unwrap();
 
     stream_context.create_pasid(pasid).unwrap();
@@ -237,7 +237,7 @@ fn test_enable_disable_stream() {
 
 #[test]
 fn test_stage1_enable_disable() {
-    let mut stream_context = StreamContext::new();
+    let stream_context = StreamContext::new();
 
     assert!(stream_context.is_stage1_enabled());
 
@@ -250,7 +250,7 @@ fn test_stage1_enable_disable() {
 
 #[test]
 fn test_stage2_enable_disable() {
-    let mut stream_context = StreamContext::new();
+    let stream_context = StreamContext::new();
 
     assert!(!stream_context.is_stage2_enabled());
 
