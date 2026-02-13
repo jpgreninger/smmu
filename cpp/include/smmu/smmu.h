@@ -131,21 +131,27 @@ private:
     
     // Task 5.3: Event and Command Processing private members
     std::deque<EventEntry> eventQueue;
-    std::deque<CommandEntry> commandQueue;  
+    std::deque<CommandEntry> commandQueue;
     std::deque<PRIEntry> priQueue;
-    
+
     size_t maxEventQueueSize;
     size_t maxCommandQueueSize;
     size_t maxPRIQueueSize;
-    
-    // Thread safety protection for SMMU controller
-    mutable std::mutex sMMUMutex;
+
+    // Thread safety protection for SMMU controller - lock striping for scalability
+    static constexpr size_t NUM_STREAM_STRIPES = 16;
+    mutable std::array<std::mutex, NUM_STREAM_STRIPES> streamLockStripes;
     
     // Helper methods
     void recordFault(const FaultRecord& fault);
     void recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState expectedState, SecurityState actualState);
     bool validateSecurityState(SecurityState requestedState, SecurityState contextState) const;
     SecurityState determineContextSecurityState(StreamID streamID, PASID pasid) const;
+
+    // Lock striping helper for stream map access
+    size_t getStreamStripe(StreamID streamID) const {
+        return streamID % NUM_STREAM_STRIPES;
+    }
     
     // Configuration helper methods
     void applyConfiguration();

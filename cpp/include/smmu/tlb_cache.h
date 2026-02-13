@@ -7,6 +7,7 @@
 #include "smmu/types.h"
 #include <unordered_map>
 #include <list>
+#include <vector>
 #include <utility>
 #include <cstddef>
 #include <mutex>
@@ -177,6 +178,10 @@ private:
         TLBCacheMap map;
         TLBCacheList list;
         size_t maxEntriesPerStripe;
+
+        // Secondary indices for O(k) invalidation instead of O(N)
+        std::unordered_map<StreamID, std::vector<CacheKey>> streamIndex;
+        std::unordered_map<StreamPASIDKey, std::vector<CacheKey>, StreamPASIDKeyHash> pasidIndex;
 
         CacheStripe() : maxEntriesPerStripe(0) {
         }

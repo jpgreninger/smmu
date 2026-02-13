@@ -209,103 +209,7 @@ VoidResult StreamContext::unmapPage(PASID pasid, IOVA iova) {
 // ARM SMMU v3 spec: Stage-1 (per-PASID) + Stage-2 (shared) translation
 TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    
-    // Update translation statistics
-    streamStatistics.translationCount++;
-    streamStatistics.lastAccessTimestamp = getCurrentTimestamp();
-    
-    // ARM SMMU v3: Check if any translation stage is enabled
-    if (!stage1Enabled && !stage2Enabled) {
-        // No translation enabled - return identity mapping (pass-through)
-        return makeTranslationSuccess(iova, PagePermissions(), securityState);
-    }
-    
-    // ARM SMMU v3: Check stream enabled state only for active translation contexts
-    // Stream must be enabled if translation is configured and requested
-    if ((stage1Enabled || stage2Enabled) && currentConfiguration.translationEnabled && !streamEnabled) {
-        // Translation is configured but stream is disabled - fail translation
-        streamStatistics.faultCount++;  // Track fault
-        return makeTranslationError(SMMUError::StreamDisabled);
-    }
-    
-    // Validate PASID within ARM SMMU v3 specification limits
-    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
-    if (pasid > MAX_PASID) {
-        streamStatistics.faultCount++;  // Track fault
-        // Note: Fault will be recorded by SMMU controller with proper StreamID
-        return makeTranslationError(SMMUError::InvalidPASID);
-    }
-    
-    IPA intermediatePA = iova;  // Start with input address
-    
-    // ARM SMMU v3: Stage-1 translation (per-PASID address space)
-    TranslationResult stage1Result = makeTranslationError(SMMUError::InternalError);
-    if (stage1Enabled) {
-        // Find PASID in map
-        auto it = pasidMap.find(pasid);
-        if (it == pasidMap.end()) {
-            // PASID not found - return proper PASID error
-            streamStatistics.faultCount++;  // Track fault
-            // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return makeTranslationError(SMMUError::PASIDNotFound);
-        }
-
-        // Optimization 5: Use raw pointer instead of copying shared_ptr
-        AddressSpace* stage1AddressSpace = it->second.get();
-        if (!stage1AddressSpace) {
-            // Null AddressSpace - translation fault
-            streamStatistics.faultCount++;  // Track fault
-            // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return makeTranslationError(SMMUError::InternalError);
-        }
-
-        // Perform Stage-1 translation (IOVA -> IPA)
-        stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
-        if (stage1Result.isError()) {
-            // Stage-1 translation failed - propagate fault
-            streamStatistics.faultCount++;  // Track fault
-            // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return stage1Result;
-        }
-
-        // Use Stage-1 output as input to Stage-2
-        intermediatePA = stage1Result.getValue().physicalAddress;
-    }
-
-    // ARM SMMU v3: Stage-2 translation (shared across stream)
-    if (stage2Enabled) {
-        // Validate Stage-2 AddressSpace is configured
-        if (!stage2AddressSpace) {
-            // Stage-2 enabled but not configured - no pages are mapped
-            streamStatistics.faultCount++;  // Track fault
-            // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return makeTranslationError(SMMUError::PageNotMapped);
-        }
-
-        // Perform Stage-2 translation (IPA -> PA)
-        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
-        if (stage2Result.isError()) {
-            // Stage-2 translation failed - propagate fault
-            streamStatistics.faultCount++;  // Track fault
-            // Note: Fault will be recorded by SMMU controller with proper StreamID
-            return stage2Result;
-        }
-
-        // Stage-2 success - return final physical address
-        return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
-                                    stage2Result.getValue().permissions,
-                                    stage2Result.getValue().securityState);
-    }
-
-    // Optimization 1: Only Stage-1 enabled case - reuse saved stage1Result
-    if (stage1Enabled && stage1Result.isOk()) {
-        return makeTranslationSuccess(intermediatePA,
-                                    stage1Result.getValue().permissions,
-                                    stage1Result.getValue().securityState);
-    }
-    
-    // Identity mapping case - no permissions validation
-    return makeTranslationSuccess(intermediatePA, PagePermissions(), securityState);
+    return translateUnlocked(pasid, iova, accessType, securityState);
 }
 
 // Configure Stage-1 translation enable
@@ -395,22 +299,7 @@ size_t StreamContext::getPASIDCount() const {
 // ARM SMMU v3 spec: Direct access to PASID address space for efficiency
 AddressSpace* StreamContext::getPASIDAddressSpace(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    
-    // Validate PASID within specification limits
-    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
-    if (pasid > MAX_PASID) {
-        return nullptr;  // Invalid PASID
-    }
-    
-    // Find PASID in map
-    auto it = pasidMap.find(pasid);
-    if (it == pasidMap.end()) {
-        return nullptr;  // PASID not found
-    }
-    
-    // Return raw pointer from shared_ptr for caller efficiency
-    // Caller must not store this pointer beyond current operation scope
-    return it->second.get();
+    return getPASIDAddressSpaceUnlocked(pasid);
 }
 
 // Get Stage-2 AddressSpace for two-stage translation coordination
@@ -1000,6 +889,126 @@ FaultSyndrome StreamContext::generateContextDescriptorFaultSyndrome(
     );
     
     return syndrome;
+}
+
+// Unlocked internal helper methods to eliminate redundant mutex acquisitions
+// These methods assume the caller already holds contextMutex
+
+AddressSpace* StreamContext::getPASIDAddressSpaceUnlocked(PASID pasid) {
+    // Validate PASID within specification limits
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
+        return nullptr;  // Invalid PASID
+    }
+
+    // Find PASID in map
+    auto it = pasidMap.find(pasid);
+    if (it == pasidMap.end()) {
+        return nullptr;  // PASID not found
+    }
+
+    // Return raw pointer from shared_ptr for caller efficiency
+    // Caller must not store this pointer beyond current operation scope
+    return it->second.get();
+}
+
+TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
+    // Update translation statistics
+    streamStatistics.translationCount++;
+    streamStatistics.lastAccessTimestamp = getCurrentTimestamp();
+
+    // ARM SMMU v3: Check if any translation stage is enabled
+    if (!stage1Enabled && !stage2Enabled) {
+        // No translation enabled - return identity mapping (pass-through)
+        return makeTranslationSuccess(iova, PagePermissions(), securityState);
+    }
+
+    // ARM SMMU v3: Check stream enabled state only for active translation contexts
+    // Stream must be enabled if translation is configured and requested
+    if ((stage1Enabled || stage2Enabled) && currentConfiguration.translationEnabled && !streamEnabled) {
+        // Translation is configured but stream is disabled - fail translation
+        streamStatistics.faultCount++;  // Track fault
+        return makeTranslationError(SMMUError::StreamDisabled);
+    }
+
+    // Validate PASID within ARM SMMU v3 specification limits
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+    if (pasid > MAX_PASID) {
+        streamStatistics.faultCount++;  // Track fault
+        // Note: Fault will be recorded by SMMU controller with proper StreamID
+        return makeTranslationError(SMMUError::InvalidPASID);
+    }
+
+    IPA intermediatePA = iova;  // Start with input address
+
+    // ARM SMMU v3: Stage-1 translation (per-PASID address space)
+    TranslationResult stage1Result = makeTranslationError(SMMUError::InternalError);
+    if (stage1Enabled) {
+        // Find PASID in map
+        auto it = pasidMap.find(pasid);
+        if (it == pasidMap.end()) {
+            // PASID not found - return proper PASID error
+            streamStatistics.faultCount++;  // Track fault
+            // Note: Fault will be recorded by SMMU controller with proper StreamID
+            return makeTranslationError(SMMUError::PASIDNotFound);
+        }
+
+        // Optimization 5: Use raw pointer instead of copying shared_ptr
+        AddressSpace* stage1AddressSpace = it->second.get();
+        if (!stage1AddressSpace) {
+            // Null AddressSpace - translation fault
+            streamStatistics.faultCount++;  // Track fault
+            // Note: Fault will be recorded by SMMU controller with proper StreamID
+            return makeTranslationError(SMMUError::InternalError);
+        }
+
+        // Perform Stage-1 translation (IOVA -> IPA)
+        stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
+        if (stage1Result.isError()) {
+            // Stage-1 translation failed - propagate fault
+            streamStatistics.faultCount++;  // Track fault
+            // Note: Fault will be recorded by SMMU controller with proper StreamID
+            return stage1Result;
+        }
+
+        // Use Stage-1 output as input to Stage-2
+        intermediatePA = stage1Result.getValue().physicalAddress;
+    }
+
+    // ARM SMMU v3: Stage-2 translation (shared across stream)
+    if (stage2Enabled) {
+        // Validate Stage-2 AddressSpace is configured
+        if (!stage2AddressSpace) {
+            // Stage-2 enabled but not configured - no pages are mapped
+            streamStatistics.faultCount++;  // Track fault
+            // Note: Fault will be recorded by SMMU controller with proper StreamID
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
+
+        // Perform Stage-2 translation (IPA -> PA)
+        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
+        if (stage2Result.isError()) {
+            // Stage-2 translation failed - propagate fault
+            streamStatistics.faultCount++;  // Track fault
+            // Note: Fault will be recorded by SMMU controller with proper StreamID
+            return stage2Result;
+        }
+
+        // Stage-2 success - return final physical address
+        return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
+                                    stage2Result.getValue().permissions,
+                                    stage2Result.getValue().securityState);
+    }
+
+    // Optimization 1: Only Stage-1 enabled case - reuse saved stage1Result
+    if (stage1Enabled && stage1Result.isOk()) {
+        return makeTranslationSuccess(intermediatePA,
+                                    stage1Result.getValue().permissions,
+                                    stage1Result.getValue().securityState);
+    }
+
+    // Identity mapping case - no permissions validation
+    return makeTranslationSuccess(intermediatePA, PagePermissions(), securityState);
 }
 
 } // namespace smmu

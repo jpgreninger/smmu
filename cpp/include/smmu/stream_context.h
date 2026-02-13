@@ -226,9 +226,13 @@ private:
 
     // Thread safety synchronization
     mutable std::mutex contextMutex;
-    
+
     // Helper methods
     // Note: Fault recording moved to SMMU controller for proper StreamID handling
+
+    // Unlocked internal methods to eliminate redundant mutex acquisitions
+    AddressSpace* getPASIDAddressSpaceUnlocked(PASID pasid);
+    TranslationResult translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);
 };
 
 } // namespace smmu

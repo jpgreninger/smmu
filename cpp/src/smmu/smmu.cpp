@@ -134,8 +134,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // No need for additional recordCacheMiss() here
     }
 
-    // Check if stream is configured (protect streamMap access)
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+    // Check if stream is configured (protect streamMap access with lock striping)
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         // Stream not configured - record translation fault
@@ -185,8 +186,9 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     // Check if stream already exists
     if (streamMap.find(streamID) != streamMap.end()) {
         // Update existing stream configuration
@@ -227,8 +229,9 @@ VoidResult SMMU::removeStream(StreamID streamID) {
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -253,8 +256,9 @@ Result<bool> SMMU::isStreamConfigured(StreamID streamID) const {
     if (streamID > MAX_STREAM_ID) {
         return makeError<bool>(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     bool configured = streamMap.find(streamID) != streamMap.end();
     return Result<bool>(configured);
 }
@@ -265,8 +269,9 @@ VoidResult SMMU::enableStream(StreamID streamID) {
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -286,8 +291,9 @@ VoidResult SMMU::disableStream(StreamID streamID) {
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -308,8 +314,9 @@ Result<bool> SMMU::isStreamEnabled(StreamID streamID) const {
     if (streamID > MAX_STREAM_ID) {
         return makeError<bool>(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeError<bool>(SMMUError::StreamNotConfigured);
@@ -325,13 +332,14 @@ VoidResult SMMU::createStreamPASID(StreamID streamID, PASID pasid) {
     if (pasid > MAX_PASID) {
         return makeVoidError(SMMUError::InvalidPASID);
     }
-    
+
     // Validate StreamID bounds
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -346,8 +354,9 @@ VoidResult SMMU::removeStreamPASID(StreamID streamID, PASID pasid) {
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -371,8 +380,9 @@ VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -386,8 +396,9 @@ VoidResult SMMU::unmapPage(StreamID streamID, PASID pasid, IOVA iova) {
     if (streamID > MAX_STREAM_ID) {
         return makeVoidError(SMMUError::InvalidStreamID);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
@@ -438,10 +449,15 @@ VoidResult SMMU::setGlobalFaultMode(FaultMode mode) {
     if (mode != FaultMode::Terminate && mode != FaultMode::Stall) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
-    
-    std::lock_guard<std::mutex> lock(sMMUMutex);
+
+    // Lock all stripes in order to prevent deadlock when iterating all streams
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     globalFaultMode = mode;
-    
+
     // Apply to all configured streams
     for (auto& streamPair : streamMap) {
         StreamConfig config = streamPair.second->getStreamConfiguration();
@@ -458,8 +474,12 @@ VoidResult SMMU::setGlobalFaultMode(FaultMode mode) {
 
 // Global caching enable/disable - Enhanced with TLBCache integration (Task 5.2)
 VoidResult SMMU::enableCaching(bool enable) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when modifying global state
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     cachingEnabled = enable;
     // ARM SMMU v3 spec: Caching policy affects TLB behavior
     if (!enable && tlbCache) {
@@ -1878,8 +1898,12 @@ const SMMUConfiguration& SMMU::getConfiguration() const {
 }
 
 VoidResult SMMU::updateConfiguration(const SMMUConfiguration& config) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when updating global configuration
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     // Validate the configuration
     VoidResult validationResult = validateConfigurationUpdate(config);
     if (!validationResult.isOk()) {
@@ -1905,8 +1929,12 @@ VoidResult SMMU::updateConfiguration(const SMMUConfiguration& config) {
 }
 
 VoidResult SMMU::updateQueueConfiguration(const QueueConfiguration& queueConfig) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when updating queue configuration
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     if (!queueConfig.isValid()) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
@@ -1934,8 +1962,12 @@ VoidResult SMMU::updateQueueConfiguration(const QueueConfiguration& queueConfig)
 }
 
 VoidResult SMMU::updateCacheConfiguration(const CacheConfiguration& cacheConfig) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when updating cache configuration
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     if (!cacheConfig.isValid()) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
@@ -1956,8 +1988,12 @@ VoidResult SMMU::updateCacheConfiguration(const CacheConfiguration& cacheConfig)
 }
 
 VoidResult SMMU::updateAddressConfiguration(const AddressConfiguration& addressConfig) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when updating address configuration
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     if (!addressConfig.isValid()) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
@@ -1967,8 +2003,12 @@ VoidResult SMMU::updateAddressConfiguration(const AddressConfiguration& addressC
 }
 
 VoidResult SMMU::updateResourceLimits(const ResourceLimits& resourceLimits) {
-    std::lock_guard<std::mutex> lock(sMMUMutex);
-    
+    // Lock all stripes in order to prevent deadlock when updating resource limits
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
+
     if (!resourceLimits.isValid()) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
