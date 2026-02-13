@@ -184,8 +184,22 @@ private:
                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext);
     TranslationResult performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext);
-    bool validateAccessPermissions(const PagePermissions& permissions, AccessType accessType) const;
-    
+
+    // Optimization 6: Inline validateAccessPermissions for performance
+    inline bool validateAccessPermissions(const PagePermissions& permissions, AccessType accessType) const {
+        // ARM SMMU v3 spec: Validate access permissions against requested operation
+        switch (accessType) {
+            case AccessType::Read:
+                return permissions.read;
+            case AccessType::Write:
+                return permissions.write;
+            case AccessType::Execute:
+                return permissions.execute;
+            default:
+                return false; // Unknown access type
+        }
+    }
+
     // Enhanced error handling and fault recovery methods (Task 5.2)
     void handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova, 
                                  AccessType accessType, SecurityState securityState, TranslationResult& result);

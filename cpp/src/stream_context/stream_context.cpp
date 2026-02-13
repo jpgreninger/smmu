@@ -239,6 +239,7 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
     IPA intermediatePA = iova;  // Start with input address
     
     // ARM SMMU v3: Stage-1 translation (per-PASID address space)
+    TranslationResult stage1Result = makeTranslationError(SMMUError::InternalError);
     if (stage1Enabled) {
         // Find PASID in map
         auto it = pasidMap.find(pasid);
@@ -248,29 +249,29 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return makeTranslationError(SMMUError::PASIDNotFound);
         }
-        
-        // Get AddressSpace for this PASID
-        std::shared_ptr<AddressSpace> stage1AddressSpace = it->second;
+
+        // Optimization 5: Use raw pointer instead of copying shared_ptr
+        AddressSpace* stage1AddressSpace = it->second.get();
         if (!stage1AddressSpace) {
             // Null AddressSpace - translation fault
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return makeTranslationError(SMMUError::InternalError);
         }
-        
+
         // Perform Stage-1 translation (IOVA -> IPA)
-        TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
+        stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
         if (stage1Result.isError()) {
             // Stage-1 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return stage1Result;
         }
-        
+
         // Use Stage-1 output as input to Stage-2
         intermediatePA = stage1Result.getValue().physicalAddress;
     }
-    
+
     // ARM SMMU v3: Stage-2 translation (shared across stream)
     if (stage2Enabled) {
         // Validate Stage-2 AddressSpace is configured
@@ -280,7 +281,7 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return makeTranslationError(SMMUError::PageNotMapped);
         }
-        
+
         // Perform Stage-2 translation (IPA -> PA)
         TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
         if (stage2Result.isError()) {
@@ -289,25 +290,18 @@ TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType ac
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return stage2Result;
         }
-        
+
         // Stage-2 success - return final physical address
-        return makeTranslationSuccess(stage2Result.getValue().physicalAddress, 
-                                    stage2Result.getValue().permissions, 
+        return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
+                                    stage2Result.getValue().permissions,
                                     stage2Result.getValue().securityState);
     }
-    
-    // Only Stage-1 enabled case - intermediatePA already contains translated address
-    if (stage1Enabled) {
-        // Find the Stage-1 result to get permissions info
-        auto it = pasidMap.find(pasid);
-        if (it != pasidMap.end() && it->second) {
-            TranslationResult stage1Result = it->second->translatePage(iova, accessType, securityState);
-            if (stage1Result.isOk()) {
-                return makeTranslationSuccess(intermediatePA, 
-                                            stage1Result.getValue().permissions, 
-                                            stage1Result.getValue().securityState);
-            }
-        }
+
+    // Optimization 1: Only Stage-1 enabled case - reuse saved stage1Result
+    if (stage1Enabled && stage1Result.isOk()) {
+        return makeTranslationSuccess(intermediatePA,
+                                    stage1Result.getValue().permissions,
+                                    stage1Result.getValue().securityState);
     }
     
     // Identity mapping case - no permissions validation

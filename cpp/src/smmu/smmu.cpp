@@ -69,8 +69,12 @@ SMMU::~SMMU() {
 
 // Main translate() API - Enhanced with Task 5.2: Two-stage translation and TLBCache integration
 TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
-    // Update translation statistics (atomic operation for thread safety)
-    translationCount.fetch_add(1);
+    // Optimization 3: Cache timestamp once at start for reuse
+    uint64_t currentTime = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    // Optimization 4: Update translation statistics with relaxed memory ordering
+    translationCount.fetch_add(1, std::memory_order_relaxed);
     
     // ARM SMMU v3 spec: Validate StreamID bounds
     if (streamID > MAX_STREAM_ID) {
@@ -81,65 +85,55 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
         fault.securityState = securityState;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         // No need to record cache miss here - TLBCache handles its own statistics
         return makeTranslationError(SMMUError::InvalidStreamID);
     }
-    
+
     // Task 5.2: Optimized fast path - Check TLB cache first for maximum performance
     if (cachingEnabled && tlbCache) {
         // Performance optimization: Direct TLB lookup without intermediate method call overhead
         IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
         TLBEntry* entry = tlbCache->lookup(streamID, pasid, pageAlignedIOVA, securityState);
-        
+
         if (entry && entry->valid) {
-            // Security validation: Ensure TLB entry SecurityState matches request
-            if (entry->securityState != securityState) {
-                // Security state mismatch - invalidate entry and continue to full translation
-                tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
-            } else {
-                // Fast path: Validate cache entry age inline for speed
-                uint64_t currentTime = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count();
-                
-                const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-                if (currentTime - entry->timestamp <= MAX_CACHE_AGE_US) {
-                    // Cache hit - validate access permissions against requested access type
-                    if (!validateAccessPermissions(entry->permissions, accessType)) {
-                        // Permission fault - record fault and return error
-                        FaultRecord fault;
-                        fault.streamID = streamID;
-                        fault.pasid = pasid;
-                        fault.address = iova;
-                        fault.faultType = FaultType::PermissionFault;
-                        fault.accessType = accessType;
-                        fault.securityState = securityState;
-                        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch()).count();
-                        
-                        recordFault(fault);
-                        return makeTranslationError(SMMUError::PagePermissionViolation);
-                    }
-                    
-                    // TLBCache already recorded hit statistics
-                    // No need for additional recordCacheHit() here
-                    
-                    PA finalPA = entry->physicalAddress + (iova & PAGE_MASK);
-                    TranslationData data(finalPA, entry->permissions, entry->securityState);
-                    return TranslationResult(data);
-                } else {
-                    // Entry expired - invalidate and continue to full translation
-                    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
+            // Optimization 7: Remove redundant security state check (already in CacheKey)
+            // Fast path: Validate cache entry age inline for speed
+            const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
+            if (currentTime - entry->timestamp <= MAX_CACHE_AGE_US) {
+                // Cache hit - validate access permissions against requested access type
+                if (!validateAccessPermissions(entry->permissions, accessType)) {
+                    // Permission fault - record fault and return error
+                    FaultRecord fault;
+                    fault.streamID = streamID;
+                    fault.pasid = pasid;
+                    fault.address = iova;
+                    fault.faultType = FaultType::PermissionFault;
+                    fault.accessType = accessType;
+                    fault.securityState = securityState;
+                    fault.timestamp = currentTime;
+
+                    recordFault(fault);
+                    return makeTranslationError(SMMUError::PagePermissionViolation);
                 }
+
+                // TLBCache already recorded hit statistics
+                // No need for additional recordCacheHit() here
+
+                PA finalPA = entry->physicalAddress + (iova & PAGE_MASK);
+                TranslationData data(finalPA, entry->permissions, entry->securityState);
+                return TranslationResult(data);
+            } else {
+                // Entry expired - invalidate and continue to full translation
+                tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
             }
         }
         // Cache miss - TLBCache already recorded miss statistics
         // No need for additional recordCacheMiss() here
     }
-    
+
     // Check if stream is configured (protect streamMap access)
     std::lock_guard<std::mutex> lock(sMMUMutex);
     auto streamIt = streamMap.find(streamID);
@@ -152,8 +146,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
         fault.securityState = securityState;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
+        fault.timestamp = currentTime;
         
         recordFault(fault);
         // No need to record cache miss here - TLBCache handles its own statistics
@@ -1036,20 +1029,6 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
     }
     
     return result;
-}
-
-bool SMMU::validateAccessPermissions(const PagePermissions& permissions, AccessType accessType) const {
-    // ARM SMMU v3 spec: Validate access permissions against requested operation
-    switch (accessType) {
-        case AccessType::Read:
-            return permissions.read;
-        case AccessType::Write:
-            return permissions.write;
-        case AccessType::Execute:
-            return permissions.execute;
-        default:
-            return false; // Unknown access type
-    }
 }
 
 // Task 5.2: Enhanced error handling and fault recovery methods

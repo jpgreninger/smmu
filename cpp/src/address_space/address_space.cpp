@@ -112,16 +112,7 @@ TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, 
     }
     
     const PageEntry& entry = it->second;
-    
-    // Prefetch hint for likely next sequential page access
-    // This improves performance for sequential memory access patterns common in ARM SMMU v3
-#ifdef __GNUC__
-    auto nextIt = pageTable.find(pageNum + 1);
-    if (nextIt != pageTable.end()) {
-        __builtin_prefetch(&nextIt->second, 0, 1);  // Read prefetch with low temporal locality
-    }
-#endif
-    
+
     // Verify page entry is valid
     if (!entry.valid) {
         return makeTranslationError(FaultType::TranslationFault);

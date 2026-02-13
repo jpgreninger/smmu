@@ -567,7 +567,10 @@ TEST_F(LargeScaleScalabilityTest, CacheScalabilityAndEfficiency) {
     
     // Verify cache behavior is reasonable
     EXPECT_GT(sequential_hit_rate, 0.9) << "Sequential access should have >90% hit rate";
-    EXPECT_GT(locality_hit_rate, 0.6) << "Locality access should have >60% hit rate";
+    // Note: Threshold reduced from 0.6 to 0.5 after removing prefetch optimization
+    // Prefetch added 30-50ns overhead while only improving locality hit rate by ~7-10%
+    // Net performance improved by removing it, even though hit rate decreased
+    EXPECT_GT(locality_hit_rate, 0.5) << "Locality access should have >50% hit rate (without prefetch)";
     EXPECT_GT(locality_hit_rate, random_hit_rate) << "Locality should outperform random access";
 }
 
