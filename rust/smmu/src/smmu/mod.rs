@@ -54,6 +54,7 @@
 //! smmu.shutdown().unwrap();
 //! ```
 
+use crate::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
 use crate::stream_context::StreamContext;
 use crate::types::{
     AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
@@ -74,7 +75,7 @@ use std::sync::{Arc, Mutex, RwLock};
 ///
 /// # Architecture
 ///
-/// - **Stream Management**: `DashMap<StreamID, Arc<RwLock<StreamContext>>>`
+/// - **Stream Management**: `DashMap<StreamID, Arc<StreamContext>>` (interior mutability)
 /// - **Global Configuration**: `Arc<RwLock<SMMUConfig>>`
 /// - **Shutdown Coordination**: `AtomicBool`
 /// - **Fault Queue**: `Arc<Mutex<Vec<FaultRecord>>>`
@@ -106,9 +107,9 @@ pub struct SMMU {
     /// Stream management: StreamID → StreamContext mapping
     ///
     /// DashMap provides lock-free concurrent access for high performance.
-    /// Each StreamContext is wrapped in Arc<RwLock<>> for shared ownership
-    /// with concurrent reads and exclusive writes.
-    streams: DashMap<u32, Arc<RwLock<StreamContext>>>,
+    /// StreamContext uses interior mutability (DashMap for pasid_map, atomics for flags),
+    /// so no additional RwLock wrapper is needed.
+    streams: DashMap<u32, Arc<StreamContext>>,
 
     /// Global SMMU configuration
     ///
@@ -163,6 +164,23 @@ pub struct SMMU {
     ///
     /// Tracks number of TLB/ATC invalidation operations for statistics.
     invalidation_count: AtomicU64,
+
+    /// TLB cache for accelerating address translations
+    ///
+    /// Caches translation results to avoid expensive page table walks on repeated
+    /// translations. Critical for achieving target performance (135ns latency).
+    /// Lock-free concurrent access via DashMap.
+    tlb_cache: Arc<TlbCache>,
+
+    /// Monotonic fault timestamp counter for ordering
+    ///
+    /// Uses atomic counter instead of SystemTime::now() to avoid expensive
+    /// syscalls (20-50ns each) on the fault path. Provides ordering guarantees
+    /// without wall-clock overhead. This is a monotonic counter, not wall-clock
+    /// time - use for ordering faults only.
+    ///
+    /// **Performance**: Atomic increment is ~1-2ns vs 20-50ns for SystemTime::now()
+    fault_timestamp_counter: AtomicU64,
 }
 
 impl SMMU {
@@ -225,6 +243,10 @@ impl SMMU {
         let command_queue_capacity = queue_config.command_queue_size;
         let pri_queue_capacity = queue_config.pri_queue_size;
 
+        // Create TLB cache with capacity from configuration
+        let tlb_capacity = config.cache_config.tlb_cache_size;
+        let tlb_cache = Arc::new(TlbCache::new(tlb_capacity, ReplacementPolicy::Lru));
+
         Self {
             streams: DashMap::new(),
             config: Arc::new(RwLock::new(config)),
@@ -243,6 +265,8 @@ impl SMMU {
             pri_queue_capacity,
             pri_count: AtomicU64::new(0),
             invalidation_count: AtomicU64::new(0),
+            tlb_cache,
+            fault_timestamp_counter: AtomicU64::new(0),
         }
     }
 
@@ -402,7 +426,7 @@ impl SMMU {
         }
 
         // Create new StreamContext with configuration
-        let mut stream_context = StreamContext::new();
+        let stream_context = StreamContext::new();
 
         // Apply stream configuration
         stream_context.set_stage1_enabled(config.stage1_enabled);
@@ -417,8 +441,8 @@ impl SMMU {
         // our check and insert operations.
         match self.streams.entry(stream_value) {
             Entry::Vacant(entry) => {
-                // Insert into stream map with Arc<RwLock<>> wrapper
-                entry.insert(Arc::new(RwLock::new(stream_context)));
+                // Insert into stream map with Arc wrapper (no RwLock needed)
+                entry.insert(Arc::new(stream_context));
                 Ok(())
             },
             Entry::Occupied(_) => Err(SMMUError::stream_already_exists(stream_id)),
@@ -463,6 +487,9 @@ impl SMMU {
         self.streams
             .remove(&stream_value)
             .ok_or_else(|| SMMUError::stream_not_found(stream_id))?;
+
+        // Invalidate all TLB cache entries for this stream
+        self.tlb_cache.invalidate_by_stream(stream_id);
 
         Ok(())
     }
@@ -550,8 +577,7 @@ impl SMMU {
     pub fn create_pasid(&self, stream_id: StreamID, pasid: PASID) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
-        let ctx = stream_context.read().unwrap();
-        ctx.create_pasid(pasid).map_err(SMMUError::from)
+        stream_context.create_pasid(pasid).map_err(SMMUError::from)
     }
 
     /// Remove a PASID from a stream
@@ -590,8 +616,14 @@ impl SMMU {
     pub fn remove_pasid(&self, stream_id: StreamID, pasid: PASID) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
-        let ctx = stream_context.read().unwrap();
-        ctx.remove_pasid(pasid).map_err(SMMUError::from)
+        let result = stream_context.remove_pasid(pasid);
+
+        // Invalidate all TLB cache entries for this stream/PASID combination
+        if result.is_ok() {
+            self.tlb_cache.invalidate_by_stream_pasid(stream_id, pasid);
+        }
+
+        result.map_err(SMMUError::from)
     }
 
     /// Map a page in a stream's address space
@@ -643,9 +675,16 @@ impl SMMU {
     ) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
-        let ctx = stream_context.read().unwrap();
-        ctx.map_page(pasid, iova, pa, permissions, security_state)
-            .map_err(SMMUError::from)
+        let result = stream_context.map_page(pasid, iova, pa, permissions, security_state);
+
+        // Invalidate TLB cache entry for this IOVA to ensure consistency
+        // when remapping an existing page
+        if result.is_ok() {
+            let cache_key = CacheKey::new(stream_id, pasid, iova, security_state);
+            self.tlb_cache.invalidate_entry(&cache_key);
+        }
+
+        result.map_err(SMMUError::from)
     }
 
     /// Map a page in the Stage-2 address space (IPA → PA)
@@ -701,8 +740,7 @@ impl SMMU {
     ) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
-        let mut ctx = stream_context.write().unwrap();
-        ctx.map_stage2_page(ipa, pa, permissions, security_state)
+        stream_context.map_stage2_page(ipa, pa, permissions, security_state)
             .map_err(SMMUError::from)
     }
 
@@ -742,8 +780,7 @@ impl SMMU {
     pub fn create_stage2_address_space(&self, stream_id: StreamID) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
-        let mut ctx = stream_context.write().unwrap();
-        ctx.create_stage2_address_space().map_err(SMMUError::from)
+        stream_context.create_stage2_address_space().map_err(SMMUError::from)
     }
 
     /// Get a copy of the global SMMU configuration
@@ -1021,6 +1058,23 @@ impl SMMU {
             return Err(TranslationError::StreamNotConfigured);
         }
 
+        // Fast path: TLB cache lookup
+        let cache_key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        if let Some(cached) = self.tlb_cache.lookup(&cache_key) {
+            // Verify cached entry allows the requested access type
+            if cached.permissions.allows(access) {
+                self.successful_translations.fetch_add(1, Ordering::Relaxed);
+                // Return translation data from cache
+                return Ok(crate::types::TranslationData::new(
+                    cached.physical_address,
+                    cached.permissions,
+                    cached.security_state,
+                ));
+            }
+            // Cache hit but insufficient permissions - fall through to full translation
+        }
+
+        // Slow path: TLB cache miss - perform full page table walk
         // Lookup stream context
         let stream_context = match self.get_stream_context(stream_id) {
             Ok(ctx) => ctx,
@@ -1034,8 +1088,13 @@ impl SMMU {
 
         // Delegate to StreamContext for actual translation
         // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
-        let ctx = stream_context.read().unwrap();
-        let result = ctx.translate(pasid, iova, access, SecurityState::NonSecure);
+        let result = stream_context.translate(pasid, iova, access, SecurityState::NonSecure);
+
+        // On successful translation, populate TLB cache
+        if let Ok(ref data) = result {
+            let entry = CacheEntry::new(iova, data.physical_address(), data.permissions(), 0);
+            self.tlb_cache.insert(cache_key, entry);
+        }
 
         // Record fault on translation error
         if let Err(ref error) = result {
@@ -1112,7 +1171,7 @@ impl SMMU {
     /// # Errors
     ///
     /// Returns `SMMUError::StreamNotFound` if stream doesn't exist.
-    fn get_stream_context(&self, stream_id: StreamID) -> Result<Arc<RwLock<StreamContext>>, SMMUError> {
+    fn get_stream_context(&self, stream_id: StreamID) -> Result<Arc<StreamContext>, SMMUError> {
         let stream_value = stream_id.as_u32();
 
         self.streams
@@ -1203,12 +1262,9 @@ impl SMMU {
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
-        // Get current timestamp
-        #[allow(clippy::cast_possible_truncation)]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+        // Use monotonic atomic counter instead of SystemTime::now() to avoid syscall overhead
+        // This eliminates 20-50ns syscall cost on the fault path while maintaining ordering
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
         let fault = FaultRecord::builder()
             .stream_id(stream_id)
@@ -1253,11 +1309,8 @@ impl SMMU {
     /// * `iova` - Input/Output Virtual Address
     /// * `access` - Access type requested
     fn record_stream_not_found_fault(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType) {
-        #[allow(clippy::cast_possible_truncation)]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+        // Use monotonic atomic counter instead of SystemTime::now() to avoid syscall overhead
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
         let fault = FaultRecord::builder()
             .stream_id(stream_id)
@@ -1477,23 +1530,28 @@ impl SMMU {
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
             CommandType::TlbiNhAll | CommandType::TlbiEl2All => {
-                // Global TLB invalidation
+                // Global TLB invalidation - clear entire cache
+                self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::TlbiS12Vmall => {
                 // Stream/PASID-specific TLB invalidation
+                // Extract stream_id from command parameters
+                let stream_id = StreamID::new(command.stream_id);
+                if let Ok(stream_id) = stream_id {
+                    self.tlb_cache.invalidate_by_stream(stream_id);
+                }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
                 // Address range invalidation
+                // For simplicity, invalidate entire cache for now
+                // TODO: Add range-based invalidation API to TlbCache
+                self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
 
-                // Generate completion event
-                #[allow(clippy::cast_possible_truncation)]
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                // Generate completion event with monotonic timestamp
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                 let event = EventEntry {
                     event_type: EventType::AtcInvalidateCompletion,
@@ -1508,12 +1566,8 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
-                // Synchronization barrier - generate completion event
-                #[allow(clippy::cast_possible_truncation)]
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                // Synchronization barrier - generate completion event with monotonic timestamp
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                 let event = EventEntry {
                     event_type: EventType::CommandSyncCompletion,
@@ -1582,12 +1636,8 @@ impl SMMU {
 
             match request {
                 Some(req) => {
-                    // Generate PRI event for this request
-                    #[allow(clippy::cast_possible_truncation)]
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_micros() as u64; // Truncation acceptable: would require 584K+ years to overflow
+                    // Generate PRI event for this request with monotonic timestamp
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                     let event = EventEntry {
                         event_type: EventType::PriPageRequest,
@@ -1656,11 +1706,19 @@ impl SMMU {
 
     /// Get cache statistics
     ///
-    /// Returns cache invalidation statistics for testing.
+    /// Returns cache invalidation statistics and TLB cache performance metrics.
     #[must_use]
     pub fn get_cache_statistics(&self) -> CacheStatistics {
+        let tlb_stats = self.tlb_cache.statistics();
+
         CacheStatistics {
             invalidation_count: self.invalidation_count.load(Ordering::Relaxed),
+            tlb_lookups: tlb_stats.get_lookups(),
+            tlb_hits: tlb_stats.get_hits(),
+            tlb_misses: tlb_stats.get_misses(),
+            tlb_evictions: tlb_stats.get_evictions(),
+            tlb_insertions: tlb_stats.get_insertions(),
+            tlb_invalidations: tlb_stats.get_invalidations(),
         }
     }
 
@@ -1755,10 +1813,9 @@ impl SMMU {
     #[must_use]
     pub fn pasids(&self, stream_id: StreamID) -> Option<Vec<PASID>> {
         self.streams.get(&stream_id.as_u32()).map(|entry| {
-            let context = entry.value().clone();
-            let context_guard = context.read().unwrap();
+            let context = entry.value();
             // Get all PASID keys from the DashMap
-            context_guard
+            context
                 .pasid_map
                 .iter()
                 .filter_map(|p| PASID::new(*p.key()).ok())
@@ -1919,16 +1976,61 @@ impl SMMU {
 
 /// Cache statistics structure for testing
 ///
-/// Minimal cache statistics structure to support Section 5.3.4 tests.
+/// Includes both invalidation counts and TLB cache performance metrics.
 #[derive(Debug, Clone)]
 pub struct CacheStatistics {
     invalidation_count: u64,
+    tlb_lookups: u64,
+    tlb_hits: u64,
+    tlb_misses: u64,
+    tlb_evictions: u64,
+    tlb_insertions: u64,
+    tlb_invalidations: u64,
 }
 
 impl CacheStatistics {
     /// Get invalidation count
     pub const fn invalidation_count(&self) -> u64 {
         self.invalidation_count
+    }
+
+    /// Get TLB cache lookup count
+    pub const fn tlb_lookups(&self) -> u64 {
+        self.tlb_lookups
+    }
+
+    /// Get TLB cache hit count
+    pub const fn tlb_hits(&self) -> u64 {
+        self.tlb_hits
+    }
+
+    /// Get TLB cache miss count
+    pub const fn tlb_misses(&self) -> u64 {
+        self.tlb_misses
+    }
+
+    /// Get TLB cache eviction count
+    pub const fn tlb_evictions(&self) -> u64 {
+        self.tlb_evictions
+    }
+
+    /// Get TLB cache insertion count
+    pub const fn tlb_insertions(&self) -> u64 {
+        self.tlb_insertions
+    }
+
+    /// Get TLB cache invalidation count
+    pub const fn tlb_invalidations(&self) -> u64 {
+        self.tlb_invalidations
+    }
+
+    /// Calculate TLB cache hit rate as percentage (0.0 to 100.0)
+    pub fn tlb_hit_rate(&self) -> f64 {
+        if self.tlb_lookups == 0 {
+            0.0
+        } else {
+            (self.tlb_hits as f64 / self.tlb_lookups as f64) * 100.0
+        }
     }
 }
 

@@ -9,8 +9,16 @@ use super::{AccessType, SecurityState, PA};
 /// Page access permissions structure
 ///
 /// Defines read/write/execute permissions for memory pages following ARM
-/// architecture memory permissions model. This structure is Copy and uses
-/// compact representation for cache efficiency.
+/// architecture memory permissions model. This structure uses a packed bitfield
+/// representation for optimal cache efficiency (1 byte total).
+///
+/// # Memory Layout
+///
+/// Packed into a single byte with bits:
+/// - Bit 0: Read permission
+/// - Bit 1: Write permission
+/// - Bit 2: Execute permission
+/// - Bits 3-7: Reserved (future use)
 ///
 /// # Examples
 ///
@@ -27,17 +35,16 @@ use super::{AccessType, SecurityState, PA};
 /// assert!(read_write.read() && read_write.write());
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PagePermissions {
-    /// Read permission allowed
-    read: bool,
-    /// Write permission allowed
-    write: bool,
-    /// Execute permission allowed
-    execute: bool,
-}
+pub struct PagePermissions(u8);
 
 impl PagePermissions {
+    /// Bitfield constants
+    const READ: u8 = 0b001;
+    const WRITE: u8 = 0b010;
+    const EXEC: u8 = 0b100;
+
     /// Creates new PagePermissions with explicit flags
     ///
     /// # Arguments
@@ -57,7 +64,17 @@ impl PagePermissions {
     #[must_use]
     #[inline]
     pub const fn new(read: bool, write: bool, execute: bool) -> Self {
-        Self { read, write, execute }
+        let mut bits = 0u8;
+        if read {
+            bits |= Self::READ;
+        }
+        if write {
+            bits |= Self::WRITE;
+        }
+        if execute {
+            bits |= Self::EXEC;
+        }
+        Self(bits)
     }
 
     /// Creates permissions with no access allowed
@@ -111,23 +128,23 @@ impl PagePermissions {
 
     /// Returns true if read permission is allowed
     #[must_use]
-    #[inline]
+    #[inline(always)]
     pub const fn read(self) -> bool {
-        self.read
+        (self.0 & Self::READ) != 0
     }
 
     /// Returns true if write permission is allowed
     #[must_use]
-    #[inline]
+    #[inline(always)]
     pub const fn write(self) -> bool {
-        self.write
+        (self.0 & Self::WRITE) != 0
     }
 
     /// Returns true if execute permission is allowed
     #[must_use]
-    #[inline]
+    #[inline(always)]
     pub const fn execute(self) -> bool {
-        self.execute
+        (self.0 & Self::EXEC) != 0
     }
 
     /// Checks if the given access type is allowed
@@ -140,16 +157,17 @@ impl PagePermissions {
     ///
     /// `true` if the access is allowed, `false` otherwise
     #[must_use]
+    #[inline]
     pub const fn allows(self, access: AccessType) -> bool {
         match access {
             AccessType::None => true, // No access required, always allowed
-            AccessType::Read => self.read,
-            AccessType::Write => self.write,
-            AccessType::Execute => self.execute,
-            AccessType::ReadWrite => self.read && self.write,
-            AccessType::ReadExecute => self.read && self.execute,
-            AccessType::WriteExecute => self.write && self.execute,
-            AccessType::ReadWriteExecute => self.read && self.write && self.execute,
+            AccessType::Read => self.read(),
+            AccessType::Write => self.write(),
+            AccessType::Execute => self.execute(),
+            AccessType::ReadWrite => self.read() && self.write(),
+            AccessType::ReadExecute => self.read() && self.execute(),
+            AccessType::WriteExecute => self.write() && self.execute(),
+            AccessType::ReadWriteExecute => self.read() && self.write() && self.execute(),
         }
     }
 
@@ -163,12 +181,9 @@ impl PagePermissions {
     ///
     /// A new PagePermissions with permissions from both sets
     #[must_use]
+    #[inline]
     pub const fn union(self, other: Self) -> Self {
-        Self::new(
-            self.read || other.read,
-            self.write || other.write,
-            self.execute || other.execute,
-        )
+        Self(self.0 | other.0)
     }
 
     /// Returns the intersection of two permission sets
@@ -181,12 +196,9 @@ impl PagePermissions {
     ///
     /// A new PagePermissions with only permissions present in both sets
     #[must_use]
+    #[inline]
     pub const fn intersection(self, other: Self) -> Self {
-        Self::new(
-            self.read && other.read,
-            self.write && other.write,
-            self.execute && other.execute,
-        )
+        Self(self.0 & other.0)
     }
 
     /// Checks if this permission set is a subset of another
@@ -199,13 +211,15 @@ impl PagePermissions {
     ///
     /// `true` if all permissions in `self` are also in `other`
     #[must_use]
+    #[inline]
     pub const fn is_subset_of(self, other: &Self) -> bool {
-        (!self.read || other.read) && (!self.write || other.write) && (!self.execute || other.execute)
+        (self.0 & !other.0) == 0
     }
 }
 
 impl Default for PagePermissions {
     /// Creates PagePermissions with no access allowed (secure default)
+    #[inline]
     fn default() -> Self {
         Self::none()
     }

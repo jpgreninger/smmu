@@ -174,6 +174,14 @@ impl FaultSyndromeBuilder {
 /// Contains all fault information required for complete fault reporting,
 /// debugging, and recovery according to ARM SMMU v3 specification.
 ///
+/// # Timestamp Semantics
+///
+/// The `timestamp` field is a **monotonic counter**, not wall-clock time.
+/// It provides ordering guarantees for fault events without the overhead
+/// of syscalls (20-50ns per `SystemTime::now()` call). This design trades
+/// absolute time precision for performance - the counter is only used for
+/// ordering faults relative to each other.
+///
 /// # Examples
 ///
 /// ```
@@ -206,7 +214,11 @@ pub struct FaultRecord {
     security_state: SecurityState,
     /// Detailed ARM SMMU v3 fault syndrome
     syndrome: FaultSyndrome,
-    /// Fault occurrence timestamp
+    /// Fault occurrence timestamp (monotonic counter for ordering)
+    ///
+    /// This is a monotonic counter value, not wall-clock time. It provides
+    /// ordering guarantees without syscall overhead. Use for ordering faults
+    /// relative to each other, not for absolute time measurement.
     timestamp: u64,
 }
 
@@ -345,7 +357,10 @@ impl FaultRecord {
         &self.syndrome
     }
 
-    /// Returns the timestamp
+    /// Returns the timestamp (monotonic counter)
+    ///
+    /// This is a monotonic counter value, not wall-clock time.
+    /// Use for ordering faults relative to each other.
     #[must_use]
     #[inline]
     pub const fn timestamp(&self) -> u64 {
@@ -463,7 +478,9 @@ impl FaultRecordBuilder {
         self
     }
 
-    /// Sets the timestamp
+    /// Sets the timestamp (monotonic counter)
+    ///
+    /// Use monotonic counter values for ordering, not wall-clock time.
     #[must_use]
     pub const fn timestamp(mut self, ts: u64) -> Self {
         self.timestamp = ts;

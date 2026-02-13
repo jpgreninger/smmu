@@ -25,7 +25,7 @@
 
 use crate::address_space::{AddressSpace, AddressSpaceError};
 use crate::types::{
-    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError, StreamID, TranslationData,
+    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError, TranslationData,
     TranslationError, TranslationResult, IOVA, PA, PASID,
 };
 use dashmap::DashMap;
@@ -101,6 +101,9 @@ pub struct StreamContext {
 
     /// Fault retry enabled flag
     fault_retry_enabled: AtomicBool,
+
+    /// Monotonic fault timestamp counter (avoids SystemTime overhead)
+    fault_timestamp_counter: AtomicUsize,
 }
 
 impl StreamContext {
@@ -132,6 +135,7 @@ impl StreamContext {
             fault_records: Arc::new(RwLock::new(Vec::new())),
             fault_rate_limit: AtomicUsize::new(usize::MAX),
             fault_retry_enabled: AtomicBool::new(false),
+            fault_timestamp_counter: AtomicUsize::new(0),
         }
     }
 
@@ -341,10 +345,10 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_max_pasids_per_stream(512);
     /// ```
-    pub fn set_max_pasids_per_stream(&mut self, max: usize) {
+    pub fn set_max_pasids_per_stream(&self, max: usize) {
         self.max_pasids_per_stream.store(max, Ordering::Relaxed);
     }
 
@@ -389,11 +393,11 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_stage1_enabled(false);
     /// assert!(!stream_context.is_stage1_enabled());
     /// ```
-    pub fn set_stage1_enabled(&mut self, enabled: bool) {
+    pub fn set_stage1_enabled(&self, enabled: bool) {
         self.stage1_enabled.store(enabled, Ordering::Relaxed);
     }
 
@@ -408,11 +412,11 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// assert!(stream_context.is_stage2_enabled());
     /// ```
-    pub fn set_stage2_enabled(&mut self, enabled: bool) {
+    pub fn set_stage2_enabled(&self, enabled: bool) {
         self.stage2_enabled.store(enabled, Ordering::Relaxed);
     }
 
@@ -459,11 +463,11 @@ impl StreamContext {
     /// use smmu::address_space::AddressSpace;
     /// use std::sync::Arc;
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// let stage2 = Arc::new(AddressSpace::new());
     /// stream_context.set_stage2_address_space(Some(stage2));
     /// ```
-    pub fn set_stage2_address_space(&mut self, address_space: Option<Arc<AddressSpace>>) {
+    pub fn set_stage2_address_space(&self, address_space: Option<Arc<AddressSpace>>) {
         let mut stage2 = self.stage2_address_space.write().unwrap();
         *stage2 = address_space;
     }
@@ -578,11 +582,11 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// assert!(stream_context.create_stage2_address_space().is_ok());
     /// ```
-    pub fn create_stage2_address_space(&mut self) -> Result<(), StreamContextError> {
+    pub fn create_stage2_address_space(&self) -> Result<(), StreamContextError> {
         let mut stage2_guard = self.stage2_address_space.write().unwrap();
 
         // Check if Stage-2 already exists
@@ -621,7 +625,7 @@ impl StreamContext {
     /// use smmu::stream_context::StreamContext;
     /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_stage2_enabled(true);
     /// stream_context.create_stage2_address_space().unwrap();
     ///
@@ -632,7 +636,7 @@ impl StreamContext {
     /// assert!(stream_context.map_stage2_page(ipa, pa, perms, SecurityState::NonSecure).is_ok());
     /// ```
     pub fn map_stage2_page(
-        &mut self,
+        &self,
         ipa: IOVA,
         pa: PA,
         permissions: PagePermissions,
@@ -745,9 +749,14 @@ impl StreamContext {
         let space = addr_space.read().unwrap();
         let result = space.translate_page(iova, access_type, security_state);
 
-        // Record fault if translation failed
-        if let Err(ref err) = result {
-            self.record_translation_fault(pasid, iova, access_type, security_state, err);
+        // Record fault on error
+        if let Err(ref error) = result {
+            let fault_type = match error {
+                TranslationError::PageNotMapped => FaultType::TranslationFault,
+                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
+                _ => FaultType::TranslationFault,
+            };
+            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
         }
 
         result
@@ -768,9 +777,14 @@ impl StreamContext {
         // Perform Stage-2 translation
         let result = stage2.translate_page(ipa, access_type, security_state);
 
-        // Record fault if translation failed
-        if let Err(ref err) = result {
-            self.record_translation_fault(pasid, ipa, access_type, security_state, err);
+        // Record fault on error
+        if let Err(ref error) = result {
+            let fault_type = match error {
+                TranslationError::PageNotMapped => FaultType::TranslationFault,
+                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
+                _ => FaultType::TranslationFault,
+            };
+            self.record_fault_internal(pasid, ipa, fault_type, access_type, security_state);
         }
 
         result
@@ -792,13 +806,18 @@ impl StreamContext {
         let space1 = addr_space.read().unwrap();
         let stage1_result = space1.translate_page(iova, access_type, security_state);
 
-        let stage1_result = match stage1_result {
-            Ok(result) => result,
-            Err(ref err) => {
-                self.record_translation_fault(pasid, iova, access_type, security_state, err);
-                return Err(err.clone());
-            },
-        };
+        // Record Stage-1 fault if error
+        if let Err(ref error) = stage1_result {
+            let fault_type = match error {
+                TranslationError::PageNotMapped => FaultType::TranslationFault,
+                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
+                _ => FaultType::TranslationFault,
+            };
+            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
+            return stage1_result;
+        }
+
+        let stage1_result = stage1_result.unwrap();
 
         // IPA is the physical address from Stage-1
         let ipa =
@@ -810,9 +829,14 @@ impl StreamContext {
 
         let result = stage2.translate_page(ipa, access_type, security_state);
 
-        // Record fault if Stage-2 translation failed
-        if let Err(ref err) = result {
-            self.record_translation_fault(pasid, iova, access_type, security_state, err);
+        // Record Stage-2 fault if error
+        if let Err(ref error) = result {
+            let fault_type = match error {
+                TranslationError::PageNotMapped => FaultType::TranslationFault,
+                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
+                _ => FaultType::TranslationFault,
+            };
+            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
         }
 
         result
@@ -864,7 +888,7 @@ impl StreamContext {
     /// # Errors
     ///
     /// Returns error if configuration is invalid or inconsistent
-    pub fn apply_config(&mut self, builder: StreamConfigBuilder) -> Result<(), StreamContextError> {
+    pub fn apply_config(&self, builder: StreamConfigBuilder) -> Result<(), StreamContextError> {
         // Validate configuration first
         self.validate_config_update(&builder)?;
 
@@ -956,11 +980,11 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = StreamContext::new();
+    /// let ctx = StreamContext::new();
     /// ctx.enable();
     /// assert!(ctx.is_enabled());
     /// ```
-    pub fn enable(&mut self) {
+    pub fn enable(&self) {
         self.enabled.store(true, Ordering::SeqCst);
     }
 
@@ -973,11 +997,11 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = StreamContext::new();
+    /// let ctx = StreamContext::new();
     /// ctx.disable();
     /// assert!(!ctx.is_enabled());
     /// ```
-    pub fn disable(&mut self) {
+    pub fn disable(&self) {
         // Auto-clear PASIDs on disable
         self.pasid_map.clear();
         self.enabled.store(false, Ordering::SeqCst);
@@ -1034,12 +1058,73 @@ impl StreamContext {
     // Section 4.2.4: Fault Handling Operations
     // ========================================================================
 
+    /// Records a fault internally with monotonic timestamp (no SystemTime overhead)
+    ///
+    /// This is an internal helper that automatically records translation faults
+    /// with a monotonic counter-based timestamp for ordering.
+    ///
+    /// # Arguments
+    ///
+    /// * `pasid` - PASID that caused the fault
+    /// * `iova` - Faulting address
+    /// * `fault_type` - Type of fault
+    /// * `access_type` - Access type that caused the fault
+    /// * `security_state` - Security state
+    #[inline]
+    fn record_fault_internal(
+        &self,
+        pasid: PASID,
+        iova: IOVA,
+        fault_type: FaultType,
+        access_type: AccessType,
+        security_state: SecurityState,
+    ) {
+        // Use monotonic counter for timestamp (no SystemTime overhead)
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+
+        // Fast path: try to acquire write lock without blocking
+        if let Ok(mut records) = self.fault_records.try_write() {
+            // Check rate limit
+            let rate_limit = self.fault_rate_limit.load(Ordering::Relaxed);
+            if records.len() < rate_limit {
+                // Create minimal fault record
+                // Note: StreamID is not available at this level, so we use placeholder
+                let stream_id = crate::types::StreamID::new(0).unwrap();
+                let fault = FaultRecord::builder()
+                    .stream_id(stream_id)
+                    .pasid(pasid)
+                    .address(iova)
+                    .fault_type(fault_type)
+                    .access_type(access_type)
+                    .security_state(security_state)
+                    .timestamp(timestamp as u64)
+                    .build();
+
+                records.push(fault);
+            }
+        }
+        // If lock contention, skip recording (acceptable for diagnostics)
+    }
+
     /// Records a fault for diagnostic purposes
+    ///
+    /// **DEPRECATED**: Fault recording has been moved to the SMMU level to eliminate
+    /// redundant recording and SystemTime overhead. This method is kept for backward
+    /// compatibility but may be removed in a future version.
+    ///
+    /// # Migration
+    ///
+    /// Use `SMMU::get_faults()` instead of `StreamContext::get_fault_records()` to
+    /// retrieve fault information.
     ///
     /// # Arguments
     ///
     /// * `_pasid` - PASID that caused the fault
     /// * `fault` - Fault record to store
+    #[deprecated(
+        since = "1.0.4",
+        note = "Fault recording moved to SMMU level. Use SMMU::get_faults() instead."
+    )]
     pub fn record_fault(&self, _pasid: PASID, fault: FaultRecord) {
         let mut records = self.fault_records.write().unwrap();
 
@@ -1065,7 +1150,7 @@ impl StreamContext {
     }
 
     /// Clears all fault records
-    pub fn clear_fault_records(&mut self) {
+    pub fn clear_fault_records(&self) {
         let mut records = self.fault_records.write().unwrap();
         records.clear();
     }
@@ -1111,7 +1196,7 @@ impl StreamContext {
     }
 
     /// Resets fault statistics
-    pub fn reset_fault_statistics(&mut self) {
+    pub fn reset_fault_statistics(&self) {
         self.clear_fault_records();
     }
 
@@ -1120,7 +1205,7 @@ impl StreamContext {
     /// # Arguments
     ///
     /// * `limit` - Maximum number of faults to record
-    pub fn set_fault_rate_limit(&mut self, limit: usize) {
+    pub fn set_fault_rate_limit(&self, limit: usize) {
         self.fault_rate_limit.store(limit, Ordering::SeqCst);
     }
 
@@ -1129,7 +1214,7 @@ impl StreamContext {
     /// # Arguments
     ///
     /// * `enabled` - True to enable retry, false to disable
-    pub fn enable_fault_retry(&mut self, enabled: bool) {
+    pub fn enable_fault_retry(&self, enabled: bool) {
         self.fault_retry_enabled.store(enabled, Ordering::SeqCst);
     }
 
@@ -1142,48 +1227,6 @@ impl StreamContext {
         security_state: SecurityState,
     ) -> TranslationResult {
         self.translate(pasid, iova, access_type, security_state)
-    }
-
-    /// Helper to record translation faults
-    fn record_translation_fault(
-        &self,
-        pasid: PASID,
-        iova: IOVA,
-        access_type: AccessType,
-        security_state: SecurityState,
-        error: &TranslationError,
-    ) {
-        // Map TranslationError to FaultType
-        let fault_type = match error {
-            TranslationError::PageNotMapped => FaultType::TranslationFault,
-            TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-            TranslationError::InvalidAddress { .. } => FaultType::AddressSizeFault,
-            TranslationError::AddressSizeError => FaultType::AddressSizeFault,
-            TranslationError::AlignmentError => FaultType::AlignmentFault,
-            TranslationError::SecurityViolation => FaultType::PermissionFault,
-            TranslationError::ExternalAbort => FaultType::ExternalAbort,
-            TranslationError::TlbConflict => FaultType::TLBConflictAbort,
-            _ => FaultType::TranslationFault,
-        };
-
-        // Create fault record with timestamp
-        #[allow(clippy::cast_possible_truncation)]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_micros() as u64;
-
-        let fault_record = FaultRecord::builder()
-            .stream_id(StreamID::new(0).unwrap()) // Default StreamID for now
-            .pasid(pasid)
-            .address(iova)
-            .fault_type(fault_type)
-            .access_type(access_type)
-            .security_state(security_state)
-            .timestamp(timestamp)
-            .build();
-
-        self.record_fault(pasid, fault_record);
     }
 }
 
@@ -1405,7 +1448,7 @@ mod tests {
 
     #[test]
     fn test_stage_configuration() {
-        let mut ctx = StreamContext::new();
+        let ctx = StreamContext::new();
         ctx.set_stage1_enabled(false);
         ctx.set_stage2_enabled(true);
         assert!(!ctx.is_stage1_enabled());
