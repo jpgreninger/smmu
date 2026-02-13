@@ -28,8 +28,8 @@ use crate::types::{
     AccessType, PageEntry, PagePermissions, SecurityState, TranslationData, TranslationError, TranslationResult, IOVA,
     PA, PAGE_SIZE,
 };
+use dashmap::DashMap;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
@@ -242,8 +242,9 @@ impl<'a> AddressSpaceQuery<'a> {
     }
 
     /// Returns an iterator over all mapped pages
-    pub fn iter(&self) -> impl Iterator<Item = &PageEntry> {
-        self.addr_space.page_table.values()
+    pub fn iter(&self) -> Vec<PageEntry> {
+        // DashMap doesn't have values() - collect from iter()
+        self.addr_space.page_table.iter().map(|entry| entry.value().clone()).collect()
     }
 
     /// Returns statistics for a given address range
@@ -255,7 +256,8 @@ impl<'a> AddressSpaceQuery<'a> {
         let mut stats = RangeStats::default();
 
         for page_num in start_page..=end_page {
-            if let Some(entry) = self.addr_space.page_table.get(&page_num) {
+            if let Some(entry_ref) = self.addr_space.page_table.get(&page_num) {
+                let entry = entry_ref.value();
                 stats.total_pages += 1;
                 if entry.permissions().read() {
                     stats.readable_pages += 1;
@@ -304,24 +306,26 @@ impl<'a> AddressSpaceQuery<'a> {
 /// ```
 #[derive(Debug)]
 pub struct AddressSpace {
-    /// Sparse page table using page number as key
-    page_table: HashMap<u64, PageEntry>,
+    /// Sparse page table using page number as key (lock-free with DashMap)
+    page_table: DashMap<u64, PageEntry>,
     /// Invalidation generation counter for cache coherency
     invalidation_generation: AtomicU64,
-    /// Per-page invalidation tracking
-    invalidation_map: HashMap<u64, AtomicU64>,
+    /// Per-page invalidation tracking (lock-free with DashMap)
+    invalidation_map: DashMap<u64, AtomicU64>,
 }
 
 impl Clone for AddressSpace {
     fn clone(&self) -> Self {
+        // Clone DashMap entries
+        let new_invalidation_map = DashMap::new();
+        for entry in self.invalidation_map.iter() {
+            new_invalidation_map.insert(*entry.key(), AtomicU64::new(entry.value().load(Ordering::Acquire)));
+        }
+
         Self {
             page_table: self.page_table.clone(),
             invalidation_generation: AtomicU64::new(self.invalidation_generation.load(Ordering::Acquire)),
-            invalidation_map: self
-                .invalidation_map
-                .iter()
-                .map(|(&k, v)| (k, AtomicU64::new(v.load(Ordering::Acquire))))
-                .collect(),
+            invalidation_map: new_invalidation_map,
         }
     }
 }
@@ -340,9 +344,9 @@ impl AddressSpace {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            page_table: HashMap::new(),
+            page_table: DashMap::new(),
             invalidation_generation: AtomicU64::new(0),
-            invalidation_map: HashMap::new(),
+            invalidation_map: DashMap::new(),
         }
     }
 
@@ -362,9 +366,9 @@ impl AddressSpace {
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            page_table: HashMap::with_capacity(capacity),
+            page_table: DashMap::with_capacity(capacity),
             invalidation_generation: AtomicU64::new(0),
-            invalidation_map: HashMap::with_capacity(capacity),
+            invalidation_map: DashMap::with_capacity(capacity),
         }
     }
 
@@ -400,7 +404,7 @@ impl AddressSpace {
     /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
     /// ```
     pub fn map_page(
-        &mut self,
+        &self,
         iova: IOVA,
         pa: PA,
         permissions: PagePermissions,
@@ -461,7 +465,7 @@ impl AddressSpace {
     /// addr_space.map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
     /// addr_space.unmap_page(iova).unwrap();
     /// ```
-    pub fn unmap_page(&mut self, iova: IOVA) -> Result<(), AddressSpaceError> {
+    pub fn unmap_page(&self, iova: IOVA) -> Result<(), AddressSpaceError> {
         // Validate IOVA is within supported address space
         if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
             return Err(AddressSpaceError::InvalidAddress { address: iova.as_u64() });
@@ -829,7 +833,7 @@ impl AddressSpace {
     /// addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
     /// ```
     pub fn map_pages(
-        &mut self,
+        &self,
         mappings: &[(IOVA, PA)],
         permissions: PagePermissions,
     ) -> Result<(), AddressSpaceError> {
@@ -838,8 +842,7 @@ impl AddressSpace {
             return Err(AddressSpaceError::InvalidPermissions);
         }
 
-        // Reserve capacity for bulk insertion
-        self.page_table.reserve(mappings.len());
+        // DashMap doesn't need reserve - it auto-resizes efficiently
 
         // Validate all mappings first
         for &(iova, pa) in mappings {
@@ -890,7 +893,7 @@ impl AddressSpace {
     ///
     /// addr_space.unmap_pages(&iovas).unwrap();
     /// ```
-    pub fn unmap_pages(&mut self, iovas: &[IOVA]) -> Result<(), AddressSpaceError> {
+    pub fn unmap_pages(&self, iovas: &[IOVA]) -> Result<(), AddressSpaceError> {
         // Validate all IOVAs first
         for &iova in iovas {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
@@ -943,7 +946,7 @@ impl AddressSpace {
         }
 
         // Collect and sort page numbers
-        let mut page_nums: Vec<u64> = self.page_table.keys().copied().collect();
+        let mut page_nums: Vec<u64> = self.page_table.iter().map(|entry| *entry.key()).collect();
         page_nums.sort_unstable();
 
         // Consolidate into ranges
@@ -1001,8 +1004,8 @@ impl AddressSpace {
             return 0;
         }
 
-        let min_page_num = *self.page_table.keys().min().unwrap();
-        let max_page_num = *self.page_table.keys().max().unwrap();
+        let min_page_num = self.page_table.iter().map(|entry| *entry.key()).min().unwrap();
+        let max_page_num = self.page_table.iter().map(|entry| *entry.key()).max().unwrap();
 
         let min_address = min_page_num << 12;
         let max_address = (max_page_num << 12) + PAGE_SIZE - 1;
@@ -1063,20 +1066,20 @@ impl AddressSpace {
     /// assert_eq!(count, 1);
     /// ```
     pub fn iter(&self) -> impl Iterator<Item = PageEntryRef> + '_ {
-        self.page_table.iter().map(|(page_num, entry)| {
+        self.page_table.iter().map(|entry_ref| {
+            let page_num = *entry_ref.key();
             let iova = IOVA::new(page_num << 12).unwrap();
-            PageEntryRef { iova, entry: entry.clone() }
+            PageEntryRef { iova, entry: entry_ref.value().clone() }
         })
     }
 
     /// Returns a mutable iterator over all mapped pages
     ///
-    /// Allows modifying page entries in place. Changes are committed immediately.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = PageEntryMutRef<'_>> {
-        self.page_table.iter_mut().map(|(page_num, entry)| {
-            let iova = IOVA::new(page_num << 12).unwrap();
-            PageEntryMutRef { iova, entry }
-        })
+    /// Note: With DashMap, mutations should be done via map_page/unmap_page methods
+    /// rather than direct iteration for thread-safety
+    pub fn iter_mut(&self) -> impl Iterator<Item = PageEntryRef> + '_ {
+        // DashMap doesn't support true iter_mut - use iter() instead
+        self.iter()
     }
 
     /// Returns an immutable query interface
@@ -1088,11 +1091,11 @@ impl AddressSpace {
         AddressSpaceQuery { addr_space: self }
     }
 
-    /// Queries a single page, returning an immutable reference
+    /// Queries a single page, returning a copy
     #[must_use]
-    pub fn query_page(&self, iova: IOVA) -> Option<&PageEntry> {
+    pub fn query_page(&self, iova: IOVA) -> Option<PageEntry> {
         let page_num = self.page_number(iova);
-        self.page_table.get(&page_num)
+        self.page_table.get(&page_num).map(|entry_ref| entry_ref.value().clone())
     }
 
     /// Maps multiple pages in a batched operation
@@ -1123,7 +1126,7 @@ impl AddressSpace {
     /// assert_eq!(addr_space.get_page_count().unwrap(), 100);
     /// ```
     pub fn map_pages_batched(
-        &mut self,
+        &self,
         mappings: &[(IOVA, PA)],
         permissions: PagePermissions,
     ) -> Result<(), AddressSpaceError> {
@@ -1150,8 +1153,7 @@ impl AddressSpace {
             batch.push((page_num, entry));
         }
 
-        // Reserve capacity for bulk insertion
-        self.page_table.reserve(batch.len());
+        // DashMap doesn't need reserve - it auto-resizes efficiently
 
         // Insert all entries
         for (page_num, entry) in batch {
@@ -1162,7 +1164,7 @@ impl AddressSpace {
     }
 
     /// Unmaps multiple pages in a batched operation
-    pub fn unmap_pages_batched(&mut self, iovas: &[IOVA]) -> Result<(), AddressSpaceError> {
+    pub fn unmap_pages_batched(&self, iovas: &[IOVA]) -> Result<(), AddressSpaceError> {
         // Validate all IOVAs first
         for &iova in iovas {
             if iova.as_u64() > MAX_VIRTUAL_ADDRESS {
@@ -1207,7 +1209,7 @@ impl AddressSpace {
         // Update all permissions
         for &iova in iovas {
             let page_num = self.page_number(iova);
-            if let Some(entry) = self.page_table.get_mut(&page_num) {
+            if let Some(mut entry) = self.page_table.get_mut(&page_num) {
                 *entry = entry.clone().with_permissions(permissions);
             }
         }

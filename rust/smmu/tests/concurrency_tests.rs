@@ -174,7 +174,7 @@ fn stress_concurrent_address_space_operations() {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
-    let addr_space = Arc::new(RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
     let mut handles = vec![];
 
     // Spawn 100 threads mapping different pages
@@ -315,7 +315,7 @@ fn stress_high_contention() {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
-    let addr_space = Arc::new(RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
     let iova = IOVA::new(0x1000).unwrap();
     let mut handles = vec![];
 
@@ -349,14 +349,13 @@ fn stress_reader_writer_pattern() {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
-    let addr_space = Arc::new(RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
     let iova = IOVA::new(0x1000).unwrap();
     let pa = PA::new(0x2000).unwrap();
 
-    // Initial mapping
+    // Initial mapping (no lock needed - AddressSpace is lock-free)
     {
-        let mut as_guard = addr_space.write().unwrap();
-        as_guard
+        addr_space
             .map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
             .unwrap();
     }

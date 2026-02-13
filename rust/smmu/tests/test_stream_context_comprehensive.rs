@@ -45,7 +45,7 @@ fn test_pasid_limit_enforcement_add_pasid() {
     ctx.create_pasid(PASID::new(0).unwrap()).unwrap();
 
     // Try to add second PASID with shared address space
-    let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
     let result = ctx.add_pasid(PASID::new(1).unwrap(), addr_space);
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), StreamContextError::PASIDLimitExceeded(1, 1)));
@@ -57,7 +57,7 @@ fn test_add_pasid_duplicate() {
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
 
     // Try to add duplicate
-    let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
     let result = ctx.add_pasid(PASID::new(1).unwrap(), addr_space);
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), StreamContextError::PASIDAlreadyExists(1)));
@@ -66,7 +66,7 @@ fn test_add_pasid_duplicate() {
 #[test]
 fn test_add_pasid_success() {
     let ctx = StreamContext::new();
-    let addr_space = Arc::new(std::sync::RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
 
     assert!(ctx.add_pasid(PASID::new(1).unwrap(), addr_space).is_ok());
     assert!(ctx.has_pasid(PASID::new(1).unwrap()));

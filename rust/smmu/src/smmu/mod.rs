@@ -1815,11 +1815,20 @@ impl SMMU {
         self.streams.get(&stream_id.as_u32()).map(|entry| {
             let context = entry.value();
             // Get all PASID keys from the DashMap
-            context
+            let mut pasids: Vec<PASID> = context
                 .pasid_map
                 .iter()
                 .filter_map(|p| PASID::new(*p.key()).ok())
-                .collect()
+                .collect();
+
+            // Include PASID 0 if it exists
+            if let Ok(pasid0) = PASID::new(0) {
+                if context.has_pasid(pasid0) {
+                    pasids.push(pasid0);
+                }
+            }
+
+            pasids
         })
     }
 

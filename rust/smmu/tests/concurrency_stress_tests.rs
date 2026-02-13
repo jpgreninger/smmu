@@ -139,15 +139,14 @@ fn stress_address_space_mixed_read_write() {
     const NUM_WRITERS: usize = 2;
     const DURATION_MS: u64 = 100;
 
-    let addr_space = Arc::new(RwLock::new(AddressSpace::new()));
+    let addr_space = Arc::new(AddressSpace::new());
 
-    // Pre-populate with some mappings
+    // Pre-populate with some mappings (no lock needed - AddressSpace is lock-free)
     {
-        let mut guard = addr_space.write().unwrap();
         for i in 0..100 {
             let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
             let pa = PA::new(0x10_0000 + i * PAGE_SIZE).unwrap();
-            let _ = guard.map_page(iova, pa, PagePermissions::all(), SecurityState::NonSecure);
+            let _ = addr_space.map_page(iova, pa, PagePermissions::all(), SecurityState::NonSecure);
         }
     }
 
@@ -165,8 +164,8 @@ fn stress_address_space_mixed_read_write() {
                 let i = rng.gen_range(0..100);
                 let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
 
-                let guard = addr_space_clone.read().unwrap();
-                let _ = guard.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
+                // No lock needed - AddressSpace is lock-free
+                let _ = addr_space_clone.translate_page(iova, AccessType::Read, SecurityState::NonSecure);
             }
         });
 
@@ -186,8 +185,8 @@ fn stress_address_space_mixed_read_write() {
                 let iova = IOVA::new(0x1000 + i * PAGE_SIZE).unwrap();
                 let pa = random_pa();
 
-                let mut guard = addr_space_clone.write().unwrap();
-                let _ = guard.map_page(iova, pa, PagePermissions::all(), SecurityState::NonSecure);
+                // No lock needed - AddressSpace is lock-free
+                let _ = addr_space_clone.map_page(iova, pa, PagePermissions::all(), SecurityState::NonSecure);
             }
         });
 
@@ -198,8 +197,8 @@ fn stress_address_space_mixed_read_write() {
         handle.join().unwrap();
     }
 
-    // Verify consistency
-    assert!(addr_space.read().unwrap().get_page_count().unwrap() > 0);
+    // Verify consistency (no lock needed - AddressSpace is lock-free)
+    assert!(addr_space.get_page_count().unwrap() > 0);
 }
 
 #[test]
