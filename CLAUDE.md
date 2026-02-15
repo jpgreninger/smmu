@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a comprehensive ARM SMMU (System Memory Management Unit) v3 implementation following the ARM SMMU v3 specification, providing a C++11-compliant software model for development, simulation, and testing environments.
 
+This is also a Rust SMMU project. Language is Rust with Cargo. Always run `cargo test` and `cargo clippy` before committing. Documentation is in Markdown.
+
 ## Build System
 
 **IMPORTANT**: Always build in the `build/` subdirectory for out-of-source builds. Never build in the source root.
@@ -77,6 +79,18 @@ make run_validation_tests     # SMMU specification compliance
 - **Strongly-Typed Enums**: `enum class` for type safety
 
 ## Development Workflows
+
+## Workflow
+When implementing tasks from TASKS.md or similar task files, complete one task fully (including tests and commit) before starting the next. If rate limits are a concern, commit progress before moving on.
+
+## Rust Development
+Always run `cargo clippy -- -D warnings` with `--all-targets` flag to catch ALL warnings in a single pass, not just a subset.
+
+## Git Workflow
+After completing any implementation or fix, always commit changes immediately before starting the next task. Use descriptive commit messages with section/task numbers.
+
+## Task Implementation
+When the user says 'implement X' where X is a section or task number, always check TASKS.md or TASKS-RUST.md first to find the matching task specification before starting work.
 
 ### ⚠️ CRITICAL DEVELOPMENT REQUIREMENTS ⚠️
 

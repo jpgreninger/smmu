@@ -26,5 +26,13 @@
       "mcp__plugin_serena_serena__read_file",
       "mcp__plugin_serena_serena__get_symbols_overview"
     ]
+  },
+  {
+    "hooks": {
+      "pre-commit": {
+        "command": "cargo clippy -- -D warnings --all-targets && cargo test --quiet",
+        "description": "Run clippy and tests before committing Rust updates"
+      }
+    }
   }
 }
