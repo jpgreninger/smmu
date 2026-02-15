@@ -1,0 +1,25 @@
+(INFO) Reading coverage data...
+(WARNING) /home/jpgreninger/Work/smmu/cpp/src/address_space/address_space.cpp:117: Ignoring negative hits in:     if (!entry.valid) {.
+(WARNING) Ignored 5 negative hits overall.
+(WARNING) /home/jpgreninger/Work/smmu/cpp/src/cache/tlb_cache.cpp:157: Ignoring negative hits in:         if (!stripe.list.empty()) {.
+(WARNING) Ignored 3 negative hits overall.
+(WARNING) /home/jpgreninger/Work/smmu/cpp/src/smmu/smmu.cpp:96: Ignoring negative hits in:     if (cachingEnabled && tlbCache) {.
+(WARNING) Ignored 17 negative hits overall.
+(WARNING) /home/jpgreninger/Work/smmu/cpp/src/stream_context/stream_context.cpp:946: Ignoring negative hits in:     if (stage1Enabled) {.
+(WARNING) Ignored 4 negative hits overall.
+(INFO) Writing coverage report...
+------------------------------------------------------------------------------
+                           GCC Code Coverage Report
+Directory: .
+------------------------------------------------------------------------------
+File                                       Lines     Exec  Cover   Missing
+------------------------------------------------------------------------------
+src/address_space/address_space.cpp          242      226    93%   118,153-155,175-177,190,195-197,251,441,495,575,577
+src/cache/tlb_cache.cpp                      326      316    96%   21,414-415,479,491-493,547-549
+src/configuration/configuration.cpp          292      285    97%   35,137,140,143,147,448,459
+src/fault/fault_handler.cpp                  136      134    98%   131-132
+src/smmu/smmu.cpp                           1012      786    77%   51,130,305,422,429-430,435,441-443,468,489-491,518,525,564-566,568-570,649-652,667-675,677-678,700,705-713,715-716,742-750,752-753,766,775,787,809-811,815,817-819,823-824,828-829,832-833,835-836,840-841,844,847-851,866,868,951,953,959,961,967,969,1036-1045,1047-1048,1051,1069-1071,1081,1110,1112-1113,1115,1117-1118,1126,1145-1146,1148,1162,1168,1173,1210,1223,1225,1235-1236,1238,1250,1254,1271,1274,1291,1293-1294,1307,1362,1364-1365,1438,1538,1614-1619,1671-1672,1674-1675,1677-1678,1682,1689-1691,1697,1736-1748,1750-1758,1761-1765,1797,1799,1801-1804,1809-1811,1813-1816,1818,1827,1846-1847,1871,1876-1877,1880-1884,1886-1888,1890,1910,1924,1926-1928,2034,2039,2042,2045,2051
+src/stream_context/stream_context.cpp        438      419    95%   159,192,336-338,460,465,485,526-527,584-585,704-706,783,960,962,1011
+------------------------------------------------------------------------------
+TOTAL                                       2446     2166    88%
+------------------------------------------------------------------------------
