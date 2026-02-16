@@ -824,7 +824,7 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly f
 ### Documentation
 
 **Quality Reports**:
-- **[COVERAGE-RUST.md](COVERAGE-RUST.md)** - Complete coverage results (2,067 tests)
+- **[COVERAGE_SUMMARY.md](COVERAGE_SUMMARY.md)** - Complete coverage results (2,067 tests)
 - **[PERFORMANCE-RUST.md](PERFORMANCE-RUST.md)** - Complete performance results (2,067 tests)
 - **[MUTATION_TEST_BASELINE_RESULTS.md](MUTATION_TEST_BASELINE_REPORTS.md)** - Mutation testing results ✨NEW
 - **[WARNING_CLEANUP_SUMMARY.md](WARNING_CLEANUP_SUMMARY.md)** - Warning elimination (15 fixes)
