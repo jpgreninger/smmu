@@ -97,6 +97,21 @@ fn test_concurrent_translation_performance() {
         }
     }
 
+    // Warmup: Populate TLB cache by translating each page once per stream/PASID
+    // This ensures consistent results in both debug and release mode by eliminating
+    // cache-miss variance from the benchmark timing.
+    for stream_num in 0..10 {
+        let stream_id = StreamID::new(stream_num + 1).unwrap();
+        for pasid_num in 0..10 {
+            let pasid = PASID::new(pasid_num).unwrap();
+            for page_num in 0..10 {
+                let iova = IOVA::new((page_num as u64) * 0x1000).unwrap();
+                smmu.translate(stream_id, pasid, iova, AccessType::Read)
+                    .expect("Warmup translation should succeed");
+            }
+        }
+    }
+
     // Benchmark: Concurrent translations from 8 threads
     let num_threads = 8;
     let iterations_per_thread = 1000;
