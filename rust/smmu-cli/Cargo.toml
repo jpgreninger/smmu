@@ -1,6 +1,6 @@
 [package]
 name = "smmu-cli"
-version = "1.2.4"
+version = "1.2.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,7 +18,7 @@ name = "smmu-cli"
 path = "src/main.rs"
 
 [dependencies]
-smmu = { version = "1.2.4", path = "../smmu" }
+smmu = { version = "1.2.5", path = "../smmu" }
 # CLI dependencies will be added as needed
 
 [lints]
