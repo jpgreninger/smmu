@@ -458,6 +458,16 @@ rust/
 ├── COMPREHENSIVE_TEST_REPORT.md    # Historical test results
 ├── MUTATION_TEST_BASELINE_RESULTS.md # Mutation testing guide (400+ lines) ✨NEW
 ├── LOOM_CONFIG_SUMMARY.md          # Loom configuration
+├── COVERAGE_INDEX.md               # Complete coverage results (2,067 tests)
+├── PERFORMANCE-RUST.md             # Complete performance results
+├── QA-RUST.md                      # Comprehensive quality assurance report
+├── ARCHITECTURE_DIAGRAMS.md        # Visual architecture documentation (650+ lines, 4 Mermaid diagrams)
+├── DESIGN.md                       # Architecture and design documentation (20 KB)
+├── GUIDE.md                        # User guide with tutorials (17 KB)
+├── DOCUMENTATION.md                # Documentation build instructions
+├── SEMVER.md                       # Complete semantic versioning policy
+├── TASKS-RUST.md                   # Complete implementation tracking (all 10 phases)
+├── README.md                       # This file (quick start guide)
 ├── .cargo/mutants.toml             # Mutation testing configuration ✨NEW
 ├── .github/workflows/              # GitHub Actions CI/CD
 │   ├── ci.yml                     # Main CI workflow (12 jobs)
@@ -846,7 +856,7 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly f
 - **[QA-RUST.md](QA-RUST.md)** - Comprehensive quality assurance report
 
 **Architecture & Design**:
-- **[rust/ARCHITECTURE_DIAGRAMS.md](rust/ARCHITECTURE_DIAGRAMS.md)** - Visual architecture documentation (650+ lines, 4 Mermaid diagrams)
+- **[ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md)** - Visual architecture documentation (650+ lines, 4 Mermaid diagrams)
 - **[DESIGN.md](DESIGN.md)** - Architecture and design documentation (20 KB)
 - **[GUIDE.md](GUIDE.md)** - User guide with tutorials (17 KB)
 - **[DOCUMENTATION.md](DOCUMENTATION.md)** - Documentation build instructions
