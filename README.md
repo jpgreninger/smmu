@@ -127,10 +127,9 @@ make run_performance_tests    # Performance benchmarks (3 tests)
 ## Documentation
 
 ### Production Documentation Suite
-- **[cpp/RELEASE_NOTES.md](cpp/RELEASE_NOTES.md)** - Complete production release documentation with technical specifications
-- **[cpp/CHANGELOG.md](cpp/CHANGELOG.md)** - Detailed version history and development progression
-- **[cpp/COVERAGE_SUMMARY.txt](cpp/COVERAGE_SUMMARY.txt)** - Comprehensive test coverage analysis and quality metrics
-- **[ARM_SMMU_v3_PRD.md](ARM_SMMU_v3_PRD.md)** - Complete product requirements document with implementation status
+- **[cpp/COVERAGE_REPORT.md](cpp/COVERAGE_REPORT.md)** - Comprehensive test coverage analysis and quality metrics
+- **[cpp/PERFORMANCE_REPORT.md](cpp/PERFORMANCE_REPORT.md)** - Complete performance report
+- **[cpp/QA_REPORT.md](cpp/QA_REPORT.md)** - Complete quality report
 - **[cpp/TASKS.md](cpp/TASKS.md)** - C++ implementation progress and completion details
 - **[cpp/tests/TEST_COVERAGE_REPORT.md](cpp/tests/TEST_COVERAGE_REPORT.md)** - Detailed test coverage report with performance analysis
 - **[cpp/docs/](cpp/docs/)** - Complete C++ documentation suite including:
@@ -402,10 +401,11 @@ cargo bench
 ### Rust Documentation
 
 **Production Documentation**:
-- **[rust/QA_REPORT.md](rust/QA_REPORT.md)** - Comprehensive quality assurance report (24 KB)
+- **[rust/QA-RUST.md](rust/QA-RUST.md)** - Comprehensive quality assurance report (24 KB)
 - **[rust/DESIGN.md](rust/DESIGN.md)** - Architecture and design documentation with flow diagrams (20 KB)
 - **[rust/ARCHITECTURE_DIAGRAMS.md](rust/ARCHITECTURE_DIAGRAMS.md)** - Visual architecture documentation (650+ lines, 4 Mermaid diagrams)
-- **[rust/MUTATION_TESTING.md](rust/MUTATION_TESTING.md)** - Mutation testing guide and framework (400+ lines)
+- **[rust/PERFORMANCE-RUST.md](rust/PERFORMANCE-RUST.md)** - Rust performance results
+- **[rust/COVERAGE-RUST.md](rust/COVERAGE-RUST.md)** - Rust coverage results
 - **[rust/MUTATION_TEST_BASELINE_RESULTS.md](rust/MUTATION_TEST_BASELINE_RESULTS.md)** - 99.2% mutation score results
 - **[rust/GUIDE.md](rust/GUIDE.md)** - User guide with tutorials (17 KB)
 - **[rust/MIGRATION.md](rust/MIGRATION.md)** - C++ to Rust migration guide (19 KB)
@@ -415,7 +415,6 @@ cargo bench
 
 **Implementation Tracking**:
 - **[rust/TASKS-RUST.md](rust/TASKS-RUST.md)** - Complete implementation status (all 10 phases complete)
-- **[rust/SECTION_5_IMPLEMENTATION_COMPLETE.md](rust/SECTION_5_IMPLEMENTATION_COMPLETE.md)** - Advanced testing details
 - **[rust/README.md](rust/README.md)** - Rust-specific README with build instructions
 
 **Examples** (8 comprehensive examples in `rust/smmu/examples/`):
