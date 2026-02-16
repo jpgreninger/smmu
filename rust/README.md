@@ -845,12 +845,12 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly f
 **Quality Reports**:
 - **[COVERAGE_INDEX.md](COVERAGE_INDEX.md)** - Complete coverage results (2,067 tests)
 - **[PERFORMANCE-RUST.md](PERFORMANCE-RUST.md)** - Complete performance results (2,067 tests)
-- **[MUTATION_TEST_BASELINE_RESULTS.md](MUTATION_TEST_BASELINE_REPORTS.md)** - Mutation testing results ✨NEW
-- **[WARNING_CLEANUP_SUMMARY.md](WARNING_CLEANUP_SUMMARY.md)** - Warning elimination (15 fixes)
+- **[MUTATION_TEST_BASELINE_RESULTS.md](MUTATION_TEST_BASELINE_RESULTS.md)** - Mutation testing results ✨NEW
 - **[LOOM_CONFIG_SUMMARY.md](LOOM_CONFIG_SUMMARY.md)** - Concurrency testing setup
 - **[QA-RUST.md](QA-RUST.md)** - Comprehensive quality assurance report
 
 **Architecture & Design**:
+- **[rust/ARCHITECTURE_DIAGRAMS.md](rust/ARCHITECTURE_DIAGRAMS.md)** - Visual architecture documentation (650+ lines, 4 Mermaid diagrams)
 - **[DESIGN.md](DESIGN.md)** - Architecture and design documentation (20 KB)
 - **[GUIDE.md](GUIDE.md)** - User guide with tutorials (17 KB)
 - **[DOCUMENTATION.md](DOCUMENTATION.md)** - Documentation build instructions
