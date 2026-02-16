@@ -1,6 +1,6 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.2.2 (C++) / v1.2.2 (Rust)** - Hardware-Exceeding Performance ✅
+## ✅ **PRODUCTION RELEASE v1.2.3 (C++) / v1.2.3 (Rust)** - Hardware-Exceeding Performance ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
