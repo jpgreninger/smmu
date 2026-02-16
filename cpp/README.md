@@ -1,6 +1,6 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.3** - Hardware-Exceeding Performance ✅
+## ✅ **PRODUCTION RELEASE v1.2.4** - Hardware-Exceeding Performance ✅
 
 **Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.5% | **Tests**: 43/43 passing (100%) | **Performance**: 86-101ns translation latency
 
