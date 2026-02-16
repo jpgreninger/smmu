@@ -155,7 +155,7 @@ Successfully implemented **4 critical performance optimizations** achieving tran
 - ✅ **QA Expert approved** for production
 - ✅ **Full thread safety** maintained (zero unsafe code)
 
-See [ALL_OPTIMIZATIONS_FINAL_REPORT.md](ALL_OPTIMIZATIONS_FINAL_REPORT.md) for complete technical details.
+See [PERFORMANCE-RUST.md](PERFORMANCE-RUST.md) for complete technical details.
 
 ### Advanced Testing Implementation (February 8, 2026)
 
@@ -190,8 +190,6 @@ See [ALL_OPTIMIZATIONS_FINAL_REPORT.md](ALL_OPTIMIZATIONS_FINAL_REPORT.md) for c
 - Comprehensive mutation testing guide (400+ lines)
 - Automation script with 3 execution modes
 - 7 detailed implementation and status documents
-
-See [SECTION_5_IMPLEMENTATION_COMPLETE.md](SECTION_5_IMPLEMENTATION_COMPLETE.md) for complete details.
 
 ### Version 1.0.1 (February 1, 2026)
 
@@ -381,7 +379,7 @@ This Rust implementation provides a complete, memory-safe, and performant SMMU v
 - **Windows** (MSVC, GNU) - Compilation verified, CI tested
 - **macOS** (Intel, Apple Silicon) - Compilation verified, CI tested
 
-**Zero platform-specific code** - Pure Rust implementation using only standard library. See [CROSS_PLATFORM.md](CROSS_PLATFORM.md) for detailed platform support information and cross-compilation guide.
+**Zero platform-specific code** - Pure Rust implementation using only standard library
 
 ### CI/CD Pipeline
 
@@ -826,23 +824,19 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/) strictly f
 ### Documentation
 
 **Quality Reports**:
-- **[COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md)** - Complete test results (2,067 tests)
-- **[SECTION_5_IMPLEMENTATION_COMPLETE.md](SECTION_5_IMPLEMENTATION_COMPLETE.md)** - Advanced testing complete (142k+ scenarios) ✨NEW
-- **[MUTATION_TESTING.md](MUTATION_TESTING.md)** - Mutation testing guide (400+ lines) ✨NEW
-- **[DOCTEST_FIX_SUMMARY.md](DOCTEST_FIX_SUMMARY.md)** - Documentation quality fixes (124 fixes)
+- **[COVERAGE-RUST.md](COVERAGE-RUST.md)** - Complete coverage results (2,067 tests)
+- **[PERFORMANCE-RUST.md](PERFORMANCE-RUST.md)** - Complete performance results (2,067 tests)
+- **[MUTATION_TEST_BASELINE_RESULTS.md](MUTATION_TEST_BASELINE_REPORTS.md)** - Mutation testing results ✨NEW
 - **[WARNING_CLEANUP_SUMMARY.md](WARNING_CLEANUP_SUMMARY.md)** - Warning elimination (15 fixes)
 - **[LOOM_CONFIG_SUMMARY.md](LOOM_CONFIG_SUMMARY.md)** - Concurrency testing setup
-- **[QA_REPORT.md](QA_REPORT.md)** - Comprehensive quality assurance report
+- **[QA-RUST.md](QA-RUST.md)** - Comprehensive quality assurance report
 
 **Architecture & Design**:
 - **[DESIGN.md](DESIGN.md)** - Architecture and design documentation (20 KB)
 - **[GUIDE.md](GUIDE.md)** - User guide with tutorials (17 KB)
-- **[MIGRATION.md](MIGRATION.md)** - C++ to Rust migration guide (19 KB)
-- **[BUILD_PROFILES.md](BUILD_PROFILES.md)** - Build configuration guide (12 KB)
 - **[DOCUMENTATION.md](DOCUMENTATION.md)** - Documentation build instructions
 
 **Version and Policy**:
-- **[CHANGELOG.md](CHANGELOG.md)** - Detailed version history and release notes
 - **[SEMVER.md](SEMVER.md)** - Complete semantic versioning policy
 
 **Implementation**:
