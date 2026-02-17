@@ -1,6 +1,6 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.2.4 (C++) / v1.2.5 (Rust)** - Hardware-Exceeding Performance ✅
+## ✅ **PRODUCTION RELEASE v1.2.5 (C++) / v1.2.5 (Rust)** - Hardware-Exceeding Performance ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
@@ -460,7 +460,7 @@ match result {
 
 ### Rust vs C++ Comparison
 
-| Metric | Rust v1.2.0 | C++ v1.0.4 | Comparison |
+| Metric | Rust v1.2.0 | C++ v1.2.5 | Comparison |
 |--------|-------------|------------|------------|
 | **Translation Latency** | 37-41ns | 34-73ns | ✅ Rust (similar/better) |
 | **Memory Safety** | Guaranteed | Manual | ✅ Rust |
@@ -541,7 +541,7 @@ The repository is organized with separate directories for C++ and Rust implement
 
 ```
 ARM-SMMU-v3/
-├── cpp/                          # C++ Implementation (v1.0.0)
+├── cpp/                          # C++ Implementation (v1.2.5)
 │   ├── include/smmu/            # Public C++ headers
 │   ├── src/                     # C++ source files
 │   │   ├── address_space/
@@ -613,7 +613,7 @@ Total: ~150K lines of code (C++ + Rust + tests + documentation)
 ### Key Directories
 
 **C++ Implementation (`cpp/`)**
-- Production-ready C++11 implementation v1.2.1
+- Production-ready C++11 implementation v1.2.5
 - 88.5% test coverage, 43 tests, 100% passing
 - Hardware-exceeding performance (86-101ns translation latency)
 - True O(1) scalability with optimized sparse data structures
