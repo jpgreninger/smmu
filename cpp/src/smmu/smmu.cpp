@@ -94,40 +94,42 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // Task 5.2: Optimized fast path - Check TLB cache first for maximum performance
     if (cachingEnabled && tlbCache) {
-        // Performance optimization: Direct TLB lookup without intermediate method call overhead
+        // Performance optimization: Use lookupEntry() which returns TLBEntry by value (thread-safe)
         IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
-        TLBEntry* entry = tlbCache->lookup(streamID, pasid, pageAlignedIOVA, securityState);
+        Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
 
-        if (entry && entry->valid) {
-            // Optimization 7: Remove redundant security state check (already in CacheKey)
-            // Fast path: Validate cache entry age inline for speed
-            const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-            if (currentTime - entry->timestamp <= MAX_CACHE_AGE_US) {
-                // Cache hit - validate access permissions against requested access type
-                if (!validateAccessPermissions(entry->permissions, accessType)) {
-                    // Permission fault - record fault and return error
-                    FaultRecord fault;
-                    fault.streamID = streamID;
-                    fault.pasid = pasid;
-                    fault.address = iova;
-                    fault.faultType = FaultType::PermissionFault;
-                    fault.accessType = accessType;
-                    fault.securityState = securityState;
-                    fault.timestamp = currentTime;
+        if (entryResult.isOk()) {
+            const TLBEntry& entry = entryResult.getValue();
+            if (entry.valid) {
+                // Fast path: Validate cache entry age inline for speed
+                const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
+                if (currentTime - entry.timestamp <= MAX_CACHE_AGE_US) {
+                    // Cache hit - validate access permissions against requested access type
+                    if (!validateAccessPermissions(entry.permissions, accessType)) {
+                        // Permission fault - record fault and return error
+                        FaultRecord fault;
+                        fault.streamID = streamID;
+                        fault.pasid = pasid;
+                        fault.address = iova;
+                        fault.faultType = FaultType::PermissionFault;
+                        fault.accessType = accessType;
+                        fault.securityState = securityState;
+                        fault.timestamp = currentTime;
 
-                    recordFault(fault);
-                    return makeTranslationError(SMMUError::PagePermissionViolation);
+                        recordFault(fault);
+                        return makeTranslationError(SMMUError::PagePermissionViolation);
+                    }
+
+                    // TLBCache already recorded hit statistics
+                    // No need for additional recordCacheHit() here
+
+                    PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
+                    TranslationData data(finalPA, entry.permissions, entry.securityState);
+                    return TranslationResult(data);
+                } else {
+                    // Entry expired - invalidate and continue to full translation
+                    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
                 }
-
-                // TLBCache already recorded hit statistics
-                // No need for additional recordCacheHit() here
-
-                PA finalPA = entry->physicalAddress + (iova & PAGE_MASK);
-                TranslationData data(finalPA, entry->permissions, entry->securityState);
-                return TranslationResult(data);
-            } else {
-                // Entry expired - invalidate and continue to full translation
-                tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
             }
         }
         // Cache miss - TLBCache already recorded miss statistics
@@ -157,16 +159,16 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     StreamContext* streamContext = streamIt->second.get();
     
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
-    TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext);
-    
+    TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
+
     // Task 5.2: Cache successful translations for future lookups
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
-        cacheTranslationResult(streamID, pasid, iova, result);
+        cacheTranslationResult(streamID, pasid, iova, result, currentTime);
         // No need to record cache hit here - this is cache storage, not a hit
     } else if (result.isError()) {
         // Task 5.2: Enhanced fault handling and recovery mechanisms
         // ARM SMMU v3 spec: Comprehensive fault classification and recovery
-        handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result);
+        handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
         
         // ARM SMMU v3 spec: Fault recovery based on global fault mode
         if (globalFaultMode == FaultMode::Stall) {
@@ -656,12 +658,12 @@ CacheStatistics SMMU::getCacheStatistics() const {
 }
 
 // Task 5.2: Enhanced two-stage translation logic with sophisticated coordination
-TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova, 
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext) {
+TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova,
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Enhanced two-stage translation coordination
     // This method provides sophisticated coordination between Stage-1 and Stage-2 translations
     // with comprehensive error handling and performance optimization
-    
+
     if (!streamContext) {
         // Defensive programming - should not happen if called correctly
         FaultRecord fault;
@@ -671,18 +673,18 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
         fault.securityState = securityState;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return makeTranslationError(SMMUError::StreamNotConfigured);
     }
-    
+
     // ARM SMMU v3 spec: Get stream configuration to determine translation stages
+    // Issue 3 fix: Retrieve config once and pass to stage-specific methods
     StreamConfig config = streamContext->getStreamConfiguration();
-    
+
     TranslationResult result = makeTranslationError(SMMUError::InternalError);
-    
+
     // ARM SMMU v3 spec: Handle different stage combinations
     if (!config.translationEnabled) {
         // Translation disabled - bypass mode (IOVA = PA)
@@ -690,16 +692,16 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         TranslationData data(iova, bypassPerms, securityState);
         return TranslationResult(data);
     }
-    
+
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
-        result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext);
+        result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext, config, currentTime);
     } else if (config.stage1Enabled && !config.stage2Enabled) {
         // Stage-1 only: IOVA -> PA directly
-        result = performStage1OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext);
+        result = performStage1OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
     } else if (!config.stage1Enabled && config.stage2Enabled) {
         // Stage-2 only: IPA -> PA (IOVA = IPA)
-        result = performStage2OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext);
+        result = performStage2OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
     } else {
         // No stages enabled but translation enabled - configuration error
         FaultRecord fault;
@@ -709,20 +711,19 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
         fault.securityState = securityState;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return makeTranslationError(SMMUError::ConfigurationError);
     }
-    
+
     // ARM SMMU v3 spec: Enhanced validation of translation results
     if (result.isOk()) {
         // Validate translated address alignment and sanity
         TranslationData data = result.getValue();
         if (data.physicalAddress == 0 && iova != 0) {
             // Suspicious translation to null address
-            
+
             FaultRecord fault;
             fault.streamID = streamID;
             fault.pasid = pasid;
@@ -730,15 +731,14 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             fault.faultType = FaultType::TranslationFault;
             fault.accessType = accessType;
             fault.securityState = securityState;
-            fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            
+            fault.timestamp = currentTime;
+
             recordFault(fault);
             return makeTranslationError(SMMUError::TranslationTableError);
         } else {
             // Validate access permissions against requested access type
             if (!validateAccessPermissions(data.permissions, accessType)) {
-                
+
                 FaultRecord fault;
                 fault.streamID = streamID;
                 fault.pasid = pasid;
@@ -746,15 +746,14 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
                 fault.faultType = FaultType::PermissionFault;
                 fault.accessType = accessType;
                 fault.securityState = securityState;
-                fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count();
-                
+                fault.timestamp = currentTime;
+
                 recordFault(fault);
                 return makeTranslationError(SMMUError::PagePermissionViolation);
             }
         }
     }
-    
+
     return result;
 }
 
@@ -769,27 +768,27 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
     return data.physicalAddress != 0;
 }
 
-void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova, 
-                                 const TranslationResult& result) {
+void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
+                                 const TranslationResult& result, uint64_t currentTime) {
     if (!tlbCache || result.isError() || !cachingEnabled) {
         return; // Caching disabled or invalid result
     }
-    
+
     TranslationData data = result.getValue();
-    
+
     // ARM SMMU v3 spec: Only cache page-aligned translations for efficiency
     IOVA pageAlignedIOVA = iova & ~PAGE_MASK; // Page-align the IOVA
     PA pageAlignedPA = data.physicalAddress & ~PAGE_MASK; // Page-align the PA
-    
+
     // Validate that the translation is cacheable
     if (pageAlignedPA == 0 && pageAlignedIOVA != 0) {
         // Don't cache suspicious null translations
         return;
     }
-    
+
     // We already know this is a cache miss from the main translate() method
     // No need to lookup again - just insert the new entry
-    
+
     // Convert TranslationResult to TLBEntry for caching
     TLBEntry entry;
     entry.streamID = streamID;
@@ -799,9 +798,8 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     entry.permissions = data.permissions;
     entry.securityState = data.securityState;
     entry.valid = true;
-    entry.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    
+    entry.timestamp = currentTime;
+
     // ARM SMMU v3 spec: Insert into TLB with LRU eviction if needed
     tlbCache->insert(entry);
 }
@@ -851,29 +849,31 @@ void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityS
 }
 
 // Task 5.2: Enhanced stage-specific translation methods
-TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pasid, IOVA iova, 
-                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext) {
+TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pasid, IOVA iova,
+                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, const StreamConfig& config, uint64_t currentTime) {
     // ARM SMMU v3 spec: Two-stage translation IOVA -> IPA -> PA
     // This provides comprehensive coordination between Stage-1 and Stage-2 translations
     // with proper fault handling and permission intersection
-    
-    // Get stream configuration to validate stage setup
-    StreamConfig config = streamContext->getStreamConfiguration();
-    
+
+    // Issue 3 fix: config is passed from performTwoStageTranslation, no redundant getStreamConfiguration()
+
     // Validate that both stages are properly configured
     if (!config.stage1Enabled || !config.stage2Enabled) {
         // Configuration error - both stages should be enabled for this method
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
-                               accessType, securityState, FaultStage::BothStages, 0, 0);
+                               accessType, securityState, FaultStage::BothStages, currentTime, 0, 0);
         return makeTranslationError(SMMUError::ConfigurationError);
     }
-    
+
+    // Issue 2 fix: Use getPASIDAddressSpaceUnlocked via the public getPASIDAddressSpace
+    // since we don't hold contextMutex here. The stage methods use translate() which
+    // acquires contextMutex internally, so we use the locked variant for safety.
     // Stage 1: IOVA -> IPA translation (using per-PASID address space)
     AddressSpace* stage1AddressSpace = streamContext->getPASIDAddressSpace(pasid);
     if (!stage1AddressSpace) {
         // PASID not configured - Stage-1 translation fault
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
-                               accessType, securityState, FaultStage::Stage1Only, 0, 0);
+                               accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
         return makeTranslationError(SMMUError::PASIDNotFound);
     }
     
@@ -890,28 +890,28 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             faultType = FaultType::AccessFault;
         }
         recordComprehensiveFault(streamID, pasid, iova, faultType,
-                               accessType, securityState, FaultStage::Stage1Only, 1, 0);
+                               accessType, securityState, FaultStage::Stage1Only, currentTime, 1, 0);
         return stage1Result;
     }
-    
+
     // Stage 1 success - IPA is now in stage1Result.physicalAddress
     IPA intermediatePA = stage1Result.getValue().physicalAddress;
-    
+
     // ARM SMMU v3 spec: Validate IPA from Stage-1 before Stage-2 translation
     if (intermediatePA == 0 && iova != 0) {
         // Invalid IPA produced by Stage-1
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
-                               accessType, securityState, FaultStage::Stage1Only, 1, 0);
+                               accessType, securityState, FaultStage::Stage1Only, currentTime, 1, 0);
         return makeTranslationError(SMMUError::TranslationTableError);
     }
-    
+
     // Stage 2: IPA -> PA translation (using stream's Stage-2 address space)
     // ARM SMMU v3 spec: Stage-2 uses PASID 0 for hypervisor address space (Section 3.4.5)
     AddressSpace* stage2AddressSpace = streamContext->getPASIDAddressSpace(0);
     if (!stage2AddressSpace) {
         // Stage-2 address space not configured - Stage-2 translation fault
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
-                               accessType, securityState, FaultStage::Stage2Only, 0, 0);
+                               accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
         return makeTranslationError(SMMUError::AddressSpaceExhausted);
     }
     
@@ -930,42 +930,42 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
         // ARM SMMU v3 spec: Stage-2 faults use PASID 0 (hypervisor) and IPA as fault address
         recordComprehensiveFault(streamID, 0, intermediatePA, stage2FaultType,
-                               accessType, securityState, FaultStage::Stage2Only, 1, 0);
+                               accessType, securityState, FaultStage::Stage2Only, currentTime, 1, 0);
         return stage2Result;
     }
-    
+
     // Both stages successful - create final translation result
     const TranslationData& stage1Data = stage1Result.getValue();
     const TranslationData& stage2Data = stage2Result.getValue();
-    
+
     // ARM SMMU v3 spec: Final permissions are intersection of Stage-1 and Stage-2 permissions
     // This ensures that access is only allowed if both stages permit it
     PagePermissions finalPermissions;
     finalPermissions.read = stage1Data.permissions.read && stage2Data.permissions.read;
     finalPermissions.write = stage1Data.permissions.write && stage2Data.permissions.write;
     finalPermissions.execute = stage1Data.permissions.execute && stage2Data.permissions.execute;
-    
+
     // ARM SMMU v3 spec: Validate final permissions against requested access
     if (!validateAccessPermissions(finalPermissions, accessType)) {
         // Permission fault after two-stage translation - final permission check failed
         recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
-                               accessType, securityState, FaultStage::BothStages, 2, 0);
+                               accessType, securityState, FaultStage::BothStages, currentTime, 2, 0);
         return makeTranslationError(SMMUError::PagePermissionViolation);
     }
-    
+
     // ARM SMMU v3 spec: Validate security state consistency across both stages
     if (stage1Data.securityState != stage2Data.securityState) {
         // Security state inconsistency between stages
         recordComprehensiveFault(streamID, pasid, iova, FaultType::SecurityFault,
-                               accessType, securityState, FaultStage::BothStages, 0, 0);
+                               accessType, securityState, FaultStage::BothStages, currentTime, 0, 0);
         return makeTranslationError(SMMUError::InvalidSecurityState);
     }
-    
+
     // ARM SMMU v3 spec: Final security state validation - use stage2 security state as reference
     if (!validateSecurityState(securityState, stage2Data.securityState)) {
         // Security state violation
         recordComprehensiveFault(streamID, pasid, iova, FaultType::SecurityFault,
-                               accessType, securityState, FaultStage::BothStages, 0, 0);
+                               accessType, securityState, FaultStage::BothStages, currentTime, 0, 0);
         return makeTranslationError(SMMUError::InvalidSecurityState);
     }
     
@@ -973,26 +973,40 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     return makeTranslationSuccess(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
 }
 
-TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova, 
-                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext) {
+TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
+                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-1 only translation IOVA -> PA
     TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
-    
+
     // Record fault if translation failed
     if (result.isError()) {
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
         fault.address = iova;
-        fault.faultType = (result.getError() == SMMUError::PageNotMapped) ? FaultType::TranslationFault : FaultType::AccessFault;
+        // Classify fault type based on error code
+        switch (result.getError()) {
+            case SMMUError::PageNotMapped:
+                fault.faultType = FaultType::TranslationFault;
+                break;
+            case SMMUError::PagePermissionViolation:
+                fault.faultType = FaultType::PermissionFault;
+                break;
+            case SMMUError::InvalidSecurityState:
+                fault.faultType = FaultType::SecurityFault;
+                break;
+            default:
+                fault.faultType = FaultType::AccessFault;
+                break;
+        }
         fault.accessType = accessType;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.securityState = securityState;
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return result;
     }
-    
+
     // Enhanced validation for Stage-1 only mode
     const TranslationData& translationData = result.getValue();
     if (translationData.physicalAddress == 0 && iova != 0) {
@@ -1002,36 +1016,50 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
         fault.address = iova;
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.securityState = securityState;
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return makeTranslationError(SMMUError::PageNotMapped);
     }
-    
+
     return result;
 }
 
-TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova, 
-                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext) {
+TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
+                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-2 only translation IPA -> PA (IOVA treated as IPA)
     TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
-    
+
     // Record fault if translation failed
     if (result.isError()) {
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
         fault.address = iova;
-        fault.faultType = (result.getError() == SMMUError::PageNotMapped) ? FaultType::TranslationFault : FaultType::AccessFault;
+        // Classify fault type based on error code
+        switch (result.getError()) {
+            case SMMUError::PageNotMapped:
+                fault.faultType = FaultType::TranslationFault;
+                break;
+            case SMMUError::PagePermissionViolation:
+                fault.faultType = FaultType::PermissionFault;
+                break;
+            case SMMUError::InvalidSecurityState:
+                fault.faultType = FaultType::SecurityFault;
+                break;
+            default:
+                fault.faultType = FaultType::AccessFault;
+                break;
+        }
         fault.accessType = accessType;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.securityState = securityState;
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return result;
     }
-    
+
     // Enhanced validation for Stage-2 only mode
     const TranslationData& translationData = result.getValue();
     if (translationData.physicalAddress == 0 && iova != 0) {
@@ -1041,21 +1069,23 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
         fault.address = iova;
         fault.faultType = FaultType::TranslationFault;
         fault.accessType = accessType;
-        fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        
+        fault.securityState = securityState;
+        fault.timestamp = currentTime;
+
         recordFault(fault);
         return makeTranslationError(SMMUError::PageNotMapped);
     }
-    
+
     return result;
 }
 
 // Task 5.2: Enhanced error handling and fault recovery methods
-void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova, 
-                                   AccessType accessType, SecurityState securityState, TranslationResult& result) {
+// Issue 5 fix: This method no longer re-records faults that were already recorded
+// in stage-specific methods. It only performs fault recovery actions.
+void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
+                                   AccessType accessType, SecurityState securityState, TranslationResult& result, uint64_t currentTime) {
     // ARM SMMU v3 spec: Comprehensive fault handling and recovery
-    
+
     // Determine fault type from the Result error code
     FaultType faultType;
     if (result.isError()) {
@@ -1080,49 +1110,39 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         // If result is successful, this shouldn't be called, but handle gracefully
         faultType = FaultType::TranslationFault;
     }
-    
-    // Create comprehensive fault record
-    FaultRecord fault;
-    fault.streamID = streamID;
-    fault.pasid = pasid;
-    fault.address = iova;
-    fault.faultType = faultType;
-    fault.accessType = accessType;
-    fault.securityState = securityState;
-    fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    
-    // ARM SMMU v3 spec: Record fault with proper context
-    recordFault(fault);
-    
+
+    // Issue 5 fix: Do NOT re-record the fault here. The fault was already recorded
+    // in performTwoStageTranslation, performBothStagesTranslation, performStage1OnlyTranslation,
+    // or performStage2OnlyTranslation. Only perform recovery actions.
+
     // ARM SMMU v3 spec: Implement fault recovery mechanisms based on fault type
     switch (faultType) {
         case FaultType::TranslationFault:
             // Could implement page fault handling or demand paging here
             handleTranslationFaultRecovery(streamID, pasid, iova, securityState);
             break;
-            
+
         case FaultType::PermissionFault:
             // Could implement permission escalation or security logging
             handlePermissionFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
-            
+
         case FaultType::AddressSizeFault:
             // Could implement address range expansion or validation
             handleAddressSizeFaultRecovery(streamID, pasid, iova, securityState);
             break;
-            
+
         case FaultType::AccessFault:
             // Could implement access retry or alternative path handling
             handleAccessFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
-            
+
         case FaultType::SecurityFault:
             // Security fault - log violation and notify security subsystem
             recordSecurityFault(streamID, pasid, iova, accessType, securityState, securityState);
             break;
-            
-        // ARM SMMU v3 specific fault types - default handling
+
+        // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
         case FaultType::ContextDescriptorFormatFault:
         case FaultType::TranslationTableFormatFault:
         case FaultType::Level0TranslationFault:
@@ -1140,13 +1160,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::Stage2TranslationFault:
         case FaultType::Stage2PermissionFault:
             // Default handling for ARM SMMU v3 specific faults
-            // These would require more sophisticated handling in a full implementation
-            {
-                FaultRecord complexFault(streamID, pasid, iova, faultType, accessType, securityState);
-                recordFault(complexFault);
-            }
+            // Recovery actions would be implemented here in a full implementation
             break;
     }
+
+    (void)currentTime; // Available for future recovery logic that may need timing
 }
 
 FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) const {
@@ -1848,19 +1866,18 @@ AccessClassification SMMU::classifyAccess(AccessType accessType) const {
     }
 }
 
-void SMMU::recordComprehensiveFault(StreamID streamID, PASID pasid, IOVA iova, FaultType faultType, 
+void SMMU::recordComprehensiveFault(StreamID streamID, PASID pasid, IOVA iova, FaultType faultType,
                                    AccessType accessType, SecurityState securityState, FaultStage stage,
-                                   uint8_t faultLevel, uint16_t contextDescIndex) {
+                                   uint64_t currentTime, uint8_t faultLevel, uint16_t contextDescIndex) {
     // Generate comprehensive ARM SMMU v3 fault syndrome
     PrivilegeLevel privLevel = determinePrivilegeLevel(accessType, securityState);
-    FaultSyndrome syndrome = generateFaultSyndrome(faultType, stage, accessType, securityState, 
+    FaultSyndrome syndrome = generateFaultSyndrome(faultType, stage, accessType, securityState,
                                                   faultLevel, privLevel, contextDescIndex);
-    
+
     // Create comprehensive fault record
     FaultRecord fault(streamID, pasid, iova, faultType, accessType, securityState, syndrome);
-    fault.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    
+    fault.timestamp = currentTime;
+
     // Record the fault through the fault handler
     recordFault(fault);
 }

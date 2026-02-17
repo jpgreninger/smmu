@@ -167,29 +167,29 @@ private:
     FaultStage determineFaultStage(const StreamConfig& config, FaultType faultType) const;
     PrivilegeLevel determinePrivilegeLevel(AccessType accessType, SecurityState securityState) const;
     AccessClassification classifyAccess(AccessType accessType) const;
-    void recordComprehensiveFault(StreamID streamID, PASID pasid, IOVA iova, FaultType faultType, 
+    void recordComprehensiveFault(StreamID streamID, PASID pasid, IOVA iova, FaultType faultType,
                                  AccessType accessType, SecurityState securityState, FaultStage stage,
-                                 uint8_t faultLevel = 0, uint16_t contextDescIndex = 0);
+                                 uint64_t currentTime, uint8_t faultLevel = 0, uint16_t contextDescIndex = 0);
     FaultType classifyDetailedTranslationFault(IOVA iova, uint8_t tableLevel, bool formatError = false) const;
     void recordCacheHit() const;
     void recordCacheMiss() const;
     
     // Enhanced translation helpers (Task 5.2)
-    TranslationResult performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova, 
-                                               AccessType accessType, SecurityState securityState, StreamContext* streamContext);
+    TranslationResult performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova,
+                                               AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
     bool isTranslationCacheable(const TranslationResult& result) const;
-    void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova, 
-                               const TranslationResult& result);
+    void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
+                               const TranslationResult& result, uint64_t currentTime);
     TranslationResult lookupTranslationCache(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState);
     void generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const;
-    
+
     // Stage-specific translation methods (Task 5.2)
     TranslationResult performBothStagesTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext);
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, const StreamConfig& config, uint64_t currentTime);
     TranslationResult performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext);
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
     TranslationResult performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext);
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
 
     // Optimization 6: Inline validateAccessPermissions for performance
     inline bool validateAccessPermissions(const PagePermissions& permissions, AccessType accessType) const {
@@ -207,8 +207,8 @@ private:
     }
 
     // Enhanced error handling and fault recovery methods (Task 5.2)
-    void handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova, 
-                                 AccessType accessType, SecurityState securityState, TranslationResult& result);
+    void handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
+                                 AccessType accessType, SecurityState securityState, TranslationResult& result, uint64_t currentTime);
     FaultType classifyTranslationFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) const;
     void handleTranslationFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState);
     void handlePermissionFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);
