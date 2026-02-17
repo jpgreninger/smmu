@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 # Project configuration
 project(ARM_SMMU_v3
-    VERSION 1.0.0
+    VERSION 1.2.5
     DESCRIPTION "ARM SMMU v3 C++11 Implementation"
     LANGUAGES CXX
 )
