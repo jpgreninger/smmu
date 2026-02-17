@@ -159,17 +159,17 @@ void TLBCache::insert(const TLBEntry& entry) {
             --last;
             const CacheKey& evictKey = last->first;
 
-            // Remove from secondary indices
-            auto& streamVec = stripe.streamIndex[evictKey.streamID];
-            streamVec.erase(std::remove(streamVec.begin(), streamVec.end(), evictKey), streamVec.end());
-            if (streamVec.empty()) {
+            // Remove from secondary indices - O(1) with unordered_set
+            auto& streamSet = stripe.streamIndex[evictKey.streamID];
+            streamSet.erase(evictKey);
+            if (streamSet.empty()) {
                 stripe.streamIndex.erase(evictKey.streamID);
             }
 
             StreamPASIDKey spKey{evictKey.streamID, evictKey.pasid};
-            auto& pasidVec = stripe.pasidIndex[spKey];
-            pasidVec.erase(std::remove(pasidVec.begin(), pasidVec.end(), evictKey), pasidVec.end());
-            if (pasidVec.empty()) {
+            auto& pasidSet = stripe.pasidIndex[spKey];
+            pasidSet.erase(evictKey);
+            if (pasidSet.empty()) {
                 stripe.pasidIndex.erase(spKey);
             }
 
@@ -183,9 +183,9 @@ void TLBCache::insert(const TLBEntry& entry) {
     stripe.map[key] = stripe.list.begin();
 
     // Add to secondary indices for O(k) invalidation
-    stripe.streamIndex[entry.streamID].push_back(key);
+    stripe.streamIndex[entry.streamID].insert(key);
     StreamPASIDKey spKey{entry.streamID, entry.pasid};
-    stripe.pasidIndex[spKey].push_back(key);
+    stripe.pasidIndex[spKey].insert(key);
 }
 
 bool TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry) {
@@ -223,17 +223,17 @@ void TLBCache::remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState s
     auto it = stripe.map.find(key);
 
     if (it != stripe.map.end()) {
-        // Remove from secondary indices
-        auto& streamVec = stripe.streamIndex[streamID];
-        streamVec.erase(std::remove(streamVec.begin(), streamVec.end(), key), streamVec.end());
-        if (streamVec.empty()) {
+        // Remove from secondary indices - O(1) with unordered_set
+        auto& streamSet = stripe.streamIndex[streamID];
+        streamSet.erase(key);
+        if (streamSet.empty()) {
             stripe.streamIndex.erase(streamID);
         }
 
         StreamPASIDKey spKey{streamID, pasid};
-        auto& pasidVec = stripe.pasidIndex[spKey];
-        pasidVec.erase(std::remove(pasidVec.begin(), pasidVec.end(), key), pasidVec.end());
-        if (pasidVec.empty()) {
+        auto& pasidSet = stripe.pasidIndex[spKey];
+        pasidSet.erase(key);
+        if (pasidSet.empty()) {
             stripe.pasidIndex.erase(spKey);
         }
 
@@ -272,17 +272,17 @@ void TLBCache::invalidateBySecurityState(SecurityState securityState) {
             if (it->first.securityState == securityState) {
                 const CacheKey& key = it->first;
 
-                // Remove from secondary indices
-                auto& streamVec = stripe.streamIndex[key.streamID];
-                streamVec.erase(std::remove(streamVec.begin(), streamVec.end(), key), streamVec.end());
-                if (streamVec.empty()) {
+                // Remove from secondary indices - O(1) with unordered_set
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
                     stripe.streamIndex.erase(key.streamID);
                 }
 
                 StreamPASIDKey spKey{key.streamID, key.pasid};
-                auto& pasidVec = stripe.pasidIndex[spKey];
-                pasidVec.erase(std::remove(pasidVec.begin(), pasidVec.end(), key), pasidVec.end());
-                if (pasidVec.empty()) {
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
                     stripe.pasidIndex.erase(spKey);
                 }
 
@@ -296,11 +296,10 @@ void TLBCache::invalidateBySecurityState(SecurityState securityState) {
 }
 
 void TLBCache::invalidateStream(StreamID streamID) {
-    // Acquire all locks for bulk invalidation
-    AllLocksGuard allLocks(*this);
-
-    // Use secondary index for O(k) invalidation instead of O(N)
+    // Per-stripe iteration: acquire only one stripe lock at a time
+    // to allow concurrent operations on other stripes
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[i]));
         CacheStripe& stripe = stripes[i];
 
         auto streamIt = stripe.streamIndex.find(streamID);
@@ -313,11 +312,11 @@ void TLBCache::invalidateStream(StreamID streamID) {
                     stripe.map.erase(mapIt);
                 }
 
-                // Remove from pasidIndex
+                // Remove from pasidIndex - O(1) with unordered_set
                 StreamPASIDKey spKey{key.streamID, key.pasid};
-                auto& pasidVec = stripe.pasidIndex[spKey];
-                pasidVec.erase(std::remove(pasidVec.begin(), pasidVec.end(), key), pasidVec.end());
-                if (pasidVec.empty()) {
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
                     stripe.pasidIndex.erase(spKey);
                 }
             }
@@ -327,13 +326,12 @@ void TLBCache::invalidateStream(StreamID streamID) {
 }
 
 void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
-    // Acquire all locks for bulk invalidation
-    AllLocksGuard allLocks(*this);
-
-    // Use secondary index for O(k) invalidation instead of O(N)
+    // Per-stripe iteration: acquire only one stripe lock at a time
+    // to allow concurrent operations on other stripes
     StreamPASIDKey spKey{streamID, pasid};
 
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[i]));
         CacheStripe& stripe = stripes[i];
 
         auto pasidIt = stripe.pasidIndex.find(spKey);
@@ -346,10 +344,10 @@ void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
                     stripe.map.erase(mapIt);
                 }
 
-                // Remove from streamIndex
-                auto& streamVec = stripe.streamIndex[streamID];
-                streamVec.erase(std::remove(streamVec.begin(), streamVec.end(), key), streamVec.end());
-                if (streamVec.empty()) {
+                // Remove from streamIndex - O(1) with unordered_set
+                auto& streamSet = stripe.streamIndex[streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
                     stripe.streamIndex.erase(streamID);
                 }
             }

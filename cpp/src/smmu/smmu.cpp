@@ -720,7 +720,7 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     // ARM SMMU v3 spec: Enhanced validation of translation results
     if (result.isOk()) {
         // Validate translated address alignment and sanity
-        TranslationData data = result.getValue();
+        const TranslationData& data = result.getValue();
         if (data.physicalAddress == 0 && iova != 0) {
             // Suspicious translation to null address
 
@@ -764,7 +764,7 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
     if (result.isError()) {
         return false;
     }
-    TranslationData data = result.getValue();
+    const TranslationData& data = result.getValue();
     return data.physicalAddress != 0;
 }
 
@@ -774,7 +774,7 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
         return; // Caching disabled or invalid result
     }
 
-    TranslationData data = result.getValue();
+    const TranslationData& data = result.getValue();
 
     // ARM SMMU v3 spec: Only cache page-aligned translations for efficiency
     IOVA pageAlignedIOVA = iova & ~PAGE_MASK; // Page-align the IOVA

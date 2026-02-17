@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <cstddef>
+#include <unordered_map>
 
 namespace smmu {
 
@@ -63,6 +64,10 @@ private:
     uint64_t totalFaults;
     uint64_t translationFaults;
     uint64_t permissionFaults;
+
+    // Running counters for O(1) count queries (reflect current queue contents)
+    std::unordered_map<int, size_t> faultTypeCounters;
+    std::unordered_map<int, size_t> accessTypeCounters;
     
     // Helper methods
     uint64_t getCurrentTimestamp() const;

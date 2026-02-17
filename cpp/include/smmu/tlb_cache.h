@@ -6,6 +6,7 @@
 
 #include "smmu/types.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <list>
 #include <vector>
 #include <utility>
@@ -180,8 +181,8 @@ private:
         size_t maxEntriesPerStripe;
 
         // Secondary indices for O(k) invalidation instead of O(N)
-        std::unordered_map<StreamID, std::vector<CacheKey>> streamIndex;
-        std::unordered_map<StreamPASIDKey, std::vector<CacheKey>, StreamPASIDKeyHash> pasidIndex;
+        std::unordered_map<StreamID, std::unordered_set<CacheKey, CacheKeyHash>> streamIndex;
+        std::unordered_map<StreamPASIDKey, std::unordered_set<CacheKey, CacheKeyHash>, StreamPASIDKeyHash> pasidIndex;
 
         CacheStripe() : maxEntriesPerStripe(0) {
         }

@@ -21,6 +21,7 @@
 
 #include "smmu/types.h"
 #include <vector>
+#include <unordered_set>
 #include <mutex>
 #include <memory>
 
@@ -63,7 +64,7 @@ template<typename T>
 class MemoryPool {
 private:
     std::vector<T*> freeList;           ///< Available objects for reuse
-    std::vector<T*> allocatedObjects;   ///< All allocated objects (for cleanup)
+    std::unordered_set<T*> allocatedObjects;   ///< All allocated objects (for cleanup)
     mutable std::mutex poolMutex;       ///< Thread safety protection (mutable for const methods)
     size_t initialSize;                 ///< Initial pool size
     size_t growthSize;                  ///< Number of objects to add when pool is empty
@@ -78,7 +79,7 @@ private:
     void grow(size_t count) {
         for (size_t i = 0; i < count; ++i) {
             T* obj = new T();
-            allocatedObjects.push_back(obj);
+            allocatedObjects.insert(obj);
             freeList.push_back(obj);
         }
 
@@ -265,12 +266,8 @@ public:
 
         // Delete objects in free list
         for (T* obj : freeList) {
-            // Remove from allocatedObjects vector
-            auto it = std::find(allocatedObjects.begin(), allocatedObjects.end(), obj);
-            if (it != allocatedObjects.end()) {
-                allocatedObjects.erase(it);
-            }
-
+            // Remove from allocatedObjects set - O(1) average
+            allocatedObjects.erase(obj);
             delete obj;
         }
 

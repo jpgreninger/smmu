@@ -179,22 +179,9 @@ Result<PagePermissions> AddressSpace::getPagePermissions(IOVA iova) const {
 
 // Get count of mapped pages for statistics and management
 Result<size_t> AddressSpace::getPageCount() const {
-    try {
-        // Count only valid entries in sparse page table
-        size_t count = 0;
-        for (const auto& pair : pageTable) {
-            if (pair.second.valid) {
-                count++;
-                // Check for potential overflow
-                if (count == SIZE_MAX) {
-                    return makeError<size_t>(SMMUError::InternalError);
-                }
-            }
-        }
-        return Result<size_t>(count);
-    } catch (...) {
-        return makeError<size_t>(SMMUError::InternalError);
-    }
+    // All entries in pageTable are valid: mapPage sets valid=true,
+    // unmapPage erases entries. Therefore pageTable.size() == valid count.
+    return Result<size_t>(pageTable.size());
 }
 
 // Clear all page mappings

@@ -16,7 +16,7 @@ FaultHandler::~FaultHandler() {
 void FaultHandler::recordFault(const FaultRecord& fault) {
     std::lock_guard<std::mutex> lock(queueMutex);
     eventQueue.push_back(fault);
-    
+
     // Update statistics
     totalFaults++;
     if (fault.faultType == FaultType::TranslationFault) {
@@ -25,7 +25,11 @@ void FaultHandler::recordFault(const FaultRecord& fault) {
     else if (fault.faultType == FaultType::PermissionFault) {
         permissionFaults++;
     }
-    
+
+    // Update running counters for O(1) count queries
+    faultTypeCounters[static_cast<int>(fault.faultType)]++;
+    accessTypeCounters[static_cast<int>(fault.accessType)]++;
+
     enforceQueueLimit();
 }
 
@@ -52,8 +56,12 @@ void FaultHandler::recordPermissionFault(StreamID streamID, PASID pasid, IOVA io
 }
 
 std::vector<FaultRecord> FaultHandler::getEvents() {
-    std::lock_guard<std::mutex> lock(queueMutex);
-    return std::vector<FaultRecord>(eventQueue.begin(), eventQueue.end());
+    std::deque<FaultRecord> localCopy;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        localCopy = eventQueue;
+    }
+    return std::vector<FaultRecord>(localCopy.begin(), localCopy.end());
 }
 
 std::vector<FaultRecord> FaultHandler::getFaults() {
@@ -63,6 +71,8 @@ std::vector<FaultRecord> FaultHandler::getFaults() {
 void FaultHandler::clearEvents() {
     std::lock_guard<std::mutex> lock(queueMutex);
     eventQueue.clear();
+    faultTypeCounters.clear();
+    accessTypeCounters.clear();
 }
 
 void FaultHandler::clearFaults() {
@@ -146,24 +156,14 @@ uint64_t FaultHandler::getPermissionFaultCount() const {
 
 size_t FaultHandler::getFaultCountByType(FaultType faultType) const {
     std::lock_guard<std::mutex> lock(queueMutex);
-    size_t count = 0;
-    for (const auto& fault : eventQueue) {
-        if (fault.faultType == faultType) {
-            count++;
-        }
-    }
-    return count;
+    auto it = faultTypeCounters.find(static_cast<int>(faultType));
+    return (it != faultTypeCounters.end()) ? it->second : 0;
 }
 
 size_t FaultHandler::getFaultCountByAccessType(AccessType accessType) const {
     std::lock_guard<std::mutex> lock(queueMutex);
-    size_t count = 0;
-    for (const auto& fault : eventQueue) {
-        if (fault.accessType == accessType) {
-            count++;
-        }
-    }
-    return count;
+    auto it = accessTypeCounters.find(static_cast<int>(accessType));
+    return (it != accessTypeCounters.end()) ? it->second : 0;
 }
 
 uint64_t FaultHandler::getFaultRate(uint64_t currentTime, uint64_t timeWindow) const {
@@ -191,6 +191,16 @@ uint64_t FaultHandler::getCurrentTimestamp() const {
 
 void FaultHandler::enforceQueueLimit() {
     while (eventQueue.size() > maxQueueSize) {
+        const FaultRecord& evicted = eventQueue.front();
+        // Decrement running counters for evicted entry
+        int ftKey = static_cast<int>(evicted.faultType);
+        if (faultTypeCounters[ftKey] > 0) {
+            faultTypeCounters[ftKey]--;
+        }
+        int atKey = static_cast<int>(evicted.accessType);
+        if (accessTypeCounters[atKey] > 0) {
+            accessTypeCounters[atKey]--;
+        }
         eventQueue.pop_front();
     }
 }
