@@ -491,7 +491,16 @@ void SMMU::resetStatistics() {
 
 void SMMU::reset() {
     // Complete system reset - Enhanced with TLBCache reset (Task 5.2)
-    streamMap.clear();
+    // BUG-28 fix: acquire all stripe locks before clearing streamMap to prevent
+    // use-after-free when a concurrent translate() holds a raw StreamContext*
+    // pointer to an entry that reset() would otherwise delete unprotected.
+    {
+        std::vector<std::unique_lock<std::mutex>> locks;
+        for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+            locks.emplace_back(streamLockStripes[i]);
+        }
+        streamMap.clear();
+    }
     resetStatistics();
     faultHandler->reset();
     globalFaultMode = FaultMode::Terminate;
@@ -762,31 +771,37 @@ TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, I
     // ARM SMMU v3 spec: Perform optimized TLB lookup with page alignment
     IOVA pageAlignedIOVA = iova & ~PAGE_MASK; // Page-align the IOVA for lookup
     
-    TLBEntry* entry = tlbCache->lookup(streamID, pasid, pageAlignedIOVA, securityState);
-    if (!entry || !entry->valid) {
+    // BUG-26 fix: use lookupEntry() which returns TLBEntry by value, eliminating the
+    // use-after-free that occurred when lookup() returned a raw TLBEntry* whose
+    // backing list node could be destroyed by a concurrent insert/invalidate after
+    // the stripe lock inside lookup() was released.
+    Result<TLBEntry> lookupResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
+    if (lookupResult.isError() || !lookupResult.getValue().valid) {
         return makeTranslationError(SMMUError::CacheEntryNotFound); // Cache miss
     }
-    
+
+    const TLBEntry entry = lookupResult.getValue();
+
     // Security state validation
-    if (entry->securityState != securityState) {
+    if (entry.securityState != securityState) {
         return makeTranslationError(FaultType::SecurityFault);
     }
-    
+
     // ARM SMMU v3 spec: Validate cache entry freshness and coherency
     uint64_t currentTime = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-    
+
     // Check if the cache entry is still valid (simple aging mechanism)
     const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-    if (currentTime - entry->timestamp > MAX_CACHE_AGE_US) {
+    if (currentTime - entry.timestamp > MAX_CACHE_AGE_US) {
         // Entry is too old, invalidate and return cache miss
         tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
         return makeTranslationError(SMMUError::CacheEntryNotFound); // Cache miss due to age
     }
-    
+
     // Convert TLBEntry back to TranslationResult with page offset preservation
-    PA finalPhysicalAddress = entry->physicalAddress + (iova & PAGE_MASK); // Add back page offset
-    return makeTranslationSuccess(finalPhysicalAddress, entry->permissions, entry->securityState);
+    PA finalPhysicalAddress = entry.physicalAddress + (iova & PAGE_MASK); // Add back page offset
+    return makeTranslationSuccess(finalPhysicalAddress, entry.permissions, entry.securityState);
 }
 
 void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const {
