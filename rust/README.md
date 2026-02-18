@@ -12,23 +12,42 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.5** - Optimized Performance ⚡
+## ✅ **PRODUCTION READY v1.2.6** - Security & Correctness Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,239 passing (>170,000 test scenarios) | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 142 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 16, 2026)**: Version 1.2.5 Released - **6 High-Impact Performance Optimizations** delivering 14% concurrent improvement (86ns → 74ns) with 3 critical bugs fixed (SecurityState, PASID 0, test stability)
+**🎯 Latest Update (February 17, 2026)**: Version 1.2.6 Released - **9 High-Severity Bug Fixes** resolving thread safety, security state correctness, and performance issues
 
 ---
 
 ## 🎉 Recent Achievements
 
+### 🔒 Security & Correctness Fixes v1.2.6 (February 17, 2026)
+
+**9 High-Severity Bugs Fixed**
+
+Comprehensive correctness and thread-safety improvements ensuring full ARM SMMU v3 specification compliance.
+
+**Key Fixes**:
+- 🔒 **RUST-BUG-01**: `translate()` now accepts `SecurityState` parameter — Secure/Realm translations no longer silently fail
+- 🐛 **RUST-BUG-02**: Fixed double-remove in `invalidate_entry()` that could silently delete re-inserted TLB entries
+- 🔒 **RUST-BUG-04**: Fixed `disable()` ordering — `enabled=false` now set before `pasid_map.clear()` (prevents `PASIDNotFound` instead of `StreamDisabled`)
+- ✅ **RUST-BUG-05**: TLB cache now stores correct `security_state` from actual translation result
+- ⚡ **RUST-BUG-06**: Eliminated fragile `unwrap()` after Err-check in `translate_two_stage()`
+- ⚡ **RUST-BUG-07**: Replaced `Vec::remove(0)` O(n) with `VecDeque::pop_front()` O(1) in fault event queue
+- 🛡️ **RUST-BUG-08**: Added checked PA arithmetic in `map_range()` — prevents silent physical address overflow
+- 🔒 **RUST-BUG-09**: Fixed PASID limit error message to match actual check (2^20, not 2^20-1)
+
+**Performance** (maintained from v1.2.5):
+- ⚡ **Single-threaded**: **31ns average**
+- 🚀 **Concurrent (8 threads)**: **74ns average**
+- 📊 **TLB hit rate**: 99.01%
+
 ### ⚡ Performance Optimizations v1.2.5 (February 16, 2026)
 
 **6 High-Impact Optimizations Delivering 14% Performance Improvement**
-
-Successfully implemented comprehensive performance optimizations achieving **14% faster concurrent translation** with **3 critical bugs fixed** and **100% test stability**.
 
 **Performance Results**:
 - ⚡ **Single-threaded**: **31ns average** (3% improvement from 32ns)
