@@ -232,9 +232,14 @@ VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, cons
         return makeVoidError(SMMUError::InvalidPermissions);
     }
     
-    // Check for potential overflow in range calculation
+    // BUG-21 fix: computing endIova - startIova + 1 overflows to 0 when
+    // endIova - startIova == UINT64_MAX (i.e. the full 64-bit range).
+    // Guard against this before the addition.
+    if (endIova - startIova == UINT64_MAX) {
+        return makeVoidError(SMMUError::InvalidAddress);
+    }
     uint64_t rangeSize = endIova - startIova + 1;
-    if (startPa + rangeSize < startPa) {  // Overflow check
+    if (startPa + rangeSize < startPa) {  // Overflow check for PA range
         return makeVoidError(SMMUError::InvalidAddress);
     }
     
@@ -482,11 +487,21 @@ uint64_t AddressSpace::getAddressSpaceSize() const {
         return 0;
     }
     
-    // Calculate address space size from min to max page
+    // BUG-05 fix: guard against shift and addition overflow.
+    // PAGE_SIZE = 4096 (0x1000), so maxPageNum << 12 overflows when
+    // maxPageNum >= (UINT64_MAX >> 12).
     uint64_t minAddress = minPageNum << 12;
-    uint64_t maxAddress = (maxPageNum << 12) + PAGE_SIZE - 1;
-    
-    return maxAddress - minAddress + 1;
+    uint64_t maxPageBase = maxPageNum << 12;
+    // Saturating add: maxPageBase + (PAGE_SIZE - 1)
+    uint64_t maxAddress;
+    if (maxPageBase > UINT64_MAX - (PAGE_SIZE - 1)) {
+        maxAddress = UINT64_MAX;
+    } else {
+        maxAddress = maxPageBase + (PAGE_SIZE - 1);
+    }
+    // Saturating +1 for the inclusive-end size
+    uint64_t span = maxAddress - minAddress;
+    return (span < UINT64_MAX) ? (span + 1) : UINT64_MAX;
 }
 
 // Check for overlapping mappings in specified range

@@ -167,8 +167,20 @@ size_t FaultHandler::getFaultCountByAccessType(AccessType accessType) const {
 }
 
 uint64_t FaultHandler::getFaultRate(uint64_t currentTime, uint64_t timeWindow) const {
-    std::vector<FaultRecord> recentFaults = const_cast<FaultHandler*>(this)->getRecentFaults(currentTime, timeWindow);
-    return recentFaults.size();
+    // BUG-11 fix: the original implementation called getRecentFaults() which
+    // acquires queueMutex.  If any caller already holds queueMutex this would
+    // deadlock on the non-reentrant std::mutex.  Count inline instead, holding
+    // the lock only once and avoiding const_cast.
+    std::lock_guard<std::mutex> lock(queueMutex);
+    uint64_t windowStart = (currentTime > timeWindow) ? (currentTime - timeWindow) : 0;
+    size_t count = 0;
+    // Use exclusive lower bound (> windowStart) to match getRecentFaults() semantics.
+    for (const auto& record : eventQueue) {
+        if (record.timestamp > windowStart && record.timestamp <= currentTime) {
+            ++count;
+        }
+    }
+    return static_cast<uint64_t>(count);
 }
 
 void FaultHandler::resetStatistics() {
@@ -176,6 +188,11 @@ void FaultHandler::resetStatistics() {
     totalFaults = 0;
     translationFaults = 0;
     permissionFaults = 0;
+    // BUG-12 fix: clear the per-type counter maps so that getFaultCountByType()
+    // and getFaultCountByAccessType() return 0 after a reset instead of
+    // returning stale counts from before the reset.
+    faultTypeCounters.clear();
+    accessTypeCounters.clear();
 }
 
 void FaultHandler::reset() {

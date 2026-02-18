@@ -141,6 +141,13 @@ private:
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;
     mutable std::array<std::mutex, NUM_STREAM_STRIPES> streamLockStripes;
+
+    // BUG-03 fix: Dedicated mutex protecting all queue operations (eventQueue,
+    // commandQueue, priQueue). A recursive_mutex is required because
+    // processPRIQueue() calls submitCommand() while already holding the lock.
+    // Lock order invariant: queueMutex must never be acquired while a
+    // streamLockStripe is held.
+    mutable std::recursive_mutex queueMutex;
     
     // Helper methods
     void recordFault(const FaultRecord& fault);

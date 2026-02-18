@@ -73,6 +73,14 @@ VoidResult StreamContext::createPASID(PASID pasid) {
     // Insert into PASID map with efficient O(1) average case performance
     pasidMap[pasid] = addressSpace;
 
+    // BUG-07 integration fix: When Stage-2 is enabled, PASID 0 is the
+    // hypervisor address space and doubles as the Stage-2 page table.
+    // Link it to stage2AddressSpace so that performBothStagesTranslation
+    // (which correctly calls getStage2AddressSpace()) finds it.
+    if (pasid == 0 && stage2Enabled) {
+        stage2AddressSpace = addressSpace;
+    }
+
     // Update PASID count statistics
     streamStatistics.pasidCount = pasidMap.size();
 
@@ -489,7 +497,7 @@ VoidResult StreamContext::enableStream() {
     if (!stage1Enabled && !stage2Enabled) {
         return makeVoidError(SMMUError::ConfigurationError);  // No translation stages enabled
     }
-    
+
     // Enable stream - ARM SMMU v3: Stream enabled/disabled is independent of translation configuration  
     streamEnabled = true;
     // Note: currentConfiguration.translationEnabled remains unchanged - configuration vs stream state are separate
@@ -682,8 +690,11 @@ Result<bool> StreamContext::validateContextDescriptor(const ContextDescriptor& c
     }
     
     // ARM SMMU v3: Validate ASID configuration for conflicts
-    Result<bool> asidValid = validateASIDConfiguration(contextDescriptor.asid, pasid, 
-                                                      contextDescriptor.securityState);
+    // BUG-19 fix: call the unlocked variant — contextMutex is already held by
+    // validateContextDescriptor(), so calling the public validateASIDConfiguration()
+    // which also tries to acquire contextMutex would deadlock on the non-reentrant mutex.
+    Result<bool> asidValid = validateASIDConfigurationUnlocked(contextDescriptor.asid, pasid,
+                                                              contextDescriptor.securityState);
     if (asidValid.isError() || !asidValid.getValue()) {
         return makeSuccess(false);  // ASID configuration conflict detected
     }
@@ -765,40 +776,50 @@ Result<bool> StreamContext::validateTranslationTableBase(uint64_t ttbr, Translat
 
 // Validate ASID configuration and detect conflicts
 // ARM SMMU v3 spec: ASID validation and conflict detection
-Result<bool> StreamContext::validateASIDConfiguration(uint16_t /* asid */, PASID pasid, 
+// BUG-19 fix: public method acquires contextMutex, then delegates to the
+// lock-free helper.  validateContextDescriptor() calls the helper directly
+// because it already holds contextMutex.
+Result<bool> StreamContext::validateASIDConfiguration(uint16_t asid, PASID pasid,
                                                      SecurityState securityState) const {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    return validateASIDConfigurationUnlocked(asid, pasid, securityState);
+}
+
+// Lock-free implementation — caller must hold contextMutex.
+Result<bool> StreamContext::validateASIDConfigurationUnlocked(uint16_t /* asid */, PASID pasid,
+                                                             SecurityState securityState) const {
     // ARM SMMU v3: ASID 0 is reserved in some contexts but may be valid
     // Allow ASID 0 but validate it doesn't conflict with global translations
-    
+
     // ARM SMMU v3: ASID validation - uint16_t type already enforces 16-bit range
-    
+
     // ARM SMMU v3: Check for ASID conflicts across different PASIDs in same security state
     // This is a simplified conflict detection - full implementation would require
     // global ASID tracking across all streams in the SMMU
     for (const auto& pasidPair : pasidMap) {
         PASID existingPasid = pasidPair.first;
-        
+
         // Skip self-comparison
         if (existingPasid == pasid) {
             continue;
         }
-        
+
         // For this simplified implementation, we assume no ASID conflicts
         // within the same stream context, but in a full implementation,
         // this would check against a global ASID allocation table
-        
+
         // ARM SMMU v3: Different security states can reuse same ASID
         // Same security state within same stream should not reuse ASID
         // This check would be more comprehensive in full SMMU implementation
     }
-    
+
     // ARM SMMU v3: Validate security state is valid
-    if (securityState != SecurityState::NonSecure && 
+    if (securityState != SecurityState::NonSecure &&
         securityState != SecurityState::Secure &&
         securityState != SecurityState::Realm) {
         return makeSuccess(false);  // Invalid security state
     }
-    
+
     return makeSuccess(true);  // ASID configuration is valid
 }
 
@@ -1000,15 +1021,22 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
                                     stage2Result.getValue().securityState);
     }
 
-    // Optimization 1: Only Stage-1 enabled case - reuse saved stage1Result
+    // Only Stage-1 enabled: return the Stage-1 result directly.
     if (stage1Enabled && stage1Result.isOk()) {
         return makeTranslationSuccess(intermediatePA,
                                     stage1Result.getValue().permissions,
                                     stage1Result.getValue().securityState);
     }
 
-    // Identity mapping case - no permissions validation
-    return makeTranslationSuccess(intermediatePA, PagePermissions(), securityState);
+    // BUG-08 fix: Bypass / identity-mapping mode (neither stage enabled).
+    // PagePermissions() default-constructs with all bits false, which would
+    // silently deny every access.  In bypass mode the ARM SMMU v3 spec passes
+    // the transaction through unchanged, so grant full read/write/execute access.
+    PagePermissions bypassPermissions;
+    bypassPermissions.read = true;
+    bypassPermissions.write = true;
+    bypassPermissions.execute = true;
+    return makeTranslationSuccess(intermediatePA, bypassPermissions, securityState);
 }
 
 } // namespace smmu

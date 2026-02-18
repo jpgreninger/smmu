@@ -233,6 +233,10 @@ private:
     // Unlocked internal methods to eliminate redundant mutex acquisitions
     AddressSpace* getPASIDAddressSpaceUnlocked(PASID pasid);
     TranslationResult translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);
+    // BUG-19 fix: internal lock-free helper called by validateContextDescriptor()
+    // (which already holds contextMutex) to avoid deadlock on the non-reentrant mutex.
+    Result<bool> validateASIDConfigurationUnlocked(uint16_t asid, PASID pasid,
+                                                  SecurityState securityState) const;
 };
 
 } // namespace smmu

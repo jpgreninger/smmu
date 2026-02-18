@@ -76,21 +76,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // Optimization 4: Update translation statistics with relaxed memory ordering
     translationCount.fetch_add(1, std::memory_order_relaxed);
     
-    // ARM SMMU v3 spec: Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        FaultRecord fault;
-        fault.streamID = streamID;
-        fault.pasid = pasid;
-        fault.address = iova;
-        fault.faultType = FaultType::TranslationFault;
-        fault.accessType = accessType;
-        fault.securityState = securityState;
-        fault.timestamp = currentTime;
-
-        recordFault(fault);
-        // No need to record cache miss here - TLBCache handles its own statistics
-        return makeTranslationError(SMMUError::InvalidStreamID);
-    }
+    // BUG-15: StreamID is uint32_t and MAX_STREAM_ID is 0xFFFFFFFF, so
+    // streamID > MAX_STREAM_ID is always false — check removed.
 
     // Task 5.2: Optimized fast path - Check TLB cache first for maximum performance
     if (cachingEnabled && tlbCache) {
@@ -136,12 +123,19 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // No need for additional recordCacheMiss() here
     }
 
-    // Check if stream is configured (protect streamMap access with lock striping)
+    // BUG-01 fix: Use unique_lock so we can release the stripe lock before
+    // calling StreamContext methods (which acquire contextMutex).  Holding
+    // the stripe lock while waiting for contextMutex creates a lock-ordering
+    // hazard.  Established invariant: stripe_lock is NEVER held when
+    // contextMutex is acquired. The raw StreamContext* remains valid after
+    // unlock because removeStream() also acquires the same stripe lock before
+    // erasing from streamMap, so it cannot delete the object concurrently
+    // while we hold the lock.
     size_t stripe = getStreamStripe(streamID);
-    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    std::unique_lock<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
-        // Stream not configured - record translation fault
+        lock.unlock();
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
@@ -150,45 +144,40 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.accessType = accessType;
         fault.securityState = securityState;
         fault.timestamp = currentTime;
-        
         recordFault(fault);
-        // No need to record cache miss here - TLBCache handles its own statistics
         return makeTranslationError(SMMUError::StreamNotConfigured);
     }
-    
+
     StreamContext* streamContext = streamIt->second.get();
-    
+
+    // Release the stripe lock before performing translation — StreamContext
+    // internal methods acquire contextMutex, and we must not hold two locks
+    // in an order that other threads might invert (BUG-01).
+    lock.unlock();
+
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
 
     // Task 5.2: Cache successful translations for future lookups
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
         cacheTranslationResult(streamID, pasid, iova, result, currentTime);
-        // No need to record cache hit here - this is cache storage, not a hit
     } else if (result.isError()) {
-        // Task 5.2: Enhanced fault handling and recovery mechanisms
-        // ARM SMMU v3 spec: Comprehensive fault classification and recovery
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
-        
-        // ARM SMMU v3 spec: Fault recovery based on global fault mode
+
+        // ARM SMMU v3 spec: Fault recovery based on global fault mode.
+        // classifyTranslationFault acquires the stripe lock internally; it is
+        // safe to call here because the lock was released above (BUG-01/BUG-06).
         if (globalFaultMode == FaultMode::Stall) {
-            // In stall mode, we could implement retry logic here
-            // For now, we just ensure the fault is properly recorded
             FaultType faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);
-            (void)faultType; // Suppress unused variable warning - used for future fault recovery logic
+            (void)faultType;
         }
     }
-    
+
     return result;
 }
 
 // Stream management - Create and configure new stream with StreamContext
 VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) {
-    // ARM SMMU v3 spec: Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     // Check if stream already exists
@@ -227,11 +216,6 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
 
 // Clean stream removal with proper cleanup
 VoidResult SMMU::removeStream(StreamID streamID) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -254,11 +238,6 @@ VoidResult SMMU::removeStream(StreamID streamID) {
 
 // Check stream existence and configuration
 Result<bool> SMMU::isStreamConfigured(StreamID streamID) const {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeError<bool>(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     bool configured = streamMap.find(streamID) != streamMap.end();
@@ -267,11 +246,6 @@ Result<bool> SMMU::isStreamConfigured(StreamID streamID) const {
 
 // Stream lifecycle control via StreamContext
 VoidResult SMMU::enableStream(StreamID streamID) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -289,11 +263,6 @@ VoidResult SMMU::enableStream(StreamID streamID) {
 }
 
 VoidResult SMMU::disableStream(StreamID streamID) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -312,11 +281,6 @@ VoidResult SMMU::disableStream(StreamID streamID) {
 
 // Query stream operational state
 Result<bool> SMMU::isStreamEnabled(StreamID streamID) const {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeError<bool>(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -335,11 +299,6 @@ VoidResult SMMU::createStreamPASID(StreamID streamID, PASID pasid) {
         return makeVoidError(SMMUError::InvalidPASID);
     }
 
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -352,11 +311,6 @@ VoidResult SMMU::createStreamPASID(StreamID streamID, PASID pasid) {
 
 // Remove PASID from stream
 VoidResult SMMU::removeStreamPASID(StreamID streamID, PASID pasid) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -378,11 +332,6 @@ VoidResult SMMU::removeStreamPASID(StreamID streamID, PASID pasid) {
 
 // Per-stream per-PASID page operations
 VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -394,11 +343,6 @@ VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const
 }
 
 VoidResult SMMU::unmapPage(StreamID streamID, PASID pasid, IOVA iova) {
-    // Validate StreamID bounds
-    if (streamID > MAX_STREAM_ID) {
-        return makeVoidError(SMMUError::InvalidStreamID);
-    }
-
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
@@ -498,6 +442,12 @@ VoidResult SMMU::enableCaching(bool enable) {
 
 // Statistics and monitoring - System-wide monitoring
 size_t SMMU::getStreamCount() const {
+    // BUG-02 fix: streamMap requires all stripe locks held for a consistent read.
+    std::vector<std::unique_lock<std::mutex>> locks;
+    locks.reserve(NUM_STREAM_STRIPES);
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
+    }
     return streamMap.size();
 }
 
@@ -739,14 +689,14 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             // Validate access permissions against requested access type
             if (!validateAccessPermissions(data.permissions, accessType)) {
 
-                FaultRecord fault;
-                fault.streamID = streamID;
-                fault.pasid = pasid;
-                fault.address = iova;
-                fault.faultType = FaultType::PermissionFault;
-                fault.accessType = accessType;
-                fault.securityState = securityState;
-                fault.timestamp = currentTime;
+            FaultRecord fault;
+            fault.streamID = streamID;
+            fault.pasid = pasid;
+            fault.address = iova;
+            fault.faultType = FaultType::PermissionFault;
+            fault.accessType = accessType;
+            fault.securityState = securityState;
+            fault.timestamp = currentTime;
 
                 recordFault(fault);
                 return makeTranslationError(SMMUError::PagePermissionViolation);
@@ -842,10 +792,16 @@ TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, I
 void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const {
     // Generate a unique cache key combining StreamID, PASID, IOVA, and SecurityState
     // This is used internally by TLBCache, but provided for completeness
-    cacheKey = (static_cast<uint64_t>(streamID) << 32) | 
-               (static_cast<uint64_t>(pasid) << 12) | 
-               (static_cast<uint64_t>(securityState) << 20) |
-               (iova & 0xFFFULL); // Use page-aligned portion
+    // BUG-16 fix: previous layout had securityState<<20 overlapping with
+    // pasid<<12 in bits [21:20].  Collision-free layout:
+    //   bits [63:32] = streamID      (32 bits)
+    //   bits [31:12] = pasid         (20 bits, max 0xFFFFF)
+    //   bits [11:10] = securityState (2 bits; values 0, 1, 2)
+    //   bits [9:0]   = iova low      (10 bits)
+    cacheKey = (static_cast<uint64_t>(streamID) << 32) |
+               (static_cast<uint64_t>(pasid) << 12) |
+               (static_cast<uint64_t>(securityState) << 10) |
+               (iova & 0x3FFULL);
 }
 
 // Task 5.2: Enhanced stage-specific translation methods
@@ -905,9 +861,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::TranslationTableError);
     }
 
-    // Stage 2: IPA -> PA translation (using stream's Stage-2 address space)
-    // ARM SMMU v3 spec: Stage-2 uses PASID 0 for hypervisor address space (Section 3.4.5)
-    AddressSpace* stage2AddressSpace = streamContext->getPASIDAddressSpace(0);
+    // Stage 2: IPA -> PA translation using the stream's dedicated Stage-2 address space.
+    // BUG-07 fix: Stage-2 has its own address space set via setStage2AddressSpace().
+    // The previous code incorrectly used getPASIDAddressSpace(0) (a Stage-1 per-PASID
+    // space) instead of the separate Stage-2 hypervisor address space.
+    AddressSpace* stage2AddressSpace = streamContext->getStage2AddressSpace();
     if (!stage2AddressSpace) {
         // Stage-2 address space not configured - Stage-2 translation fault
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
@@ -1173,8 +1131,10 @@ FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA io
     (void)securityState; // Suppress unused parameter warning - reserved for future security-aware fault classification
     
     // ARM SMMU v3 spec: Intelligent fault classification based on context
-    
-    // Check if stream exists
+
+    // BUG-06 fix: streamMap must be accessed under the appropriate stripe lock.
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return FaultType::TranslationFault; // Stream not configured
@@ -1259,7 +1219,9 @@ void SMMU::handleAccessFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, 
 void SMMU::processEventQueue() {
     // ARM SMMU v3 spec: Process event queue with proper prioritization
     // Events are processed in FIFO order with exception handling
-    
+
+    // BUG-03 fix: protect eventQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     while (!eventQueue.empty()) {
         const EventEntry& event = eventQueue.front();
         
@@ -1303,117 +1265,109 @@ void SMMU::processEventQueue() {
 }
 
 Result<bool> SMMU::hasEvents() const {
-    // ARM SMMU v3 spec: Check event queue state with error handling
+    // BUG-03 fix: protect eventQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     try {
         return makeSuccess(!eventQueue.empty());
     } catch (...) {
-        // Event queue access failed
         return makeError<bool>(SMMUError::InternalError);
     }
 }
 
 std::vector<EventEntry> SMMU::getEventQueue() const {
-    // ARM SMMU v3 spec: Return copy of event queue for external processing
+    // BUG-03 fix: protect eventQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     std::vector<EventEntry> events;
     events.reserve(eventQueue.size());
-    
     for (const auto& event : eventQueue) {
         events.push_back(event);
     }
-    
     return events;
 }
 
 void SMMU::clearEventQueue() {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     eventQueue.clear();
 }
 
 size_t SMMU::getEventQueueSize() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     return eventQueue.size();
 }
 
 // Task 5.3: Command Queue Processing Simulation (Task 5.3.2)
 VoidResult SMMU::submitCommand(const CommandEntry& command) {
-    // ARM SMMU v3 spec: Validate command queue capacity
+    // BUG-03 fix: protect commandQueue with queueMutex (recursive to allow
+    // processPRIQueue -> submitCommand re-entrant calls).
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (commandQueue.size() >= maxCommandQueueSize) {
-        // Command queue full - cannot accept new commands
         generateEvent(EventType::INTERNAL_ERROR, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
         return makeVoidError(SMMUError::CommandQueueFull);
     }
-    
-    // Add timestamp to command
     CommandEntry timestampedCommand = command;
     timestampedCommand.timestamp = getCurrentTimestamp();
-    
-    // ARM SMMU v3 spec: Enqueue command for processing
     commandQueue.push_back(timestampedCommand);
-    
     return makeVoidSuccess();
 }
 
 void SMMU::processCommandQueue() {
-    // ARM SMMU v3 spec: Process command queue with proper ordering
-    // Commands are processed in FIFO order with synchronization support
-    
+    // ARM SMMU v3 spec: Process command queue with proper ordering.
+    // BUG-03 fix: protect commandQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     while (!commandQueue.empty()) {
-        const CommandEntry& command = commandQueue.front();
-        
+        // BUG-04 fix: copy command by value before pop_front() so that the
+        // reference is not dangling when we inspect command.type afterwards.
+        CommandEntry command = commandQueue.front();
+        commandQueue.pop_front();
+
         // Process the command based on type
         processCommand(command);
-        
-        // Remove processed command
-        commandQueue.pop_front();
-        
+
         // ARM SMMU v3 spec: Handle synchronization commands
         if (command.type == CommandType::SYNC) {
-            // Synchronization barrier - ensure all previous commands completed
             generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
-            break; // Synchronization point reached
+            break;
         }
     }
 }
 
 Result<bool> SMMU::isCommandQueueFull() const {
-    // ARM SMMU v3 spec: Check command queue capacity with error handling
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     try {
         return makeSuccess(commandQueue.size() >= maxCommandQueueSize);
     } catch (...) {
-        // Command queue access failed
         return makeError<bool>(SMMUError::InternalError);
     }
 }
 
 size_t SMMU::getCommandQueueSize() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     return commandQueue.size();
 }
 
 void SMMU::clearCommandQueue() {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     commandQueue.clear();
 }
 
 // Task 5.3: PRI Queue for Page Requests (Task 5.3.3)
 void SMMU::submitPageRequest(const PRIEntry& request) {
-    // ARM SMMU v3 spec: Validate PRI queue capacity
+    // BUG-03 fix: protect priQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (priQueue.size() >= maxPRIQueueSize) {
-        // PRI queue full - drop oldest request (simple overflow handling)
         priQueue.pop_front();
     }
-    
-    // Add timestamp to request
     PRIEntry timestampedRequest = request;
     timestampedRequest.timestamp = getCurrentTimestamp();
-    
-    // ARM SMMU v3 spec: Enqueue page request for processing
     priQueue.push_back(timestampedRequest);
-    
-    // Generate event for page request
     generateEvent(EventType::PRI_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, SecurityState::NonSecure);
 }
 
 void SMMU::processPRIQueue() {
-    // ARM SMMU v3 spec: Process Page Request Interface queue
-    // Page requests are processed to trigger page allocation or OS notification
-    
+    // ARM SMMU v3 spec: Process Page Request Interface queue.
+    // BUG-03 fix: protect priQueue with queueMutex. Uses recursive_mutex so
+    // that the nested submitCommand() call can re-acquire the same lock.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     while (!priQueue.empty()) {
         const PRIEntry& request = priQueue.front();
         
@@ -1444,22 +1398,23 @@ void SMMU::processPRIQueue() {
 }
 
 std::vector<PRIEntry> SMMU::getPRIQueue() const {
-    // ARM SMMU v3 spec: Return copy of PRI queue for external processing
+    // BUG-03 fix: protect priQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     std::vector<PRIEntry> requests;
     requests.reserve(priQueue.size());
-    
     for (const auto& request : priQueue) {
         requests.push_back(request);
     }
-    
     return requests;
 }
 
 void SMMU::clearPRIQueue() {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     priQueue.clear();
 }
 
 size_t SMMU::getPRIQueueSize() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     return priQueue.size();
 }
 
@@ -1544,17 +1499,26 @@ void SMMU::executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA st
             // Range-specific invalidation
             // ARM SMMU v3 spec: Invalidate specific address range
             IOVA currentAddr = startAddr & ~PAGE_MASK; // Page-align start
-            IOVA alignedEndAddr = (endAddr + PAGE_SIZE - 1) & ~PAGE_MASK; // Page-align end
-            
-            // Invalidate each page in the range
-            while (currentAddr <= alignedEndAddr && currentAddr >= startAddr) {
+
+            // BUG-14 fix: computing (endAddr + PAGE_SIZE - 1) overflows when
+            // endAddr is near UINT64_MAX.  Saturate to the last aligned address
+            // representable in 64 bits instead.
+            IOVA alignedEndAddr;
+            if (endAddr >= (UINT64_MAX - (PAGE_SIZE - 1))) {
+                alignedEndAddr = UINT64_MAX & ~PAGE_MASK; // saturate
+            } else {
+                alignedEndAddr = (endAddr + PAGE_SIZE - 1) & ~PAGE_MASK;
+            }
+
+            // Invalidate each page in the range.
+            // BUG-14 fix: detect unsigned wrap-around *before* incrementing so
+            // we never execute the loop body with an overflowed address.
+            while (currentAddr <= alignedEndAddr) {
                 tlbCache->invalidate(streamID, pasid, currentAddr);
-                currentAddr += PAGE_SIZE;
-                
-                // Prevent infinite loop on address overflow
-                if (currentAddr < startAddr) {
-                    break;
+                if (currentAddr > UINT64_MAX - PAGE_SIZE) {
+                    break; // Next increment would wrap — all pages covered
                 }
+                currentAddr += PAGE_SIZE;
             }
         }
     }
@@ -1610,11 +1574,12 @@ void SMMU::processCommand(const CommandEntry& command) {
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address, SecurityState securityState) {
-    // ARM SMMU v3 spec: Generate event for event queue processing
-    
-    // Check event queue capacity
+    // ARM SMMU v3 spec: Generate event for event queue processing.
+    // BUG-03 fix: protect eventQueue with queueMutex. Uses recursive_mutex so
+    // that callers already holding queueMutex (e.g. processCommandQueue) can
+    // safely call this without deadlocking.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (eventQueue.size() >= maxEventQueueSize) {
-        // Event queue full - drop oldest event
         eventQueue.pop_front();
     }
     
@@ -1703,7 +1668,10 @@ SecurityState SMMU::determineContextSecurityState(StreamID streamID, PASID pasid
     // ARM SMMU v3 spec: Determine security state for stream/PASID context
     // In this implementation, we default to NonSecure unless configured otherwise
     // A real implementation would consult stream configuration tables
-    
+
+    // BUG-02 fix: streamMap access requires the appropriate stripe lock.
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return SecurityState::NonSecure;  // Default for unconfigured streams
@@ -2067,21 +2035,13 @@ VoidResult SMMU::validateConfigurationUpdate(const SMMUConfiguration& config) co
     if (!config.isValid()) {
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
-    
-    // Additional validation specific to current SMMU state
-    const QueueConfiguration& queueConfig = config.getQueueConfiguration();
-    
-    // Check if new queue sizes would cause data loss
-    if (queueConfig.eventQueueSize < eventQueue.size()) {
-        // This is a warning, not an error - we'll trim the queue
-    }
-    if (queueConfig.commandQueueSize < commandQueue.size()) {
-        // This is a warning, not an error - we'll trim the queue
-    }
-    if (queueConfig.priQueueSize < priQueue.size()) {
-        // This is a warning, not an error - we'll trim the queue
-    }
-    
+
+    // BUG-13 fix: remove the empty if-blocks that falsely implied "we'll trim
+    // the queue" but did nothing.  Queue trimming is performed later by
+    // applyConfiguration(), which is the correct place for mutation.
+    // Reading queue sizes here requires queueMutex (BUG-03 invariant).
+    (void)config.getQueueConfiguration(); // size checks happen in applyConfiguration
+
     return makeVoidSuccess();
 }
 

@@ -229,6 +229,9 @@ public:
             errorCode = other.errorCode;
             if (other.isSuccess) {
                 value = other.value;
+            } else {
+                // BUG-18 fix: reset stale value when assigning from an error state
+                value = T();
             }
         }
         return *this;
@@ -248,6 +251,9 @@ public:
             errorCode = other.errorCode;
             if (other.isSuccess) {
                 value = std::move(other.value);
+            } else {
+                // BUG-18 fix: reset stale value when assigning from an error state
+                value = T();
             }
             other.isSuccess = false;
             other.errorCode = SMMUError::InternalError;
@@ -1015,7 +1021,13 @@ struct AddressRange {
     }
     
     uint64_t size() const {
-        return (endAddress > startAddress) ? (endAddress - startAddress + 1) : 0;
+        if (endAddress <= startAddress) {
+            return 0;
+        }
+        uint64_t diff = endAddress - startAddress;
+        // BUG-05 fix: adding 1 when diff == UINT64_MAX would overflow.
+        // Return UINT64_MAX as a sentinel for the maximum possible range.
+        return (diff < UINT64_MAX) ? (diff + 1) : UINT64_MAX;
     }
     
     bool contains(IOVA address) const {

@@ -191,6 +191,18 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(poolMutex);
+
+        // BUG-09 fix: validate the pointer belongs to this pool before returning
+        // it to the free list, and guard against usedCount underflow.
+        if (allocatedObjects.find(obj) == allocatedObjects.end()) {
+            // Pointer was not acquired from this pool — silently discard to
+            // prevent free-list corruption and subsequent double-free.
+            return;
+        }
+        if (usedCount == 0) {
+            // More releases than acquires — guard against size_t underflow.
+            return;
+        }
         freeList.push_back(obj);
         usedCount--;
     }
@@ -280,34 +292,44 @@ public:
     MemoryPool& operator=(const MemoryPool&) = delete;
 
     // Allow moving (pool can be moved)
+    // BUG-10 fix: lock the source mutex before accessing its members so that
+    // concurrent acquire/release on 'other' cannot race with the move.
+    // Members that cannot be initialised in the initialiser list (because the
+    // lock must be acquired first) are default-initialised and then assigned
+    // inside the constructor body.
     MemoryPool(MemoryPool&& other) noexcept
-        : freeList(std::move(other.freeList))
-        , allocatedObjects(std::move(other.allocatedObjects))
-        , initialSize(other.initialSize)
-        , growthSize(other.growthSize)
-        , totalCapacity(other.totalCapacity)
-        , usedCount(other.usedCount) {
+        : initialSize(0)
+        , growthSize(0)
+        , totalCapacity(0)
+        , usedCount(0) {
 
+        std::lock_guard<std::mutex> otherLock(other.poolMutex);
+        freeList = std::move(other.freeList);
+        allocatedObjects = std::move(other.allocatedObjects);
+        initialSize = other.initialSize;
+        growthSize = other.growthSize;
+        totalCapacity = other.totalCapacity;
+        usedCount = other.usedCount;
         other.totalCapacity = 0;
         other.usedCount = 0;
     }
 
     MemoryPool& operator=(MemoryPool&& other) noexcept {
         if (this != &other) {
-            // Clean up existing objects
-            std::lock_guard<std::mutex> lock(poolMutex);
+            // BUG-10 fix: lock both mutexes without deadlock using std::lock.
+            std::unique_lock<std::mutex> thisLock(poolMutex, std::defer_lock);
+            std::unique_lock<std::mutex> otherLock(other.poolMutex, std::defer_lock);
+            std::lock(thisLock, otherLock);
+
             for (T* obj : allocatedObjects) {
                 delete obj;
             }
-
-            // Move from other
             freeList = std::move(other.freeList);
             allocatedObjects = std::move(other.allocatedObjects);
             initialSize = other.initialSize;
             growthSize = other.growthSize;
             totalCapacity = other.totalCapacity;
             usedCount = other.usedCount;
-
             other.totalCapacity = 0;
             other.usedCount = 0;
         }
