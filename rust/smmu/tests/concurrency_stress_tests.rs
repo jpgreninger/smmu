@@ -480,6 +480,7 @@ fn stress_smmu_concurrent_stream_operations() {
                     pasid,
                     iova,
                     AccessType::Read,
+                    SecurityState::NonSecure,
                 );
             }
         });
@@ -549,6 +550,7 @@ fn stress_smmu_mixed_workload() {
                             pasid,
                             iova,
                             random_access_type(),
+                            SecurityState::NonSecure,
                         );
                     }
                     _ => {
@@ -635,6 +637,7 @@ fn stress_smmu_cache_thrashing() {
                     pasid,
                     iova,
                     AccessType::Read,
+                    SecurityState::NonSecure,
                 );
             }
         });
@@ -713,6 +716,7 @@ fn stress_long_running_concurrent_operations() {
                                 pasid,
                                 iova,
                                 random_access_type(),
+                                SecurityState::NonSecure,
                             );
                         }
                         _ => {

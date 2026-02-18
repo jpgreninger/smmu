@@ -34,7 +34,7 @@ fn test_fault_type_translation_fault() {
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Attempt translation of unmapped page
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 
     let faults = smmu.get_faults();
@@ -63,7 +63,7 @@ fn test_fault_type_permission_fault() {
     .unwrap();
 
     // Attempt write to read-only page
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -89,7 +89,7 @@ fn test_fault_type_access_fault() {
     .unwrap();
 
     // Attempt execute on non-executable page
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -116,7 +116,7 @@ fn test_fault_filtering_by_type() {
     // Generate multiple faults
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
     let faults = smmu.get_faults();
@@ -144,8 +144,8 @@ fn test_fault_filtering_by_stream() {
     smmu.create_pasid(stream2, pasid).unwrap();
 
     // Generate faults from both streams
-    let _ = smmu.translate(stream1, pasid, iova, AccessType::Read);
-    let _ = smmu.translate(stream2, pasid, iova, AccessType::Read);
+    let _ = smmu.translate(stream1, pasid, iova, AccessType::Read, SecurityState::NonSecure);
+    let _ = smmu.translate(stream2, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
     let faults = smmu.get_faults();
     assert!(faults.len() >= 2);
@@ -165,8 +165,8 @@ fn test_fault_filtering_by_pasid() {
     smmu.create_pasid(stream_id, pasid2).unwrap();
 
     // Generate faults from both PASIDs
-    let _ = smmu.translate(stream_id, pasid1, iova, AccessType::Read);
-    let _ = smmu.translate(stream_id, pasid2, iova, AccessType::Read);
+    let _ = smmu.translate(stream_id, pasid1, iova, AccessType::Read, SecurityState::NonSecure);
+    let _ = smmu.translate(stream_id, pasid2, iova, AccessType::Read, SecurityState::NonSecure);
 
     let faults = smmu.get_faults();
     assert!(faults.len() >= 2);
@@ -189,7 +189,7 @@ fn test_fault_statistics_counting() {
     // Generate 10 faults
     for i in 0..10 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
     let faults = smmu.get_faults();
@@ -218,7 +218,7 @@ fn test_fault_with_read_access() {
         .unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -233,7 +233,7 @@ fn test_fault_with_write_access() {
         .unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -248,7 +248,7 @@ fn test_fault_with_execute_access() {
         .unwrap();
     smmu.create_pasid(stream_id, pasid).unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -396,7 +396,7 @@ fn test_large_scale_fault_handling() {
     // Generate 10,000 faults
     for i in 0..10_000 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
     let faults = smmu.get_faults();

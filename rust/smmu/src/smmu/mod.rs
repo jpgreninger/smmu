@@ -1041,7 +1041,7 @@ impl SMMU {
     ///
     /// ```rust
     /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType};
+    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType, SecurityState};
     ///
     /// let smmu = SMMU::new();
     ///
@@ -1052,7 +1052,7 @@ impl SMMU {
     /// // Perform translation
     /// let pasid = PASID::new(0).unwrap();
     /// let iova = IOVA::new(0x1000).unwrap();
-    /// let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    /// let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     ///
     /// match result {
     ///     Ok(data) => println!("PA: 0x{:x}", data.physical_address().as_u64()),
@@ -1068,15 +1068,16 @@ impl SMMU {
     /// - Stage-1, Stage-2, Two-Stage, and Bypass modes
     /// - Permission checking per access type
     /// - PASID 0 support for legacy compatibility
-    pub fn translate(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType) -> TranslationResult {
+    pub fn translate(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+    ) -> TranslationResult {
         // Update statistics
         self.total_translations.0.fetch_add(1, Ordering::Relaxed);
-
-        // Security state for this translation
-        // NOTE: Current public API assumes NonSecure for backward compatibility.
-        // Future enhancement: Add `translate_with_security()` API to support Secure/Realm.
-        // This ensures cache keys match the actual security state used in translation.
-        let security_state = SecurityState::NonSecure;
 
         // Fast path: TLB cache lookup (check cache BEFORE shutdown to save 1-2ns)
         // Functionally safe: cached translations from before shutdown are still valid
@@ -1095,9 +1096,13 @@ impl SMMU {
             // Cache hit but insufficient permissions - fall through to full translation
         }
 
-        // Check shutdown state (after cache check for better performance)
+        // Check shutdown state (after cache check for better performance).
+        // Return early without recording a fault — a shutdown is not a translation
+        // fault. StreamNotConfigured is used because TranslationError has no
+        // shutdown-specific variant; callers can distinguish it via SMMU::is_shutdown().
         if self.check_shutdown().is_err() {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            // Do NOT fall through to record_translation_fault below.
             return Err(TranslationError::StreamNotConfigured);
         }
 
@@ -1118,9 +1123,16 @@ impl SMMU {
             return Err(TranslationError::StreamNotConfigured);
         };
 
-        // On successful translation, populate TLB cache with matching security state
+        // On successful translation, populate TLB cache with the security state
+        // from the actual translation result (not the request's security_state).
         if let Ok(ref data) = result {
-            let entry = CacheEntry::new(iova, data.physical_address(), data.permissions(), 0);
+            let entry = CacheEntry::new_with_security(
+                iova,
+                data.physical_address(),
+                data.permissions(),
+                data.security_state(),
+                0,
+            );
             self.tlb_cache.insert(cache_key, entry);
         }
 
@@ -1143,7 +1155,7 @@ impl SMMU {
     ///
     /// ```rust
     /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType};
+    /// use smmu::types::{StreamID, StreamConfig, PASID, IOVA, AccessType, SecurityState};
     ///
     /// let smmu = SMMU::new();
     /// let stream_id = StreamID::new(1).unwrap();
@@ -1151,7 +1163,7 @@ impl SMMU {
     ///
     /// let pasid = PASID::new(0).unwrap();
     /// let iova = IOVA::new(0x1000).unwrap();
-    /// let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    /// let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     ///
     /// let (total, successful, failed) = smmu.get_translation_stats();
     /// assert_eq!(total, 1);

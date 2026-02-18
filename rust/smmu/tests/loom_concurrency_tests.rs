@@ -543,12 +543,12 @@ fn loom_smmu_concurrent_translation() {
 
         // Concurrent translations
         let t1 = thread::spawn(move || {
-            let result = smmu1.translate(stream_id, pasid, iova, AccessType::Read);
+            let result = smmu1.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
             assert!(result.is_ok());
         });
 
         let t2 = thread::spawn(move || {
-            let result = smmu2.translate(stream_id, pasid, iova, AccessType::Write);
+            let result = smmu2.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
             assert!(result.is_ok());
         });
 

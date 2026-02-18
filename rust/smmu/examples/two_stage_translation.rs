@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform two-stage translation
     println!("\n  Combined Translation:");
-    let result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read)?;
+    let result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "    IOVA 0x{:x} → IPA 0x{:x} → PA 0x{:x}",
         guest_va.as_u64(),
@@ -137,14 +137,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify isolation
     println!("\n  Translation comparison (same IOVA, different VMs):");
 
-    let vm1_result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read)?;
+    let vm1_result = smmu.translate(stream_id, vm_pasid, guest_va, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "    VM1: IOVA 0x{:x} → PA 0x{:x}",
         guest_va.as_u64(),
         vm1_result.physical_address().as_u64()
     );
 
-    let vm2_result = smmu.translate(stream_id, vm2_pasid, vm2_guest_va, AccessType::Read)?;
+    let vm2_result = smmu.translate(stream_id, vm2_pasid, vm2_guest_va, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "    VM2: IOVA 0x{:x} → PA 0x{:x}",
         vm2_guest_va.as_u64(),
@@ -193,12 +193,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read should succeed
     println!("\n  Testing read access:");
-    let read_result = smmu.translate(stream_id, vm_pasid, perm_va, AccessType::Read)?;
+    let read_result = smmu.translate(stream_id, vm_pasid, perm_va, AccessType::Read, SecurityState::NonSecure)?;
     println!("    ✓ Read succeeded: PA 0x{:x}", read_result.physical_address().as_u64());
 
     // Write should fail (Stage 2 restriction)
     println!("  Testing write access:");
-    match smmu.translate(stream_id, vm_pasid, perm_va, AccessType::Write) {
+    match smmu.translate(stream_id, vm_pasid, perm_va, AccessType::Write, SecurityState::NonSecure) {
         Ok(_) => println!("    ✗ ERROR: Write should have been blocked by Stage 2!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("    ✓ Write blocked by Stage 2 permission");
@@ -214,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stage 1 fault - unmapped in guest
     println!("  Stage 1 fault (unmapped in guest):");
     let unmapped_va = IOVA::new(0x5000)?;
-    match smmu.translate(stream_id, vm_pasid, unmapped_va, AccessType::Read) {
+    match smmu.translate(stream_id, vm_pasid, unmapped_va, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("    ✗ Should have faulted"),
         Err(TranslationError::PageNotMapped) => {
             println!("    ✓ Stage 1 translation fault");
@@ -246,7 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Don't map in Stage 2 - will cause Stage 2 fault
-    match smmu.translate(stream_id, vm_pasid, stage2_fault_va, AccessType::Read) {
+    match smmu.translate(stream_id, vm_pasid, stage2_fault_va, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("    ✗ Should have faulted at Stage 2"),
         Err(TranslationError::PageNotMapped) => {
             println!("    ✓ Stage 2 translation fault");

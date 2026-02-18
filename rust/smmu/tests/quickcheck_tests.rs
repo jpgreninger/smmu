@@ -533,12 +533,14 @@ fn qc_smmu_end_to_end_translation(
         pasid.0,
         iova.0,
         AccessType::Read,
+        SecurityState::NonSecure,
     );
     let r2 = smmu.translate(
         stream.0,
         pasid.0,
         iova.0,
         AccessType::Read,
+        SecurityState::NonSecure,
     );
 
     match (r1, r2) {
@@ -608,12 +610,14 @@ fn qc_smmu_stream_isolation(
         pasid.0,
         iova.0,
         AccessType::Read,
+        SecurityState::NonSecure,
     );
     let r2 = smmu.translate(
         stream2.0,
         pasid.0,
         iova.0,
         AccessType::Read,
+        SecurityState::NonSecure,
     );
 
     match (r1, r2) {

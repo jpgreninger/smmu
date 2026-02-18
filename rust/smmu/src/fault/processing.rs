@@ -39,6 +39,7 @@
 
 use crate::fault::queue::FaultQueue;
 use crate::types::{FaultRecord, FaultType, StreamID, PASID};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -86,8 +87,8 @@ pub struct FaultProcessor {
     /// Fault handling mode
     mode: FaultMode,
 
-    /// Event queue for all faults
-    events: Arc<Mutex<Vec<FaultRecord>>>,
+    /// Event queue for all faults (VecDeque for O(1) front removal)
+    events: Arc<Mutex<VecDeque<FaultRecord>>>,
 
     /// Stall queue for stall mode
     stall_queue: Option<Arc<FaultQueue>>,
@@ -156,7 +157,7 @@ impl FaultProcessor {
 
         Self {
             mode,
-            events: Arc::new(Mutex::new(Vec::new())),
+            events: Arc::new(Mutex::new(VecDeque::new())),
             stall_queue,
             total_faults: Arc::new(AtomicU64::new(0)),
             translation_faults: Arc::new(AtomicU64::new(0)),
@@ -325,7 +326,7 @@ impl FaultProcessor {
     /// ```
     #[must_use]
     pub fn get_events(&self) -> Vec<FaultRecord> {
-        self.events.lock().unwrap().clone()
+        self.events.lock().unwrap().iter().cloned().collect()
     }
 
     /// Gets events filtered by stream ID
@@ -506,11 +507,11 @@ impl FaultProcessor {
     /// Records an event in the event queue
     fn record_event(&self, fault: FaultRecord) {
         let mut events = self.events.lock().unwrap();
-        events.push(fault);
+        events.push_back(fault);
 
-        // Enforce maximum size
+        // Enforce maximum size with O(1) front removal (VecDeque vs Vec::remove(0))
         while events.len() > self.max_events {
-            events.remove(0);
+            events.pop_front();
         }
     }
 

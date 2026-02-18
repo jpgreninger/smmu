@@ -169,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ML process accesses its own data - should succeed
     println!("ML process accessing its data buffer:");
-    let ml_result = smmu.translate(stream_id, ml_pasid, ml_data_iova, AccessType::Read)?;
+    let ml_result = smmu.translate(stream_id, ml_pasid, ml_data_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
         ml_pasid.as_u32(),
@@ -180,7 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Graphics process accesses same IOVA but gets different PA
     println!("\nGraphics process accessing same IOVA (different PASID):");
-    let gfx_result = smmu.translate(stream_id, gfx_pasid, gfx_fb_iova, AccessType::Read)?;
+    let gfx_result = smmu.translate(stream_id, gfx_pasid, gfx_fb_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  ✓ PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
         gfx_pasid.as_u32(),
@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ML can read model data
     println!("  ML process reading model data (RW permission):");
-    let ml_read = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Read)?;
+    let ml_read = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "    ✓ Read succeeded: IOVA 0x{:x} -> PA 0x{:x}",
         ml_model_iova.as_u64(),
@@ -212,7 +212,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ML can write model data
     println!("  ML process writing model data (RW permission):");
-    let ml_write = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Write)?;
+    let ml_write = smmu.translate(stream_id, ml_pasid, ml_model_iova, AccessType::Write, SecurityState::NonSecure)?;
     println!(
         "    ✓ Write succeeded: IOVA 0x{:x} -> PA 0x{:x}",
         ml_model_iova.as_u64(),
@@ -221,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Graphics can't write textures (read-only)
     println!("  Graphics process trying to write textures (RO permission):");
-    match smmu.translate(stream_id, gfx_pasid, gfx_tex_iova, AccessType::Write) {
+    match smmu.translate(stream_id, gfx_pasid, gfx_tex_iova, AccessType::Write, SecurityState::NonSecure) {
         Ok(_) => println!("    ✗ ERROR: Write to read-only texture should have failed!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("    ✓ Permission fault as expected: {access:?}");
@@ -231,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Video encoder can't read output buffer (write-only)
     println!("  Video encoder trying to read output buffer (WO permission):");
-    match smmu.translate(stream_id, video_pasid, video_out_iova, AccessType::Read) {
+    match smmu.translate(stream_id, video_pasid, video_out_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("    ✗ ERROR: Read from write-only buffer should have failed!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("    ✓ Permission fault as expected: {access:?}");
@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SecurityState::NonSecure,
     )?;
 
-    let legacy_result = smmu.translate(stream_id, legacy_pasid, legacy_iova, AccessType::Read)?;
+    let legacy_result = smmu.translate(stream_id, legacy_pasid, legacy_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  ✓ PASID 0: IOVA 0x{:x} -> PA 0x{:x} (legacy devices)",
         legacy_iova.as_u64(),

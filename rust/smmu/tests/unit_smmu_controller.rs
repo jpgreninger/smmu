@@ -128,7 +128,7 @@ fn test_translate_with_pasid_zero() {
     )
     .unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().physical_address().as_u64(), 0x2000);
 }
@@ -153,7 +153,7 @@ fn test_translate_basic() {
     )
     .unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
 }
 
@@ -164,7 +164,7 @@ fn test_translate_nonexistent_stream() {
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
 
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 }
 
@@ -211,8 +211,8 @@ fn test_multiple_streams_independent() {
     .unwrap();
 
     // Verify independence
-    let result1 = smmu.translate(stream1, pasid, iova, AccessType::Read).unwrap();
-    let result2 = smmu.translate(stream2, pasid, iova, AccessType::Read).unwrap();
+    let result1 = smmu.translate(stream1, pasid, iova, AccessType::Read, SecurityState::NonSecure).unwrap();
+    let result2 = smmu.translate(stream2, pasid, iova, AccessType::Read, SecurityState::NonSecure).unwrap();
 
     assert_eq!(result1.physical_address().as_u64(), 0x2000);
     assert_eq!(result2.physical_address().as_u64(), 0x3000);
@@ -233,7 +233,7 @@ fn test_record_fault() {
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Attempt translation of unmapped address (should generate fault)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 
     // Check fault was recorded
@@ -252,7 +252,7 @@ fn test_clear_faults() {
     smmu.create_pasid(stream_id, pasid).unwrap();
 
     // Generate fault
-    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
     // Clear faults
     smmu.clear_faults();
@@ -322,7 +322,7 @@ fn test_translation_statistics() {
     .unwrap();
 
     // Perform translation
-    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
     // Check translation statistics
     let (total, _successful, _failed) = smmu.get_translation_stats();

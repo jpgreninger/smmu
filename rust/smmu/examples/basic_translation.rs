@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 5: Performing translations...");
 
     // Translate read access to first page
-    let result1 = smmu.translate(stream_id, pasid, iova1, AccessType::Read)?;
+    let result1 = smmu.translate(stream_id, pasid, iova1, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
         iova1.as_u64(),
@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(result1.physical_address().as_u64(), pa1.as_u64());
 
     // Translate write access to first page
-    let result2 = smmu.translate(stream_id, pasid, iova1, AccessType::Write)?;
+    let result2 = smmu.translate(stream_id, pasid, iova1, AccessType::Write, SecurityState::NonSecure)?;
     println!(
         "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Write)",
         iova1.as_u64(),
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(result2.physical_address().as_u64(), pa1.as_u64());
 
     // Translate read access to second page (read-only)
-    let result3 = smmu.translate(stream_id, pasid, iova2, AccessType::Read)?;
+    let result3 = smmu.translate(stream_id, pasid, iova2, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  ✓ Translate IOVA 0x{:04x} -> PA 0x{:05x} (Read)",
         iova2.as_u64(),
@@ -103,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate permission fault - try to write to read-only page
     println!("\nStep 6: Demonstrating permission fault...");
-    match smmu.translate(stream_id, pasid, iova2, AccessType::Write) {
+    match smmu.translate(stream_id, pasid, iova2, AccessType::Write, SecurityState::NonSecure) {
         Ok(_) => println!("  ✗ ERROR: Write to read-only page should have failed!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected as expected:");
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate translation fault - unmapped address
     println!("\nStep 7: Demonstrating translation fault...");
     let unmapped_iova = IOVA::new(0x5000)?;
-    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
+    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("  ✗ ERROR: Unmapped address should have failed!"),
         Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Translation fault detected as expected:");

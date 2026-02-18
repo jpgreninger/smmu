@@ -129,6 +129,7 @@ fn bench_translation_simple(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -161,6 +162,7 @@ fn bench_translation_with_pasid(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -175,7 +177,7 @@ fn bench_translation_cached(c: &mut Criterion) {
     let (smmu, stream_id, pasid, iova) = setup_basic_smmu();
 
     // Warm up cache with one translation
-    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
     c.bench_function("translation_cached_hit", |b| {
         b.iter(|| {
@@ -186,6 +188,7 @@ fn bench_translation_cached(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -232,6 +235,7 @@ fn bench_translation_uncached(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -251,7 +255,7 @@ fn bench_translation_multi_pasid(c: &mut Criterion) {
 
             // Warm up cache
             for (pasid, iova) in pasids.iter().zip(iovas.iter()) {
-                let _ = smmu.translate(stream_id, *pasid, *iova, AccessType::Read);
+                let _ = smmu.translate(stream_id, *pasid, *iova, AccessType::Read, SecurityState::NonSecure);
             }
 
             b.iter(|| {
@@ -263,6 +267,7 @@ fn bench_translation_multi_pasid(c: &mut Criterion) {
                         black_box(*pasid),
                         black_box(*iova),
                         black_box(AccessType::Read),
+                        SecurityState::NonSecure,
                     );
                     black_box(result.unwrap());
                 }
@@ -287,7 +292,7 @@ fn bench_translation_large_address_space(c: &mut Criterion) {
 
             // Warm up cache with all pages
             for iova in &iovas {
-                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read);
+                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read, SecurityState::NonSecure);
             }
 
             let mut page_index = 0;
@@ -303,6 +308,7 @@ fn bench_translation_large_address_space(c: &mut Criterion) {
                     black_box(pasid),
                     black_box(iova),
                     black_box(AccessType::Read),
+                    SecurityState::NonSecure,
                 );
                 black_box(result.unwrap());
             });
@@ -321,7 +327,7 @@ fn bench_translation_mixed_workload(c: &mut Criterion) {
 
     // Warm up cache with 90% of pages (simulating 90% hit rate)
     for iova in &iovas[0..90] {
-        let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read, SecurityState::NonSecure);
     }
 
     let mut page_index = 0;
@@ -338,6 +344,7 @@ fn bench_translation_mixed_workload(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -358,7 +365,7 @@ fn bench_translation_throughput(c: &mut Criterion) {
 
             // Warm up cache
             for iova in &iovas {
-                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read);
+                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read, SecurityState::NonSecure);
             }
 
             b.iter(|| {
@@ -369,6 +376,7 @@ fn bench_translation_throughput(c: &mut Criterion) {
                         black_box(pasid),
                         black_box(*iova),
                         black_box(AccessType::Read),
+                        SecurityState::NonSecure,
                     );
                     black_box(result.unwrap());
                 }
@@ -393,7 +401,7 @@ fn bench_translation_concurrent(c: &mut Criterion) {
 
             // Warm up cache
             for iova in &iovas {
-                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read);
+                let _ = smmu.translate(stream_id, pasid, *iova, AccessType::Read, SecurityState::NonSecure);
             }
 
             b.iter(|| {
@@ -410,7 +418,7 @@ fn bench_translation_concurrent(c: &mut Criterion) {
                         let end_idx = (thread_id + 1) * (1000 / num_threads);
 
                         for iova in &iovas_clone[start_idx..end_idx] {
-                            let result = smmu_clone.translate(stream_id, pasid, *iova, AccessType::Read);
+                            let result = smmu_clone.translate(stream_id, pasid, *iova, AccessType::Read, SecurityState::NonSecure);
                             black_box(result.unwrap());
                         }
                     });
@@ -454,7 +462,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
         smmu.map_page(stream_id, pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
         // Warm cache
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
         b.iter(|| {
             let result = smmu.translate(
@@ -462,6 +470,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -485,7 +494,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
         smmu.map_stage2_page(stream_id, ipa, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
         // Warm cache
-        let _ = smmu.translate(stream_id, pasid, ipa, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, ipa, AccessType::Read, SecurityState::NonSecure);
 
         b.iter(|| {
             let result = smmu.translate(
@@ -493,6 +502,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(ipa),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -524,7 +534,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
         smmu.map_stage2_page(stream_id, ipa_as_iova, final_pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
         // Warm cache
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
         b.iter(|| {
             let result = smmu.translate(
@@ -532,6 +542,7 @@ fn bench_translation_comparison(c: &mut Criterion) {
                 black_box(pasid),
                 black_box(iova),
                 black_box(AccessType::Read),
+                SecurityState::NonSecure,
             );
             black_box(result.unwrap());
         });
@@ -580,7 +591,7 @@ fn bench_translation_access_types(c: &mut Criterion) {
             smmu.map_page(stream_id, pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
 
             // Warm cache
-            let _ = smmu.translate(stream_id, pasid, iova, *access_type);
+            let _ = smmu.translate(stream_id, pasid, iova, *access_type, SecurityState::NonSecure);
 
             b.iter(|| {
                 let result = smmu.translate(
@@ -588,6 +599,7 @@ fn bench_translation_access_types(c: &mut Criterion) {
                     black_box(pasid),
                     black_box(iova),
                     black_box(*access_type),
+                    SecurityState::NonSecure,
                 );
                 black_box(result.unwrap());
             });

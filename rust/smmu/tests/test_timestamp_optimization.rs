@@ -16,7 +16,7 @@ mod timestamp_tests {
         // Trigger multiple faults
         for i in 0..10 {
             let iova = IOVA::new(0x1000 * (i + 1)).unwrap();
-            let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+            let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         }
 
         // Verify timestamps are monotonically increasing
@@ -51,7 +51,7 @@ mod timestamp_tests {
         let start = Instant::now();
 
         for _ in 0..1000 {
-            let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+            let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         }
 
         let duration = start.elapsed();

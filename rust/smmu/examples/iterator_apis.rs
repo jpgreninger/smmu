@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Triggering test faults...");
     for i in 0..3 {
         let unmapped_iova = IOVA::new(0x1_0000 * (i + 1))?;
-        let _ = smmu.translate(test_stream, test_pasid, unmapped_iova, AccessType::Read);
+        let _ = smmu.translate(test_stream, test_pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure);
     }
     println!("  ✓ Triggered 3 translation faults\n");
 

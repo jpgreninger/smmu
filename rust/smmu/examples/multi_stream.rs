@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Network card translation
     println!("Network Card Translation:");
-    let net_result = smmu.translate(net_stream, net_pasid, net_iova, AccessType::Read)?;
+    let net_result = smmu.translate(net_stream, net_pasid, net_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  Stream {}: IOVA 0x{:x} -> PA 0x{:x}",
         net_stream.as_u32(),
@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // GPU translations for different PASIDs
     println!("\nGPU Translations:");
-    let gpu_result1 = smmu.translate(gpu_stream, gpu_pasid1, gpu_iova, AccessType::Read)?;
+    let gpu_result1 = smmu.translate(gpu_stream, gpu_pasid1, gpu_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
         gpu_stream.as_u32(),
@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert_eq!(gpu_result1.physical_address().as_u64(), gpu_pa1.as_u64());
 
-    let gpu_result2 = smmu.translate(gpu_stream, gpu_pasid2, gpu_iova, AccessType::Read)?;
+    let gpu_result2 = smmu.translate(gpu_stream, gpu_pasid2, gpu_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  Stream {}, PASID {}: IOVA 0x{:x} -> PA 0x{:x}",
         gpu_stream.as_u32(),
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStorage Controller Translation (Bypass):");
     let storage_pasid = PASID::new(0)?;
     let storage_iova = IOVA::new(0x50_0000)?;
-    let storage_result = smmu.translate(storage_stream, storage_pasid, storage_iova, AccessType::Read)?;
+    let storage_result = smmu.translate(storage_stream, storage_pasid, storage_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!(
         "  Stream {}: IOVA 0x{:x} -> PA 0x{:x} (identity mapping)",
         storage_stream.as_u32(),
@@ -155,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate isolation: Network can't access GPU memory via same IOVA
     println!("\nDemonstrating stream isolation:");
-    let gpu_iova_via_net = smmu.translate(net_stream, net_pasid, gpu_iova, AccessType::Read);
+    let gpu_iova_via_net = smmu.translate(net_stream, net_pasid, gpu_iova, AccessType::Read, SecurityState::NonSecure);
     match gpu_iova_via_net {
         Ok(_) => println!("  ✗ ERROR: Should not be able to access GPU memory from network stream!"),
         Err(TranslationError::PageNotMapped) => {

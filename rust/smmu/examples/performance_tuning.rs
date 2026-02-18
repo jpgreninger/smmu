@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cold_iova = IOVA::new(0x1000 * 500)?; // Use a mapped page
     let start = Instant::now();
-    let _ = smmu_hp.translate(stream_id, pasid, cold_iova, AccessType::Read)?;
+    let _ = smmu_hp.translate(stream_id, pasid, cold_iova, AccessType::Read, SecurityState::NonSecure)?;
     let cold_time = start.elapsed();
     println!("    Cold translation time: {cold_time:?}");
 
@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Measuring hot translation (TLB hit):");
     let start = Instant::now();
     for _ in 0..10_000 {
-        let _ = smmu_hp.translate(stream_id, pasid, cold_iova, AccessType::Read)?;
+        let _ = smmu_hp.translate(stream_id, pasid, cold_iova, AccessType::Read, SecurityState::NonSecure)?;
     }
     let hot_time = start.elapsed();
     let avg_hot_time = hot_time / 10_000;

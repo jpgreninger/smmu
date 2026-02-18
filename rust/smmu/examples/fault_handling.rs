@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Fault Type 1: Translation Fault (unmapped page)
     println!("1. Translation Fault - Accessing unmapped page:");
     let unmapped_iova = IOVA::new(0x5000)?;
-    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
+    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on unmapped page!"),
         Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Translation fault detected");
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Fault Type 2: Permission Fault (read-only page)
     println!("\n2. Permission Fault - Writing to read-only page:");
-    match smmu.translate(stream_id, pasid, valid_iova, AccessType::Write) {
+    match smmu.translate(stream_id, pasid, valid_iova, AccessType::Write, SecurityState::NonSecure) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on permission violation!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected");
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Fault Type 3: Instruction Fetch Fault (execute on non-executable page)
     println!("\n3. Permission Fault - Instruction fetch from non-executable page:");
-    match smmu.translate(stream_id, pasid, valid_iova, AccessType::Execute) {
+    match smmu.translate(stream_id, pasid, valid_iova, AccessType::Execute, SecurityState::NonSecure) {
         Ok(_) => println!("  ✗ ERROR: Should have faulted on execute violation!"),
         Err(TranslationError::PermissionViolation { access }) => {
             println!("  ✓ Permission fault detected");
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate fault context information
     println!("\n4. Detailed Fault Context:");
-    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read) {
+    match smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure) {
         Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Fault context:");
             println!("    Error: Page not mapped");
@@ -118,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  ✓ Stream configured with FaultMode::Stall\n");
 
     println!("5. Stall mode - Fault is queued but translation continues:");
-    match smmu.translate(stall_stream, pasid, unmapped_iova, AccessType::Read) {
+    match smmu.translate(stall_stream, pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("  ℹ In stall mode, translation may return partial result"),
         Err(TranslationError::PageNotMapped) => {
             println!("  ✓ Fault recorded in event queue");
@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initially, translation will fault
     println!("  a) Initial translation (should fault):");
     let recovery_iova = IOVA::new(0x6000)?;
-    match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read) {
+    match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(_) => println!("     ✗ Should have faulted"),
         Err(TranslationError::PageNotMapped) => println!("     ✓ Translation fault as expected"),
         Err(e) => println!("     Error: {e}"),
@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Retry translation - should succeed now
     println!("  c) Retry translation (should succeed):");
-    match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read) {
+    match smmu.translate(stream_id, pasid, recovery_iova, AccessType::Read, SecurityState::NonSecure) {
         Ok(result) => {
             println!("     ✓ Translation succeeded after recovery");
             println!(
@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Access with correct security state
-    let result = smmu.translate(stream_id, pasid, secure_iova, AccessType::Read)?;
+    let result = smmu.translate(stream_id, pasid, secure_iova, AccessType::Read, SecurityState::NonSecure)?;
     println!("  ✓ Non-secure access to non-secure page succeeded");
     println!(
         "    IOVA 0x{:x} -> PA 0x{:x}",

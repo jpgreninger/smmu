@@ -268,7 +268,7 @@ fn test_multi_stream_performance() {
         let stream_id = smmu::types::StreamID::new((i % 10) as u32).unwrap();
         let pasid = PASID::new(1).unwrap();
         let iova = IOVA::new(0x1000).unwrap();
-        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
     let translate_time = start.elapsed();
 

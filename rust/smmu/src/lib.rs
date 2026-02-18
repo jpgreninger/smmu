@@ -137,7 +137,7 @@
 //! smmu.map_page(stream_id, pasid, iova, pa, perms, SecurityState::NonSecure)?;
 //!
 //! // Translate addresses
-//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read)?;
+//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)?;
 //! assert_eq!(result.physical_address().as_u64(), 0x2000);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -194,7 +194,7 @@
 //! // In bypass mode, IOVA = PA (no translation)
 //! let pasid = PASID::new(0)?;
 //! let iova = IOVA::new(0x1000)?;
-//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read)?;
+//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)?;
 //! assert_eq!(result.physical_address().as_u64(), 0x1000);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -235,7 +235,7 @@
 //!                      PagePermissions::read_write(), SecurityState::NonSecure)?;
 //!
 //! // Translation: IOVA (0x1000) → IPA (0x2000) → PA (0x3000)
-//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read)?;
+//! let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)?;
 //! assert_eq!(result.physical_address().as_u64(), 0x3000);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -284,7 +284,7 @@
 //! let pasid = PASID::new(0)?;
 //! let iova = IOVA::new(0x1000)?;
 //!
-//! match smmu.translate(stream_id, pasid, iova, AccessType::Read) {
+//! match smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure) {
 //!     Ok(result) => {
 //!         println!("PA: 0x{:x}", result.physical_address().as_u64());
 //!     }

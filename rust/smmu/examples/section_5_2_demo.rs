@@ -47,7 +47,7 @@ fn main() {
 
     // Test 1: Successful read translation
     let iova = IOVA::new(0x1000).unwrap();
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     match result {
         Ok(data) => {
             println!(
@@ -62,7 +62,7 @@ fn main() {
 
     // Test 2: Successful write translation
     let iova = IOVA::new(0x2000).unwrap();
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     match result {
         Ok(data) => {
             println!(
@@ -77,7 +77,7 @@ fn main() {
 
     // Test 3: Translation fault (unmapped address)
     let unmapped_iova = IOVA::new(0x5000).unwrap();
-    let result = smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, unmapped_iova, AccessType::Read, SecurityState::NonSecure);
     match result {
         Ok(_) => panic!("Translation should have failed for unmapped address"),
         Err(e) => {
@@ -88,7 +88,7 @@ fn main() {
     // Test 4: Stream not found error
     let bad_stream = StreamID::new(99).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
-    let result = smmu.translate(bad_stream, pasid, iova, AccessType::Read);
+    let result = smmu.translate(bad_stream, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     match result {
         Ok(_) => panic!("Translation should have failed for non-existent stream"),
         Err(e) => {
@@ -134,7 +134,7 @@ fn main() {
 
     // In bypass mode, IOVA = PA (identity mapping)
     let iova = IOVA::new(0x1000).unwrap();
-    let result = smmu.translate(stream_id2, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id2, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     match result {
         Ok(data) => {
             println!(
@@ -155,7 +155,7 @@ fn main() {
 
     // Verify operations fail after shutdown
     let iova = IOVA::new(0x1000).unwrap();
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err(), "Translation should fail after shutdown");
     println!("✓ Translation correctly rejected after shutdown");
 

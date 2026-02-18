@@ -803,20 +803,19 @@ impl StreamContext {
         // Stage-1: IOVA → IPA (lock-free DashMap lookup for all PASIDs)
         let addr_space = self.pasid_map.get(&pasid_value).ok_or(TranslationError::PASIDNotFound)?;
 
-        let stage1_result = addr_space.translate_page(iova, access_type, security_state);
-
-        // Record Stage-1 fault if error
-        if let Err(ref error) = stage1_result {
-            let fault_type = match error {
-                TranslationError::PageNotMapped => FaultType::TranslationFault,
-                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-                _ => FaultType::TranslationFault,
-            };
-            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
-            return stage1_result;
-        }
-
-        let stage1_result = stage1_result.unwrap();
+        // Stage-1: IOVA → IPA; use explicit match to avoid fragile unwrap()
+        let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
+            Ok(data) => data,
+            Err(error) => {
+                let fault_type = match error {
+                    TranslationError::PageNotMapped => FaultType::TranslationFault,
+                    TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
+                    _ => FaultType::TranslationFault,
+                };
+                self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
+                return Err(error);
+            },
+        };
 
         // IPA is the physical address from Stage-1
         let ipa =
@@ -926,7 +925,7 @@ impl StreamContext {
         if let Some(max_pasids) = builder.max_pasids_per_stream {
             if max_pasids > (1 << 20) {
                 return Err(StreamContextError::ConfigurationError(
-                    "max_pasids_per_stream exceeds ARM SMMU v3 PASID limit (2^20 - 1)".to_string(),
+                    "max_pasids_per_stream exceeds ARM SMMU v3 limit (2^20)".to_string(),
                 ));
             }
 
@@ -1001,9 +1000,12 @@ impl StreamContext {
     /// assert!(!ctx.is_enabled());
     /// ```
     pub fn disable(&self) {
-        // Auto-clear PASIDs on disable
-        self.pasid_map.clear();
+        // Disable first (SeqCst) so concurrent translators see StreamDisabled,
+        // then clear the PASID map.  Clearing before storing false would let a
+        // racing translate() pass is_enabled() and then find an empty map,
+        // returning PASIDNotFound instead of the correct StreamDisabled.
         self.enabled.store(false, Ordering::SeqCst);
+        self.pasid_map.clear();
     }
 
     /// Checks if the stream is enabled

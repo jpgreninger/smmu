@@ -106,7 +106,7 @@ fn test_concurrent_translation_performance() {
             let pasid = PASID::new(pasid_num).unwrap();
             for page_num in 0..10 {
                 let iova = IOVA::new((page_num as u64) * 0x1000).unwrap();
-                smmu.translate(stream_id, pasid, iova, AccessType::Read)
+                smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
                     .expect("Warmup translation should succeed");
             }
         }
@@ -130,7 +130,7 @@ fn test_concurrent_translation_performance() {
                 let iova = IOVA::new((page_num as u64) * 0x1000).unwrap();
 
                 smmu_clone
-                    .translate(stream_id, pasid, iova, AccessType::Read)
+                    .translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
                     .expect("Translation should succeed");
             }
         });
@@ -188,7 +188,7 @@ fn test_single_thread_translation_latency() {
     // Warmup: First pass to populate TLB cache
     for page_num in 0..100 {
         let iova = IOVA::new((page_num * 0x1000) as u64).unwrap();
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
 
@@ -199,7 +199,7 @@ fn test_single_thread_translation_latency() {
     for i in 0..iterations {
         let page_num = i % 100;
         let iova = IOVA::new((page_num * 0x1000) as u64).unwrap();
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
 
@@ -291,13 +291,13 @@ fn test_permissions_backward_compatibility() {
     .unwrap();
 
     // Read should succeed
-    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Read).is_ok());
+    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure).is_ok());
 
     // Write should fail
-    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Write).is_err());
+    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure).is_err());
 
     // Execute should fail
-    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Execute).is_err());
+    assert!(smmu.translate(stream_id, pasid, iova, AccessType::Execute, SecurityState::NonSecure).is_err());
 }
 
 #[test]

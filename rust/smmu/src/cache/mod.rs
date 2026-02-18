@@ -872,7 +872,9 @@ impl TlbCache {
     /// ```
     pub fn invalidate_entry(&self, key: &CacheKey) -> bool {
         if self.entries.remove(key).is_some() {
-            self.remove_entry(key);
+            // entries.remove() above already removes the entry; do NOT call
+            // self.remove_entry() again — that would attempt a second removal
+            // and could silently delete a concurrently re-inserted entry.
             self.statistics.invalidations.fetch_add(1, Ordering::Relaxed);
             true
         } else {

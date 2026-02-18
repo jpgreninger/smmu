@@ -57,7 +57,7 @@ fn test_tlb_cache_hit_miss_tracking() {
     let initial_hits = stats_before.tlb_hits();
 
     // First translation - should be a cache miss
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "First translation should succeed: {:?}",
@@ -78,7 +78,7 @@ fn test_tlb_cache_hit_miss_tracking() {
     );
 
     // Second translation to same IOVA - should be a cache hit
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "Second translation should succeed: {:?}",
@@ -99,7 +99,7 @@ fn test_tlb_cache_hit_miss_tracking() {
     );
 
     // Third translation to same IOVA - another cache hit
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().physical_address().as_u64(), 0x2000);
 
@@ -169,7 +169,7 @@ fn test_tlb_cache_multiple_pages() {
     // First pass - all should be cache misses
     for (iova_val, pa_val) in &pages {
         let iova = IOVA::new(*iova_val).unwrap();
-        let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().physical_address().as_u64(), *pa_val);
     }
@@ -184,7 +184,7 @@ fn test_tlb_cache_multiple_pages() {
     // Second pass - all should be cache hits
     for (iova_val, pa_val) in &pages {
         let iova = IOVA::new(*iova_val).unwrap();
-        let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+        let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().physical_address().as_u64(), *pa_val);
     }
@@ -232,12 +232,12 @@ fn test_tlb_cache_invalidation_on_unmap() {
     .unwrap();
 
     // Populate cache
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
 
     // Verify it's cached (should be a hit)
     let stats_before_unmap = smmu.get_cache_statistics();
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
     let stats_after_cached = smmu.get_cache_statistics();
     assert_eq!(
@@ -259,7 +259,7 @@ fn test_tlb_cache_invalidation_on_unmap() {
     .unwrap();
 
     // Next translation should return new PA (cache was invalidated)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "Translation should succeed with remapped page"
@@ -296,7 +296,7 @@ fn test_tlb_cache_stream_invalidation() {
         .unwrap();
 
         // Populate cache
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
 
@@ -304,7 +304,7 @@ fn test_tlb_cache_stream_invalidation() {
     let stats_before = smmu.get_cache_statistics();
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
     let stats_after = smmu.get_cache_statistics();
@@ -350,12 +350,12 @@ fn test_tlb_cache_pasid_removal_invalidation() {
     .unwrap();
 
     // Populate cache
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
 
     // Verify it's cached
     let stats_before = smmu.get_cache_statistics();
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
     let stats_after = smmu.get_cache_statistics();
     assert_eq!(
@@ -368,7 +368,7 @@ fn test_tlb_cache_pasid_removal_invalidation() {
     smmu.remove_pasid(stream_id, pasid).unwrap();
 
     // Translation should now fail (PASID doesn't exist)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
         result.is_err(),
         "Translation should fail after PASID removal"
@@ -404,7 +404,7 @@ fn test_tlb_cache_permission_checking() {
     .unwrap();
 
     // Cache the read translation
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "Read access should succeed with read-only permissions"
@@ -413,7 +413,7 @@ fn test_tlb_cache_permission_checking() {
 
     // Verify it's cached
     let stats_before = smmu.get_cache_statistics();
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
     let stats_after = smmu.get_cache_statistics();
     assert_eq!(
@@ -423,7 +423,7 @@ fn test_tlb_cache_permission_checking() {
     );
 
     // Attempt write access with cached entry - should fail due to permissions
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(
         result.is_err(),
         "Write access should fail with read-only permissions even with cached entry"
@@ -462,11 +462,11 @@ fn test_tlb_cache_permission_upgrade() {
     .unwrap();
 
     // Cache read translation
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
 
     // Write should fail
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(result.is_err());
 
     // Upgrade permissions to read-write by remapping (automatically invalidates cache)
@@ -481,7 +481,7 @@ fn test_tlb_cache_permission_upgrade() {
     .unwrap();
 
     // Now write should succeed (cache should be invalidated and repopulated)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "Write should succeed after permission upgrade: {:?}",
@@ -510,18 +510,18 @@ fn test_tlb_cache_execute_permission() {
         .unwrap();
 
     // Cache read translation
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
 
     // Execute should succeed (with cached entry)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Execute, SecurityState::NonSecure);
     assert!(
         result.is_ok(),
         "Execute should succeed with execute permission"
     );
 
     // Write should fail even with cached entry
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Write, SecurityState::NonSecure);
     assert!(
         result.is_err(),
         "Write should fail without write permission"
@@ -555,7 +555,7 @@ fn test_tlb_performance_improvement() {
     .unwrap();
 
     // Warm-up translation to ensure everything is initialized
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
 
     // Measure uncached translation (after cache invalidation via command queue)
@@ -564,7 +564,7 @@ fn test_tlb_performance_improvement() {
     smmu.process_command_queue().unwrap();
 
     let start_uncached = Instant::now();
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
     let uncached_duration = start_uncached.elapsed();
 
@@ -572,7 +572,7 @@ fn test_tlb_performance_improvement() {
     const CACHED_ITERATIONS: usize = 1000;
     let start_cached = Instant::now();
     for _ in 0..CACHED_ITERATIONS {
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
     let cached_total_duration = start_cached.elapsed();
@@ -643,7 +643,7 @@ fn test_tlb_performance_multiple_pages() {
     let start_first_pass = Instant::now();
     for i in 0..NUM_PAGES {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
     let first_pass_duration = start_first_pass.elapsed();
@@ -652,7 +652,7 @@ fn test_tlb_performance_multiple_pages() {
     let start_second_pass = Instant::now();
     for i in 0..NUM_PAGES {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
     }
     let second_pass_duration = start_second_pass.elapsed();
@@ -716,7 +716,7 @@ fn test_tlb_cache_statistics_accuracy() {
 
     // Perform known sequence: 1 miss + 5 hits
     for i in 0..6 {
-        smmu.translate(stream_id, pasid, iova, AccessType::Read)
+        smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
             .unwrap();
 
         let stats = smmu.get_cache_statistics();
@@ -835,26 +835,26 @@ fn test_tlb_cache_cross_pasid_isolation() {
     .unwrap();
 
     // Translate PASID 1
-    let result1 = smmu.translate(stream_id, pasid1, iova, AccessType::Read);
+    let result1 = smmu.translate(stream_id, pasid1, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result1.is_ok());
     assert_eq!(result1.unwrap().physical_address().as_u64(), 0x2000);
 
     // Translate PASID 2
-    let result2 = smmu.translate(stream_id, pasid2, iova, AccessType::Read);
+    let result2 = smmu.translate(stream_id, pasid2, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result2.is_ok());
     assert_eq!(result2.unwrap().physical_address().as_u64(), 0x3000);
 
     // Cache should maintain separate entries - verify both are cached
     let stats_before = smmu.get_cache_statistics();
 
-    let result1_cached = smmu.translate(stream_id, pasid1, iova, AccessType::Read);
+    let result1_cached = smmu.translate(stream_id, pasid1, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result1_cached.is_ok());
     assert_eq!(
         result1_cached.unwrap().physical_address().as_u64(),
         0x2000
     );
 
-    let result2_cached = smmu.translate(stream_id, pasid2, iova, AccessType::Read);
+    let result2_cached = smmu.translate(stream_id, pasid2, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result2_cached.is_ok());
     assert_eq!(
         result2_cached.unwrap().physical_address().as_u64(),
@@ -882,7 +882,7 @@ fn test_tlb_cache_with_bypass_mode() {
     let iova = IOVA::new(0x1000).unwrap();
 
     // In bypass mode, IOVA = PA (identity mapping)
-    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read);
+    let result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_ok());
     assert_eq!(
         result.unwrap().physical_address().as_u64(),
@@ -892,7 +892,7 @@ fn test_tlb_cache_with_bypass_mode() {
 
     // Verify cache works in bypass mode
     let stats_before = smmu.get_cache_statistics();
-    smmu.translate(stream_id, pasid, iova, AccessType::Read)
+    smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure)
         .unwrap();
     let stats_after = smmu.get_cache_statistics();
 

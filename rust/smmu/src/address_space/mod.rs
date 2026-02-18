@@ -737,13 +737,24 @@ impl AddressSpace {
         // Calculate page numbers
         let start_page_num = self.page_number(IOVA::new(aligned_start_iova).unwrap());
         let end_page_num = self.page_number(end_iova);
+        let num_pages = end_page_num.saturating_sub(start_page_num).saturating_add(1);
 
-        // Map each page in the range
+        // Validate that the PA range won't overflow u64 or exceed MAX_PHYSICAL_ADDRESS
+        let last_pa = aligned_start_pa
+            .checked_add(num_pages.saturating_sub(1).saturating_mul(PAGE_SIZE))
+            .ok_or(AddressSpaceError::InvalidAddress { address: aligned_start_pa })?;
+        if last_pa > MAX_PHYSICAL_ADDRESS {
+            return Err(AddressSpaceError::InvalidAddress { address: last_pa });
+        }
+
+        // Map each page in the range with checked PA arithmetic to prevent overflow
         let mut current_pa = aligned_start_pa;
         for page_num in start_page_num..=end_page_num {
             let entry = PageEntry::new(PA::new(current_pa).unwrap(), permissions);
             self.page_table.insert(page_num, entry);
-            current_pa += PAGE_SIZE;
+            current_pa = current_pa
+                .checked_add(PAGE_SIZE)
+                .ok_or(AddressSpaceError::InvalidAddress { address: current_pa })?;
         }
 
         Ok(())
