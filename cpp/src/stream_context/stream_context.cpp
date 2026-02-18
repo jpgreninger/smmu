@@ -103,7 +103,12 @@ VoidResult StreamContext::removePASID(PASID pasid) {
     if (it == pasidMap.end()) {
         return makeVoidError(SMMUError::PASIDNotFound);  // PASID does not exist
     }
-    
+
+    // If PASID 0 is being removed and stage2AddressSpace is aliased to it, clear it
+    if (pasid == 0 && stage2Enabled && it->second == stage2AddressSpace) {
+        stage2AddressSpace = nullptr;
+    }
+
     // Remove from map - AddressSpace will be destroyed when last reference released
     // ARM SMMU v3: All translations for this PASID become invalid
     pasidMap.erase(it);
@@ -259,6 +264,14 @@ void StreamContext::setFaultMode(FaultMode mode) {
     // ARM SMMU v3 supports:
     // - Terminate: Abort DMA transaction immediately
     // - Stall: Queue fault for OS/hypervisor handling
+}
+
+// Atomically set fault mode (read-modify-write under contextMutex)
+VoidResult StreamContext::setFaultModeAtomic(FaultMode mode) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    faultMode = mode;
+    currentConfiguration.faultMode = mode;
+    return makeVoidSuccess();
 }
 
 // Configure maximum PASIDs per stream resource limit
@@ -493,8 +506,8 @@ VoidResult StreamContext::enableStream() {
         return makeVoidError(SMMUError::InvalidConfiguration);  // Cannot enable with invalid configuration
     }
     
-    // ARM SMMU v3: Enabling stream requires at least one translation stage
-    if (!stage1Enabled && !stage2Enabled) {
+    // ARM SMMU v3: Enabling stream with translation active requires at least one stage
+    if (currentConfiguration.translationEnabled && !stage1Enabled && !stage2Enabled) {
         return makeVoidError(SMMUError::ConfigurationError);  // No translation stages enabled
     }
 

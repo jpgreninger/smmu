@@ -888,24 +888,25 @@ TEST_F(StreamContextPhase3Test, EnableStream_ValidConfiguration) {
 }
 
 TEST_F(StreamContextPhase3Test, EnableStream_NoStagesConfigured) {
-    // Line 600-603: Test enabling stream with no stages enabled
-    // Make sure no translation stages are enabled
+    // Test enabling stream with no stages enabled
+    // With translationEnabled=false (default), this is bypass mode -
+    // a valid ARM SMMU v3 operating mode (BUG-33 fix)
     streamContext->setStage1Enabled(false);
     streamContext->setStage2Enabled(false);
 
     VoidResult result = streamContext->enableStream();
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::ConfigurationError);
+    EXPECT_TRUE(result.isOk());
 }
 
 TEST_F(StreamContextPhase3Test, EnableStream_NoStagesEnabled) {
-    // Line 606-608: Test enabling stream with no translation stages
+    // Test enabling stream with no translation stages
+    // With translationEnabled=false (default), this is bypass mode -
+    // a valid ARM SMMU v3 operating mode (BUG-33 fix)
     streamContext->setStage1Enabled(false);
     streamContext->setStage2Enabled(false);
 
     VoidResult result = streamContext->enableStream();
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::ConfigurationError);
+    EXPECT_TRUE(result.isOk());
 }
 
 TEST_F(StreamContextPhase3Test, EnableStream_UpdatesStatistics) {

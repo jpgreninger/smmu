@@ -797,13 +797,13 @@ TEST_F(StreamContextCoverage70Test, IsConfigValidWithPASIDs) {
 
 // Test enableStream() with invalid configuration (Line 602)
 TEST_F(StreamContextCoverage70Test, EnableStreamInvalidConfig) {
-    // Set invalid configuration
+    // Disable both stages - with translationEnabled=false (default), this is
+    // bypass mode which IS a valid ARM SMMU v3 operating mode (BUG-33 fix)
     streamContext->setStage1Enabled(false);
     streamContext->setStage2Enabled(false);
 
     VoidResult result = streamContext->enableStream();
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::ConfigurationError);
+    EXPECT_TRUE(result.isOk());
 }
 
 // Test enableStream() with valid configuration (Line 611-614)

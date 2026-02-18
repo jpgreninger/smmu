@@ -36,6 +36,7 @@ public:
     void setStage2Enabled(bool enabled);
     void setStage2AddressSpace(std::shared_ptr<AddressSpace> addressSpace);
     void setFaultMode(FaultMode mode);
+    VoidResult setFaultModeAtomic(FaultMode mode);
     void setMaxPASIDsPerStream(uint32_t maxPASIDs);
     
     // Query operations

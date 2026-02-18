@@ -314,37 +314,38 @@ TEST_F(StreamContextExtendedTest, EnableStreamValid) {
 
 // Test enableStream() with no stages enabled
 TEST_F(StreamContextExtendedTest, EnableStreamNoStages) {
-    // Disable both stages
+    // Disable both stages - with translationEnabled=false (default), this is
+    // bypass mode which IS a valid ARM SMMU v3 operating mode (BUG-33 fix)
     streamContext->setStage1Enabled(false);
     streamContext->setStage2Enabled(false);
 
     VoidResult result = streamContext->enableStream();
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::ConfigurationError);
+    EXPECT_TRUE(result.isOk());
 
     Result<bool> enabledResult = streamContext->isStreamEnabled();
     EXPECT_TRUE(enabledResult.isOk());
-    EXPECT_FALSE(enabledResult.getValue());
+    EXPECT_TRUE(enabledResult.getValue());
 }
 
 // Test enableStream() with invalid configuration
 TEST_F(StreamContextExtendedTest, EnableStreamInvalidConfig) {
-    // Set invalid configuration
+    // Set invalid configuration (translationEnabled=true with no stages)
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = false;
     config.stage2Enabled = false;
     config.faultMode = FaultMode::Terminate;
 
-    // This update should fail
+    // This update should fail - configuration unchanged, translationEnabled stays false
     VoidResult updateResult = streamContext->updateConfiguration(config);
     EXPECT_TRUE(updateResult.isError());
 
-    // Now try to enable stream
+    // After failed update, stream remains in bypass mode (translationEnabled=false),
+    // so enableStream() should succeed (BUG-33 fix: bypass mode is valid)
     streamContext->setStage1Enabled(false);
     streamContext->setStage2Enabled(false);
     VoidResult enableResult = streamContext->enableStream();
-    EXPECT_TRUE(enableResult.isError());
+    EXPECT_TRUE(enableResult.isOk());
 }
 
 // Test disableStream()

@@ -470,7 +470,22 @@ void TLBCache::setMaxSize(size_t newMaxSize) {
         if (!stripes[oldestStripe].list.empty()) {
             auto last = stripes[oldestStripe].list.end();
             --last;
-            stripes[oldestStripe].map.erase(last->first);
+            const CacheKey& evictKey = last->first;
+
+            auto& streamSet = stripes[oldestStripe].streamIndex[evictKey.streamID];
+            streamSet.erase(evictKey);
+            if (streamSet.empty()) {
+                stripes[oldestStripe].streamIndex.erase(evictKey.streamID);
+            }
+
+            StreamPASIDKey spKey{evictKey.streamID, evictKey.pasid};
+            auto& pasidSet = stripes[oldestStripe].pasidIndex[spKey];
+            pasidSet.erase(evictKey);
+            if (pasidSet.empty()) {
+                stripes[oldestStripe].pasidIndex.erase(spKey);
+            }
+
+            stripes[oldestStripe].map.erase(evictKey);
             stripes[oldestStripe].list.erase(last);
             --totalSize;
         } else {
@@ -504,19 +519,8 @@ CacheKey TLBCache::makeKey(StreamID streamID, PASID pasid, IOVA iova, SecuritySt
 TLBCache::CacheStatistics TLBCache::getAtomicStatistics() const {
     CacheStatistics stats;
 
-    // Use a loop to ensure consistent snapshot of hit/miss counters
-    // This addresses the race condition where counters can be modified between individual reads
-    uint64_t currentHits, currentMisses;
-    do {
-        currentHits = hitCount.load(std::memory_order_relaxed);
-        currentMisses = missCount.load(std::memory_order_relaxed);
-        // Verify that the values haven't changed during our reads
-        // If they have, retry until we get a consistent snapshot
-    } while (currentHits != hitCount.load(std::memory_order_relaxed) ||
-             currentMisses != missCount.load(std::memory_order_relaxed));
-
-    stats.hitCount = currentHits;
-    stats.missCount = currentMisses;
+    stats.hitCount = hitCount.load(std::memory_order_relaxed);
+    stats.missCount = missCount.load(std::memory_order_relaxed);
     stats.totalLookups = stats.hitCount + stats.missCount;
     stats.hitRate = stats.totalLookups > 0 ?
         static_cast<double>(stats.hitCount) / static_cast<double>(stats.totalLookups) : 0.0;

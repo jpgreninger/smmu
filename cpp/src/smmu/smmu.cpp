@@ -90,7 +90,10 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             if (entry.valid) {
                 // Fast path: Validate cache entry age inline for speed
                 const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-                if (currentTime - entry.timestamp <= MAX_CACHE_AGE_US) {
+                if (entry.timestamp > currentTime || (currentTime - entry.timestamp) > MAX_CACHE_AGE_US) {
+                    // Entry expired or from the future - invalidate and continue to full translation
+                    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
+                } else {
                     // Cache hit - validate access permissions against requested access type
                     if (!validateAccessPermissions(entry.permissions, accessType)) {
                         // Permission fault - record fault and return error
@@ -113,9 +116,6 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
                     TranslationData data(finalPA, entry.permissions, entry.securityState);
                     return TranslationResult(data);
-                } else {
-                    // Entry expired - invalidate and continue to full translation
-                    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
                 }
             }
         }
@@ -405,17 +405,15 @@ VoidResult SMMU::setGlobalFaultMode(FaultMode mode) {
     globalFaultMode = mode;
 
     // Apply to all configured streams
+    VoidResult firstError = makeVoidSuccess();
     for (auto& streamPair : streamMap) {
-        StreamConfig config = streamPair.second->getStreamConfiguration();
-        config.faultMode = mode;
-        VoidResult result = streamPair.second->updateConfiguration(config);
-        if (result.isError()) {
-            // Continue updating other streams but return error
-            return result;
+        VoidResult result = streamPair.second->setFaultModeAtomic(mode);
+        if (result.isError() && !firstError.isError()) {
+            firstError = result;
         }
     }
-    
-    return makeVoidSuccess();
+
+    return firstError;
 }
 
 // Global caching enable/disable - Enhanced with TLBCache integration (Task 5.2)
@@ -676,28 +674,6 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
         recordFault(fault);
         return makeTranslationError(SMMUError::ConfigurationError);
-    }
-
-    // BUG-27 fix: removed spurious physicalAddress==0 guard.  PA=0 is a valid hardware
-    // address (e.g. MMIO at physical 0x0); per ARM SMMU v3 spec there is no prohibition
-    // on translating to PA=0.  The AddressSpace layer already distinguishes "page not
-    // found" from "page mapped to PA=0" via the PageEntry::valid flag.
-    if (result.isOk()) {
-        const TranslationData& data = result.getValue();
-        // Validate access permissions against requested access type
-        if (!validateAccessPermissions(data.permissions, accessType)) {
-            FaultRecord fault;
-            fault.streamID = streamID;
-            fault.pasid = pasid;
-            fault.address = iova;
-            fault.faultType = FaultType::PermissionFault;
-            fault.accessType = accessType;
-            fault.securityState = securityState;
-            fault.timestamp = currentTime;
-
-            recordFault(fault);
-            return makeTranslationError(SMMUError::PagePermissionViolation);
-        }
     }
 
     return result;
@@ -1055,10 +1031,12 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             handleAccessFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
 
-        case FaultType::SecurityFault:
+        case FaultType::SecurityFault: {
             // Security fault - log violation and notify security subsystem
-            recordSecurityFault(streamID, pasid, iova, accessType, securityState, securityState);
+            SecurityState expectedState = determineContextSecurityState(streamID, pasid);
+            recordSecurityFault(streamID, pasid, iova, accessType, expectedState, securityState);
             break;
+        }
 
         // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
         case FaultType::ContextDescriptorFormatFault:
