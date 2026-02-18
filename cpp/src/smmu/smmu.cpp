@@ -480,7 +480,9 @@ uint64_t SMMU::getCacheMissCount() const {
 // System state management - Enhanced with TLBCache statistics (Task 5.2)
 void SMMU::resetStatistics() {
     translationCount = 0;
-    // Remove local cache statistics - delegate to TLBCache
+    // BUG-25 fix: reset local cache-hit/miss counters that were previously left stale.
+    cacheHits.store(0, std::memory_order_relaxed);
+    cacheMisses.store(0, std::memory_order_relaxed);
     faultHandler->resetStatistics();
     
     // Task 5.2: Reset TLB cache statistics
@@ -676,28 +678,14 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         return makeTranslationError(SMMUError::ConfigurationError);
     }
 
-    // ARM SMMU v3 spec: Enhanced validation of translation results
+    // BUG-27 fix: removed spurious physicalAddress==0 guard.  PA=0 is a valid hardware
+    // address (e.g. MMIO at physical 0x0); per ARM SMMU v3 spec there is no prohibition
+    // on translating to PA=0.  The AddressSpace layer already distinguishes "page not
+    // found" from "page mapped to PA=0" via the PageEntry::valid flag.
     if (result.isOk()) {
-        // Validate translated address alignment and sanity
         const TranslationData& data = result.getValue();
-        if (data.physicalAddress == 0 && iova != 0) {
-            // Suspicious translation to null address
-
-            FaultRecord fault;
-            fault.streamID = streamID;
-            fault.pasid = pasid;
-            fault.address = iova;
-            fault.faultType = FaultType::TranslationFault;
-            fault.accessType = accessType;
-            fault.securityState = securityState;
-            fault.timestamp = currentTime;
-
-            recordFault(fault);
-            return makeTranslationError(SMMUError::TranslationTableError);
-        } else {
-            // Validate access permissions against requested access type
-            if (!validateAccessPermissions(data.permissions, accessType)) {
-
+        // Validate access permissions against requested access type
+        if (!validateAccessPermissions(data.permissions, accessType)) {
             FaultRecord fault;
             fault.streamID = streamID;
             fault.pasid = pasid;
@@ -707,9 +695,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             fault.securityState = securityState;
             fault.timestamp = currentTime;
 
-                recordFault(fault);
-                return makeTranslationError(SMMUError::PagePermissionViolation);
-            }
+            recordFault(fault);
+            return makeTranslationError(SMMUError::PagePermissionViolation);
         }
     }
 
@@ -718,13 +705,10 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
 // Task 5.2: Translation caching helper methods
 bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
-    // ARM SMMU v3 spec: Only cache successful, completed translations
-    // Avoid caching translations that might be context-sensitive or temporary
-    if (result.isError()) {
-        return false;
-    }
-    const TranslationData& data = result.getValue();
-    return data.physicalAddress != 0;
+    // ARM SMMU v3 spec: Only cache successful, completed translations.
+    // BUG-27 fix: removed spurious physicalAddress!=0 guard; PA=0 is a valid,
+    // cacheable translation result per the ARM SMMU v3 specification.
+    return !result.isError();
 }
 
 void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
@@ -739,11 +723,7 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     IOVA pageAlignedIOVA = iova & ~PAGE_MASK; // Page-align the IOVA
     PA pageAlignedPA = data.physicalAddress & ~PAGE_MASK; // Page-align the PA
 
-    // Validate that the translation is cacheable
-    if (pageAlignedPA == 0 && pageAlignedIOVA != 0) {
-        // Don't cache suspicious null translations
-        return;
-    }
+    // BUG-27 fix: removed spurious pageAlignedPA==0 guard; PA=0 is cacheable.
 
     // We already know this is a cache miss from the main translate() method
     // No need to lookup again - just insert the new entry
@@ -868,13 +848,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // Stage 1 success - IPA is now in stage1Result.physicalAddress
     IPA intermediatePA = stage1Result.getValue().physicalAddress;
 
-    // ARM SMMU v3 spec: Validate IPA from Stage-1 before Stage-2 translation
-    if (intermediatePA == 0 && iova != 0) {
-        // Invalid IPA produced by Stage-1
-        recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
-                               accessType, securityState, FaultStage::Stage1Only, currentTime, 1, 0);
-        return makeTranslationError(SMMUError::TranslationTableError);
-    }
+    // BUG-27 fix: removed spurious IPA==0 guard; IPA=0 is a valid intermediate
+    // address — Stage-2 will look it up and fail normally if not mapped.
 
     // Stage 2: IPA -> PA translation using the stream's dedicated Stage-2 address space.
     // BUG-07 fix: Stage-2 has its own address space set via setStage2AddressSpace().
@@ -980,22 +955,7 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
         return result;
     }
 
-    // Enhanced validation for Stage-1 only mode
-    const TranslationData& translationData = result.getValue();
-    if (translationData.physicalAddress == 0 && iova != 0) {
-        FaultRecord fault;
-        fault.streamID = streamID;
-        fault.pasid = pasid;
-        fault.address = iova;
-        fault.faultType = FaultType::TranslationFault;
-        fault.accessType = accessType;
-        fault.securityState = securityState;
-        fault.timestamp = currentTime;
-
-        recordFault(fault);
-        return makeTranslationError(SMMUError::PageNotMapped);
-    }
-
+    // BUG-27 fix: removed spurious physicalAddress==0 guard; PA=0 is valid per spec.
     return result;
 }
 
@@ -1033,22 +993,7 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
         return result;
     }
 
-    // Enhanced validation for Stage-2 only mode
-    const TranslationData& translationData = result.getValue();
-    if (translationData.physicalAddress == 0 && iova != 0) {
-        FaultRecord fault;
-        fault.streamID = streamID;
-        fault.pasid = pasid;
-        fault.address = iova;
-        fault.faultType = FaultType::TranslationFault;
-        fault.accessType = accessType;
-        fault.securityState = securityState;
-        fault.timestamp = currentTime;
-
-        recordFault(fault);
-        return makeTranslationError(SMMUError::PageNotMapped);
-    }
-
+    // BUG-27 fix: removed spurious physicalAddress==0 guard; PA=0 is valid per spec.
     return result;
 }
 
@@ -1915,38 +1860,27 @@ VoidResult SMMU::updateConfiguration(const SMMUConfiguration& config) {
     
     try {
         configuration = config;
-        
-        // Apply the new configuration
+
+        // Apply cache/TLB settings while stripe locks are held.
         applyConfiguration();
-        
-        return makeVoidSuccess();
-        
+
     } catch (const std::exception&) {
         // Rollback on failure
         configuration = oldConfig;
         return makeVoidError(SMMUError::ConfigurationError);
     }
-}
 
-VoidResult SMMU::updateQueueConfiguration(const QueueConfiguration& queueConfig) {
-    // Lock all stripes in order to prevent deadlock when updating queue configuration
-    std::vector<std::unique_lock<std::mutex>> locks;
-    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
-        locks.emplace_back(streamLockStripes[i]);
-    }
+    // BUG-24 fix: release all stripe locks before acquiring queueMutex
+    // (lock-order invariant: queueMutex must never be acquired while a stripe lock is held).
+    locks.clear();
 
-    if (!queueConfig.isValid()) {
-        return makeVoidError(SMMUError::InvalidConfiguration);
-    }
-    
-    // Update the configuration and apply changes
-    VoidResult result = configuration.setQueueConfiguration(queueConfig);
-    if (result.isOk()) {
+    // Apply queue size limits and trim queues under queueMutex.
+    {
+        std::lock_guard<std::recursive_mutex> qlock(queueMutex);
+        const QueueConfiguration& queueConfig = configuration.getQueueConfiguration();
         maxEventQueueSize = queueConfig.eventQueueSize;
         maxCommandQueueSize = queueConfig.commandQueueSize;
         maxPRIQueueSize = queueConfig.priQueueSize;
-        
-        // Trim queues if they exceed new limits
         while (eventQueue.size() > maxEventQueueSize) {
             eventQueue.pop_front();
         }
@@ -1957,8 +1891,44 @@ VoidResult SMMU::updateQueueConfiguration(const QueueConfiguration& queueConfig)
             priQueue.pop_front();
         }
     }
-    
-    return result;
+
+    return makeVoidSuccess();
+}
+
+VoidResult SMMU::updateQueueConfiguration(const QueueConfiguration& queueConfig) {
+    if (!queueConfig.isValid()) {
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-24 fix: update `configuration` under all stripe locks (protects the shared
+    // configuration object), then release stripe locks before acquiring queueMutex.
+    // Lock-order invariant: queueMutex must never be acquired while a stripe lock is held.
+    {
+        std::vector<std::unique_lock<std::mutex>> locks;
+        for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+            locks.emplace_back(streamLockStripes[i]);
+        }
+        VoidResult result = configuration.setQueueConfiguration(queueConfig);
+        if (result.isError()) {
+            return result;
+        }
+    }
+
+    // Stripe locks are now released — safe to acquire queueMutex.
+    std::lock_guard<std::recursive_mutex> qlock(queueMutex);
+    maxEventQueueSize = queueConfig.eventQueueSize;
+    maxCommandQueueSize = queueConfig.commandQueueSize;
+    maxPRIQueueSize = queueConfig.priQueueSize;
+    while (eventQueue.size() > maxEventQueueSize) {
+        eventQueue.pop_front();
+    }
+    while (commandQueue.size() > maxCommandQueueSize) {
+        commandQueue.pop_front();
+    }
+    while (priQueue.size() > maxPRIQueueSize) {
+        priQueue.pop_front();
+    }
+    return makeVoidSuccess();
 }
 
 VoidResult SMMU::updateCacheConfiguration(const CacheConfiguration& cacheConfig) {
@@ -2019,30 +1989,17 @@ VoidResult SMMU::updateResourceLimits(const ResourceLimits& resourceLimits) {
 
 // Configuration helper methods
 void SMMU::applyConfiguration() {
-    // Apply queue configuration
-    const QueueConfiguration& queueConfig = configuration.getQueueConfiguration();
-    maxEventQueueSize = queueConfig.eventQueueSize;
-    maxCommandQueueSize = queueConfig.commandQueueSize;
-    maxPRIQueueSize = queueConfig.priQueueSize;
-    
-    // Apply cache configuration
+    // BUG-24 fix: this method is called while all streamLockStripes are held.
+    // Per the lock-order invariant, queueMutex must not be acquired while any stripe
+    // lock is held.  Queue size limits and trimming are therefore handled separately
+    // by callers (updateConfiguration) under queueMutex after releasing stripe locks.
+    // Only cache / TLB settings are applied here.
     const CacheConfiguration& cacheConfig = configuration.getCacheConfiguration();
     cachingEnabled = cacheConfig.enableCaching;
-    
+
     // Update TLB cache size if changed
     if (tlbCache->getCapacity() != cacheConfig.tlbCacheSize) {
         tlbCache->setMaxSize(cacheConfig.tlbCacheSize);
-    }
-    
-    // Trim queues if they exceed new limits
-    while (eventQueue.size() > maxEventQueueSize) {
-        eventQueue.pop_front();
-    }
-    while (commandQueue.size() > maxCommandQueueSize) {
-        commandQueue.pop_front();
-    }
-    while (priQueue.size() > maxPRIQueueSize) {
-        priQueue.pop_front();
     }
 }
 

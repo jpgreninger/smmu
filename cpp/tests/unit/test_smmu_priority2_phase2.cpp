@@ -107,17 +107,18 @@ TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_NoStagesEnabled) {
     EXPECT_TRUE(result.isError());
 }
 
-// Target line 713-724: Null PA translation in two-stage mode
+// Two-stage translation where Stage-2 maps to PA=0 — valid per ARM SMMU v3.
 TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_NullPAValidation) {
     setupTwoStageStream(STREAM1, PASID1, true, true, true, false);
 
-    // Map Stage-2 with null PA (suspicious translation)
+    // Map Stage-2 (PASID 0 / stage2AddressSpace) to physical address 0.
+    // BUG-27 fix: PA=0 is a valid MMIO address; translation now succeeds.
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID_ZERO, TEST_IOVA1, NULL_PA, perms).isOk());
 
-    // Should hit lines 713-724 (null PA validation)
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
-    EXPECT_TRUE(result.isError());
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, static_cast<PA>(0));
 }
 
 // Target line 729-740: Permission fault in two-stage translation

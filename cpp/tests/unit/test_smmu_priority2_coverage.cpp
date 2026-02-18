@@ -120,20 +120,18 @@ TEST_F(SMMUPriority2CoverageTest, TwoStageTranslation_BothStagesDisabled) {
     EXPECT_EQ(configResult.getError(), SMMUError::InvalidConfiguration);
 }
 
-// Test two-stage translation with null physical address result (lines 710-724)
+// Test translation with null physical address result (PA=0 is valid per ARM SMMU v3)
 TEST_F(SMMUPriority2CoverageTest, TwoStageTranslation_NullPhysicalAddress) {
     setupBasicStream(STREAM1, PASID1);
 
-    // Map page with null physical address (suspicious translation)
-    // Note: Mapping to NULL_PA for non-null IOVA is detected as TranslationTableError
+    // Map page to physical address 0 — this is a valid MMIO mapping per ARM SMMU v3.
+    // BUG-27 fix: the implementation no longer rejects PA=0 as a spurious translation.
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
-    EXPECT_TRUE(result.isError());
-    // The actual error code depends on implementation - could be PageNotMapped or TranslationTableError
-    EXPECT_TRUE(result.getError() == SMMUError::PageNotMapped ||
-                result.getError() == SMMUError::TranslationTableError);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, static_cast<PA>(0));
 }
 
 // Test two-stage translation with permission fault after translation (lines 726-740)
@@ -185,8 +183,10 @@ TEST_F(SMMUPriority2CoverageTest, BothStagesTranslation_InvalidIPA) {
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
+    // BUG-27 fix: IPA=0 guard removed; Stage-2 now looks up IPA=0 which is not
+    // mapped in the Stage-2 address space, correctly returning PageNotMapped.
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::TranslationTableError);
+    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
 }
 
 // Test both stages translation with Stage-2 address space not configured (lines 898-902)
@@ -272,20 +272,25 @@ TEST_F(SMMUPriority2CoverageTest, BothStagesTranslation_SecurityStateValidationF
     EXPECT_EQ(result.getError(), SMMUError::InvalidSecurityState);
 }
 
-// Test Stage-1 only translation with null physical address (lines 985-996)
+// Test Stage-1 only translation with null physical address (PA=0 is valid per ARM SMMU v3)
 TEST_F(SMMUPriority2CoverageTest, Stage1OnlyTranslation_NullPhysicalAddress) {
     setupBasicStream(STREAM1, PASID1);
 
-    // Map to null physical address
+    // Map to physical address 0 — valid MMIO mapping.
+    // BUG-27 fix: PA=0 is no longer rejected as a spurious translation result.
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, static_cast<PA>(0));
 }
 
-// Test Stage-2 only translation with null physical address (lines 1023-1038)
+// Test Stage-2 only translation without a configured stage2AddressSpace.
+// Note: this test uses PASID1 (not PASID 0) so stage2AddressSpace is null; the
+// mapPage call stores the mapping in PASID1's per-PASID address space which is not
+// used by Stage-2-only translation.  The failure comes from the null stage2AddressSpace
+// check in StreamContext::translateUnlocked(), not from any PA=0 guard.
 TEST_F(SMMUPriority2CoverageTest, Stage2OnlyTranslation_NullPhysicalAddress) {
     StreamConfig config;
     config.translationEnabled = true;
@@ -297,10 +302,10 @@ TEST_F(SMMUPriority2CoverageTest, Stage2OnlyTranslation_NullPhysicalAddress) {
     ASSERT_TRUE(smmuController->enableStream(STREAM1).isOk());
     ASSERT_TRUE(smmuController->createStreamPASID(STREAM1, PASID1).isOk());
 
-    // Map to null physical address
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
+    // Fails because stage2AddressSpace is null (PASID1 != PASID0, so no auto-link).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
     EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
@@ -1388,17 +1393,18 @@ TEST_F(SMMUPriority2CoverageTest, GenerateCacheKey) {
     EXPECT_TRUE(result.isOk());
 }
 
-// Test cacheTranslationResult with suspicious null translation (lines 772-774)
+// Test cacheTranslationResult with PA=0 — valid per ARM SMMU v3 (BUG-27 fix).
 TEST_F(SMMUPriority2CoverageTest, CacheTranslationResult_SuspiciousNullTranslation) {
     setupBasicStream(STREAM1, PASID1);
 
-    // Map page to null address
+    // Map page to physical address 0 (valid MMIO mapping).
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
-    // Translation should detect suspicious null address
+    // BUG-27 fix: PA=0 is no longer rejected; translation and caching both succeed.
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
-    EXPECT_TRUE(result.isError());
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.getValue().physicalAddress, static_cast<PA>(0));
 }
 
 // Test isTranslationCacheable (line 753)
