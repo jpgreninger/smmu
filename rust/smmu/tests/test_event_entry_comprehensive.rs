@@ -10,7 +10,7 @@
 //! Comprehensive test coverage for `types/event_entry.rs`
 //!
 //! This test suite achieves 100% coverage of `EventEntry` and `EventType`, covering:
-//! - All 7 `EventType` variants
+//! - All 21 `EventType` variants (19 spec + 2 IMPDEF)
 //! - Event entry construction with various parameters
 //! - Timestamp management
 //! - Security state integration
@@ -30,44 +30,44 @@ use std::collections::{HashMap, HashSet};
 
 #[test]
 fn test_event_type_translation_fault() {
-    let event = EventType::TranslationFault;
-    assert_eq!(event as u8, 0);
+    let event = EventType::FTranslation;
+    assert_eq!(event as u8, 0x10); // F_TRANSLATION per §7.3.13
 }
 
 #[test]
 fn test_event_type_permission_fault() {
-    let event = EventType::PermissionFault;
-    assert_eq!(event as u8, 1);
+    let event = EventType::FPermission;
+    assert_eq!(event as u8, 0x13); // F_PERMISSION per §7.3.16
 }
 
 #[test]
 fn test_event_type_command_sync_completion() {
     let event = EventType::CommandSyncCompletion;
-    assert_eq!(event as u8, 2);
+    assert_eq!(event as u8, 0xE0); // IMPDEF §7.3.21
 }
 
 #[test]
 fn test_event_type_pri_page_request() {
-    let event = EventType::PriPageRequest;
-    assert_eq!(event as u8, 3);
+    let event = EventType::EPageRequest;
+    assert_eq!(event as u8, 0x24); // E_PAGE_REQUEST per §7.3.19
 }
 
 #[test]
 fn test_event_type_atc_invalidate_completion() {
     let event = EventType::AtcInvalidateCompletion;
-    assert_eq!(event as u8, 4);
+    assert_eq!(event as u8, 0xE1); // IMPDEF §7.3.21
 }
 
 #[test]
 fn test_event_type_configuration_error() {
-    let event = EventType::ConfigurationError;
-    assert_eq!(event as u8, 5);
+    let event = EventType::CBadSte;
+    assert_eq!(event as u8, 0x04); // C_BAD_STE per §7.3.5
 }
 
 #[test]
 fn test_event_type_internal_error() {
-    let event = EventType::InternalError;
-    assert_eq!(event as u8, 6);
+    let event = EventType::FTlbConflict;
+    assert_eq!(event as u8, 0x20); // F_TLB_CONFLICT per §7.3.17
 }
 
 // ============================================================================
@@ -77,13 +77,13 @@ fn test_event_type_internal_error() {
 #[test]
 fn test_event_type_default() {
     let default = EventType::default();
-    assert_eq!(default, EventType::TranslationFault);
-    assert_eq!(default as u8, 0);
+    assert_eq!(default, EventType::FTranslation);
+    assert_eq!(default as u8, 0x10); // F_TRANSLATION per §7.3.13
 }
 
 #[test]
 fn test_event_type_default_matches_translation_fault() {
-    assert_eq!(EventType::default(), EventType::TranslationFault);
+    assert_eq!(EventType::default(), EventType::FTranslation);
 }
 
 // ============================================================================
@@ -92,15 +92,15 @@ fn test_event_type_default_matches_translation_fault() {
 
 #[test]
 fn test_event_type_copy() {
-    let event1 = EventType::PermissionFault;
+    let event1 = EventType::FPermission;
     let event2 = event1; // Copy
     assert_eq!(event1, event2);
-    assert_eq!(event1 as u8, 1); // Original still valid
+    assert_eq!(event1 as u8, 0x13); // F_PERMISSION 0x13, original still valid
 }
 
 #[test]
 fn test_event_type_clone() {
-    let event1 = EventType::ConfigurationError;
+    let event1 = EventType::CBadSte;
     let event2 = event1;
     assert_eq!(event1, event2);
 }
@@ -111,28 +111,27 @@ fn test_event_type_clone() {
 
 #[test]
 fn test_event_type_debug_translation_fault() {
-    let event = EventType::TranslationFault;
+    let event = EventType::FTranslation;
     let debug = format!("{event:?}");
-    assert!(debug.contains("TranslationFault"));
+    assert!(debug.contains("FTranslation"));
 }
 
 #[test]
 fn test_event_type_debug_permission_fault() {
-    let event = EventType::PermissionFault;
+    let event = EventType::FPermission;
     let debug = format!("{event:?}");
-    assert!(debug.contains("PermissionFault"));
+    assert!(debug.contains("FPermission"));
 }
 
 #[test]
 fn test_event_type_debug_all_variants() {
     let variants = [
-        EventType::TranslationFault,
-        EventType::PermissionFault,
-        EventType::CommandSyncCompletion,
-        EventType::PriPageRequest,
-        EventType::AtcInvalidateCompletion,
-        EventType::ConfigurationError,
-        EventType::InternalError,
+        EventType::FUut, EventType::CBadStreamid, EventType::FSteFetch, EventType::CBadSte,
+        EventType::FBadAtsTreq, EventType::FStreamDisabled, EventType::FTranslForbidden,
+        EventType::CBadSubstreamid, EventType::FCdFetch, EventType::CBadCd, EventType::FWalkEabt,
+        EventType::FTranslation, EventType::FAddrSize, EventType::FAccess, EventType::FPermission,
+        EventType::FTlbConflict, EventType::FCfgConflict, EventType::EPageRequest,
+        EventType::FVmsFetch, EventType::CommandSyncCompletion, EventType::AtcInvalidateCompletion,
     ];
 
     for variant in &variants {
@@ -147,37 +146,37 @@ fn test_event_type_debug_all_variants() {
 
 #[test]
 fn test_event_type_equality() {
-    assert_eq!(EventType::TranslationFault, EventType::TranslationFault);
-    assert_eq!(EventType::InternalError, EventType::InternalError);
-    assert_ne!(EventType::TranslationFault, EventType::PermissionFault);
+    assert_eq!(EventType::FTranslation, EventType::FTranslation);
+    assert_eq!(EventType::FTlbConflict, EventType::FTlbConflict);
+    assert_ne!(EventType::FTranslation, EventType::FPermission);
 }
 
 #[test]
 fn test_event_type_hash_in_hashset() {
     let mut set = HashSet::new();
 
-    set.insert(EventType::TranslationFault);
-    set.insert(EventType::PermissionFault);
-    set.insert(EventType::TranslationFault); // Duplicate
+    set.insert(EventType::FTranslation);
+    set.insert(EventType::FPermission);
+    set.insert(EventType::FTranslation); // Duplicate
 
     assert_eq!(set.len(), 2);
-    assert!(set.contains(&EventType::TranslationFault));
-    assert!(set.contains(&EventType::PermissionFault));
-    assert!(!set.contains(&EventType::InternalError));
+    assert!(set.contains(&EventType::FTranslation));
+    assert!(set.contains(&EventType::FPermission));
+    assert!(!set.contains(&EventType::FTlbConflict));
 }
 
 #[test]
 fn test_event_type_hash_in_hashmap() {
     let mut map = HashMap::new();
 
-    map.insert(EventType::TranslationFault, "translation");
-    map.insert(EventType::PermissionFault, "permission");
-    map.insert(EventType::ConfigurationError, "config");
+    map.insert(EventType::FTranslation, "translation");
+    map.insert(EventType::FPermission, "permission");
+    map.insert(EventType::CBadSte, "config");
 
-    assert_eq!(map.get(&EventType::TranslationFault), Some(&"translation"));
-    assert_eq!(map.get(&EventType::PermissionFault), Some(&"permission"));
-    assert_eq!(map.get(&EventType::ConfigurationError), Some(&"config"));
-    assert_eq!(map.get(&EventType::InternalError), None);
+    assert_eq!(map.get(&EventType::FTranslation), Some(&"translation"));
+    assert_eq!(map.get(&EventType::FPermission), Some(&"permission"));
+    assert_eq!(map.get(&EventType::CBadSte), Some(&"config"));
+    assert_eq!(map.get(&EventType::FTlbConflict), None);
 }
 
 #[test]
@@ -185,7 +184,7 @@ fn test_event_type_hash_consistency() {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    let event = EventType::PriPageRequest;
+    let event = EventType::EPageRequest;
 
     let mut hasher1 = DefaultHasher::new();
     event.hash(&mut hasher1);
@@ -202,20 +201,19 @@ fn test_event_type_hash_consistency() {
 fn test_event_type_all_variants_unique() {
     let mut set = HashSet::new();
     let variants = [
-        EventType::TranslationFault,
-        EventType::PermissionFault,
-        EventType::CommandSyncCompletion,
-        EventType::PriPageRequest,
-        EventType::AtcInvalidateCompletion,
-        EventType::ConfigurationError,
-        EventType::InternalError,
+        EventType::FUut, EventType::CBadStreamid, EventType::FSteFetch, EventType::CBadSte,
+        EventType::FBadAtsTreq, EventType::FStreamDisabled, EventType::FTranslForbidden,
+        EventType::CBadSubstreamid, EventType::FCdFetch, EventType::CBadCd, EventType::FWalkEabt,
+        EventType::FTranslation, EventType::FAddrSize, EventType::FAccess, EventType::FPermission,
+        EventType::FTlbConflict, EventType::FCfgConflict, EventType::EPageRequest,
+        EventType::FVmsFetch, EventType::CommandSyncCompletion, EventType::AtcInvalidateCompletion,
     ];
 
     for variant in &variants {
         set.insert(*variant);
     }
 
-    assert_eq!(set.len(), 7, "All 7 EventType variants should be unique");
+    assert_eq!(set.len(), 21, "All 21 EventType variants should be unique");
 }
 
 // ============================================================================
@@ -224,9 +222,9 @@ fn test_event_type_all_variants_unique() {
 
 #[test]
 fn test_event_entry_new_translation_fault() {
-    let entry = EventEntry::new(EventType::TranslationFault, 100, 200, 0x1000);
+    let entry = EventEntry::new(EventType::FTranslation, 100, 200, 0x1000);
 
-    assert_eq!(entry.event_type, EventType::TranslationFault);
+    assert_eq!(entry.event_type, EventType::FTranslation);
     assert_eq!(entry.stream_id, 100);
     assert_eq!(entry.pasid, 200);
     assert_eq!(entry.address, 0x1000);
@@ -237,9 +235,9 @@ fn test_event_entry_new_translation_fault() {
 
 #[test]
 fn test_event_entry_new_permission_fault() {
-    let entry = EventEntry::new(EventType::PermissionFault, 42, 1234, 0xDEAD_BEEF);
+    let entry = EventEntry::new(EventType::FPermission, 42, 1234, 0xDEAD_BEEF);
 
-    assert_eq!(entry.event_type, EventType::PermissionFault);
+    assert_eq!(entry.event_type, EventType::FPermission);
     assert_eq!(entry.stream_id, 42);
     assert_eq!(entry.pasid, 1234);
     assert_eq!(entry.address, 0xDEAD_BEEF);
@@ -251,13 +249,14 @@ fn test_event_entry_new_permission_fault() {
 #[test]
 fn test_event_entry_new_all_event_types() {
     let event_types = [
-        EventType::TranslationFault,
-        EventType::PermissionFault,
-        EventType::CommandSyncCompletion,
-        EventType::PriPageRequest,
-        EventType::AtcInvalidateCompletion,
-        EventType::ConfigurationError,
-        EventType::InternalError,
+        EventType::FUut,
+        EventType::CBadStreamid,
+        EventType::FSteFetch,
+        EventType::CBadSte,
+        EventType::FTranslation,
+        EventType::FPermission,
+        EventType::EPageRequest,
+        EventType::FTlbConflict,
     ];
 
     for (i, &event_type) in event_types.iter().enumerate() {
@@ -272,7 +271,7 @@ fn test_event_entry_new_all_event_types() {
 
 #[test]
 fn test_event_entry_new_zero_values() {
-    let entry = EventEntry::new(EventType::TranslationFault, 0, 0, 0);
+    let entry = EventEntry::new(EventType::FTranslation, 0, 0, 0);
 
     assert_eq!(entry.stream_id, 0);
     assert_eq!(entry.pasid, 0);
@@ -281,37 +280,37 @@ fn test_event_entry_new_zero_values() {
 
 #[test]
 fn test_event_entry_new_max_stream_id() {
-    let entry = EventEntry::new(EventType::ConfigurationError, u32::MAX, 0, 0);
+    let entry = EventEntry::new(EventType::CBadSte, u32::MAX, 0, 0);
     assert_eq!(entry.stream_id, u32::MAX);
 }
 
 #[test]
 fn test_event_entry_new_max_pasid() {
-    let entry = EventEntry::new(EventType::PriPageRequest, 0, u32::MAX, 0);
+    let entry = EventEntry::new(EventType::EPageRequest, 0, u32::MAX, 0);
     assert_eq!(entry.pasid, u32::MAX);
 }
 
 #[test]
 fn test_event_entry_new_max_address() {
-    let entry = EventEntry::new(EventType::InternalError, 0, 0, u64::MAX);
+    let entry = EventEntry::new(EventType::FTlbConflict, 0, 0, u64::MAX);
     assert_eq!(entry.address, u64::MAX);
 }
 
 #[test]
 fn test_event_entry_new_defaults_to_nonsecure() {
-    let entry = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
+    let entry = EventEntry::new(EventType::FTranslation, 1, 2, 3);
     assert_eq!(entry.security_state, SecurityState::NonSecure);
 }
 
 #[test]
 fn test_event_entry_new_defaults_error_code_zero() {
-    let entry = EventEntry::new(EventType::PermissionFault, 1, 2, 3);
+    let entry = EventEntry::new(EventType::FPermission, 1, 2, 3);
     assert_eq!(entry.error_code, 0);
 }
 
 #[test]
 fn test_event_entry_new_defaults_timestamp_zero() {
-    let entry = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let entry = EventEntry::new(EventType::CBadSte, 1, 2, 3);
     assert_eq!(entry.timestamp, 0);
 }
 
@@ -321,9 +320,9 @@ fn test_event_entry_new_defaults_timestamp_zero() {
 
 #[test]
 fn test_event_entry_const_new() {
-    const ENTRY: EventEntry = EventEntry::new(EventType::TranslationFault, 10, 20, 0x5000);
+    const ENTRY: EventEntry = EventEntry::new(EventType::FTranslation, 10, 20, 0x5000);
 
-    assert_eq!(ENTRY.event_type as u8, 0);
+    assert_eq!(ENTRY.event_type as u8, 0x10); // F_TRANSLATION
     assert_eq!(ENTRY.stream_id, 10);
     assert_eq!(ENTRY.pasid, 20);
     assert_eq!(ENTRY.address, 0x5000);
@@ -332,12 +331,12 @@ fn test_event_entry_const_new() {
 #[test]
 fn test_event_entry_const_new_in_const_context() {
     const fn create_event() -> EventEntry {
-        EventEntry::new(EventType::PermissionFault, 99, 88, 0x7777)
+        EventEntry::new(EventType::FPermission, 99, 88, 0x7777)
     }
 
     const EVENT: EventEntry = create_event();
 
-    assert_eq!(EVENT.event_type as u8, 1);
+    assert_eq!(EVENT.event_type as u8, 0x13); // F_PERMISSION
     assert_eq!(EVENT.stream_id, 99);
     assert_eq!(EVENT.pasid, 88);
     assert_eq!(EVENT.address, 0x7777);
@@ -349,7 +348,7 @@ fn test_event_entry_const_new_in_const_context() {
 
 #[test]
 fn test_event_entry_modify_security_state() {
-    let mut entry = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FTranslation, 1, 2, 3);
 
     entry.security_state = SecurityState::Secure;
     assert_eq!(entry.security_state, SecurityState::Secure);
@@ -360,7 +359,7 @@ fn test_event_entry_modify_security_state() {
 
 #[test]
 fn test_event_entry_modify_error_code() {
-    let mut entry = EventEntry::new(EventType::PermissionFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FPermission, 1, 2, 3);
 
     assert_eq!(entry.error_code, 0);
 
@@ -373,7 +372,7 @@ fn test_event_entry_modify_error_code() {
 
 #[test]
 fn test_event_entry_modify_timestamp() {
-    let mut entry = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::CBadSte, 1, 2, 3);
 
     assert_eq!(entry.timestamp, 0);
 
@@ -386,9 +385,9 @@ fn test_event_entry_modify_timestamp() {
 
 #[test]
 fn test_event_entry_modify_all_fields() {
-    let mut entry = EventEntry::new(EventType::TranslationFault, 0, 0, 0);
+    let mut entry = EventEntry::new(EventType::FTranslation, 0, 0, 0);
 
-    entry.event_type = EventType::InternalError;
+    entry.event_type = EventType::FTlbConflict;
     entry.stream_id = 999;
     entry.pasid = 888;
     entry.address = 0xBADC_0FFE;
@@ -396,7 +395,7 @@ fn test_event_entry_modify_all_fields() {
     entry.error_code = 0x123;
     entry.timestamp = 0xDEAD_BEEF;
 
-    assert_eq!(entry.event_type, EventType::InternalError);
+    assert_eq!(entry.event_type, EventType::FTlbConflict);
     assert_eq!(entry.stream_id, 999);
     assert_eq!(entry.pasid, 888);
     assert_eq!(entry.address, 0xBADC_0FFE);
@@ -411,7 +410,7 @@ fn test_event_entry_modify_all_fields() {
 
 #[test]
 fn test_event_entry_with_secure_state() {
-    let mut entry = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FTranslation, 1, 2, 3);
     entry.security_state = SecurityState::Secure;
 
     assert_eq!(entry.security_state, SecurityState::Secure);
@@ -420,7 +419,7 @@ fn test_event_entry_with_secure_state() {
 
 #[test]
 fn test_event_entry_with_nonsecure_state() {
-    let mut entry = EventEntry::new(EventType::PermissionFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FPermission, 1, 2, 3);
     entry.security_state = SecurityState::NonSecure;
 
     assert_eq!(entry.security_state, SecurityState::NonSecure);
@@ -429,7 +428,7 @@ fn test_event_entry_with_nonsecure_state() {
 
 #[test]
 fn test_event_entry_with_realm_state() {
-    let mut entry = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::CBadSte, 1, 2, 3);
     entry.security_state = SecurityState::Realm;
 
     assert_eq!(entry.security_state, SecurityState::Realm);
@@ -441,7 +440,7 @@ fn test_event_entry_all_security_states() {
     let security_states = [SecurityState::Secure, SecurityState::NonSecure, SecurityState::Realm];
 
     for &state in &security_states {
-        let mut entry = EventEntry::new(EventType::InternalError, 1, 2, 3);
+        let mut entry = EventEntry::new(EventType::FTlbConflict, 1, 2, 3);
         entry.security_state = state;
 
         assert_eq!(entry.security_state, state);
@@ -454,8 +453,8 @@ fn test_event_entry_all_security_states() {
 
 #[test]
 fn test_event_entry_timestamp_ordering() {
-    let mut entry1 = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
-    let mut entry2 = EventEntry::new(EventType::PermissionFault, 4, 5, 6);
+    let mut entry1 = EventEntry::new(EventType::FTranslation, 1, 2, 3);
+    let mut entry2 = EventEntry::new(EventType::FPermission, 4, 5, 6);
 
     entry1.timestamp = 1000;
     entry2.timestamp = 2000;
@@ -465,13 +464,13 @@ fn test_event_entry_timestamp_ordering() {
 
 #[test]
 fn test_event_entry_timestamp_zero_initialization() {
-    let entry = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let entry = EventEntry::new(EventType::CBadSte, 1, 2, 3);
     assert_eq!(entry.timestamp, 0);
 }
 
 #[test]
 fn test_event_entry_timestamp_max_value() {
-    let mut entry = EventEntry::new(EventType::InternalError, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FTlbConflict, 1, 2, 3);
     entry.timestamp = u64::MAX;
 
     assert_eq!(entry.timestamp, u64::MAX);
@@ -479,7 +478,7 @@ fn test_event_entry_timestamp_max_value() {
 
 #[test]
 fn test_event_entry_timestamp_increment() {
-    let mut entry = EventEntry::new(EventType::PriPageRequest, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::EPageRequest, 1, 2, 3);
 
     for i in 0..100 {
         entry.timestamp = i;
@@ -493,13 +492,13 @@ fn test_event_entry_timestamp_increment() {
 
 #[test]
 fn test_event_entry_error_code_zero_default() {
-    let entry = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
+    let entry = EventEntry::new(EventType::FTranslation, 1, 2, 3);
     assert_eq!(entry.error_code, 0);
 }
 
 #[test]
 fn test_event_entry_error_code_common_values() {
-    let mut entry = EventEntry::new(EventType::PermissionFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FPermission, 1, 2, 3);
 
     let error_codes = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0xFF];
 
@@ -511,7 +510,7 @@ fn test_event_entry_error_code_common_values() {
 
 #[test]
 fn test_event_entry_error_code_max() {
-    let mut entry = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::CBadSte, 1, 2, 3);
     entry.error_code = u32::MAX;
 
     assert_eq!(entry.error_code, u32::MAX);
@@ -519,7 +518,7 @@ fn test_event_entry_error_code_max() {
 
 #[test]
 fn test_event_entry_error_code_arm_smmu_values() {
-    let mut entry = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FTranslation, 1, 2, 3);
 
     // Common ARM SMMU error codes from spec
     let arm_error_codes = [
@@ -542,7 +541,7 @@ fn test_event_entry_error_code_arm_smmu_values() {
 
 #[test]
 fn test_event_entry_copy() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x3000);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x3000);
     let entry2 = entry1; // Copy
 
     assert_eq!(entry1.event_type, entry2.event_type);
@@ -553,7 +552,7 @@ fn test_event_entry_copy() {
 
 #[test]
 fn test_event_entry_clone() {
-    let entry1 = EventEntry::new(EventType::PermissionFault, 30, 40, 0x5000);
+    let entry1 = EventEntry::new(EventType::FPermission, 30, 40, 0x5000);
     let entry2 = entry1;
 
     assert_eq!(entry1.event_type, entry2.event_type);
@@ -564,7 +563,7 @@ fn test_event_entry_clone() {
 
 #[test]
 fn test_event_entry_copy_with_modifications() {
-    let mut entry1 = EventEntry::new(EventType::ConfigurationError, 1, 2, 3);
+    let mut entry1 = EventEntry::new(EventType::CBadSte, 1, 2, 3);
     entry1.timestamp = 1000;
     entry1.error_code = 42;
     entry1.security_state = SecurityState::Secure;
@@ -582,48 +581,48 @@ fn test_event_entry_copy_with_modifications() {
 
 #[test]
 fn test_event_entry_equality() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let entry2 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let entry2 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
 
     assert_eq!(entry1, entry2);
 }
 
 #[test]
 fn test_event_entry_inequality_different_type() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let entry2 = EventEntry::new(EventType::PermissionFault, 10, 20, 0x1000);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let entry2 = EventEntry::new(EventType::FPermission, 10, 20, 0x1000);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_event_entry_inequality_different_stream_id() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let entry2 = EventEntry::new(EventType::TranslationFault, 99, 20, 0x1000);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let entry2 = EventEntry::new(EventType::FTranslation, 99, 20, 0x1000);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_event_entry_inequality_different_pasid() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let entry2 = EventEntry::new(EventType::TranslationFault, 10, 99, 0x1000);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let entry2 = EventEntry::new(EventType::FTranslation, 10, 99, 0x1000);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_event_entry_inequality_different_address() {
-    let entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let entry2 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x9999);
+    let entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let entry2 = EventEntry::new(EventType::FTranslation, 10, 20, 0x9999);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_event_entry_inequality_different_security_state() {
-    let mut entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let mut entry2 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
+    let mut entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let mut entry2 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
 
     entry1.security_state = SecurityState::Secure;
     entry2.security_state = SecurityState::NonSecure;
@@ -633,8 +632,8 @@ fn test_event_entry_inequality_different_security_state() {
 
 #[test]
 fn test_event_entry_inequality_different_error_code() {
-    let mut entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let mut entry2 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
+    let mut entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let mut entry2 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
 
     entry1.error_code = 1;
     entry2.error_code = 2;
@@ -644,8 +643,8 @@ fn test_event_entry_inequality_different_error_code() {
 
 #[test]
 fn test_event_entry_inequality_different_timestamp() {
-    let mut entry1 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
-    let mut entry2 = EventEntry::new(EventType::TranslationFault, 10, 20, 0x1000);
+    let mut entry1 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
+    let mut entry2 = EventEntry::new(EventType::FTranslation, 10, 20, 0x1000);
 
     entry1.timestamp = 1000;
     entry2.timestamp = 2000;
@@ -655,12 +654,12 @@ fn test_event_entry_inequality_different_timestamp() {
 
 #[test]
 fn test_event_entry_equality_with_all_fields_set() {
-    let mut entry1 = EventEntry::new(EventType::InternalError, 123, 456, 0xABCD);
+    let mut entry1 = EventEntry::new(EventType::FTlbConflict, 123, 456, 0xABCD);
     entry1.security_state = SecurityState::Realm;
     entry1.error_code = 0x42;
     entry1.timestamp = 98_765;
 
-    let mut entry2 = EventEntry::new(EventType::InternalError, 123, 456, 0xABCD);
+    let mut entry2 = EventEntry::new(EventType::FTlbConflict, 123, 456, 0xABCD);
     entry2.security_state = SecurityState::Realm;
     entry2.error_code = 0x42;
     entry2.timestamp = 98_765;
@@ -674,7 +673,7 @@ fn test_event_entry_equality_with_all_fields_set() {
 
 #[test]
 fn test_event_entry_debug() {
-    let entry = EventEntry::new(EventType::TranslationFault, 42, 100, 0x1234);
+    let entry = EventEntry::new(EventType::FTranslation, 42, 100, 0x1234);
     let debug = format!("{entry:?}");
 
     assert!(debug.contains("EventEntry"));
@@ -684,7 +683,7 @@ fn test_event_entry_debug() {
 
 #[test]
 fn test_event_entry_debug_with_all_fields() {
-    let mut entry = EventEntry::new(EventType::PermissionFault, 10, 20, 0x5678);
+    let mut entry = EventEntry::new(EventType::FPermission, 10, 20, 0x5678);
     entry.security_state = SecurityState::Secure;
     entry.error_code = 99;
     entry.timestamp = 12_345;
@@ -701,22 +700,22 @@ fn test_event_entry_debug_with_all_fields() {
 #[allow(clippy::useless_vec)]
 fn test_event_entry_in_vec() {
     let events = vec![
-        EventEntry::new(EventType::TranslationFault, 1, 2, 3),
-        EventEntry::new(EventType::PermissionFault, 4, 5, 6),
-        EventEntry::new(EventType::ConfigurationError, 7, 8, 9),
+        EventEntry::new(EventType::FTranslation, 1, 2, 3),
+        EventEntry::new(EventType::FPermission, 4, 5, 6),
+        EventEntry::new(EventType::CBadSte, 7, 8, 9),
     ];
 
     assert_eq!(events.len(), 3);
-    assert_eq!(events[0].event_type, EventType::TranslationFault);
-    assert_eq!(events[1].event_type, EventType::PermissionFault);
-    assert_eq!(events[2].event_type, EventType::ConfigurationError);
+    assert_eq!(events[0].event_type, EventType::FTranslation);
+    assert_eq!(events[1].event_type, EventType::FPermission);
+    assert_eq!(events[2].event_type, EventType::CBadSte);
 }
 
 #[test]
 fn test_event_entry_sorting_by_timestamp() {
-    let mut entry1 = EventEntry::new(EventType::TranslationFault, 1, 2, 3);
-    let mut entry2 = EventEntry::new(EventType::PermissionFault, 4, 5, 6);
-    let mut entry3 = EventEntry::new(EventType::ConfigurationError, 7, 8, 9);
+    let mut entry1 = EventEntry::new(EventType::FTranslation, 1, 2, 3);
+    let mut entry2 = EventEntry::new(EventType::FPermission, 4, 5, 6);
+    let mut entry3 = EventEntry::new(EventType::CBadSte, 7, 8, 9);
 
     entry1.timestamp = 3000;
     entry2.timestamp = 1000;
@@ -734,12 +733,12 @@ fn test_event_entry_sorting_by_timestamp() {
 #[allow(clippy::useless_vec)]
 fn test_event_entry_filtering_by_type() {
     let events = vec![
-        EventEntry::new(EventType::TranslationFault, 1, 2, 3),
-        EventEntry::new(EventType::PermissionFault, 4, 5, 6),
-        EventEntry::new(EventType::TranslationFault, 7, 8, 9),
+        EventEntry::new(EventType::FTranslation, 1, 2, 3),
+        EventEntry::new(EventType::FPermission, 4, 5, 6),
+        EventEntry::new(EventType::FTranslation, 7, 8, 9),
     ];
 
-    assert_eq!(events.iter().filter(|e| e.event_type == EventType::TranslationFault).count(), 2);
+    assert_eq!(events.iter().filter(|e| e.event_type == EventType::FTranslation).count(), 2);
 }
 
 // ============================================================================
@@ -747,19 +746,31 @@ fn test_event_entry_filtering_by_type() {
 // ============================================================================
 
 #[test]
-fn test_event_entry_arm_smmu_section_6_3_event_types() {
-    // ARM SMMU v3 Section 6.3 defines event types
-    let arm_event_types = [
-        (EventType::TranslationFault, 0u8),
-        (EventType::PermissionFault, 1u8),
-        (EventType::CommandSyncCompletion, 2u8),
-        (EventType::PriPageRequest, 3u8),
-        (EventType::AtcInvalidateCompletion, 4u8),
-        (EventType::ConfigurationError, 5u8),
-        (EventType::InternalError, 6u8),
+fn test_event_entry_arm_smmu_section_7_3_event_types() {
+    // ARM SMMU v3 §7.3 defines spec event codes
+    let arm_event_types: &[(EventType, u8)] = &[
+        (EventType::FUut,             0x01),
+        (EventType::CBadStreamid,     0x02),
+        (EventType::FSteFetch,        0x03),
+        (EventType::CBadSte,          0x04),
+        (EventType::FBadAtsTreq,      0x05),
+        (EventType::FStreamDisabled,  0x06),
+        (EventType::FTranslForbidden, 0x07),
+        (EventType::CBadSubstreamid,  0x08),
+        (EventType::FCdFetch,         0x09),
+        (EventType::CBadCd,           0x0A),
+        (EventType::FWalkEabt,        0x0B),
+        (EventType::FTranslation,     0x10),
+        (EventType::FAddrSize,        0x11),
+        (EventType::FAccess,          0x12),
+        (EventType::FPermission,      0x13),
+        (EventType::FTlbConflict,     0x20),
+        (EventType::FCfgConflict,     0x21),
+        (EventType::EPageRequest,     0x24),
+        (EventType::FVmsFetch,        0x25),
     ];
 
-    for (event_type, expected_value) in &arm_event_types {
+    for (event_type, expected_value) in arm_event_types {
         assert_eq!(*event_type as u8, *expected_value);
     }
 }
@@ -768,7 +779,7 @@ fn test_event_entry_arm_smmu_section_6_3_event_types() {
 fn test_event_entry_arm_smmu_fault_recording() {
     // Section 6.3: Event queue records faults with stream_id, pasid, and address
     let entry = EventEntry::new(
-        EventType::TranslationFault,
+        EventType::FTranslation,
         0x1234,     // StreamID
         0x5678,     // PASID
         0xDEAD_BEEF, // Faulting address
@@ -777,13 +788,13 @@ fn test_event_entry_arm_smmu_fault_recording() {
     assert_eq!(entry.stream_id, 0x1234);
     assert_eq!(entry.pasid, 0x5678);
     assert_eq!(entry.address, 0xDEAD_BEEF);
-    assert_eq!(entry.event_type, EventType::TranslationFault);
+    assert_eq!(entry.event_type, EventType::FTranslation);
 }
 
 #[test]
 fn test_event_entry_arm_smmu_security_context() {
     // Section 6.3: Events include security state context
-    let mut entry = EventEntry::new(EventType::PermissionFault, 1, 2, 3);
+    let mut entry = EventEntry::new(EventType::FPermission, 1, 2, 3);
 
     entry.security_state = SecurityState::Secure;
     assert_eq!(entry.security_state, SecurityState::Secure);
@@ -799,13 +810,13 @@ fn test_event_entry_arm_smmu_security_context() {
 fn test_event_entry_arm_smmu_pri_page_request() {
     // Section 6.3.4: PRI page request events
     let entry = EventEntry::new(
-        EventType::PriPageRequest,
+        EventType::EPageRequest,
         0x100,  // StreamID requesting page
         0x200,  // PASID
         0x5000, // Requested address
     );
 
-    assert_eq!(entry.event_type, EventType::PriPageRequest);
+    assert_eq!(entry.event_type, EventType::EPageRequest); // E_PAGE_REQUEST §7.3.19
     assert_eq!(entry.stream_id, 0x100);
     assert_eq!(entry.pasid, 0x200);
     assert_eq!(entry.address, 0x5000);
@@ -831,20 +842,20 @@ fn test_event_entry_arm_smmu_atc_invalidate_completion() {
 #[test]
 fn test_event_entry_arm_smmu_configuration_error() {
     // Section 6.3.6: Configuration errors
-    let mut entry = EventEntry::new(EventType::ConfigurationError, 0x99, 0, 0);
+    let mut entry = EventEntry::new(EventType::CBadSte, 0x99, 0, 0);
     entry.error_code = 0x01; // Configuration error code
 
-    assert_eq!(entry.event_type, EventType::ConfigurationError);
+    assert_eq!(entry.event_type, EventType::CBadSte);
     assert_eq!(entry.error_code, 0x01);
 }
 
 #[test]
 fn test_event_entry_arm_smmu_internal_error() {
     // Section 6.3.7: Internal errors
-    let mut entry = EventEntry::new(EventType::InternalError, 0, 0, 0);
+    let mut entry = EventEntry::new(EventType::FTlbConflict, 0, 0, 0);
     entry.error_code = 0xFF; // Internal error code
 
-    assert_eq!(entry.event_type, EventType::InternalError);
+    assert_eq!(entry.event_type, EventType::FTlbConflict);
     assert_eq!(entry.error_code, 0xFF);
 }
 
@@ -854,7 +865,7 @@ fn test_event_entry_arm_smmu_internal_error() {
 
 #[test]
 fn test_event_entry_all_zeros() {
-    let entry = EventEntry::new(EventType::TranslationFault, 0, 0, 0);
+    let entry = EventEntry::new(EventType::FTranslation, 0, 0, 0);
 
     assert_eq!(entry.stream_id, 0);
     assert_eq!(entry.pasid, 0);
@@ -865,7 +876,7 @@ fn test_event_entry_all_zeros() {
 
 #[test]
 fn test_event_entry_all_max_values() {
-    let mut entry = EventEntry::new(EventType::InternalError, u32::MAX, u32::MAX, u64::MAX);
+    let mut entry = EventEntry::new(EventType::FTlbConflict, u32::MAX, u32::MAX, u64::MAX);
     entry.error_code = u32::MAX;
     entry.timestamp = u64::MAX;
 
@@ -878,7 +889,7 @@ fn test_event_entry_all_max_values() {
 
 #[test]
 fn test_event_entry_mixed_boundary_values() {
-    let entry = EventEntry::new(EventType::ConfigurationError, 0, u32::MAX, 0);
+    let entry = EventEntry::new(EventType::CBadSte, 0, u32::MAX, 0);
 
     assert_eq!(entry.stream_id, 0);
     assert_eq!(entry.pasid, u32::MAX);

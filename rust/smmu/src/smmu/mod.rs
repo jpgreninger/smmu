@@ -1246,8 +1246,8 @@ impl SMMU {
             | FaultType::WalkEABT
             | FaultType::OutputAddressRangeFault
             | FaultType::UnsupportedAtomicUpdate
-            | FaultType::AccessFlagFault => EventType::TranslationFault,
-            FaultType::PermissionFault => EventType::PermissionFault,
+            | FaultType::AccessFlagFault => EventType::FTranslation,
+            FaultType::PermissionFault => EventType::FPermission,
         }
     }
 
@@ -1367,7 +1367,7 @@ impl SMMU {
 
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event = EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             address: iova.as_u64(),
@@ -1603,7 +1603,7 @@ impl SMMU {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                 let event = EventEntry {
-                    event_type: EventType::AtcInvalidateCompletion,
+                    event_type: EventType::AtcInvalidateCompletion, // IMPDEF §7.3.21
                     stream_id: command.stream_id,
                     pasid: command.pasid,
                     address: command.start_address,
@@ -1619,7 +1619,7 @@ impl SMMU {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                 let event = EventEntry {
-                    event_type: EventType::CommandSyncCompletion,
+                    event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
                     stream_id: command.stream_id,
                     pasid: command.pasid,
                     address: 0,
@@ -1689,7 +1689,7 @@ impl SMMU {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                     let event = EventEntry {
-                        event_type: EventType::PriPageRequest,
+                        event_type: EventType::EPageRequest,
                         stream_id: req.stream_id,
                         pasid: req.pasid,
                         address: req.requested_address,
@@ -1955,7 +1955,7 @@ impl SMMU {
     ///
     /// // Filter by event type
     /// let fault_events = smmu.events().iter()
-    ///     .filter(|e| matches!(e.event_type, EventType::TranslationFault | EventType::PermissionFault))
+    ///     .filter(|e| matches!(e.event_type, EventType::FTranslation | EventType::FPermission))
     ///     .count();
     /// ```
     #[must_use]

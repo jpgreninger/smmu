@@ -7,29 +7,64 @@ use crate::types::SecurityState;
 /// Event type enumeration
 ///
 /// Defines the types of events that can be queued in the event queue.
+///
+/// Discriminant values are the exact event numbers from ARM IHI0070G.b §7.3.
+/// Variants in the 0xE0–0xEF range are IMPLEMENTATION DEFINED per §7.3.21 and
+/// are used by this software model for internal completion signalling that has
+/// no direct equivalent in the hardware event queue.
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum EventType {
-    /// Translation fault - page not mapped
-    TranslationFault = 0,
-    /// Permission fault - access denied
-    PermissionFault = 1,
-    /// Command SYNC completion
-    CommandSyncCompletion = 2,
-    /// Page Request Interface page request
-    PriPageRequest = 3,
-    /// ATC invalidation completion
-    AtcInvalidateCompletion = 4,
-    /// Configuration error
-    ConfigurationError = 5,
-    /// Internal error
-    InternalError = 6,
+    // ── Spec-defined events (§7.3) ──────────────────────────────────────────
+    /// §7.3.2  F_UUT — Unsupported Upstream Transaction (0x01)
+    FUut = 0x01,
+    /// §7.3.3  C_BAD_STREAMID — StreamID out of range (0x02)
+    CBadStreamid = 0x02,
+    /// §7.3.4  F_STE_FETCH — STE fetch caused external abort (0x03)
+    FSteFetch = 0x03,
+    /// §7.3.5  C_BAD_STE — Used STE invalid (0x04)
+    CBadSte = 0x04,
+    /// §7.3.6  F_BAD_ATS_TREQ — ATS Translation Request disallowed (0x05)
+    FBadAtsTreq = 0x05,
+    /// §7.3.7  F_STREAM_DISABLED — Non-substream transaction with stream disabled (0x06)
+    FStreamDisabled = 0x06,
+    /// §7.3.8  F_TRANSL_FORBIDDEN — ATS Translated transaction disallowed (0x07)
+    FTranslForbidden = 0x07,
+    /// §7.3.9  C_BAD_SUBSTREAMID — SubstreamID present but invalid (0x08)
+    CBadSubstreamid = 0x08,
+    /// §7.3.10 F_CD_FETCH — CD fetch caused external abort (0x09)
+    FCdFetch = 0x09,
+    /// §7.3.11 C_BAD_CD — Fetched CD invalid (0x0A)
+    CBadCd = 0x0A,
+    /// §7.3.12 F_WALK_EABT — External abort during translation table walk (0x0B)
+    FWalkEabt = 0x0B,
+    /// §7.3.13 F_TRANSLATION — Translation fault (0x10)
+    FTranslation = 0x10,
+    /// §7.3.14 F_ADDR_SIZE — Address size fault (0x11)
+    FAddrSize = 0x11,
+    /// §7.3.15 F_ACCESS — Access flag fault (0x12)
+    FAccess = 0x12,
+    /// §7.3.16 F_PERMISSION — Permission fault (0x13)
+    FPermission = 0x13,
+    /// §7.3.17 F_TLB_CONFLICT — TLB conflict (0x20)
+    FTlbConflict = 0x20,
+    /// §7.3.18 F_CFG_CONFLICT — Configuration cache conflict (0x21)
+    FCfgConflict = 0x21,
+    /// §7.3.19 E_PAGE_REQUEST — Page request hint (0x24)
+    EPageRequest = 0x24,
+    /// §7.3.20 F_VMS_FETCH — VMS fetch caused external abort (0x25)
+    FVmsFetch = 0x25,
+    // ── Implementation-defined events (§7.3.21, 0xE0–0xEF range) ───────────
+    /// IMPDEF: Command SYNC completion — internal SW model signalling
+    CommandSyncCompletion = 0xE0,
+    /// IMPDEF: ATC invalidation completion — internal SW model signalling
+    AtcInvalidateCompletion = 0xE1,
 }
 
 impl Default for EventType {
     fn default() -> Self {
-        Self::TranslationFault
+        Self::FTranslation
     }
 }
 

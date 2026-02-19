@@ -107,7 +107,7 @@ that simulates either linear or 2-level stream table walk.
 
 ## High Findings
 
-### FINDING-H-01 ❌ — Event Queue Record Types Incomplete
+### FINDING-H-01 ✅ — Event Queue Record Types Incomplete
 **Spec**: §7.3 (Event records), §7.3.1–7.3.22
 **Affected**: Both
 
@@ -138,6 +138,13 @@ this is not reflected in `EventType`.
 
 **Recommendation**: Expand `EventType` in both implementations to cover all 22
 specification-defined types.
+
+**Fix**: Added all 19 spec-defined `EventType` variants with exact §7.3 hex codes
+(0x01–0x25) to both Rust and C++ enums. Renamed legacy variants to spec-correct
+names (`FTranslation`, `FPermission`, `EPageRequest`, `CBadSte`, `FTlbConflict`).
+Two IMPDEF variants kept for SW model internal use (`CommandSyncCompletion=0xE0`,
+`AtcInvalidateCompletion=0xE1`). Added 20 new tests in `test_event_types_spec.rs`.
+All 43 C++ tests and all Rust test suites pass. Fixed commit: **TBD**.
 
 ---
 

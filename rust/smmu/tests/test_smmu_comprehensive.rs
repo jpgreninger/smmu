@@ -518,7 +518,7 @@ fn test_event_queue_submit_translation_fault() {
     let smmu = SMMU::new();
 
     let event = EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 1,
         pasid: 0,
         address: 0x1000,
@@ -536,7 +536,7 @@ fn test_event_queue_submit_permission_fault() {
     let smmu = SMMU::new();
 
     let event = EventEntry {
-        event_type: EventType::PermissionFault,
+        event_type: EventType::FPermission,
         stream_id: 2,
         pasid: 1,
         address: 0x2000,
@@ -554,7 +554,7 @@ fn test_event_queue_submit_access_fault() {
     let smmu = SMMU::new();
 
     let event = EventEntry {
-        event_type: EventType::ConfigurationError,
+        event_type: EventType::CBadSte,
         stream_id: 3,
         pasid: 2,
         address: 0x3000,
@@ -577,7 +577,7 @@ fn test_event_queue_overflow_with_small_queue() {
     // Fill the queue to capacity
     for i in 0..16 {
         let event = EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: i,
             pasid: 0,
             address: u64::from(i) * 0x1000,
@@ -592,7 +592,7 @@ fn test_event_queue_overflow_with_small_queue() {
 
     // Next submission should fail (overflow)
     let overflow_event = EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 99,
         pasid: 0,
         address: 0x9_9000,
@@ -617,7 +617,7 @@ fn test_event_queue_large_queue_no_overflow() {
     // Submit many events (less than capacity)
     for i in 0..100 {
         let event = EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: i,
             pasid: 0,
             address: u64::from(i) * 0x1000,
@@ -638,7 +638,7 @@ fn test_event_queue_get_all_events() {
     // Submit multiple events
     for i in 0..5 {
         let event = EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: i,
             pasid: 0,
             address: u64::from(i) * 0x1000,
@@ -659,7 +659,7 @@ fn test_event_queue_filter_by_type() {
 
     // Submit mixed event types
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 1,
         pasid: 0,
         address: 0x1000,
@@ -670,7 +670,7 @@ fn test_event_queue_filter_by_type() {
     .unwrap();
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::PermissionFault,
+        event_type: EventType::FPermission,
         stream_id: 2,
         pasid: 0,
         address: 0x2000,
@@ -681,7 +681,7 @@ fn test_event_queue_filter_by_type() {
     .unwrap();
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 3,
         pasid: 0,
         address: 0x3000,
@@ -691,10 +691,10 @@ fn test_event_queue_filter_by_type() {
     })
     .unwrap();
 
-    let translation_faults = smmu.get_events_by_type(EventType::TranslationFault);
+    let translation_faults = smmu.get_events_by_type(EventType::FTranslation);
     assert_eq!(translation_faults.len(), 2);
 
-    let permission_faults = smmu.get_events_by_type(EventType::PermissionFault);
+    let permission_faults = smmu.get_events_by_type(EventType::FPermission);
     assert_eq!(permission_faults.len(), 1);
 }
 
@@ -705,7 +705,7 @@ fn test_event_queue_filter_by_stream() {
     // Submit events for different streams
     for i in 0..3 {
         smmu.submit_event(EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: 1,
             pasid: 0,
             address: (i as u64) * 0x1000,
@@ -717,7 +717,7 @@ fn test_event_queue_filter_by_stream() {
     }
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 2,
         pasid: 0,
         address: 0x9000,
@@ -741,7 +741,7 @@ fn test_event_queue_clear() {
     // Submit events
     for i in 0..5 {
         smmu.submit_event(EventEntry {
-            event_type: EventType::TranslationFault,
+            event_type: EventType::FTranslation,
             stream_id: i,
             pasid: 0,
             address: u64::from(i) * 0x1000,
@@ -884,7 +884,7 @@ fn test_pri_queue_process_generates_events() {
     // Verify PRI event was generated
     let events = smmu.get_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_type, EventType::PriPageRequest);
+    assert_eq!(events[0].event_type, EventType::EPageRequest);
     assert_eq!(events[0].stream_id, 1);
     assert_eq!(events[0].pasid, 5);
     assert_eq!(events[0].address, 0x5000);
@@ -1043,7 +1043,7 @@ fn test_queue_statistics() {
 
     // Submit to all queues
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 1,
         pasid: 0,
         address: 0x1000,
@@ -1113,7 +1113,7 @@ fn test_reset_queues_atomically() {
 
     // Populate all queues
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 1,
         pasid: 0,
         address: 0x1000,
@@ -1550,7 +1550,7 @@ fn test_multiple_event_types() {
 
     // Submit different event types
     smmu.submit_event(EventEntry {
-        event_type: EventType::TranslationFault,
+        event_type: EventType::FTranslation,
         stream_id: 1,
         pasid: 0,
         address: 0x1000,
@@ -1561,7 +1561,7 @@ fn test_multiple_event_types() {
     .unwrap();
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::PermissionFault,
+        event_type: EventType::FPermission,
         stream_id: 2,
         pasid: 0,
         address: 0x2000,
@@ -1572,7 +1572,7 @@ fn test_multiple_event_types() {
     .unwrap();
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::ConfigurationError,
+        event_type: EventType::CBadSte,
         stream_id: 3,
         pasid: 0,
         address: 0x3000,
@@ -1583,7 +1583,7 @@ fn test_multiple_event_types() {
     .unwrap();
 
     smmu.submit_event(EventEntry {
-        event_type: EventType::InternalError,
+        event_type: EventType::FTlbConflict,
         stream_id: 4,
         pasid: 0,
         address: 0x4000,

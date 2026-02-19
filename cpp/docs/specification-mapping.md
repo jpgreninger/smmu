@@ -446,7 +446,7 @@ void SMMU::processCommandQueue() {
                 break;
             default:
                 // Unknown command type
-                generateEvent(EventType::INTERNAL_ERROR, command.streamID, 0, 0);
+                generateEvent(EventType::F_TLB_CONFLICT, command.streamID, 0, 0);
                 break;
         }
     }

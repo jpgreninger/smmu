@@ -2696,7 +2696,7 @@ TEST_F(SMMUTest, Task81_Task53QueueIntegrationWithSMMUOperations) {
             
             bool translationFaultEventFound = false;
             for (const auto& event : eventQueue) {
-                if (event.type == EventType::TRANSLATION_FAULT && 
+                if (event.type == EventType::F_TRANSLATION && 
                     event.streamID == queueStream && event.pasid == queuePasid) {
                     translationFaultEventFound = true;
                     EXPECT_GT(event.timestamp, 0);

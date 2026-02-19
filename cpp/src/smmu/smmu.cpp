@@ -1165,35 +1165,43 @@ void SMMU::processEventQueue() {
         
         // ARM SMMU v3 spec: Process different event types
         switch (event.type) {
-            case EventType::TRANSLATION_FAULT:
-            case EventType::PERMISSION_FAULT:
+            case EventType::F_TRANSLATION:
+            case EventType::F_PERMISSION:
+            case EventType::F_ADDR_SIZE:
+            case EventType::F_ACCESS:
+            case EventType::F_WALK_EABT:
                 // Fault events are already recorded by fault handler
-                // Could implement additional fault-specific processing here
                 break;
-                
+
+            case EventType::F_UUT:
+            case EventType::C_BAD_STREAMID:
+            case EventType::F_STE_FETCH:
+            case EventType::C_BAD_STE:
+            case EventType::F_BAD_ATS_TREQ:
+            case EventType::F_STREAM_DISABLED:
+            case EventType::F_TRANSL_FORBIDDEN:
+            case EventType::C_BAD_SUBSTREAMID:
+            case EventType::F_CD_FETCH:
+            case EventType::C_BAD_CD:
+                // Configuration / setup errors
+                break;
+
+            case EventType::F_TLB_CONFLICT:
+            case EventType::F_CFG_CONFLICT:
+            case EventType::F_VMS_FETCH:
+                // Implementation-specific conflict / fetch errors
+                break;
+
+            case EventType::E_PAGE_REQUEST:
+                // Page Request Interface hint event (§7.3.19)
+                break;
+
             case EventType::COMMAND_SYNC_COMPLETION:
-                // Command synchronization completion event
-                // ARM SMMU v3 spec: Notify completion of synchronization commands
+                // IMPDEF: CMD_SYNC completion signalling
                 break;
-                
-            case EventType::PRI_PAGE_REQUEST:
-                // Page Request Interface event
-                // Could trigger page allocation or OS notification
-                break;
-                
+
             case EventType::ATC_INVALIDATE_COMPLETION:
-                // Address Translation Cache invalidation completion
-                // ARM SMMU v3 spec: Confirm cache invalidation operations
-                break;
-                
-            case EventType::CONFIGURATION_ERROR:
-                // Configuration error event
-                // ARM SMMU v3 spec: Handle configuration validation failures
-                break;
-                
-            case EventType::INTERNAL_ERROR:
-                // Internal system error
-                // ARM SMMU v3 spec: Handle internal hardware/software errors
+                // IMPDEF: ATC_INV completion signalling
                 break;
         }
         
@@ -1239,7 +1247,7 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
     // processPRIQueue -> submitCommand re-entrant calls).
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (commandQueue.size() >= maxCommandQueueSize) {
-        generateEvent(EventType::INTERNAL_ERROR, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+        generateEvent(EventType::F_TLB_CONFLICT, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
         return makeVoidError(SMMUError::CommandQueueFull);
     }
     CommandEntry timestampedCommand = command;
@@ -1298,7 +1306,7 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     PRIEntry timestampedRequest = request;
     timestampedRequest.timestamp = getCurrentTimestamp();
     priQueue.push_back(timestampedRequest);
-    generateEvent(EventType::PRI_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, SecurityState::NonSecure);
+    generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, SecurityState::NonSecure);
 }
 
 void SMMU::processPRIQueue() {
@@ -1393,7 +1401,7 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             
         default:
             // Invalid invalidation command
-            generateEvent(EventType::CONFIGURATION_ERROR, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
     }
     
@@ -1433,7 +1441,7 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
 
         default:
             // Not a TLB invalidation command
-            generateEvent(EventType::CONFIGURATION_ERROR, streamID, pasid, 0, SecurityState::NonSecure);
+            generateEvent(EventType::C_BAD_STE, streamID, pasid, 0, SecurityState::NonSecure);
             break;
     }
 }
@@ -1535,7 +1543,7 @@ void SMMU::processCommand(const CommandEntry& command) {
             
         default:
             // Unknown command type
-            generateEvent(EventType::CONFIGURATION_ERROR, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
     }
 }
@@ -1561,20 +1569,30 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     
     // ARM SMMU v3 spec: Set appropriate error codes
     switch (type) {
-        case EventType::TRANSLATION_FAULT:
-            event.errorCode = 0x01; // Translation fault error code
+        case EventType::F_TRANSLATION:
+            event.errorCode = 0x01;
             break;
-        case EventType::PERMISSION_FAULT:
-            event.errorCode = 0x02; // Permission fault error code
+        case EventType::F_PERMISSION:
+            event.errorCode = 0x02;
             break;
-        case EventType::CONFIGURATION_ERROR:
-            event.errorCode = 0x10; // Configuration error code
+        case EventType::F_ACCESS:
+            event.errorCode = 0x03;
             break;
-        case EventType::INTERNAL_ERROR:
-            event.errorCode = 0xFF; // Internal error code
+        case EventType::F_ADDR_SIZE:
+            event.errorCode = 0x04;
+            break;
+        case EventType::C_BAD_STE:
+        case EventType::C_BAD_CD:
+        case EventType::C_BAD_STREAMID:
+        case EventType::C_BAD_SUBSTREAMID:
+            event.errorCode = 0x10;
+            break;
+        case EventType::F_TLB_CONFLICT:
+        case EventType::F_CFG_CONFLICT:
+            event.errorCode = 0xFF;
             break;
         default:
-            event.errorCode = 0x00; // Success/info event
+            event.errorCode = 0x00;
             break;
     }
     
@@ -1605,7 +1623,7 @@ void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, Access
     recordFault(fault);
     
     // Generate security event for monitoring
-    generateEvent(EventType::CONFIGURATION_ERROR, streamID, pasid, iova, actualState);
+    generateEvent(EventType::C_BAD_STE, streamID, pasid, iova, actualState);
 }
 
 bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState contextState) const {

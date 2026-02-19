@@ -1161,15 +1161,31 @@ struct PRIEntry {
     }
 };
 
-// Task 5.3: Event types beyond just faults
-enum class EventType {
-    TRANSLATION_FAULT,
-    PERMISSION_FAULT,
-    COMMAND_SYNC_COMPLETION,
-    PRI_PAGE_REQUEST,
-    ATC_INVALIDATE_COMPLETION,
-    CONFIGURATION_ERROR,
-    INTERNAL_ERROR
+// ARM IHI0070G.b §7.3 Event types — exact event numbers as discriminants
+enum class EventType : uint8_t {
+    // ── Spec-defined events §7.3 ────────────────────────────────────────────
+    F_UUT                = 0x01,  // §7.3.2  Unsupported Upstream Transaction
+    C_BAD_STREAMID       = 0x02,  // §7.3.3  StreamID out of range
+    F_STE_FETCH          = 0x03,  // §7.3.4  STE fetch external abort
+    C_BAD_STE            = 0x04,  // §7.3.5  Used STE invalid
+    F_BAD_ATS_TREQ       = 0x05,  // §7.3.6  ATS Translation Request disallowed
+    F_STREAM_DISABLED    = 0x06,  // §7.3.7  Non-substream transaction with stream disabled
+    F_TRANSL_FORBIDDEN   = 0x07,  // §7.3.8  ATS Translated transaction disallowed
+    C_BAD_SUBSTREAMID    = 0x08,  // §7.3.9  SubstreamID present but invalid
+    F_CD_FETCH           = 0x09,  // §7.3.10 CD fetch external abort
+    C_BAD_CD             = 0x0A,  // §7.3.11 Fetched CD invalid
+    F_WALK_EABT          = 0x0B,  // §7.3.12 External abort during table walk
+    F_TRANSLATION        = 0x10,  // §7.3.13 Translation fault
+    F_ADDR_SIZE          = 0x11,  // §7.3.14 Address size fault
+    F_ACCESS             = 0x12,  // §7.3.15 Access flag fault
+    F_PERMISSION         = 0x13,  // §7.3.16 Permission fault
+    F_TLB_CONFLICT       = 0x20,  // §7.3.17 TLB conflict
+    F_CFG_CONFLICT       = 0x21,  // §7.3.18 Configuration cache conflict
+    E_PAGE_REQUEST       = 0x24,  // §7.3.19 Page request hint
+    F_VMS_FETCH          = 0x25,  // §7.3.20 VMS fetch external abort
+    // ── Implementation-defined (§7.3.21, 0xE0–0xEF range) ──────────────────
+    COMMAND_SYNC_COMPLETION   = 0xE0,  // IMPDEF: CMD_SYNC completion signalling
+    ATC_INVALIDATE_COMPLETION = 0xE1   // IMPDEF: ATC_INV completion signalling
 };
 
 // Task 5.3: Enhanced event entry
@@ -1182,7 +1198,7 @@ struct EventEntry {
     uint32_t errorCode;
     uint64_t timestamp;
     
-    EventEntry() : type(EventType::INTERNAL_ERROR), streamID(0), pasid(0),
+    EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
                   address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0) {
     }
     

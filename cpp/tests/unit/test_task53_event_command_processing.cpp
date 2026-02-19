@@ -1240,16 +1240,17 @@ TEST_F(Task53ComplianceTest, ARMSMMUv3EventTypes) {
     // This is mainly a compilation test to ensure all event types exist
     
     std::vector<EventType> eventTypes = {
-        EventType::TRANSLATION_FAULT,
-        EventType::PERMISSION_FAULT,
-        EventType::COMMAND_SYNC_COMPLETION,
-        EventType::PRI_PAGE_REQUEST,
-        EventType::ATC_INVALIDATE_COMPLETION,
-        EventType::CONFIGURATION_ERROR,
-        EventType::INTERNAL_ERROR
+        EventType::F_UUT, EventType::C_BAD_STREAMID, EventType::F_STE_FETCH,
+        EventType::C_BAD_STE, EventType::F_BAD_ATS_TREQ, EventType::F_STREAM_DISABLED,
+        EventType::F_TRANSL_FORBIDDEN, EventType::C_BAD_SUBSTREAMID, EventType::F_CD_FETCH,
+        EventType::C_BAD_CD, EventType::F_WALK_EABT, EventType::F_TRANSLATION,
+        EventType::F_ADDR_SIZE, EventType::F_ACCESS, EventType::F_PERMISSION,
+        EventType::F_TLB_CONFLICT, EventType::F_CFG_CONFLICT, EventType::E_PAGE_REQUEST,
+        EventType::F_VMS_FETCH, EventType::COMMAND_SYNC_COMPLETION,
+        EventType::ATC_INVALIDATE_COMPLETION
     };
-    
-    EXPECT_EQ(eventTypes.size(), 7);
+
+    EXPECT_EQ(eventTypes.size(), 21u);
 }
 
 TEST_F(Task53ComplianceTest, ARMSMMUv3CommandTypes) {
@@ -1287,17 +1288,18 @@ TEST_F(Task53ComplianceTest, ARMSMMUv3CommandTypeCompliance) {
 TEST_F(Task53ComplianceTest, EventTypeComplianceWithARMSpec) {
     // Test that all ARM SMMU v3 event types are properly defined and can be processed
     std::vector<EventType> requiredEvents = {
-        EventType::TRANSLATION_FAULT,
-        EventType::PERMISSION_FAULT, 
-        EventType::COMMAND_SYNC_COMPLETION,
-        EventType::PRI_PAGE_REQUEST,
-        EventType::ATC_INVALIDATE_COMPLETION,
-        EventType::CONFIGURATION_ERROR,
-        EventType::INTERNAL_ERROR
+        EventType::F_UUT, EventType::C_BAD_STREAMID, EventType::F_STE_FETCH,
+        EventType::C_BAD_STE, EventType::F_BAD_ATS_TREQ, EventType::F_STREAM_DISABLED,
+        EventType::F_TRANSL_FORBIDDEN, EventType::C_BAD_SUBSTREAMID, EventType::F_CD_FETCH,
+        EventType::C_BAD_CD, EventType::F_WALK_EABT, EventType::F_TRANSLATION,
+        EventType::F_ADDR_SIZE, EventType::F_ACCESS, EventType::F_PERMISSION,
+        EventType::F_TLB_CONFLICT, EventType::F_CFG_CONFLICT, EventType::E_PAGE_REQUEST,
+        EventType::F_VMS_FETCH, EventType::COMMAND_SYNC_COMPLETION,
+        EventType::ATC_INVALIDATE_COMPLETION
     };
-    
+
     // Verify all event types are defined and compilable
-    EXPECT_EQ(requiredEvents.size(), 7);
+    EXPECT_EQ(requiredEvents.size(), 21u);
     
     // Test that each event type has a valid value
     for (auto eventType : requiredEvents) {
