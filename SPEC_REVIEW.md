@@ -351,9 +351,10 @@ HD=1.
 
 ---
 
-### FINDING-M-05 ❌ — No F_STREAM_DISABLED Event Generation
+### FINDING-M-05 ✅ — No F_STREAM_DISABLED Event Generation
 **Spec**: §7.3.7 (F_STREAM_DISABLED)
 **Affected**: Both
+**Fixed**: Rust — added `FaultType::StreamDisabled` (0x10), `SMMU::disable_stream()`/`enable_stream()`, mapping `TranslationError::StreamDisabled → FaultType::StreamDisabled → EventType::FStreamDisabled`. C++ — added `FaultType::StreamDisabled`, explicit `SMMUError::StreamDisabled` case in `handleTranslationFailure()` calling `generateEvent(EventType::F_STREAM_DISABLED, ...)`.
 
 When STE.Config indicates a disabled/abort stream, transactions must generate an
 `F_STREAM_DISABLED` fault record. Both implementations return a generic
@@ -581,7 +582,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 2. FINDING-H-01 — Add missing event types (F_STREAM_DISABLED, C_BAD_SUBSTREAMID, etc.)
 3. FINDING-L-05 — Add `Root = 0b11` security state to both implementations
 4. FINDING-H-07 — Fix security state bit encoding (Secure/NonSecure inverted in Rust)
-5. FINDING-M-05 — Generate F_STREAM_DISABLED instead of generic fault
+5. ~~FINDING-M-05 — Generate F_STREAM_DISABLED instead of generic fault~~ ✅ Fixed
 
 ### Short-term (behavioural conformance)
 6. FINDING-H-08 — Add SMMUEN global enable/disable

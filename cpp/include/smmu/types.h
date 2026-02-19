@@ -611,7 +611,11 @@ enum class FaultType {
     /// @brief Stage-2 translation table fault (IPA → PA)
     Stage2TranslationFault,
     /// @brief Stage-2 permission fault (hypervisor permissions)
-    Stage2PermissionFault
+    Stage2PermissionFault,
+
+    /// @brief Stream disabled — STE.Config indicates disabled/abort stream (§7.3.7)
+    /// Generates F_STREAM_DISABLED event (event code 0x06) per ARM IHI0070G.b §7.3.7.
+    StreamDisabled
 };
 
 /**
@@ -833,6 +837,9 @@ inline SMMUError faultTypeToSMMUError(FaultType faultType) {
         case FaultType::ConfigurationCacheFault:
             return SMMUError::CacheOperationFailed;
             
+        case FaultType::StreamDisabled:
+            return SMMUError::StreamDisabled;
+
         case FaultType::AccessFault:
         case FaultType::AccessFlagFault:
         case FaultType::DirtyBitFault:

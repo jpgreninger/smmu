@@ -996,6 +996,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
                 break;
+            case SMMUError::StreamDisabled:
+                // §7.3.7: Generate F_STREAM_DISABLED (event code 0x06) for disabled/abort streams
+                faultType = FaultType::StreamDisabled;
+                generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+                break;
             default:
                 faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);
                 break;
@@ -1037,6 +1042,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             recordSecurityFault(streamID, pasid, iova, accessType, expectedState, securityState);
             break;
         }
+
+        case FaultType::StreamDisabled:
+            // §7.3.7: Stream is administratively disabled — event was generated above; no recovery needed
+            break;
 
         // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
         case FaultType::ContextDescriptorFormatFault:

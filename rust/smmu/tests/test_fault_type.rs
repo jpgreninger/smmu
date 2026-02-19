@@ -533,8 +533,8 @@ fn test_from_code_invalid_zero() {
 
 #[test]
 fn test_from_code_invalid_above_range() {
-    // Codes 0x10 and above are invalid
-    let invalid_codes = [0x10, 0x11, 0x20, 0x50, 0xFF];
+    // Codes 0x11 and above are invalid (0x10 = StreamDisabled is now valid)
+    let invalid_codes = [0x11, 0x20, 0x50, 0xFF];
     for &code in &invalid_codes {
         let result = FaultType::from_code(code);
         assert!(result.is_err(), "Code 0x{code:02X} should be invalid");

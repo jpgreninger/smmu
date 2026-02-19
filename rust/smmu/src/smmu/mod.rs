@@ -469,6 +469,35 @@ impl SMMU {
         }
     }
 
+    /// Disable a previously configured stream
+    ///
+    /// When disabled, any translation attempt on this stream will return
+    /// `StreamDisabled` error and generate an `F_STREAM_DISABLED` event (§7.3.7).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if SMMU is shutdown or stream is not found.
+    pub fn disable_stream(&self, stream_id: StreamID) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let ctx = self.get_stream_context(stream_id)?;
+        ctx.disable();
+        Ok(())
+    }
+
+    /// Re-enable a previously disabled stream
+    ///
+    /// After re-enabling, translations proceed normally per the stream's config.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if SMMU is shutdown or stream is not found.
+    pub fn enable_stream(&self, stream_id: StreamID) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let ctx = self.get_stream_context(stream_id)?;
+        ctx.enable();
+        Ok(())
+    }
+
     /// Remove a stream and its associated context
     ///
     /// Removes stream from SMMU and cleans up all associated resources
@@ -1233,6 +1262,7 @@ impl SMMU {
     /// Corresponding event type.
     fn map_fault_type_to_event_type(fault_type: FaultType) -> EventType {
         match fault_type {
+            FaultType::StreamDisabled => EventType::FStreamDisabled,
             FaultType::TranslationFault
             | FaultType::BadSTE
             | FaultType::BadCD
@@ -1275,7 +1305,7 @@ impl SMMU {
             TranslationError::TlbConflict => FaultType::TLBConflictAbort,
             TranslationError::InvalidStreamID => FaultType::BadStreamID,
             TranslationError::StreamNotConfigured => FaultType::BadSTE,
-            TranslationError::StreamDisabled => FaultType::BadSTE,
+            TranslationError::StreamDisabled => FaultType::StreamDisabled,
             TranslationError::InvalidPASID => FaultType::BadCD,
             TranslationError::PASIDNotFound => FaultType::BadCD,
         }

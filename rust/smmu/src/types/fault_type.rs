@@ -94,6 +94,11 @@ pub enum FaultType {
 
     /// Stream Table Entry fetch fault
     STEFetchFault = 0x0F,
+
+    /// Stream disabled — STE.Config indicates disabled/abort stream (§7.3.7)
+    ///
+    /// Generates F_STREAM_DISABLED (event code 0x06) per ARM IHI0070G.b §7.3.7.
+    StreamDisabled = 0x10,
 }
 
 impl FaultType {
@@ -123,6 +128,7 @@ impl FaultType {
             Self::WalkEABT => "Page Table Walk External Abort",
             Self::BadSTE => "Bad Stream Table Entry",
             Self::STEFetchFault => "Stream Table Entry Fetch Fault",
+            Self::StreamDisabled => "Stream Disabled",
         }
     }
 
@@ -145,6 +151,7 @@ impl FaultType {
             Self::WalkEABT => "External abort during page table walk",
             Self::BadSTE => "Invalid or misconfigured Stream Table Entry",
             Self::STEFetchFault => "Error fetching Stream Table Entry",
+            Self::StreamDisabled => "Transaction on a disabled/abort stream (STE.Config=disabled)",
         }
     }
 
@@ -168,7 +175,12 @@ impl FaultType {
     pub const fn is_configuration_fault(self) -> bool {
         matches!(
             self,
-            Self::BadStreamID | Self::CDFetchFault | Self::BadCD | Self::BadSTE | Self::STEFetchFault
+            Self::BadStreamID
+                | Self::CDFetchFault
+                | Self::BadCD
+                | Self::BadSTE
+                | Self::STEFetchFault
+                | Self::StreamDisabled
         )
     }
 
@@ -193,7 +205,7 @@ impl FaultType {
     #[must_use]
     pub const fn severity(self) -> FaultSeverity {
         match self {
-            Self::BadSTE | Self::BadCD | Self::BadStreamID => FaultSeverity::Critical,
+            Self::BadSTE | Self::BadCD | Self::BadStreamID | Self::StreamDisabled => FaultSeverity::Critical,
             Self::TranslationFault
             | Self::PermissionFault
             | Self::ExternalAbort
@@ -256,6 +268,7 @@ impl FaultType {
             0x0D => Ok(Self::WalkEABT),
             0x0E => Ok(Self::BadSTE),
             0x0F => Ok(Self::STEFetchFault),
+            0x10 => Ok(Self::StreamDisabled),
             _ => Err(ValidationError::InvalidFaultType { code }),
         }
     }
