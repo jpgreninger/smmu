@@ -1098,18 +1098,28 @@ struct CacheStatistics {
 };
 
 // Task 5.3: Event and Command Processing - Command types for SMMU command queue
+// Opcode values match ARM IHI0070G.b §4.1.1 exactly.
 enum class CommandType {
-    PREFETCH_CONFIG,
-    PREFETCH_ADDR,
-    CFGI_STE,       // Stream Table Entry invalidation
-    CFGI_ALL,       // All configuration invalidation
-    TLBI_NH_ALL,    // TLB invalidation non-secure hyp all
-    TLBI_EL2_ALL,   // TLB invalidation EL2 all
-    TLBI_S12_VMALL, // TLB invalidation stage 1&2 VM all
-    ATC_INV,        // Address Translation Cache invalidation
-    PRI_RESP,       // Page Request Interface response
-    RESUME,         // Resume processing
-    SYNC            // Synchronization barrier
+    PREFETCH_CONFIG = 0x01, // CMD_PREFETCH_CONFIG
+    PREFETCH_ADDR   = 0x02, // CMD_PREFETCH_ADDR
+    CFGI_STE        = 0x03, // CMD_CFGI_STE — Stream Table Entry invalidation
+    CFGI_ALL        = 0x04, // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (same opcode per §4.1.1)
+    TLBI_NH_ALL     = 0x10, // CMD_TLBI_NH_ALL — TLB invalidation non-secure hyp all
+    TLBI_NH_ASID    = 0x11, // CMD_TLBI_NH_ASID
+    TLBI_NH_VA      = 0x12, // CMD_TLBI_NH_VA
+    TLBI_NH_VAA     = 0x13, // CMD_TLBI_NH_VAA
+    TLBI_EL2_ALL    = 0x20, // CMD_TLBI_EL2_ALL — TLB invalidation EL2 all
+    TLBI_EL2_ASID   = 0x21, // CMD_TLBI_EL2_ASID
+    TLBI_EL2_VA     = 0x22, // CMD_TLBI_EL2_VA
+    TLBI_EL2_VAA    = 0x23, // CMD_TLBI_EL2_VAA
+    TLBI_S12_VMALL  = 0x28, // CMD_TLBI_S12_VMALL — TLB invalidation stage 1&2 VM all
+    TLBI_S2_IPA     = 0x2A, // CMD_TLBI_S2_IPA
+    TLBI_NSNH_ALL   = 0x30, // CMD_TLBI_NSNH_ALL
+    ATC_INV         = 0x40, // CMD_ATC_INV — Address Translation Cache invalidation
+    PRI_RESP        = 0x41, // CMD_PRI_RESP — Page Request Interface response
+    RESUME          = 0x44, // CMD_RESUME — Resume stalled transaction
+    STALL_TERM      = 0x45, // CMD_STALL_TERM — Terminate stalled transaction
+    SYNC            = 0x46  // CMD_SYNC — Synchronization barrier
 };
 
 // Task 5.3: Command queue entry

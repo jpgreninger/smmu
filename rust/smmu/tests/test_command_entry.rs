@@ -29,91 +29,108 @@ use std::collections::HashSet;
 #[test]
 fn test_command_type_prefetch_config() {
     let cmd = CommandType::PrefetchConfig;
-    assert_eq!(cmd as u8, 0);
+    assert_eq!(cmd as u8, 0x01);
 }
 
 #[test]
 fn test_command_type_prefetch_addr() {
     let cmd = CommandType::PrefetchAddr;
-    assert_eq!(cmd as u8, 1);
+    assert_eq!(cmd as u8, 0x02);
 }
 
 #[test]
 fn test_command_type_cfgi_ste() {
     let cmd = CommandType::CfgiSte;
-    assert_eq!(cmd as u8, 2);
+    assert_eq!(cmd as u8, 0x03);
 }
 
 #[test]
 fn test_command_type_cfgi_all() {
     let cmd = CommandType::CfgiAll;
-    assert_eq!(cmd as u8, 3);
+    assert_eq!(cmd as u8, 0x04);
 }
 
 #[test]
 fn test_command_type_tlbi_nh_all() {
     let cmd = CommandType::TlbiNhAll;
-    assert_eq!(cmd as u8, 4);
+    assert_eq!(cmd as u8, 0x10);
 }
 
 #[test]
 fn test_command_type_tlbi_el2_all() {
     let cmd = CommandType::TlbiEl2All;
-    assert_eq!(cmd as u8, 5);
+    assert_eq!(cmd as u8, 0x20);
 }
 
 #[test]
 fn test_command_type_tlbi_s12_vmall() {
     let cmd = CommandType::TlbiS12Vmall;
-    assert_eq!(cmd as u8, 6);
+    assert_eq!(cmd as u8, 0x28);
 }
 
 #[test]
 fn test_command_type_atc_inv() {
     let cmd = CommandType::AtcInv;
-    assert_eq!(cmd as u8, 7);
+    assert_eq!(cmd as u8, 0x40);
 }
 
 #[test]
 fn test_command_type_pri_resp() {
     let cmd = CommandType::PriResp;
-    assert_eq!(cmd as u8, 8);
+    assert_eq!(cmd as u8, 0x41);
 }
 
 #[test]
 fn test_command_type_resume() {
     let cmd = CommandType::Resume;
-    assert_eq!(cmd as u8, 9);
+    assert_eq!(cmd as u8, 0x44);
 }
 
 #[test]
 fn test_command_type_sync() {
     let cmd = CommandType::Sync;
-    assert_eq!(cmd as u8, 10);
+    assert_eq!(cmd as u8, 0x46);
 }
 
 #[test]
 fn test_command_type_all_variants() {
-    // Ensure all 11 command types exist
+    // All 20 command types per ARM IHI0070G.b §4.1.1
     let commands = vec![
         CommandType::PrefetchConfig,
         CommandType::PrefetchAddr,
         CommandType::CfgiSte,
         CommandType::CfgiAll,
         CommandType::TlbiNhAll,
+        CommandType::TlbiNhAsid,
+        CommandType::TlbiNhVa,
+        CommandType::TlbiNhVaa,
         CommandType::TlbiEl2All,
+        CommandType::TlbiEl2Asid,
+        CommandType::TlbiEl2Va,
+        CommandType::TlbiEl2Vaa,
         CommandType::TlbiS12Vmall,
+        CommandType::TlbiS2Ipa,
+        CommandType::TlbiNsnhAll,
         CommandType::AtcInv,
         CommandType::PriResp,
         CommandType::Resume,
+        CommandType::StallTerm,
         CommandType::Sync,
     ];
 
-    assert_eq!(commands.len(), 11);
+    assert_eq!(commands.len(), 20);
 
     // Verify each has unique discriminant
     let discriminants: Vec<u8> = commands.iter().map(|&c| c as u8).collect();
-    assert_eq!(discriminants, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let expected: Vec<u8> = vec![
+        0x01, 0x02, 0x03, 0x04,
+        0x10, 0x11, 0x12, 0x13,
+        0x20, 0x21, 0x22, 0x23,
+        0x28, 0x2A, 0x30,
+        0x40, 0x41,
+        0x44, 0x45, 0x46,
+    ];
+    assert_eq!(discriminants, expected);
 }
 
 // ============================================================================
@@ -124,7 +141,7 @@ fn test_command_type_all_variants() {
 fn test_command_type_default() {
     let cmd = CommandType::default();
     assert_eq!(cmd, CommandType::Sync);
-    assert_eq!(cmd as u8, 10);
+    assert_eq!(cmd as u8, 0x46);
 }
 
 // ============================================================================
@@ -136,8 +153,8 @@ fn test_command_type_copy() {
     let cmd1 = CommandType::CfgiAll;
     let cmd2 = cmd1; // Copy
     assert_eq!(cmd1, cmd2);
-    assert_eq!(cmd1 as u8, 3);
-    assert_eq!(cmd2 as u8, 3);
+    assert_eq!(cmd1 as u8, 0x04);
+    assert_eq!(cmd2 as u8, 0x04);
 }
 
 #[test]
@@ -145,7 +162,7 @@ fn test_command_type_clone() {
     let cmd1 = CommandType::TlbiNhAll;
     let cmd2 = cmd1;
     assert_eq!(cmd1, cmd2);
-    assert_eq!(cmd1 as u8, 4);
+    assert_eq!(cmd1 as u8, 0x10);
 }
 
 // ============================================================================
@@ -467,7 +484,7 @@ fn test_arm_spec_prefetch_config_command() {
     // ARM SMMU v3 Section 6.4: PREFETCH_CONFIG command
     let entry = CommandEntry::new(CommandType::PrefetchConfig, 10, 0);
     assert_eq!(entry.cmd_type, CommandType::PrefetchConfig);
-    assert_eq!(entry.cmd_type as u8, 0);
+    assert_eq!(entry.cmd_type as u8, 0x01);
 }
 
 #[test]
@@ -505,7 +522,7 @@ fn test_arm_spec_tlbi_nh_all_command() {
     let entry = CommandEntry::new(CommandType::TlbiNhAll, 0, 0);
 
     assert_eq!(entry.cmd_type, CommandType::TlbiNhAll);
-    assert_eq!(entry.cmd_type as u8, 4);
+    assert_eq!(entry.cmd_type as u8, 0x10);
 }
 
 #[test]
@@ -514,7 +531,7 @@ fn test_arm_spec_tlbi_el2_all_command() {
     let entry = CommandEntry::new(CommandType::TlbiEl2All, 0, 0);
 
     assert_eq!(entry.cmd_type, CommandType::TlbiEl2All);
-    assert_eq!(entry.cmd_type as u8, 5);
+    assert_eq!(entry.cmd_type as u8, 0x20);
 }
 
 #[test]
@@ -564,7 +581,7 @@ fn test_arm_spec_sync_command() {
     let entry = CommandEntry::new(CommandType::Sync, 0, 0);
 
     assert_eq!(entry.cmd_type, CommandType::Sync);
-    assert_eq!(entry.cmd_type as u8, 10);
+    assert_eq!(entry.cmd_type as u8, 0x46);
 }
 
 // ============================================================================
@@ -704,39 +721,170 @@ fn test_command_type_ordering_in_queue() {
         CommandEntry::new(CommandType::Sync, 0, 0)];
 
     // Verify order is preserved
-    assert_eq!(commands[0].cmd_type as u8, 0);
-    assert_eq!(commands[1].cmd_type as u8, 2);
-    assert_eq!(commands[2].cmd_type as u8, 4);
-    assert_eq!(commands[3].cmd_type as u8, 10);
+    assert_eq!(commands[0].cmd_type as u8, 0x01);
+    assert_eq!(commands[1].cmd_type as u8, 0x03);
+    assert_eq!(commands[2].cmd_type as u8, 0x10);
+    assert_eq!(commands[3].cmd_type as u8, 0x46);
 }
 
 // ============================================================================
-// ARM SMMU v3 Specification Compliance Summary
+// ARM SMMU v3 Specification Compliance Summary (legacy — kept for reference)
 // ============================================================================
 
 #[test]
 fn test_spec_compliance_all_command_types_present() {
-    // Verify all 11 command types from ARM SMMU v3 Section 6.4 are present
+    // Verify all command types from ARM SMMU v3 §4.1.1 are present.
+    // Count is 20 after adding the missing TLB variants and StallTerm.
     let command_types = vec![
-        CommandType::PrefetchConfig, // 0
-        CommandType::PrefetchAddr,   // 1
-        CommandType::CfgiSte,        // 2
-        CommandType::CfgiAll,        // 3
-        CommandType::TlbiNhAll,      // 4
-        CommandType::TlbiEl2All,     // 5
-        CommandType::TlbiS12Vmall,   // 6
-        CommandType::AtcInv,         // 7
-        CommandType::PriResp,        // 8
-        CommandType::Resume,         // 9
-        CommandType::Sync,           // 10
+        CommandType::PrefetchConfig,
+        CommandType::PrefetchAddr,
+        CommandType::CfgiSte,
+        CommandType::CfgiAll,
+        CommandType::TlbiNhAll,
+        CommandType::TlbiNhAsid,
+        CommandType::TlbiNhVa,
+        CommandType::TlbiNhVaa,
+        CommandType::TlbiEl2All,
+        CommandType::TlbiEl2Asid,
+        CommandType::TlbiEl2Va,
+        CommandType::TlbiEl2Vaa,
+        CommandType::TlbiS12Vmall,
+        CommandType::TlbiS2Ipa,
+        CommandType::TlbiNsnhAll,
+        CommandType::AtcInv,
+        CommandType::PriResp,
+        CommandType::Resume,
+        CommandType::StallTerm,
+        CommandType::Sync,
     ];
 
-    assert_eq!(command_types.len(), 11);
+    assert_eq!(command_types.len(), 20);
+}
 
-    // Verify discriminants match specification
-    for (i, cmd) in command_types.iter().enumerate() {
-        assert_eq!(*cmd as u8, i as u8);
-    }
+// ============================================================================
+// FINDING-H-02 (TDD): ARM IHI0070G.b §4.1.1 opcode compliance
+// ============================================================================
+
+/// FINDING-H-02: `CommandType` discriminants must match ARM IHI0070G.b §4.1.1 exactly.
+
+#[test]
+fn test_opcode_prefetch_config_is_0x01() {
+    assert_eq!(CommandType::PrefetchConfig as u8, 0x01,
+        "CMD_PREFETCH_CONFIG opcode must be 0x01 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_prefetch_addr_is_0x02() {
+    assert_eq!(CommandType::PrefetchAddr as u8, 0x02,
+        "CMD_PREFETCH_ADDR opcode must be 0x02 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_cfgi_ste_is_0x03() {
+    assert_eq!(CommandType::CfgiSte as u8, 0x03,
+        "CMD_CFGI_STE opcode must be 0x03 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_cfgi_all_is_0x04() {
+    assert_eq!(CommandType::CfgiAll as u8, 0x04,
+        "CMD_CFGI_ALL/CMD_CFGI_STE_RANGE opcode must be 0x04 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_nh_all_is_0x10() {
+    assert_eq!(CommandType::TlbiNhAll as u8, 0x10,
+        "CMD_TLBI_NH_ALL opcode must be 0x10 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_nh_asid_is_0x11() {
+    assert_eq!(CommandType::TlbiNhAsid as u8, 0x11,
+        "CMD_TLBI_NH_ASID opcode must be 0x11 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_nh_va_is_0x12() {
+    assert_eq!(CommandType::TlbiNhVa as u8, 0x12,
+        "CMD_TLBI_NH_VA opcode must be 0x12 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_nh_vaa_is_0x13() {
+    assert_eq!(CommandType::TlbiNhVaa as u8, 0x13,
+        "CMD_TLBI_NH_VAA opcode must be 0x13 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_el2_all_is_0x20() {
+    assert_eq!(CommandType::TlbiEl2All as u8, 0x20,
+        "CMD_TLBI_EL2_ALL opcode must be 0x20 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_el2_asid_is_0x21() {
+    assert_eq!(CommandType::TlbiEl2Asid as u8, 0x21,
+        "CMD_TLBI_EL2_ASID opcode must be 0x21 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_el2_va_is_0x22() {
+    assert_eq!(CommandType::TlbiEl2Va as u8, 0x22,
+        "CMD_TLBI_EL2_VA opcode must be 0x22 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_el2_vaa_is_0x23() {
+    assert_eq!(CommandType::TlbiEl2Vaa as u8, 0x23,
+        "CMD_TLBI_EL2_VAA opcode must be 0x23 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_s12_vmall_is_0x28() {
+    assert_eq!(CommandType::TlbiS12Vmall as u8, 0x28,
+        "CMD_TLBI_S12_VMALL opcode must be 0x28 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_s2_ipa_is_0x2a() {
+    assert_eq!(CommandType::TlbiS2Ipa as u8, 0x2A,
+        "CMD_TLBI_S2_IPA opcode must be 0x2A per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_tlbi_nsnh_all_is_0x30() {
+    assert_eq!(CommandType::TlbiNsnhAll as u8, 0x30,
+        "CMD_TLBI_NSNH_ALL opcode must be 0x30 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_atc_inv_is_0x40() {
+    assert_eq!(CommandType::AtcInv as u8, 0x40,
+        "CMD_ATC_INV opcode must be 0x40 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_pri_resp_is_0x41() {
+    assert_eq!(CommandType::PriResp as u8, 0x41,
+        "CMD_PRI_RESP opcode must be 0x41 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_resume_is_0x44() {
+    assert_eq!(CommandType::Resume as u8, 0x44,
+        "CMD_RESUME opcode must be 0x44 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_stall_term_is_0x45() {
+    assert_eq!(CommandType::StallTerm as u8, 0x45,
+        "CMD_STALL_TERM opcode must be 0x45 per ARM IHI0070G.b §4.1.1");
+}
+
+#[test]
+fn test_opcode_sync_is_0x46() {
+    assert_eq!(CommandType::Sync as u8, 0x46,
+        "CMD_SYNC opcode must be 0x46 per ARM IHI0070G.b §4.1.1");
 }
 
 #[test]

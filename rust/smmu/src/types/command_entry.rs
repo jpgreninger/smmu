@@ -7,32 +7,61 @@
 /// Command type enumeration
 ///
 /// Defines all ARM SMMU v3 command types supported by the command queue.
+/// Opcode values match ARM IHI0070G.b §4.1.1 exactly.
 #[repr(u8)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CommandType {
-    /// Prefetch configuration
-    PrefetchConfig = 0,
-    /// Prefetch address
-    PrefetchAddr = 1,
-    /// Stream Table Entry invalidation
-    CfgiSte = 2,
-    /// All configuration invalidation
-    CfgiAll = 3,
-    /// TLB invalidation non-secure hyp all
-    TlbiNhAll = 4,
-    /// TLB invalidation EL2 all
-    TlbiEl2All = 5,
-    /// TLB invalidation stage 1&2 VM all
-    TlbiS12Vmall = 6,
-    /// Address Translation Cache invalidation
-    AtcInv = 7,
-    /// Page Request Interface response
-    PriResp = 8,
-    /// Resume processing
-    Resume = 9,
-    /// Synchronization barrier
-    Sync = 10,
+    // ---- Configuration prefetch commands (§4.2) ----
+    /// Prefetch configuration — CMD_PREFETCH_CONFIG (opcode 0x01)
+    PrefetchConfig = 0x01,
+    /// Prefetch address — CMD_PREFETCH_ADDR (opcode 0x02)
+    PrefetchAddr = 0x02,
+    // ---- Configuration invalidation commands (§4.3) ----
+    /// Stream Table Entry invalidation — CMD_CFGI_STE (opcode 0x03)
+    CfgiSte = 0x03,
+    /// All / STE-range configuration invalidation — CMD_CFGI_ALL / CMD_CFGI_STE_RANGE
+    /// (opcode 0x04; the two commands share the same opcode per §4.1.1)
+    CfgiAll = 0x04,
+    // ---- TLB invalidation — Non-secure Hyp (§4.4) ----
+    /// CMD_TLBI_NH_ALL (opcode 0x10)
+    TlbiNhAll = 0x10,
+    /// CMD_TLBI_NH_ASID (opcode 0x11)
+    TlbiNhAsid = 0x11,
+    /// CMD_TLBI_NH_VA (opcode 0x12)
+    TlbiNhVa = 0x12,
+    /// CMD_TLBI_NH_VAA (opcode 0x13)
+    TlbiNhVaa = 0x13,
+    // ---- TLB invalidation — EL2 (§4.4) ----
+    /// CMD_TLBI_EL2_ALL (opcode 0x20)
+    TlbiEl2All = 0x20,
+    /// CMD_TLBI_EL2_ASID (opcode 0x21)
+    TlbiEl2Asid = 0x21,
+    /// CMD_TLBI_EL2_VA (opcode 0x22)
+    TlbiEl2Va = 0x22,
+    /// CMD_TLBI_EL2_VAA (opcode 0x23)
+    TlbiEl2Vaa = 0x23,
+    // ---- TLB invalidation — Stage 1&2 (§4.4) ----
+    /// CMD_TLBI_S12_VMALL (opcode 0x28)
+    TlbiS12Vmall = 0x28,
+    /// CMD_TLBI_S2_IPA (opcode 0x2A)
+    TlbiS2Ipa = 0x2A,
+    // ---- TLB invalidation — Non-secure Non-Hyp (§4.4) ----
+    /// CMD_TLBI_NSNH_ALL (opcode 0x30)
+    TlbiNsnhAll = 0x30,
+    // ---- ATC / PRI commands (§4.5–§4.6) ----
+    /// Address Translation Cache invalidation — CMD_ATC_INV (opcode 0x40)
+    AtcInv = 0x40,
+    /// Page Request Interface response — CMD_PRI_RESP (opcode 0x41)
+    PriResp = 0x41,
+    // ---- Resume / Stall commands (§4.7) ----
+    /// Resume stalled transaction — CMD_RESUME (opcode 0x44)
+    Resume = 0x44,
+    /// Terminate stalled transaction — CMD_STALL_TERM (opcode 0x45)
+    StallTerm = 0x45,
+    // ---- Synchronization (§4.8) ----
+    /// Synchronization barrier — CMD_SYNC (opcode 0x46)
+    Sync = 0x46,
 }
 
 impl Default for CommandType {

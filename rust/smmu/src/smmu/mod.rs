@@ -1570,12 +1570,20 @@ impl SMMU {
     #[allow(clippy::unnecessary_wraps)]
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
-            CommandType::TlbiNhAll | CommandType::TlbiEl2All => {
+            CommandType::TlbiNhAll
+            | CommandType::TlbiNhAsid
+            | CommandType::TlbiNhVa
+            | CommandType::TlbiNhVaa
+            | CommandType::TlbiEl2All
+            | CommandType::TlbiEl2Asid
+            | CommandType::TlbiEl2Va
+            | CommandType::TlbiEl2Vaa
+            | CommandType::TlbiNsnhAll => {
                 // Global TLB invalidation - clear entire cache
                 self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            CommandType::TlbiS12Vmall => {
+            CommandType::TlbiS12Vmall | CommandType::TlbiS2Ipa => {
                 // Stream/PASID-specific TLB invalidation
                 // Extract stream_id from command parameters
                 let stream_id = StreamID::new(command.stream_id);
@@ -1623,8 +1631,8 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             _ => {
-                // Other commands: PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll, PriResp, Resume
-                // No special processing needed for tests
+                // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll,
+                // PriResp, Resume, StallTerm — no side-effect processing required
             },
         }
 

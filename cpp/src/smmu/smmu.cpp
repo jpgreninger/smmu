@@ -1371,8 +1371,16 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
             
         case CommandType::TLBI_NH_ALL:
+        case CommandType::TLBI_NH_ASID:
+        case CommandType::TLBI_NH_VA:
+        case CommandType::TLBI_NH_VAA:
         case CommandType::TLBI_EL2_ALL:
+        case CommandType::TLBI_EL2_ASID:
+        case CommandType::TLBI_EL2_VA:
+        case CommandType::TLBI_EL2_VAA:
         case CommandType::TLBI_S12_VMALL:
+        case CommandType::TLBI_S2_IPA:
+        case CommandType::TLBI_NSNH_ALL:
             // TLB invalidation commands
             executeTLBInvalidationCommand(command.type, command.streamID, command.pasid);
             break;
@@ -1397,24 +1405,32 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
     // ARM SMMU v3 spec: Execute TLB-specific invalidation commands
     switch (type) {
         case CommandType::TLBI_NH_ALL:
-            // TLB invalidation non-secure hyp all
+        case CommandType::TLBI_NH_ASID:
+        case CommandType::TLBI_NH_VA:
+        case CommandType::TLBI_NH_VAA:
+        case CommandType::TLBI_NSNH_ALL:
+            // Non-secure Hyp / ASID / VA / VAA TLB invalidation — global flush
             invalidateTranslationCache();
             break;
-            
+
         case CommandType::TLBI_EL2_ALL:
-            // TLB invalidation EL2 all
+        case CommandType::TLBI_EL2_ASID:
+        case CommandType::TLBI_EL2_VA:
+        case CommandType::TLBI_EL2_VAA:
+            // EL2 TLB invalidation — global flush
             invalidateTranslationCache();
             break;
-            
+
         case CommandType::TLBI_S12_VMALL:
-            // TLB invalidation stage 1&2 VM all
+        case CommandType::TLBI_S2_IPA:
+            // Stage 1&2 VM / S2 IPA invalidation
             if (streamID != 0) {
                 invalidateStreamCache(streamID);
             } else {
                 invalidateTranslationCache();
             }
             break;
-            
+
         default:
             // Not a TLB invalidation command
             generateEvent(EventType::CONFIGURATION_ERROR, streamID, pasid, 0, SecurityState::NonSecure);
@@ -1479,23 +1495,36 @@ void SMMU::processCommand(const CommandEntry& command) {
         case CommandType::CFGI_STE:
         case CommandType::CFGI_ALL:
         case CommandType::TLBI_NH_ALL:
+        case CommandType::TLBI_NH_ASID:
+        case CommandType::TLBI_NH_VA:
+        case CommandType::TLBI_NH_VAA:
         case CommandType::TLBI_EL2_ALL:
+        case CommandType::TLBI_EL2_ASID:
+        case CommandType::TLBI_EL2_VA:
+        case CommandType::TLBI_EL2_VAA:
         case CommandType::TLBI_S12_VMALL:
+        case CommandType::TLBI_S2_IPA:
+        case CommandType::TLBI_NSNH_ALL:
         case CommandType::ATC_INV:
             // Cache invalidation commands
             executeInvalidationCommand(command);
             break;
-            
+
         case CommandType::PRI_RESP:
             // Page Request Interface response
             // ARM SMMU v3 spec: Handle PRI response completion
             // Response processing is handled by PRI queue mechanism
             break;
-            
+
         case CommandType::RESUME:
             // Resume processing command
             // ARM SMMU v3 spec: Resume stalled transactions
             // Could implement transaction restart logic
+            break;
+
+        case CommandType::STALL_TERM:
+            // Stall termination command — terminate stalled transaction
+            // ARM SMMU v3 spec §4.7: No side effects beyond aborting the stall
             break;
             
         case CommandType::SYNC:
