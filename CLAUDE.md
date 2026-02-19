@@ -117,6 +117,26 @@ When the user says 'implement X' where X is a section or task number, always che
 3. Use `qa-engineer` after each implementation step for compliance review
 4. Use `test-writer-fixer` to create/update tests and integrate into regression suite
 
+### ⚠️ MANDATORY: Test-Driven Workflow for ALL Fixes and Features ⚠️
+
+**ABSOLUTE REQUIREMENT**: Test-Driven Development (TDD) or Test-Driven Debug (TDD) MUST ALWAYS be used when implementing any fix or feature. No code changes may be made without first writing a failing test that demonstrates the problem or missing behavior.
+
+#### Test-Driven Development (TDD) — for new features
+1. Write a failing test that asserts the desired behavior (test MUST fail before any implementation)
+2. Verify the test fails (build and run to confirm red state)
+3. Implement the minimal code to make the test pass
+4. Verify the test passes (green state)
+5. Refactor as needed while keeping tests green
+
+#### Test-Driven Debug (TDD) — for bug fixes
+1. Write a failing test that reproduces the bug (test MUST fail before any fix)
+2. Verify the test fails (confirms the bug is captured)
+3. Implement the fix
+4. Verify the test passes and no regression tests broke
+5. Commit the test alongside the fix
+
+**No exceptions.** A fix without a prior failing test is not acceptable.
+
 ### Adding New Features
 **MANDATORY STEP-BY-STEP WORKFLOW:**
 1. **Planning**: Use `protocol-modeler` to review requirements against ARM SMMU v3 specification

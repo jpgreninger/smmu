@@ -1119,7 +1119,7 @@ impl SMMU {
         } else {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Record fault before returning error
-            self.record_stream_not_found_fault(stream_id, pasid, iova, access);
+            self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
             return Err(TranslationError::StreamNotConfigured);
         };
 
@@ -1139,7 +1139,7 @@ impl SMMU {
         // Record fault on translation error
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            self.record_translation_fault(stream_id, pasid, iova, access, error);
+            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error);
         } else {
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
         }
@@ -1298,6 +1298,7 @@ impl SMMU {
         pasid: PASID,
         iova: IOVA,
         access: AccessType,
+        security_state: SecurityState,
         error: &TranslationError,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
@@ -1312,7 +1313,7 @@ impl SMMU {
             .address(iova)
             .fault_type(fault_type)
             .access_type(access)
-            .security_state(SecurityState::NonSecure)
+            .security_state(security_state)
             .timestamp(timestamp)
             .build();
 
@@ -1325,7 +1326,7 @@ impl SMMU {
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             address: iova.as_u64(),
-            security_state: SecurityState::NonSecure,
+            security_state,
             error_code: 0,
             timestamp,
         };
@@ -1348,7 +1349,7 @@ impl SMMU {
     /// * `pasid` - Process Address Space ID
     /// * `iova` - Input/Output Virtual Address
     /// * `access` - Access type requested
-    fn record_stream_not_found_fault(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType) {
+    fn record_stream_not_found_fault(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType, security_state: SecurityState) {
         // Use monotonic atomic counter instead of SystemTime::now() to avoid syscall overhead
         let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -1358,7 +1359,7 @@ impl SMMU {
             .address(iova)
             .fault_type(FaultType::BadStreamID)
             .access_type(access)
-            .security_state(SecurityState::NonSecure)
+            .security_state(security_state)
             .timestamp(timestamp)
             .build();
 
@@ -1370,7 +1371,7 @@ impl SMMU {
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             address: iova.as_u64(),
-            security_state: SecurityState::NonSecure,
+            security_state,
             error_code: 0,
             timestamp,
         };
