@@ -144,7 +144,7 @@ specification-defined types.
 names (`FTranslation`, `FPermission`, `EPageRequest`, `CBadSte`, `FTlbConflict`).
 Two IMPDEF variants kept for SW model internal use (`CommandSyncCompletion=0xE0`,
 `AtcInvalidateCompletion=0xE1`). Added 20 new tests in `test_event_types_spec.rs`.
-All 43 C++ tests and all Rust test suites pass. Fixed commit: **TBD**.
+All 43 C++ tests and all Rust test suites pass. Fixed commit: **f6a2ab4**.
 
 ---
 
