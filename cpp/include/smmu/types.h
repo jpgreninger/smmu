@@ -470,13 +470,13 @@ enum class AccessType {
  *          Used for access control and security fault detection.
  */
 enum class SecurityState : uint8_t {
-    /// @brief Secure state - secure world access (0b00 = 0x00)
-    Secure    = 0x00,
-    /// @brief Non-secure state - normal world access (0b01 = 0x01)
-    NonSecure = 0x01,
-    /// @brief Realm state - confidential computing access (0b10 = 0x02)
+    /// @brief Non-secure state - normal world access (SEC_SID 0b00 = 0x00) per §3.10
+    NonSecure = 0x00,
+    /// @brief Secure state - secure world access (SEC_SID 0b01 = 0x01) per §3.10
+    Secure    = 0x01,
+    /// @brief Realm state - confidential computing access (SEC_SID 0b10 = 0x02) per §3.10
     Realm     = 0x02,
-    /// @brief Root state - SMMUv3.3 RME highest privilege, can access all PA spaces (0b11 = 0x03)
+    /// @brief Root state - SMMUv3.3 RME highest privilege, can access all PA spaces (SEC_SID 0b11 = 0x03) per §3.10
     Root      = 0x03
 };
 

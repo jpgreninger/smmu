@@ -253,20 +253,20 @@ and document the limitation explicitly.
 
 ---
 
-### FINDING-H-07 ❌ — Security State Bit Encoding Inconsistency
+### FINDING-H-07 ✅ — Security State Bit Encoding Inconsistency
 **Spec**: §3.10 (Security states), §3.10.1 (StreamID Security state SEC_SID)
 **Affected**: Both
+**Fixed**: commit (see below)
 
 The ARM specification encodes SEC_SID as: `0b00`=NonSecure, `0b01`=Secure,
-`0b10`=Realm, `0b11`=Root.
+`0b10`=Realm, `0b11`=Root. Both implementations now match.
 
-- **Rust**: `SecurityState` uses `Secure=0b00, NonSecure=0b01, Realm=0b10` —
-  the Secure and NonSecure bit values are inverted relative to the hardware.
-- **C++**: No bit values assigned to `SecurityState` enum at all; no
-  binary-compatible serialisation is possible.
-
-**Recommendation**: Align both implementations to `NonSecure=0b00`,
-`Secure=0b01`, `Realm=0b10`, `Root=0b11`.
+- **Rust**: Swapped `SecurityState` discriminants to `NonSecure=0b00, Secure=0b01`;
+  `from_bits()` arms updated accordingly. Hash function in `cache/mod.rs` updated
+  with non-zero FNV-1a seed so all-zero inputs don't hash to 0. 4 new spec tests
+  added; 75 security state tests pass.
+- **C++**: `enum class SecurityState : uint8_t` now `NonSecure=0x00, Secure=0x01,
+  Realm=0x02, Root=0x03`. All 43 C++ tests pass.
 
 ---
 

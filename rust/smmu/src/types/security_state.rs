@@ -16,9 +16,9 @@ use core::fmt;
 ///
 /// # Encoding
 ///
-/// ARM SMMU v3 uses 2-bit encoding (§3.10):
-/// - 0b00: Secure
-/// - 0b01: NonSecure
+/// ARM SMMU v3 uses 2-bit encoding per §3.10 SEC_SID field:
+/// - 0b00: NonSecure
+/// - 0b01: Secure
 /// - 0b10: Realm
 /// - 0b11: Root (SMMUv3.3 RME)
 ///
@@ -50,11 +50,11 @@ use core::fmt;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SecurityState {
-    /// Secure world (TrustZone Secure state)
-    Secure = 0b00,
+    /// Non-secure world (TrustZone Non-secure state) — SEC_SID=0b00
+    NonSecure = 0b00,
 
-    /// Non-secure world (TrustZone Non-secure state)
-    NonSecure = 0b01,
+    /// Secure world (TrustZone Secure state) — SEC_SID=0b01
+    Secure = 0b01,
 
     /// Realm world (ARM CCA Confidential Compute)
     Realm = 0b10,
@@ -209,8 +209,8 @@ impl SecurityState {
     /// Returns `Err` if bits are invalid (> 0b11).
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
         match bits {
-            0b00 => Ok(Self::Secure),
-            0b01 => Ok(Self::NonSecure),
+            0b00 => Ok(Self::NonSecure),
+            0b01 => Ok(Self::Secure),
             0b10 => Ok(Self::Realm),
             0b11 => Ok(Self::Root),
             _ => Err(ValidationError::InvalidSecurityState { bits }),
@@ -268,8 +268,9 @@ mod tests {
 
     #[test]
     fn test_encoding() {
-        assert_eq!(SecurityState::Secure.to_bits(), 0b00);
-        assert_eq!(SecurityState::NonSecure.to_bits(), 0b01);
+        // ARM §3.10 SEC_SID: NonSecure=0b00, Secure=0b01, Realm=0b10, Root=0b11
+        assert_eq!(SecurityState::NonSecure.to_bits(), 0b00);
+        assert_eq!(SecurityState::Secure.to_bits(), 0b01);
         assert_eq!(SecurityState::Realm.to_bits(), 0b10);
     }
 }

@@ -361,14 +361,40 @@ fn test_validate_access_realm_to_nonsecure_violation() {
 // Bit Encoding/Decoding Tests
 // ============================================================================
 
+// ── Spec-Correct Encoding (§3.10 SEC_SID): NonSecure=0b00, Secure=0b01 ──────
+#[test]
+fn test_spec_sec_sid_nonsecure_is_0b00() {
+    assert_eq!(SecurityState::NonSecure.to_bits(), 0b00,
+        "ARM §3.10 SEC_SID: NonSecure must encode as 0b00");
+}
+
+#[test]
+fn test_spec_sec_sid_secure_is_0b01() {
+    assert_eq!(SecurityState::Secure.to_bits(), 0b01,
+        "ARM §3.10 SEC_SID: Secure must encode as 0b01");
+}
+
+#[test]
+fn test_spec_from_bits_0b00_is_nonsecure() {
+    assert_eq!(SecurityState::from_bits(0b00).unwrap(), SecurityState::NonSecure,
+        "ARM §3.10: 0b00 must decode to NonSecure");
+}
+
+#[test]
+fn test_spec_from_bits_0b01_is_secure() {
+    assert_eq!(SecurityState::from_bits(0b01).unwrap(), SecurityState::Secure,
+        "ARM §3.10: 0b01 must decode to Secure");
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[test]
 fn test_to_bits_secure() {
-    assert_eq!(SecurityState::Secure.to_bits(), 0b00);
+    assert_eq!(SecurityState::Secure.to_bits(), 0b01);
 }
 
 #[test]
 fn test_to_bits_nonsecure() {
-    assert_eq!(SecurityState::NonSecure.to_bits(), 0b01);
+    assert_eq!(SecurityState::NonSecure.to_bits(), 0b00);
 }
 
 #[test]
@@ -378,14 +404,16 @@ fn test_to_bits_realm() {
 
 #[test]
 fn test_from_bits_secure() {
-    let result = SecurityState::from_bits(0b00);
+    // ARM §3.10: Secure encodes as 0b01
+    let result = SecurityState::from_bits(0b01);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), SecurityState::Secure);
 }
 
 #[test]
 fn test_from_bits_nonsecure() {
-    let result = SecurityState::from_bits(0b01);
+    // ARM §3.10: NonSecure encodes as 0b00
+    let result = SecurityState::from_bits(0b00);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), SecurityState::NonSecure);
 }
@@ -613,7 +641,7 @@ fn test_root_is_root() {
 
 #[test]
 fn test_root_to_bits() {
-    // ARM RME 2-bit encoding: Secure=0b00, NonSecure=0b01, Realm=0b10, Root=0b11
+    // ARM §3.10 SEC_SID encoding: NonSecure=0b00, Secure=0b01, Realm=0b10, Root=0b11
     assert_eq!(SecurityState::Root.to_bits(), 0b11, "Root must encode as 0b11");
 }
 

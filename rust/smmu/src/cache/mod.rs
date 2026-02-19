@@ -191,8 +191,10 @@ impl CacheKeyHash {
         // Page number (IOVA >> 12) - uses remaining 24 bits
         let page = (key.iova.as_u64() >> 12) & 0xFF_FFFF;
 
-        // Combine all fields
-        let mut hash = stream | pasid | security | page;
+        // Combine all fields with a non-zero seed (FNV-1a offset basis) so
+        // all-zero inputs (e.g. stream=0, PASID=0, IOVA=0, NonSecure=0b00)
+        // never produce a zero hash value.
+        let mut hash = (stream | pasid | security | page) ^ 0xcbf2_9ce4_8422_2325_u64;
 
         // Fast mixing using bit rotation and XOR (murmur-like finalizer)
         // This provides good distribution with minimal operations
@@ -1858,12 +1860,13 @@ mod tests {
         let stream = (1u64) << 48;
         // PASID in next 20 bits
         let pasid = (2u64) << 26;
-        // Security state in middle 2 bits
+        // Security state in middle 2 bits (NonSecure=0b00=0 per §3.10)
         let security = ((SecurityState::NonSecure as u64) & 0x3) << 24;
         // Page number (IOVA >> 12) - 0x3000 >> 12 = 3
         let page = 3u64 & 0xFF_FFFF;
 
-        let mut expected = stream | pasid | security | page;
+        // XOR with FNV-1a offset basis seed (matches the implementation)
+        let mut expected = (stream | pasid | security | page) ^ 0xcbf2_9ce4_8422_2325_u64;
         expected ^= expected >> 33;
         expected = expected.wrapping_mul(0xff51_afd7_ed55_8ccd);
         expected ^= expected >> 33;
