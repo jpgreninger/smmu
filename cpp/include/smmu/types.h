@@ -463,18 +463,21 @@ enum class AccessType {
 
 /**
  * @enum SecurityState
- * @brief ARM security state enumeration
+ * @brief ARM SMMU v3 security state enumeration (§3.10)
  * @details Defines security context for memory transactions.
- *          Follows ARMv8-A security model with Realm support.
+ *          SMMUv3.3 RME adds Root state (0b11) with highest privilege.
+ *          2-bit encoding: NonSecure=0b01, Secure=0b00, Realm=0b10, Root=0b11.
  *          Used for access control and security fault detection.
  */
-enum class SecurityState {
-    /// @brief Non-secure state - normal world access
-    NonSecure,
-    /// @brief Secure state - secure world access
-    Secure,
-    /// @brief Realm state - confidential computing access
-    Realm
+enum class SecurityState : uint8_t {
+    /// @brief Secure state - secure world access (0b00 = 0x00)
+    Secure    = 0x00,
+    /// @brief Non-secure state - normal world access (0b01 = 0x01)
+    NonSecure = 0x01,
+    /// @brief Realm state - confidential computing access (0b10 = 0x02)
+    Realm     = 0x02,
+    /// @brief Root state - SMMUv3.3 RME highest privilege, can access all PA spaces (0b11 = 0x03)
+    Root      = 0x03
 };
 
 /**

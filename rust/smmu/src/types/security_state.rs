@@ -1,24 +1,26 @@
 //! Security state definitions for ARM SMMU v3
 //!
 //! This module implements ARM SMMU v3 security domains including support for
-//! ARM Confidential Compute Architecture (CCA) Realm.
+//! ARM Confidential Compute Architecture (CCA) Realm and SMMUv3.3 RME Root state.
 
 use crate::types::ValidationError;
 use core::fmt;
 
 /// Security state for ARM SMMU v3
 ///
-/// ARM SMMU v3 supports three security domains:
+/// ARM SMMU v3.3 (RME) supports four security domains per §3.10:
 /// - Secure: Trusted execution environment
 /// - NonSecure: Normal world
 /// - Realm: ARM CCA confidential compute (isolated from both Secure and NonSecure)
+/// - Root: Highest privilege (RME), can access all PA spaces
 ///
 /// # Encoding
 ///
-/// ARM SMMU v3 uses 2-bit encoding:
+/// ARM SMMU v3 uses 2-bit encoding (§3.10):
 /// - 0b00: Secure
 /// - 0b01: NonSecure
 /// - 0b10: Realm
+/// - 0b11: Root (SMMUv3.3 RME)
 ///
 /// # Example
 ///
@@ -34,6 +36,15 @@ use core::fmt;
 ///
 /// // NonSecure cannot access Secure
 /// assert!(!SecurityState::NonSecure.can_access(SecurityState::Secure));
+///
+/// // Root can access all states
+/// assert!(SecurityState::Root.can_access(SecurityState::Secure));
+/// assert!(SecurityState::Root.can_access(SecurityState::NonSecure));
+/// assert!(SecurityState::Root.can_access(SecurityState::Realm));
+/// assert!(SecurityState::Root.can_access(SecurityState::Root));
+///
+/// // No other state can access Root
+/// assert!(!SecurityState::Secure.can_access(SecurityState::Root));
 /// ```
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -47,6 +58,9 @@ pub enum SecurityState {
 
     /// Realm world (ARM CCA Confidential Compute)
     Realm = 0b10,
+
+    /// Root world (SMMUv3.3 RME — highest privilege, can access all PA spaces)
+    Root = 0b11,
 }
 
 impl SecurityState {
@@ -96,6 +110,22 @@ impl SecurityState {
         self.is_realm()
     }
 
+    /// Check if this is the Root state (SMMUv3.3 RME)
+    #[inline]
+    #[must_use]
+    pub const fn is_root(self) -> bool {
+        matches!(self, Self::Root)
+    }
+
+    /// Check if the security state is root (const version)
+    ///
+    /// This is a const-compatible version of `is_root()` for use in const contexts.
+    #[inline]
+    #[must_use]
+    pub const fn const_is_root(self) -> bool {
+        self.is_root()
+    }
+
     /// Check if a state transition is valid
     ///
     /// # ARM SMMU v3 Rules
@@ -125,20 +155,26 @@ impl SecurityState {
 
     /// Check if this state can access the target state
     ///
-    /// # ARM SMMU v3 Access Rules
+    /// # ARM SMMU v3 Access Rules (§3.10)
     ///
     /// - Same state can always access itself
     /// - Secure can access NonSecure (downgrade)
     /// - NonSecure cannot access Secure
     /// - Realm is completely isolated from both Secure and NonSecure
+    /// - Root (SMMUv3.3 RME) can access all PA spaces (Secure, NonSecure, Realm, Root)
+    /// - No other state can access Root PA space
     #[inline]
     #[must_use]
     pub const fn can_access(self, target: Self) -> bool {
         matches!(
             (self, target),
-            // Same state can always access itself
-            (Self::Secure, Self::Secure | Self::NonSecure)
+            // Root can access all PA spaces
+            (Self::Root, _)
+                // Secure can access Secure and NonSecure (downgrade)
+                | (Self::Secure, Self::Secure | Self::NonSecure)
+                // NonSecure can only access NonSecure
                 | (Self::NonSecure, Self::NonSecure)
+                // Realm can only access Realm
                 | (Self::Realm, Self::Realm)
         )
     }
@@ -170,12 +206,13 @@ impl SecurityState {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if bits are invalid (>= 0b11).
+    /// Returns `Err` if bits are invalid (> 0b11).
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
         match bits {
             0b00 => Ok(Self::Secure),
             0b01 => Ok(Self::NonSecure),
             0b10 => Ok(Self::Realm),
+            0b11 => Ok(Self::Root),
             _ => Err(ValidationError::InvalidSecurityState { bits }),
         }
     }
@@ -187,6 +224,7 @@ impl fmt::Display for SecurityState {
             Self::Secure => "Secure",
             Self::NonSecure => "NonSecure",
             Self::Realm => "Realm",
+            Self::Root => "Root",
         };
         write!(f, "{s}")
     }

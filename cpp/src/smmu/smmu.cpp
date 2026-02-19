@@ -1635,13 +1635,17 @@ bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState con
     switch (requestedState) {
         case SecurityState::NonSecure:
             return contextState == SecurityState::NonSecure;
-            
+
         case SecurityState::Secure:
             return (contextState == SecurityState::Secure || contextState == SecurityState::NonSecure);
-            
+
         case SecurityState::Realm:
             return contextState == SecurityState::Realm;
-            
+
+        case SecurityState::Root:
+            // Root (SMMUv3.3 RME §3.10) can access all PA spaces
+            return true;
+
         default:
             return false;
     }

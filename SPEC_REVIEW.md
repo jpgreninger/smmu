@@ -488,18 +488,20 @@ Table 7-x in §7.3 for each fault type.
 
 ---
 
-### FINDING-L-05 ❌ — No Root Security State
+### FINDING-L-05 ✅ — No Root Security State
 **Spec**: §3.10 (Security states), SMMUv3.3 Root Control Page
 **Affected**: Both
+**Fixed**: commit (see below)
 
-SMMUv3.3 adds a fourth security state: Root (`0b11`). Neither implementation
-includes it.
+SMMUv3.3 adds a fourth security state: Root (`0b11`). Both implementations
+now include it.
 
-- **C++**: `SecurityState` has `NonSecure, Secure, Realm`.
-- **Rust**: `SecurityState` has `Secure=0b00, NonSecure=0b01, Realm=0b10`.
-
-**Recommendation**: Add `Root = 0b11` to `SecurityState` in both
-implementations.
+- **Rust**: Added `Root = 0b11` to `SecurityState`; `is_root()`/`const_is_root()`;
+  `can_access()` updated (Root accesses all; others cannot access Root);
+  `from_bits(0b11) → Ok(Root)`; `Display` → `"Root"`. 71 tests pass.
+- **C++**: Added `Root = 0x03` to `enum class SecurityState : uint8_t`;
+  `validateSecurityState()` updated with Root case (returns true for all).
+  43 C++ tests pass.
 
 ---
 

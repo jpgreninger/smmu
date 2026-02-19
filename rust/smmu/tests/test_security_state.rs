@@ -399,11 +399,12 @@ fn test_from_bits_realm() {
 
 #[test]
 fn test_from_bits_invalid() {
-    let result = SecurityState::from_bits(0b11);
+    // 0b11 is now valid (Root); test 0b100 as the first truly invalid value
+    let result = SecurityState::from_bits(0b100);
     assert!(result.is_err());
 
     if let Err(ValidationError::InvalidSecurityState { bits }) = result {
-        assert_eq!(bits, 0b11);
+        assert_eq!(bits, 0b100);
     } else {
         panic!("Expected InvalidSecurityState error");
     }
@@ -595,6 +596,92 @@ fn test_realm_self_access_only() {
     // All other access is forbidden
     assert!(!SecurityState::Realm.can_access(SecurityState::Secure));
     assert!(!SecurityState::Realm.can_access(SecurityState::NonSecure));
+}
+
+// ============================================================================
+// FINDING-L-05: Root Security State (SMMUv3.3 RME §3.10) — FAILING before fix
+// ============================================================================
+
+#[test]
+fn test_root_is_root() {
+    let state = SecurityState::Root;
+    assert!(state.is_root(), "Root.is_root() must be true");
+    assert!(!state.is_secure());
+    assert!(!state.is_non_secure());
+    assert!(!state.is_realm());
+}
+
+#[test]
+fn test_root_to_bits() {
+    // ARM RME 2-bit encoding: Secure=0b00, NonSecure=0b01, Realm=0b10, Root=0b11
+    assert_eq!(SecurityState::Root.to_bits(), 0b11, "Root must encode as 0b11");
+}
+
+#[test]
+fn test_from_bits_root() {
+    // 0b11 must decode to Root (not an error)
+    let result = SecurityState::from_bits(0b11);
+    assert!(result.is_ok(), "from_bits(0b11) must return Ok(Root)");
+    assert_eq!(result.unwrap(), SecurityState::Root);
+}
+
+#[test]
+fn test_root_can_access_all_states() {
+    // Root is the most privileged state — it can access all PA spaces
+    assert!(SecurityState::Root.can_access(SecurityState::Root));
+    assert!(SecurityState::Root.can_access(SecurityState::Secure));
+    assert!(SecurityState::Root.can_access(SecurityState::NonSecure));
+    assert!(SecurityState::Root.can_access(SecurityState::Realm));
+}
+
+#[test]
+fn test_others_cannot_access_root() {
+    // No other state can access Root PA space
+    assert!(!SecurityState::Secure.can_access(SecurityState::Root));
+    assert!(!SecurityState::NonSecure.can_access(SecurityState::Root));
+    assert!(!SecurityState::Realm.can_access(SecurityState::Root));
+}
+
+#[test]
+fn test_root_display() {
+    assert_eq!(format!("{}", SecurityState::Root), "Root");
+}
+
+#[test]
+fn test_is_root_false_for_other_states() {
+    assert!(!SecurityState::Secure.is_root());
+    assert!(!SecurityState::NonSecure.is_root());
+    assert!(!SecurityState::Realm.is_root());
+}
+
+#[test]
+fn test_root_validate_access_allowed() {
+    assert!(SecurityState::Root.validate_access(SecurityState::Root).is_ok());
+    assert!(SecurityState::Root.validate_access(SecurityState::Secure).is_ok());
+    assert!(SecurityState::Root.validate_access(SecurityState::NonSecure).is_ok());
+    assert!(SecurityState::Root.validate_access(SecurityState::Realm).is_ok());
+}
+
+#[test]
+fn test_validate_access_to_root_denied() {
+    assert!(SecurityState::Secure.validate_access(SecurityState::Root).is_err());
+    assert!(SecurityState::NonSecure.validate_access(SecurityState::Root).is_err());
+    assert!(SecurityState::Realm.validate_access(SecurityState::Root).is_err());
+}
+
+#[test]
+fn test_from_bits_roundtrip_includes_root() {
+    let states = [
+        SecurityState::Secure,
+        SecurityState::NonSecure,
+        SecurityState::Realm,
+        SecurityState::Root,
+    ];
+    for state in &states {
+        let bits = state.to_bits();
+        let decoded = SecurityState::from_bits(bits).unwrap();
+        assert_eq!(*state, decoded, "roundtrip failed for {state:?}");
+    }
 }
 
 // ============================================================================
