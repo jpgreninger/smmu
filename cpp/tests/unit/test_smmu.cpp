@@ -3177,5 +3177,142 @@ TEST_F(SMMUTest, Task81_ARMSMMUv3SpecificationCompliance) {
     EXPECT_TRUE(smmuController->enableStream(0xb001).isOk());
 }
 
+// FINDING-M-01: Circular Queue PROD/CONS Semantics (ARM §3.5.1)
+// These tests MUST fail before the implementation is added.
+
+TEST(SMMUQueueIndexTest, CmdqInitiallyEmptyByIndex) {
+    smmu::SMMU s;
+    EXPECT_EQ(s.getCmdqProdIndex(), 0u);
+    EXPECT_EQ(s.getCmdqConsIndex(), 0u);
+    EXPECT_TRUE(s.isCmdqEmptyByIndex());
+    EXPECT_EQ(s.getCmdqOccupiedEntries(), 0u);
+}
+
+TEST(SMMUQueueIndexTest, EventqInitiallyEmptyByIndex) {
+    smmu::SMMU s;
+    EXPECT_EQ(s.getEventqProdIndex(), 0u);
+    EXPECT_EQ(s.getEventqConsIndex(), 0u);
+    EXPECT_TRUE(s.isEventqEmptyByIndex());
+    EXPECT_EQ(s.getEventqOccupiedEntries(), 0u);
+}
+
+TEST(SMMUQueueIndexTest, CmdqProdAdvancesOnSubmit) {
+    smmu::SMMU s;
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::TLBI_NH_ALL;
+    s.submitCommand(cmd);
+
+    EXPECT_EQ(s.getCmdqProdIndex(), 1u);
+    EXPECT_EQ(s.getCmdqConsIndex(), 0u);
+    EXPECT_FALSE(s.isCmdqEmptyByIndex());
+    EXPECT_EQ(s.getCmdqOccupiedEntries(), 1u);
+}
+
+TEST(SMMUQueueIndexTest, CmdqConsAdvancesOnProcess) {
+    smmu::SMMU s;
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::TLBI_NH_ALL;
+    s.submitCommand(cmd);
+
+    s.processCommandQueue();
+
+    EXPECT_EQ(s.getCmdqProdIndex(), 1u);
+    EXPECT_EQ(s.getCmdqConsIndex(), 1u);
+    EXPECT_TRUE(s.isCmdqEmptyByIndex());
+    EXPECT_EQ(s.getCmdqOccupiedEntries(), 0u);
+}
+
+TEST(SMMUQueueIndexTest, EventqProdAdvancesOnGenerate) {
+    smmu::SMMU s;
+    // Configure a minimal stream so generateEvent is reachable indirectly.
+    // We use submitCommand with SYNC which internally calls generateEvent.
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::SYNC;
+    s.submitCommand(cmd);
+    s.processCommandQueue();
+
+    // SYNC generates a COMMAND_SYNC_COMPLETION event via generateEvent
+    EXPECT_GE(s.getEventqProdIndex(), 1u);
+    EXPECT_EQ(s.getEventqConsIndex(), 0u);
+    EXPECT_FALSE(s.isEventqEmptyByIndex());
+}
+
+TEST(SMMUQueueIndexTest, CmdqIndicesResetOnClear) {
+    smmu::SMMU s;
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::TLBI_NH_ALL;
+    s.submitCommand(cmd);
+
+    s.clearCommandQueue();
+
+    EXPECT_EQ(s.getCmdqProdIndex(), 0u);
+    EXPECT_EQ(s.getCmdqConsIndex(), 0u);
+    EXPECT_TRUE(s.isCmdqEmptyByIndex());
+}
+
+TEST(SMMUQueueIndexTest, EventqIndicesResetOnClear) {
+    smmu::SMMU s;
+    // Generate an event via SYNC command processing
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::SYNC;
+    s.submitCommand(cmd);
+    s.processCommandQueue();
+
+    s.clearEventQueue();
+
+    EXPECT_EQ(s.getEventqProdIndex(), 0u);
+    EXPECT_EQ(s.getEventqConsIndex(), 0u);
+    EXPECT_TRUE(s.isEventqEmptyByIndex());
+}
+
+TEST(SMMUQueueIndexTest, CmdqLog2SizeForDefaultCapacity) {
+    smmu::SMMU s;
+    // Default command queue = 256 entries -> log2size = 8
+    EXPECT_EQ(s.getCmdqLog2Size(), 8u);
+    // Default event queue = 512 entries -> log2size = 9
+    EXPECT_EQ(s.getEventqLog2Size(), 9u);
+}
+
+TEST(SMMUQueueIndexTest, MultipleCommandsProdAdvancesByCount) {
+    smmu::SMMU s;
+    for (int i = 0; i < 5; ++i) {
+        smmu::CommandEntry cmd;
+        cmd.type = smmu::CommandType::TLBI_NH_ALL;
+        s.submitCommand(cmd);
+    }
+    EXPECT_EQ(s.getCmdqProdIndex(), 5u);
+    EXPECT_EQ(s.getCmdqOccupiedEntries(), 5u);
+
+    s.processCommandQueue();
+    EXPECT_EQ(s.getCmdqConsIndex(), 5u);
+    EXPECT_EQ(s.getCmdqProdIndex(), 5u);
+    EXPECT_EQ(s.getCmdqOccupiedEntries(), 0u);
+    EXPECT_TRUE(s.isCmdqEmptyByIndex());
+}
+
+TEST(SMMUQueueIndexTest, EventqConsAdvancesOnProcess) {
+    smmu::SMMU s;
+    // Produce two events via two SYNC commands
+    smmu::CommandEntry cmd1;
+    cmd1.type = smmu::CommandType::SYNC;
+    s.submitCommand(cmd1);
+    s.processCommandQueue(); // processes cmd1 and generates 1 event
+
+    smmu::CommandEntry cmd2;
+    cmd2.type = smmu::CommandType::SYNC;
+    s.submitCommand(cmd2);
+    s.processCommandQueue(); // processes cmd2 and generates 1 more event
+
+    uint32_t prodBefore = s.getEventqProdIndex();
+    EXPECT_GE(prodBefore, 2u);
+    EXPECT_EQ(s.getEventqConsIndex(), 0u);
+
+    s.processEventQueue();
+
+    // After processing all events, CONS should equal PROD
+    EXPECT_EQ(s.getEventqConsIndex(), prodBefore);
+    EXPECT_TRUE(s.isEventqEmptyByIndex());
+}
+
 } // namespace test
 } // namespace smmu

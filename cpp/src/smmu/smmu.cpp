@@ -8,6 +8,33 @@
 
 namespace smmu {
 
+// ARM §3.5.1: Circular queue index helpers (FINDING-M-01)
+
+// Compute LOG2SIZE: smallest k such that 2^k >= capacity (minimum 0).
+static uint32_t computeLog2Size(size_t capacity) {
+    if (capacity <= 1) return 0;
+    uint32_t k = 0;
+    size_t n = 1;
+    while (n < capacity) {
+        n <<= 1;
+        ++k;
+    }
+    return k;
+}
+
+// Advance a circular index by 1 per ARM §3.5.1.
+// The index cycles 0..2^(log2size+1)-1 then wraps to 0.
+static uint32_t advanceQueueIndex(uint32_t idx, uint32_t log2size) {
+    uint32_t modulus = 2u << log2size; // 2^(log2size+1)
+    return (idx + 1) % modulus;
+}
+
+// Compute number of occupied entries.
+static uint32_t queueOccupied(uint32_t prod, uint32_t cons, uint32_t log2size) {
+    uint32_t modulus = 2u << log2size;
+    return (prod - cons + modulus) % modulus;
+}
+
 // Default constructor - Initialize SMMU with default configuration
 SMMU::SMMU() 
     : faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
@@ -21,10 +48,20 @@ SMMU::SMMU()
       // Task 5.3: Initialize event and command processing queues using configuration
       maxEventQueueSize(configuration.getQueueConfiguration().eventQueueSize),
       maxCommandQueueSize(configuration.getQueueConfiguration().commandQueueSize),
-      maxPRIQueueSize(configuration.getQueueConfiguration().priQueueSize) {
+      maxPRIQueueSize(configuration.getQueueConfiguration().priQueueSize),
+      // FINDING-M-01: ARM §3.5.1 circular queue PROD/CONS indices
+      cmdqLog2Size(computeLog2Size(configuration.getQueueConfiguration().commandQueueSize)),
+      eventqLog2Size(computeLog2Size(configuration.getQueueConfiguration().eventQueueSize)),
+      priqLog2Size(computeLog2Size(configuration.getQueueConfiguration().priQueueSize)),
+      cmdqProd(0),
+      cmdqCons(0),
+      eventqProd(0),
+      eventqCons(0),
+      priqProd(0),
+      priqCons(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
-    
+
     // Task 5.3: Initialize empty queues for event and command processing
     eventQueue.clear();
     commandQueue.clear();
@@ -44,16 +81,26 @@ SMMU::SMMU(const SMMUConfiguration& config)
       // Task 5.3: Initialize event and command processing queues using configuration
       maxEventQueueSize(config.getQueueConfiguration().eventQueueSize),
       maxCommandQueueSize(config.getQueueConfiguration().commandQueueSize),
-      maxPRIQueueSize(config.getQueueConfiguration().priQueueSize) {
+      maxPRIQueueSize(config.getQueueConfiguration().priQueueSize),
+      // FINDING-M-01: ARM §3.5.1 circular queue PROD/CONS indices
+      cmdqLog2Size(computeLog2Size(config.getQueueConfiguration().commandQueueSize)),
+      eventqLog2Size(computeLog2Size(config.getQueueConfiguration().eventQueueSize)),
+      priqLog2Size(computeLog2Size(config.getQueueConfiguration().priQueueSize)),
+      cmdqProd(0),
+      cmdqCons(0),
+      eventqProd(0),
+      eventqCons(0),
+      priqProd(0),
+      priqCons(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
         configuration = SMMUConfiguration::createDefault();
     }
-    
+
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
-    
+
     // Task 5.3: Initialize empty queues for event and command processing
     eventQueue.clear();
     commandQueue.clear();
@@ -1244,6 +1291,8 @@ void SMMU::processEventQueue() {
         
         // Remove processed event
         eventQueue.pop_front();
+        // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
+        eventqCons = advanceQueueIndex(eventqCons, eventqLog2Size);
     }
 }
 
@@ -1271,6 +1320,9 @@ std::vector<EventEntry> SMMU::getEventQueue() const {
 void SMMU::clearEventQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     eventQueue.clear();
+    // ARM §3.5.1: Reset PROD/CONS indices on clear (FINDING-M-01)
+    eventqProd = 0;
+    eventqCons = 0;
 }
 
 size_t SMMU::getEventQueueSize() const {
@@ -1290,6 +1342,8 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
     CommandEntry timestampedCommand = command;
     timestampedCommand.timestamp = getCurrentTimestamp();
     commandQueue.push_back(timestampedCommand);
+    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)
+    cmdqProd = advanceQueueIndex(cmdqProd, cmdqLog2Size);
     return makeVoidSuccess();
 }
 
@@ -1302,6 +1356,8 @@ void SMMU::processCommandQueue() {
         // reference is not dangling when we inspect command.type afterwards.
         CommandEntry command = commandQueue.front();
         commandQueue.pop_front();
+        // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
+        cmdqCons = advanceQueueIndex(cmdqCons, cmdqLog2Size);
 
         // Process the command based on type
         processCommand(command);
@@ -1331,6 +1387,9 @@ size_t SMMU::getCommandQueueSize() const {
 void SMMU::clearCommandQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     commandQueue.clear();
+    // ARM §3.5.1: Reset PROD/CONS indices on clear (FINDING-M-01)
+    cmdqProd = 0;
+    cmdqCons = 0;
 }
 
 // Task 5.3: PRI Queue for Page Requests (Task 5.3.3)
@@ -1593,8 +1652,10 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (eventQueue.size() >= maxEventQueueSize) {
         eventQueue.pop_front();
+        // ARM §3.5.1: Overflow eviction counts as a consumer advance (FINDING-M-01)
+        eventqCons = advanceQueueIndex(eventqCons, eventqLog2Size);
     }
-    
+
     // Create new event
     EventEntry event;
     event.type = type;
@@ -1635,6 +1696,8 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     
     // Add to event queue
     eventQueue.push_back(event);
+    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)
+    eventqProd = advanceQueueIndex(eventqProd, eventqLog2Size);
 }
 
 uint64_t SMMU::getCurrentTimestamp() const {
@@ -2081,6 +2144,66 @@ VoidResult SMMU::validateConfigurationUpdate(const SMMUConfiguration& config) co
     (void)config.getQueueConfiguration(); // size checks happen in applyConfiguration
 
     return makeVoidSuccess();
+}
+
+// FINDING-M-01: ARM §3.5.1 Circular Queue PROD/CONS register accessor implementations
+
+uint32_t SMMU::getCmdqProdIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return cmdqProd;
+}
+
+uint32_t SMMU::getCmdqConsIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return cmdqCons;
+}
+
+uint32_t SMMU::getEventqProdIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return eventqProd;
+}
+
+uint32_t SMMU::getEventqConsIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return eventqCons;
+}
+
+uint32_t SMMU::getPriqProdIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return priqProd;
+}
+
+uint32_t SMMU::getPriqConsIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return priqCons;
+}
+
+bool SMMU::isCmdqEmptyByIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return cmdqProd == cmdqCons;
+}
+
+bool SMMU::isEventqEmptyByIndex() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return eventqProd == eventqCons;
+}
+
+uint32_t SMMU::getCmdqOccupiedEntries() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return queueOccupied(cmdqProd, cmdqCons, cmdqLog2Size);
+}
+
+uint32_t SMMU::getEventqOccupiedEntries() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return queueOccupied(eventqProd, eventqCons, eventqLog2Size);
+}
+
+uint32_t SMMU::getCmdqLog2Size() const {
+    return cmdqLog2Size;
+}
+
+uint32_t SMMU::getEventqLog2Size() const {
+    return eventqLog2Size;
 }
 
 } // namespace smmu

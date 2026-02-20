@@ -97,6 +97,22 @@ public:
     void clearPRIQueue();
     size_t getPRIQueueSize() const;
     
+    // ARM §3.5.1: Circular queue PROD/CONS register accessors (FINDING-M-01)
+    uint32_t getCmdqProdIndex() const;
+    uint32_t getCmdqConsIndex() const;
+    uint32_t getEventqProdIndex() const;
+    uint32_t getEventqConsIndex() const;
+    uint32_t getPriqProdIndex() const;
+    uint32_t getPriqConsIndex() const;
+
+    bool isCmdqEmptyByIndex() const;
+    bool isEventqEmptyByIndex() const;
+    uint32_t getCmdqOccupiedEntries() const;
+    uint32_t getEventqOccupiedEntries() const;
+
+    uint32_t getCmdqLog2Size() const;
+    uint32_t getEventqLog2Size() const;
+
     // Cache invalidation command handling (Task 5.3.4)
     void executeInvalidationCommand(const CommandEntry& command);
     void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid);
@@ -143,6 +159,22 @@ private:
     size_t maxEventQueueSize;
     size_t maxCommandQueueSize;
     size_t maxPRIQueueSize;
+
+    // ARM §3.5.1: Circular queue PROD/CONS indices
+    // LOG2SIZE values (computed from max queue size)
+    uint32_t cmdqLog2Size;     // log2(commandQueue capacity)
+    uint32_t eventqLog2Size;   // log2(eventQueue capacity)
+    uint32_t priqLog2Size;     // log2(priQueue capacity)
+
+    // Producer indices (advanced on enqueue)
+    uint32_t cmdqProd;         // CMDQ_PROD register equivalent
+    uint32_t eventqProd;       // EVENTQ_PROD register equivalent
+    uint32_t priqProd;         // PRIQ_PROD register equivalent
+
+    // Consumer indices (advanced on dequeue/process)
+    uint32_t cmdqCons;         // CMDQ_CONS register equivalent
+    uint32_t eventqCons;       // EVENTQ_CONS register equivalent
+    uint32_t priqCons;         // PRIQ_CONS register equivalent
 
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;

@@ -306,17 +306,22 @@ The SMMU must start disabled after reset.
 
 ## Medium Findings
 
-### FINDING-M-01 ❌ — Circular Queue PROD/CONS Semantics Not Implemented
+### FINDING-M-01 ✅ — Circular Queue PROD/CONS Semantics Not Implemented
 **Spec**: §3.5 (Command and Event queues), §3.5.1 (SMMU circular queues)
 **Affected**: Both
 
 Queues must use circular buffer semantics with Producer/Consumer index registers
 including a WRAP bit. The queue is empty when PROD == CONS.
 
-Both use `std::deque` (C++) / `VecDeque` (Rust) with no PROD/CONS index pair.
-
-**Recommendation**: Add explicit `prod_index: u32` and `cons_index: u32`
-(including wrap bit) to enable register-equivalent queue state queries.
+**Fixed**: Added explicit PROD/CONS index tracking alongside existing VecDeque/deque
+storage. Each queue (command, event, PRI) now carries `log2size`, `prod`, and `cons`
+u32 fields. Indices advance modulo 2^(log2size+1) per ARM §3.5.1. Empty condition:
+PROD == CONS. New public accessors expose all indices for register-equivalent queries.
+- **Rust**: 9 new tests pass. Fields in SMMU: `{queue}_log2size`, `{queue}_prod`,
+  `{queue}_cons`. Helpers: `compute_log2size()`, `advance_index()`, `queue_occupied()`.
+- **C++**: 10 new tests pass (44/44 total). Static helpers: `computeLog2Size()`,
+  `advanceQueueIndex()`, `queueOccupied()`. Both constructors initialize all 9 fields.
+  `generateEvent()` also advances `eventqCons` on the overflow eviction path.
 
 ---
 
@@ -646,7 +651,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 14. ~~FINDING-M-04 — Access Flag and Dirty State simulation~~ ✅ Fixed (Both)
 
 ### Medium-term (feature completeness)
-15. FINDING-M-01 — Circular queue PROD/CONS index semantics
+15. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
 16. FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling
 17. FINDING-M-06 — GERROR register conditions for command queue errors
 18. FINDING-L-04 — Validate fault syndrome register encoding against spec tables

@@ -64,7 +64,7 @@ use crate::types::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Cache-aligned atomic counter to prevent false sharing
@@ -192,6 +192,12 @@ pub struct SMMU {
     event_queue: Arc<RwLock<VecDeque<EventEntry>>>,
     event_queue_capacity: usize,
     event_count: AtomicU64,
+    /// Event queue LOG2SIZE (ARM §3.5.1)
+    eventq_log2size: u32,
+    /// Event queue producer index register (ARM §3.5.1)
+    eventq_prod: AtomicU32,
+    /// Event queue consumer index register (ARM §3.5.1)
+    eventq_cons: AtomicU32,
 
     /// Command queue (Section 5.3.2)
     ///
@@ -200,6 +206,12 @@ pub struct SMMU {
     command_queue: Arc<RwLock<VecDeque<CommandEntry>>>,
     command_queue_capacity: usize,
     command_count: AtomicU64,
+    /// Command queue LOG2SIZE (ARM §3.5.1)
+    cmdq_log2size: u32,
+    /// Command queue producer index register (ARM §3.5.1)
+    cmdq_prod: AtomicU32,
+    /// Command queue consumer index register (ARM §3.5.1)
+    cmdq_cons: AtomicU32,
 
     /// PRI queue (Section 5.3.3)
     ///
@@ -208,6 +220,12 @@ pub struct SMMU {
     pri_queue: Arc<RwLock<VecDeque<PRIEntry>>>,
     pri_queue_capacity: usize,
     pri_count: AtomicU64,
+    /// PRI queue LOG2SIZE (ARM §3.5.1)
+    priq_log2size: u32,
+    /// PRI queue producer index register (ARM §3.5.1)
+    priq_prod: AtomicU32,
+    /// PRI queue consumer index register (ARM §3.5.1)
+    priq_cons: AtomicU32,
 
     /// Cache invalidation counter
     ///
@@ -246,6 +264,46 @@ pub struct SMMU {
 }
 
 impl SMMU {
+    // ========================================================================
+    // ARM §3.5.1: Circular Queue Index Helpers (private)
+    // ========================================================================
+
+    /// Compute LOG2SIZE for a given capacity (next power-of-two exponent).
+    ///
+    /// If capacity is already a power of 2, log2size = log2(capacity).
+    /// Otherwise, log2size = ceil(log2(capacity)).
+    ///
+    /// Examples: 256 → 8, 512 → 9, 128 → 7.
+    fn compute_log2size(capacity: usize) -> u32 {
+        if capacity <= 1 {
+            return 0;
+        }
+        if capacity.is_power_of_two() {
+            // Exact power of 2: trailing_zeros gives log2.
+            capacity.trailing_zeros()
+        } else {
+            // Not a power of 2: use ceil(log2(capacity)).
+            // usize::BITS - leading_zeros gives floor(log2) + 1 for non-power-of-two.
+            usize::BITS - capacity.leading_zeros()
+        }
+    }
+
+    /// Advance a circular queue index by 1 (ARM §3.5.1 wrap semantics).
+    ///
+    /// The index cycles through 0..2^(log2size+1)-1 then wraps to 0.
+    fn advance_index(idx: u32, log2size: u32) -> u32 {
+        let modulus = 2u32 << log2size; // 2^(log2size+1)
+        (idx + 1) % modulus
+    }
+
+    /// Compute number of occupied entries in a circular queue.
+    ///
+    /// Uses modular subtraction so the result is always non-negative.
+    fn queue_occupied(prod: u32, cons: u32, log2size: u32) -> u32 {
+        let modulus = 2u32 << log2size;
+        prod.wrapping_sub(cons).wrapping_add(modulus) % modulus
+    }
+
     /// Create a new SMMU instance with default configuration
     ///
     /// Default configuration:
@@ -305,6 +363,10 @@ impl SMMU {
         let command_queue_capacity = queue_config.command_queue_size;
         let pri_queue_capacity = queue_config.pri_queue_size;
 
+        let eventq_log2size = Self::compute_log2size(event_queue_capacity);
+        let cmdq_log2size = Self::compute_log2size(command_queue_capacity);
+        let priq_log2size = Self::compute_log2size(pri_queue_capacity);
+
         // Create TLB cache with capacity from configuration
         let tlb_capacity = config.cache_config.tlb_cache_size;
         let tlb_cache = Arc::new(TlbCache::new(tlb_capacity, ReplacementPolicy::Lru));
@@ -321,12 +383,21 @@ impl SMMU {
             event_queue: Arc::new(RwLock::new(VecDeque::with_capacity(event_queue_capacity))),
             event_queue_capacity,
             event_count: AtomicU64::new(0),
+            eventq_log2size,
+            eventq_prod: AtomicU32::new(0),
+            eventq_cons: AtomicU32::new(0),
             command_queue: Arc::new(RwLock::new(VecDeque::with_capacity(command_queue_capacity))),
             command_queue_capacity,
             command_count: AtomicU64::new(0),
+            cmdq_log2size,
+            cmdq_prod: AtomicU32::new(0),
+            cmdq_cons: AtomicU32::new(0),
             pri_queue: Arc::new(RwLock::new(VecDeque::with_capacity(pri_queue_capacity))),
             pri_queue_capacity,
             pri_count: AtomicU64::new(0),
+            priq_log2size,
+            priq_prod: AtomicU32::new(0),
+            priq_cons: AtomicU32::new(0),
             invalidation_count: AtomicU64::new(0),
             tlb_cache,
             fault_timestamp_counter: AtomicU64::new(0),
@@ -1697,6 +1768,8 @@ impl SMMU {
         }
         queue.push_back(event);
         self.event_count.fetch_add(1, Ordering::Relaxed);
+        let prod = self.eventq_prod.load(Ordering::Relaxed);
+        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
         Ok(())
     }
 
@@ -1729,10 +1802,13 @@ impl SMMU {
 
     /// Clear all events from the queue
     ///
-    /// Removes all events atomically.
+    /// Removes all events atomically and resets PROD/CONS indices to 0
+    /// so that PROD == CONS (empty condition, ARM §3.5.1).
     pub fn clear_event_queue(&self) {
         let mut queue = self.event_queue.write().unwrap();
         queue.clear();
+        self.eventq_prod.store(0, Ordering::Release);
+        self.eventq_cons.store(0, Ordering::Release);
     }
 
     /// Get events filtered by event type
@@ -1782,6 +1858,8 @@ impl SMMU {
         }
         queue.push_back(command);
         self.command_count.fetch_add(1, Ordering::Relaxed);
+        let prod = self.cmdq_prod.load(Ordering::Relaxed);
+        self.cmdq_prod.store(Self::advance_index(prod, self.cmdq_log2size), Ordering::Release);
         Ok(())
     }
 
@@ -1800,7 +1878,13 @@ impl SMMU {
             // Pop one command at a time to avoid holding lock
             let command = {
                 let mut queue = self.command_queue.write().unwrap();
-                queue.pop_front()
+                let cmd = queue.pop_front();
+                if cmd.is_some() {
+                    let cons = self.cmdq_cons.load(Ordering::Relaxed);
+                    self.cmdq_cons
+                        .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
+                }
+                cmd
             };
 
             match command {
@@ -1835,10 +1919,105 @@ impl SMMU {
 
     /// Clear all commands from the queue
     ///
-    /// Removes all pending commands atomically.
+    /// Removes all pending commands atomically and resets PROD/CONS indices to 0
+    /// so that PROD == CONS (empty condition, ARM §3.5.1).
     pub fn clear_command_queue(&self) {
         let mut queue = self.command_queue.write().unwrap();
         queue.clear();
+        self.cmdq_prod.store(0, Ordering::Release);
+        self.cmdq_cons.store(0, Ordering::Release);
+    }
+
+    // ========================================================================
+    // ARM §3.5.1: Circular Queue PROD/CONS Register Accessors
+    // ========================================================================
+
+    /// Returns the raw CMDQ_PROD register value (ARM §6.3.25 semantics).
+    ///
+    /// Bits \[log2size-1:0\] = producer position, bit \[log2size\] = wrap bit.
+    #[must_use]
+    pub fn cmdq_prod_index(&self) -> u32 {
+        self.cmdq_prod.load(Ordering::Acquire)
+    }
+
+    /// Returns the raw CMDQ_CONS register value.
+    #[must_use]
+    pub fn cmdq_cons_index(&self) -> u32 {
+        self.cmdq_cons.load(Ordering::Acquire)
+    }
+
+    /// Returns the raw EVENTQ_PROD register value.
+    #[must_use]
+    pub fn eventq_prod_index(&self) -> u32 {
+        self.eventq_prod.load(Ordering::Acquire)
+    }
+
+    /// Returns the raw EVENTQ_CONS register value.
+    #[must_use]
+    pub fn eventq_cons_index(&self) -> u32 {
+        self.eventq_cons.load(Ordering::Acquire)
+    }
+
+    /// Returns the raw PRIQ_PROD register value.
+    #[must_use]
+    pub fn priq_prod_index(&self) -> u32 {
+        self.priq_prod.load(Ordering::Acquire)
+    }
+
+    /// Returns the raw PRIQ_CONS register value.
+    #[must_use]
+    pub fn priq_cons_index(&self) -> u32 {
+        self.priq_cons.load(Ordering::Acquire)
+    }
+
+    /// Returns true if the command queue is empty (PROD == CONS, ARM §3.5.1).
+    #[must_use]
+    pub fn is_cmdq_empty_by_index(&self) -> bool {
+        self.cmdq_prod.load(Ordering::Acquire) == self.cmdq_cons.load(Ordering::Acquire)
+    }
+
+    /// Returns true if the event queue is empty (PROD == CONS, ARM §3.5.1).
+    #[must_use]
+    pub fn is_eventq_empty_by_index(&self) -> bool {
+        self.eventq_prod.load(Ordering::Acquire) == self.eventq_cons.load(Ordering::Acquire)
+    }
+
+    /// Returns the number of entries in the command queue by PROD/CONS index.
+    #[must_use]
+    pub fn cmdq_occupied_entries(&self) -> u32 {
+        Self::queue_occupied(
+            self.cmdq_prod.load(Ordering::Acquire),
+            self.cmdq_cons.load(Ordering::Acquire),
+            self.cmdq_log2size,
+        )
+    }
+
+    /// Returns the number of entries in the event queue by PROD/CONS index.
+    #[must_use]
+    pub fn eventq_occupied_entries(&self) -> u32 {
+        Self::queue_occupied(
+            self.eventq_prod.load(Ordering::Acquire),
+            self.eventq_cons.load(Ordering::Acquire),
+            self.eventq_log2size,
+        )
+    }
+
+    /// Returns the command queue LOG2SIZE (determines index width and capacity).
+    #[must_use]
+    pub fn cmdq_log2size(&self) -> u32 {
+        self.cmdq_log2size
+    }
+
+    /// Returns the event queue LOG2SIZE.
+    #[must_use]
+    pub fn eventq_log2size(&self) -> u32 {
+        self.eventq_log2size
+    }
+
+    /// Returns the PRI queue LOG2SIZE.
+    #[must_use]
+    pub fn priq_log2size(&self) -> u32 {
+        self.priq_log2size
     }
 
     /// Process a single command
@@ -2665,5 +2844,125 @@ mod tests {
 
         assert_send::<SMMU>();
         assert_sync::<SMMU>();
+    }
+
+    // ========================================================================
+    // FINDING-M-01: Circular Queue PROD/CONS Semantics (ARM §3.5.1)
+    // ========================================================================
+
+    #[test]
+    fn test_cmdq_initially_empty_by_index() {
+        let smmu = SMMU::new();
+        assert_eq!(smmu.cmdq_prod_index(), 0);
+        assert_eq!(smmu.cmdq_cons_index(), 0);
+        assert!(smmu.is_cmdq_empty_by_index());
+        assert_eq!(smmu.cmdq_occupied_entries(), 0);
+    }
+
+    #[test]
+    fn test_eventq_initially_empty_by_index() {
+        let smmu = SMMU::new();
+        assert_eq!(smmu.eventq_prod_index(), 0);
+        assert_eq!(smmu.eventq_cons_index(), 0);
+        assert!(smmu.is_eventq_empty_by_index());
+        assert_eq!(smmu.eventq_occupied_entries(), 0);
+    }
+
+    #[test]
+    fn test_cmdq_prod_advances_on_submit() {
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+        let stream_id = StreamID::new(1).unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
+
+        let cmd = CommandEntry::new(CommandType::TlbiNhAll, 0, 0);
+        smmu.submit_command(cmd).unwrap();
+
+        assert_eq!(smmu.cmdq_prod_index(), 1);
+        assert_eq!(smmu.cmdq_cons_index(), 0);
+        assert!(!smmu.is_cmdq_empty_by_index());
+        assert_eq!(smmu.cmdq_occupied_entries(), 1);
+    }
+
+    #[test]
+    fn test_cmdq_cons_advances_on_process() {
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+        let stream_id = StreamID::new(1).unwrap();
+        smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
+
+        let cmd = CommandEntry::new(CommandType::TlbiNhAll, 0, 0);
+        smmu.submit_command(cmd).unwrap();
+        assert_eq!(smmu.cmdq_prod_index(), 1);
+
+        smmu.process_command_queue().unwrap();
+        assert_eq!(smmu.cmdq_cons_index(), 1);
+        assert!(smmu.is_cmdq_empty_by_index());
+        assert_eq!(smmu.cmdq_occupied_entries(), 0);
+    }
+
+    #[test]
+    fn test_eventq_prod_advances_on_submit() {
+        let smmu = SMMU::new();
+        let event = EventEntry::new(EventType::FTranslation, 0, 0, 0);
+        smmu.submit_event(event).unwrap();
+
+        assert_eq!(smmu.eventq_prod_index(), 1);
+        assert_eq!(smmu.eventq_cons_index(), 0);
+        assert!(!smmu.is_eventq_empty_by_index());
+        assert_eq!(smmu.eventq_occupied_entries(), 1);
+    }
+
+    #[test]
+    fn test_cmdq_prod_cons_index_after_clear() {
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+        let cmd = CommandEntry::new(CommandType::TlbiNhAll, 0, 0);
+        smmu.submit_command(cmd).unwrap();
+
+        smmu.clear_command_queue();
+        assert_eq!(smmu.cmdq_prod_index(), 0);
+        assert_eq!(smmu.cmdq_cons_index(), 0);
+        assert!(smmu.is_cmdq_empty_by_index());
+    }
+
+    #[test]
+    fn test_eventq_prod_cons_index_after_clear() {
+        let smmu = SMMU::new();
+        let event = EventEntry::new(EventType::FTranslation, 0, 0, 0);
+        smmu.submit_event(event).unwrap();
+
+        smmu.clear_event_queue();
+        assert_eq!(smmu.eventq_prod_index(), 0);
+        assert_eq!(smmu.eventq_cons_index(), 0);
+        assert!(smmu.is_eventq_empty_by_index());
+    }
+
+    #[test]
+    fn test_cmdq_log2size_for_default_capacity() {
+        let smmu = SMMU::new();
+        // Default command queue capacity = 256 → log2size = 8
+        assert_eq!(smmu.cmdq_log2size(), 8);
+        // Default event queue capacity = 512 → log2size = 9
+        assert_eq!(smmu.eventq_log2size(), 9);
+    }
+
+    #[test]
+    fn test_multiple_commands_prod_advances_by_count() {
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+
+        for _ in 0..5 {
+            let cmd = CommandEntry::new(CommandType::TlbiNhAll, 0, 0);
+            smmu.submit_command(cmd).unwrap();
+        }
+        assert_eq!(smmu.cmdq_prod_index(), 5);
+        assert_eq!(smmu.cmdq_occupied_entries(), 5);
+
+        smmu.process_command_queue().unwrap();
+        assert_eq!(smmu.cmdq_cons_index(), 5);
+        assert_eq!(smmu.cmdq_prod_index(), 5); // prod unchanged by processing
+        assert_eq!(smmu.cmdq_occupied_entries(), 0);
+        assert!(smmu.is_cmdq_empty_by_index());
     }
 }
