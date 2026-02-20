@@ -559,16 +559,28 @@ mitigation is not modeled.
 
 ---
 
-### FINDING-L-04 ❌ — Fault Syndrome Register Encoding Not Validated
+### FINDING-L-04 ✅ — Fault Syndrome Register Encoding Not Validated
 **Spec**: §7.3 (Event records — fault syndrome)
 **Affected**: C++
+**Fixed**: `cpp/src/smmu/smmu.cpp` — `encodeFaultSyndromeRegister` rewritten to emit
+the correct SMMU v3 §7.3 syndrome bit layout.
 
-The `FaultSyndrome` struct and `encodeFaultSyndromeRegister` function
-(`cpp/include/smmu/types.h`) have not been cross-validated against the
-per-event syndrome bit layouts defined in §7.3.x tables.
+The previous implementation used AArch64 ESR-style FSC codes (bits [5:0]) which
+have no basis in SMMU v3 event records. The two key bugs were:
+- RnW (read/write) was placed at bit [6] — spec mandates event record bit [99],
+  which normalises to syndromeRegister bit **[3]**.
+- InD (instruction/data) was placed at bit [8] — spec mandates event record bit [98],
+  which normalises to syndromeRegister bit **[2]**.
 
-**Recommendation**: Cross-validate `encodeFaultSyndromeRegister` output against
-Table 7-x in §7.3 for each fault type.
+The fixed bit layout per §7.3.13–7.3.16:
+- bit [2]: InD (event record bit [98])
+- bit [3]: RnW (event record bit [99])
+- bit [7]: S2 (event record bit [103]) — was already correct
+- bits [9:8]: CLASS — 00=IN, 01=TT, 10=CD (event record bits [105:104])
+- bits [17:16]: IMPL_DEF level
+
+Nine TDD spec tests in `cpp/tests/unit/test_fault_syndrome_spec.cpp` verify
+the corrected encoding; five of them were red before the fix.
 
 ---
 
@@ -682,7 +694,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 15. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
 16. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
 17. ~~FINDING-M-06 — GERROR register conditions for command queue errors~~ ✅ Fixed
-18. FINDING-L-04 — Validate fault syndrome register encoding against spec tables
+18. ~~FINDING-L-04 — Validate fault syndrome register encoding against spec tables~~ ✅ Fixed
 19. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
 
 ### Low-priority / document as limitation

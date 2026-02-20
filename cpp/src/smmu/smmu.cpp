@@ -1837,79 +1837,57 @@ FaultSyndrome SMMU::generateFaultSyndrome(FaultType faultType, FaultStage stage,
     return FaultSyndrome(syndromeRegister, stage, faultLevel, privLevel, accessClass, writeAccess, contextDescIndex);
 }
 
-uint32_t SMMU::encodeFaultSyndromeRegister(FaultType faultType, FaultStage stage, uint8_t level, 
+uint32_t SMMU::encodeFaultSyndromeRegister(FaultType faultType, FaultStage stage, uint8_t level,
                                           bool writeAccess, bool instructionFetch) const {
-    // ARM SMMU v3 fault syndrome register encoding
+    // ARM SMMU v3 §7.3 syndrome encoding: maps event record bits [127:96] to a
+    // 32-bit value (bit N = event record bit 96+N).
+    //
+    // Bit layout per §7.3.13–7.3.16:
+    //   [2]   InD  — instruction/data    (event bit [98])
+    //   [3]   RnW  — read/write          (event bit [99])
+    //   [7]   S2   — stage-2 fault       (event bit [103])
+    //   [9:8] CLASS — access class       (event bits [105:104])
+    //         00 = IN (input transaction)
+    //         01 = TT (translation table walk)
+    //         10 = CD (context descriptor fetch)
+    //   [17:16] IMPL_DEF level           (event bits [113:112])
     uint32_t syndrome = 0;
-    
-    // Bits [5:0] - Fault Status Code (FSC)
-    uint32_t fsc = 0;
+
+    // Bit [2]: InD — instruction fetch (1) or data access (0).
+    // Note: spec requires InD == 0 when RnW == 0.
+    if (instructionFetch) {
+        syndrome |= (1u << 2);
+    }
+
+    // Bit [3]: RnW — write (1) or read (0).
+    if (writeAccess) {
+        syndrome |= (1u << 3);
+    }
+
+    // Bit [7]: S2 — stage-2 fault indicator.
+    if (stage == FaultStage::Stage2Only || stage == FaultStage::BothStages) {
+        syndrome |= (1u << 7);
+    }
+
+    // Bits [9:8]: CLASS — access class.
+    uint32_t classVal = 0x00u;  // default: IN (input transaction)
     switch (faultType) {
-        case FaultType::TranslationFault:
-        case FaultType::Level0TranslationFault:
-        case FaultType::Level1TranslationFault:
-        case FaultType::Level2TranslationFault:
-        case FaultType::Level3TranslationFault:
-            fsc = 0x04 | (level & 0x03);  // Translation fault at level
-            break;
-        case FaultType::PermissionFault:
-            fsc = 0x0C | (level & 0x03);  // Permission fault at level
-            break;
-        case FaultType::AddressSizeFault:
-            fsc = 0x00;                   // Address size fault
-            break;
-        case FaultType::AccessFlagFault:
-            fsc = 0x08 | (level & 0x03);  // Access flag fault at level
-            break;
-        case FaultType::DirtyBitFault:
-            fsc = 0x30;                   // Dirty bit fault
-            break;
-        case FaultType::ExternalAbort:
-        case FaultType::SynchronousExternalAbort:
-            fsc = 0x10;                   // Synchronous external abort
-            break;
-        case FaultType::AsynchronousExternalAbort:
-            fsc = 0x11;                   // Asynchronous external abort
-            break;
-        case FaultType::TLBConflictFault:
-            fsc = 0x30;                   // TLB conflict resolution fault
-            break;
         case FaultType::ContextDescriptorFormatFault:
+            classVal = 0x02u;  // CD
+            break;
         case FaultType::TranslationTableFormatFault:
         case FaultType::StreamTableFormatFault:
-            fsc = 0x0A;                   // Format fault
-            break;
-        case FaultType::SecurityFault:
-            fsc = 0x20;                   // Security fault
+            classVal = 0x01u;  // TT
             break;
         default:
-            fsc = 0x02;                   // Debug fault (catch-all)
+            classVal = 0x00u;  // IN
             break;
     }
-    syndrome |= (fsc & 0x3F);
-    
-    // Bit 6 - Write not Read (WnR)
-    if (writeAccess) {
-        syndrome |= (1 << 6);
-    }
-    
-    // Bit 7 - Stage 2 fault (S2)
-    if (stage == FaultStage::Stage2Only || stage == FaultStage::BothStages) {
-        syndrome |= (1 << 7);
-    }
-    
-    // Bit 8 - Instruction fetch (INST)
-    if (instructionFetch) {
-        syndrome |= (1 << 8);
-    }
-    
-    // Bits [15:9] - Reserved (set to 0)
-    
-    // Bits [23:16] - Implementation defined
-    syndrome |= (0x42 << 16);  // ARM SMMU v3 implementation signature
-    
-    // Bits [31:24] - Reserved (set to 0)
-    
+    syndrome |= ((classVal & 0x03u) << 8);
+
+    // Bits [17:16]: IMPL_DEF — encode page-table level for diagnostics.
+    syndrome |= ((static_cast<uint32_t>(level) & 0x03u) << 16);
+
     return syndrome;
 }
 
