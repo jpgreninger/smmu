@@ -1384,6 +1384,16 @@ size_t SMMU::getCommandQueueSize() const {
     return commandQueue.size();
 }
 
+std::vector<CommandEntry> SMMU::getCommandQueue() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    std::vector<CommandEntry> commands;
+    commands.reserve(commandQueue.size());
+    for (const auto& cmd : commandQueue) {
+        commands.push_back(cmd);
+    }
+    return commands;
+}
+
 void SMMU::clearCommandQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     commandQueue.clear();
@@ -1402,6 +1412,8 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     PRIEntry timestampedRequest = request;
     timestampedRequest.timestamp = getCurrentTimestamp();
     priQueue.push_back(timestampedRequest);
+    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08)
+    priqProd = advanceQueueIndex(priqProd, priqLog2Size);
     generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, SecurityState::NonSecure);
 }
 
@@ -1427,6 +1439,8 @@ void SMMU::processPRIQueue() {
         response.startAddress = request.requestedAddress;
         response.endAddress = request.requestedAddress;
         response.timestamp = getCurrentTimestamp();
+        // ARM §8.3: Echo PRGIndex back in the response command (FINDING-M-08)
+        response.prgIndex = request.prgIndex;
         
         // Submit response command
         if (submitCommand(response)) {
@@ -1614,11 +1628,23 @@ void SMMU::processCommand(const CommandEntry& command) {
             executeInvalidationCommand(command);
             break;
 
-        case CommandType::PRI_RESP:
-            // Page Request Interface response
-            // ARM SMMU v3 spec: Handle PRI response completion
-            // Response processing is handled by PRI queue mechanism
+        case CommandType::PRI_RESP: {
+            // ARM §8.3: Find and complete the pending PRIEntry with matching
+            // streamID + prgIndex. Remove it from the PRI queue. (FINDING-M-08)
+            // processCommandQueue() holds queueMutex via recursive_mutex, so
+            // re-acquiring here is safe.
+            std::lock_guard<std::recursive_mutex> priLock(queueMutex);
+            for (auto it = priQueue.begin(); it != priQueue.end(); ++it) {
+                if (it->streamID == command.streamID && it->prgIndex == command.prgIndex) {
+                    priQueue.erase(it);
+                    priqCons = advanceQueueIndex(priqCons, priqLog2Size);
+                    break;
+                }
+            }
+            // If not found: PRGIndex is invalid — per ARM §8.3, this is a
+            // software error; no action taken (no event generated for simulation).
             break;
+        }
 
         case CommandType::RESUME:
             // Resume processing command

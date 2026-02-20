@@ -87,6 +87,7 @@ public:
     VoidResult submitCommand(const CommandEntry& command);
     void processCommandQueue();
     Result<bool> isCommandQueueFull() const;
+    std::vector<CommandEntry> getCommandQueue() const;
     size_t getCommandQueueSize() const;
     void clearCommandQueue();
     

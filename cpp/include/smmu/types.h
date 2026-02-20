@@ -1156,14 +1156,16 @@ struct CommandEntry {
     IOVA endAddress;
     uint32_t flags;
     uint64_t timestamp;
-    
-    CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0), 
-                    startAddress(0), endAddress(0), flags(0), timestamp(0) {
+    uint16_t prgIndex;  // ARM §8.3 PRGIndex — echoed back in CMD_PRI_RESP
+
+    CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
+                    startAddress(0), endAddress(0), flags(0), timestamp(0),
+                    prgIndex(0) {
     }
-    
-    CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end) 
-        : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end), 
-          flags(0), timestamp(0) {
+
+    CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
+        : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
+          flags(0), timestamp(0), prgIndex(0) {
     }
 };
 
@@ -1175,14 +1177,16 @@ struct PRIEntry {
     AccessType accessType;
     bool isLastRequest;
     uint64_t timestamp;
-    
-    PRIEntry() : streamID(0), pasid(0), requestedAddress(0), 
-                accessType(AccessType::Read), isLastRequest(false), timestamp(0) {
+    uint16_t prgIndex;  // ARM §8.2 PRGIndex — Page Request Group index
+
+    PRIEntry() : streamID(0), pasid(0), requestedAddress(0),
+                accessType(AccessType::Read), isLastRequest(false), timestamp(0),
+                prgIndex(0) {
     }
-    
-    PRIEntry(StreamID sid, PASID p, IOVA addr, AccessType access) 
-        : streamID(sid), pasid(p), requestedAddress(addr), accessType(access), 
-          isLastRequest(false), timestamp(0) {
+
+    PRIEntry(StreamID sid, PASID p, IOVA addr, AccessType access)
+        : streamID(sid), pasid(p), requestedAddress(addr), accessType(access),
+          isLastRequest(false), timestamp(0), prgIndex(0) {
     }
 };
 

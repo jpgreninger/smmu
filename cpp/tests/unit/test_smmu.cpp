@@ -3314,5 +3314,110 @@ TEST(SMMUQueueIndexTest, EventqConsAdvancesOnProcess) {
     EXPECT_TRUE(s.isEventqEmptyByIndex());
 }
 
+// FINDING-M-08: PRG Index tracking for PRI/PRI_RESP matching (ARM §8)
+
+TEST(SMMUPRGIndexTest, PRIEntryHasPRGIndexField) {
+    smmu::PRIEntry entry;
+    EXPECT_EQ(entry.prgIndex, 0u);
+}
+
+TEST(SMMUPRGIndexTest, PRIEntryPRGIndexConstructor) {
+    smmu::PRIEntry entry(1, 0, 0x1000, smmu::AccessType::Read);
+    EXPECT_EQ(entry.prgIndex, 0u);
+    entry.prgIndex = 42;
+    EXPECT_EQ(entry.prgIndex, 42u);
+}
+
+TEST(SMMUPRGIndexTest, CommandEntryHasPRGIndexField) {
+    smmu::CommandEntry cmd;
+    EXPECT_EQ(cmd.prgIndex, 0u);
+}
+
+TEST(SMMUPRGIndexTest, PRIRespMatchingRemovesPRIEntry) {
+    smmu::SMMU s;
+
+    smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
+    req.prgIndex = 7;
+    s.submitPageRequest(req);
+    ASSERT_EQ(s.getPRIQueue().size(), 1u);
+
+    // Issue CMD_PRI_RESP with matching stream_id + prgIndex
+    smmu::CommandEntry resp;
+    resp.type = smmu::CommandType::PRI_RESP;
+    resp.streamID = 1;
+    resp.prgIndex = 7;
+    ASSERT_TRUE(s.submitCommand(resp));
+    s.processCommandQueue();
+
+    // PRIEntry should be removed by the matching logic
+    EXPECT_EQ(s.getPRIQueue().size(), 0u);
+}
+
+TEST(SMMUPRGIndexTest, PRIRespNonMatchingIndexDoesNotClear) {
+    smmu::SMMU s;
+
+    smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
+    req.prgIndex = 7;
+    s.submitPageRequest(req);
+
+    smmu::CommandEntry resp;
+    resp.type = smmu::CommandType::PRI_RESP;
+    resp.streamID = 1;
+    resp.prgIndex = 99;  // wrong index
+    ASSERT_TRUE(s.submitCommand(resp));
+    s.processCommandQueue();
+
+    // PRIEntry with prgIndex=7 should still be in the queue
+    EXPECT_EQ(s.getPRIQueue().size(), 1u);
+}
+
+TEST(SMMUPRGIndexTest, ProcessPRIQueueEchesPRGIndexInResponse) {
+    smmu::SMMU s;
+
+    smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
+    req.prgIndex = 5;
+    s.submitPageRequest(req);
+
+    s.processPRIQueue();
+
+    // The generated response command should have prgIndex = 5
+    // Since the response is submitted to commandQueue, check it:
+    auto commands = s.getCommandQueue();
+    bool found = false;
+    for (const auto& cmd : commands) {
+        if (cmd.type == smmu::CommandType::PRI_RESP && cmd.prgIndex == 5) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "Expected PRI_RESP command with prgIndex=5";
+}
+
+TEST(SMMUPRGIndexTest, PRIQProdAdvancesOnSubmit) {
+    smmu::SMMU s;
+    EXPECT_EQ(s.getPriqProdIndex(), 0u);
+    smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
+    s.submitPageRequest(req);
+    EXPECT_EQ(s.getPriqProdIndex(), 1u);
+}
+
+TEST(SMMUPRGIndexTest, PRIQConsAdvancesOnPRIResp) {
+    smmu::SMMU s;
+
+    smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
+    req.prgIndex = 3;
+    s.submitPageRequest(req);
+    EXPECT_EQ(s.getPriqConsIndex(), 0u);
+
+    smmu::CommandEntry resp;
+    resp.type = smmu::CommandType::PRI_RESP;
+    resp.streamID = 1;
+    resp.prgIndex = 3;
+    s.submitCommand(resp);
+    s.processCommandQueue();
+
+    EXPECT_EQ(s.getPriqConsIndex(), 1u);
+}
+
 } // namespace test
 } // namespace smmu
