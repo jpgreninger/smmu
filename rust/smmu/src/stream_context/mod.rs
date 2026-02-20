@@ -80,6 +80,12 @@ pub struct StreamContext {
     /// No RwLock on AddressSpace since it's now lock-free with DashMap internally.
     pub(crate) pasid_map: DashMap<u32, Arc<AddressSpace>>,
 
+    /// PASID → ASID mapping — stores the CD.ASID value for each PASID (ARM §3.17).
+    /// Used to tag Stage-1 TLB entries and to resolve ASID for ASID-targeted
+    /// invalidation commands (`CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID`).
+    /// Default ASID for all PASIDs is 0.
+    pub(crate) pasid_asid_map: DashMap<u32, u16>,
+
     /// Stage-2 AddressSpace (shared across all PASIDs)
     /// RwLock allows concurrent reads with exclusive writes
     stage2_address_space: RwLock<Option<Arc<AddressSpace>>>,
@@ -130,6 +136,7 @@ impl StreamContext {
     pub fn new() -> Self {
         Self {
             pasid_map: DashMap::new(),
+            pasid_asid_map: DashMap::new(),
             stage2_address_space: RwLock::new(None),
             stage1_enabled: AtomicBool::new(true),
             stage2_enabled: AtomicBool::new(false),
@@ -191,6 +198,48 @@ impl StreamContext {
         self.pasid_map.insert(pasid_value, address_space);
 
         Ok(())
+    }
+
+    // ========================================================================
+    // ASID Management (CD.ASID per ARM §3.17)
+    // ========================================================================
+
+    /// Returns the ASID currently associated with the given PASID.
+    ///
+    /// Returns `0` if no ASID has been explicitly set (default per spec).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamContextError::PASIDNotFound`] if the PASID does not exist.
+    pub fn get_pasid_asid(&self, pasid: PASID) -> Result<u16, StreamContextError> {
+        let pasid_value = pasid.as_u32();
+        if !self.pasid_map.contains_key(&pasid_value) {
+            return Err(StreamContextError::PASIDNotFound(pasid_value));
+        }
+        Ok(self.pasid_asid_map.get(&pasid_value).map(|v| *v).unwrap_or(0))
+    }
+
+    /// Sets the ASID (CD.ASID) for the given PASID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamContextError::PASIDNotFound`] if the PASID does not exist.
+    pub fn set_pasid_asid(&self, pasid: PASID, asid: u16) -> Result<(), StreamContextError> {
+        let pasid_value = pasid.as_u32();
+        if !self.pasid_map.contains_key(&pasid_value) {
+            return Err(StreamContextError::PASIDNotFound(pasid_value));
+        }
+        self.pasid_asid_map.insert(pasid_value, asid);
+        Ok(())
+    }
+
+    /// Returns the ASID for the given PASID, or 0 if not set (infallible fast-path).
+    ///
+    /// Does not check whether the PASID exists; returns 0 for unknown PASIDs.
+    /// Used by the translate fast-path to tag TLB entries.
+    #[inline]
+    pub(crate) fn get_pasid_asid_or_default(&self, pasid: PASID) -> u16 {
+        self.pasid_asid_map.get(&pasid.as_u32()).map(|v| *v).unwrap_or(0)
     }
 
     /// Removes a PASID and its associated AddressSpace

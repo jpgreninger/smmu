@@ -147,6 +147,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -165,6 +166,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -183,6 +185,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -201,6 +204,7 @@ fn test_command_queue_submit_atc_inv() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -220,6 +224,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         end_address: 0x1000,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     let result = smmu.submit_command(command);
@@ -242,6 +247,7 @@ fn test_command_queue_submit_sync() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -260,6 +266,7 @@ fn test_command_queue_submit_prefetch_config() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -277,6 +284,7 @@ fn test_command_queue_submit_prefetch_addr() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -294,6 +302,7 @@ fn test_command_queue_submit_cfgi_ste() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -311,6 +320,7 @@ fn test_command_queue_submit_cfgi_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -328,6 +338,7 @@ fn test_command_queue_submit_pri_resp() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -345,6 +356,7 @@ fn test_command_queue_submit_resume() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -362,6 +374,7 @@ fn test_command_queue_process_single_tlbi() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     smmu.submit_command(command).unwrap();
@@ -390,6 +403,7 @@ fn test_command_queue_process_multiple_commands() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            asid: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -417,6 +431,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     smmu.submit_command(command).unwrap();
@@ -441,6 +456,7 @@ fn test_command_queue_process_sync_generates_event() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     };
 
     smmu.submit_command(command).unwrap();
@@ -475,6 +491,7 @@ fn test_command_queue_clear() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            asid: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -502,6 +519,7 @@ fn test_command_queue_is_full() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            asid: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -1062,6 +1080,7 @@ fn test_queue_statistics() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     })
     .unwrap();
 
@@ -1098,6 +1117,7 @@ fn test_cache_statistics_invalidation_count() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            asid: 0,
         })
         .unwrap();
     }
@@ -1132,6 +1152,7 @@ fn test_reset_queues_atomically() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        asid: 0,
     })
     .unwrap();
 

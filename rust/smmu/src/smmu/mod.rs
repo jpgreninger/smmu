@@ -672,6 +672,36 @@ impl SMMU {
         stream_context.create_pasid(pasid).map_err(SMMUError::from)
     }
 
+    /// Set the ASID (CD.ASID) for a PASID — ARM SMMU v3 §3.17, §4.4
+    ///
+    /// Configures the Address Space Identifier stored in the Context Descriptor
+    /// (CD Word 1[31:16]) for the given stream/PASID pair.  Stage-1 TLB entries
+    /// installed after this call will be tagged with the new ASID so that
+    /// `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID` commands can target them.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if stream or PASID is not found.
+    pub fn set_pasid_asid(&self, stream_id: StreamID, pasid: PASID, asid: u16) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.set_pasid_asid(pasid, asid).map_err(SMMUError::from)
+    }
+
+    /// Get the ASID (CD.ASID) currently set for a PASID — ARM SMMU v3 §3.17
+    ///
+    /// Returns the 16-bit ASID for the given stream/PASID pair.
+    /// Returns `0` if no ASID has been set (default).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if stream or PASID is not found.
+    pub fn get_pasid_asid(&self, stream_id: StreamID, pasid: PASID) -> Result<u16, SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.get_pasid_asid(pasid).map_err(SMMUError::from)
+    }
+
     /// Remove a PASID from a stream
     ///
     /// Removes a Process Address Space ID (PASID) from a stream context,
@@ -1197,10 +1227,15 @@ impl SMMU {
         let stream_value = stream_id.as_u32();
         let stream_guard = self.streams.get(&stream_value);
 
-        let result = if let Some(stream_ref) = stream_guard {
+        // Capture ASID (CD.ASID) while holding the stream guard, so TLB entries
+        // can be tagged for ASID-targeted invalidation (ARM §3.17, §4.4).
+        let (result, entry_asid) = if let Some(stream_ref) = stream_guard {
+            // Read ASID before calling translate() (both use the same stream_ref)
+            let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
             // Delegate to StreamContext for actual translation
             // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
-            stream_ref.value().translate(pasid, iova, access, security_state)
+            let r = stream_ref.value().translate(pasid, iova, access, security_state);
+            (r, asid)
         } else {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Record fault before returning error
@@ -1208,14 +1243,15 @@ impl SMMU {
             return Err(TranslationError::StreamNotConfigured);
         };
 
-        // On successful translation, populate TLB cache with the security state
-        // from the actual translation result (not the request's security_state).
+        // On successful translation, populate TLB cache tagged with CD.ASID so
+        // that CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID can selectively evict entries.
         if let Ok(ref data) = result {
-            let entry = CacheEntry::new_with_security(
+            let entry = CacheEntry::new_with_asid(
                 iova,
                 data.physical_address(),
                 data.permissions(),
                 data.security_state(),
+                entry_asid,
                 0,
             );
             self.tlb_cache.insert(cache_key, entry);
@@ -1656,12 +1692,15 @@ impl SMMU {
     #[allow(clippy::unnecessary_wraps)]
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
+            // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4)
+            CommandType::TlbiNhAsid | CommandType::TlbiEl2Asid => {
+                self.tlb_cache.invalidate_by_asid(command.asid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
             CommandType::TlbiNhAll
-            | CommandType::TlbiNhAsid
             | CommandType::TlbiNhVa
             | CommandType::TlbiNhVaa
             | CommandType::TlbiEl2All
-            | CommandType::TlbiEl2Asid
             | CommandType::TlbiEl2Va
             | CommandType::TlbiEl2Vaa
             | CommandType::TlbiNsnhAll => {

@@ -62,10 +62,14 @@ pub struct CacheEntry {
 
     /// Timestamp for LRU tracking
     pub timestamp: u64,
+
+    /// ASID (Address Space Identifier) from CD.ASID — used for ASID-targeted invalidation.
+    /// Defaults to 0 for Stage-2-only or bypass entries.
+    pub asid: u16,
 }
 
 impl CacheEntry {
-    /// Create a new cache entry with default security state
+    /// Create a new cache entry with default security state and ASID=0
     ///
     /// Security state defaults to NonSecure.
     #[inline]
@@ -76,10 +80,11 @@ impl CacheEntry {
             permissions,
             security_state: SecurityState::NonSecure,
             timestamp,
+            asid: 0,
         }
     }
 
-    /// Create a new cache entry with explicit security state
+    /// Create a new cache entry with explicit security state and ASID=0
     #[inline]
     pub const fn new_with_security(
         iova: IOVA,
@@ -94,6 +99,31 @@ impl CacheEntry {
             permissions,
             security_state,
             timestamp,
+            asid: 0,
+        }
+    }
+
+    /// Create a new cache entry with explicit security state and ASID.
+    ///
+    /// Used for Stage-1 TLB entries that must be tagged with CD.ASID
+    /// per ARM SMMU v3 §3.17 so that `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID`
+    /// can perform ASID-targeted invalidation.
+    #[inline]
+    pub const fn new_with_asid(
+        iova: IOVA,
+        physical_address: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+        asid: u16,
+        timestamp: u64,
+    ) -> Self {
+        Self {
+            iova,
+            physical_address,
+            permissions,
+            security_state,
+            timestamp,
+            asid,
         }
     }
 }
@@ -106,6 +136,7 @@ impl Default for CacheEntry {
             permissions: PagePermissions::none(),
             security_state: SecurityState::NonSecure,
             timestamp: 0,
+            asid: 0,
         }
     }
 }
@@ -848,6 +879,39 @@ impl TlbCache {
         for key in keys_to_remove {
             self.remove_entry(&key);
             removed_count += 1;
+        }
+
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all Stage-1 TLB entries tagged with the given ASID.
+    ///
+    /// Implements `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID` per ARM SMMU v3 §4.4.
+    /// Only entries whose `CacheEntry::asid` matches `target_asid` are evicted;
+    /// all other entries remain cached.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_asid` - The 16-bit ASID to invalidate (CD.ASID, §3.17)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_by_asid(42);
+    /// ```
+    pub fn invalidate_by_asid(&self, target_asid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        // Scan all entries; evict those tagged with the target ASID.
+        for entry in self.entries.iter() {
+            if entry.value().asid == target_asid {
+                keys_to_remove.push(*entry.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
         }
 
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);

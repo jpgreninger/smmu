@@ -91,6 +91,9 @@ pub struct CommandEntry {
     pub flags: u32,
     /// Command timestamp
     pub timestamp: u64,
+    /// Target ASID for `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID` (ARM §4.4).
+    /// Ignored by other command types.
+    pub asid: u16,
 }
 
 impl CommandEntry {
@@ -105,6 +108,7 @@ impl CommandEntry {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            asid: 0,
         }
     }
 }

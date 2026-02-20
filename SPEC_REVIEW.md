@@ -321,19 +321,25 @@ VMID. Support `CMD_TLBI_S12_VMALL` VMID-targeted invalidation.
 
 ---
 
-### FINDING-M-03 ❌ — ASID Not Tracked in TLB Entries
+### FINDING-M-03 ✅ — ASID Not Tracked in TLB Entries (Rust Fixed)
 **Spec**: §3.17 (TLB tagging, VMIDs, ASIDs), §4.4 (TLB invalidation)
-**Affected**: Both
+**Affected**: Both (C++ still open)
 
 Stage-1 TLB entries must be tagged with the ASID from the Context Descriptor
 (CD.ASID, Word 1[31:16]). `CMD_TLBI_NH_ASID` invalidates by ASID.
 
-- **C++**: `TLBEntry` struct has no `asid` field.
-- **Rust**: `CacheKey::new(stream_id, pasid, iova, security_state)` — no ASID
-  parameter.
+- **C++**: `TLBEntry` struct has no `asid` field. ❌ Still open.
+- **Rust**: ✅ Fixed — `CacheEntry` now carries `asid: u16` (CD.ASID). Added
+  `CacheEntry::new_with_asid()` constructor and `TlbCache::invalidate_by_asid()`
+  that scans entries by ASID tag. `CommandEntry` has `asid: u16` field.
+  `StreamContext` stores per-PASID ASID in `pasid_asid_map: DashMap<u32, u16>`;
+  `get_pasid_asid()` / `set_pasid_asid()` exposed on `StreamContext` and `SMMU`.
+  `translate()` tags new TLB entries with `get_pasid_asid_or_default()`.
+  `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID` dispatch to `invalidate_by_asid()`
+  instead of global flush. 11 spec tests in `test_asid_tlb_spec.rs` pass.
 
-**Recommendation**: Add ASID field to TLB cache entries and implement
-ASID-targeted invalidation.
+**Recommendation**: Add ASID field to C++ TLBEntry and implement ASID-targeted
+invalidation in the C++ implementation.
 
 ---
 
@@ -589,7 +595,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 
 ### Short-term (behavioural conformance)
 7. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
-8. FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation
+8. ~~FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation~~ ✅ Fixed (Rust)
 9. FINDING-M-02 — Add VMID to STE config and TLB entries
 10. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking
 11. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
