@@ -261,9 +261,45 @@ pub struct SMMU {
     /// Wrapping increment ensures unique STAGs for up to 65 535 concurrent
     /// stalls before wrap-around.
     stag_counter: AtomicU16,
+
+    /// Global error register (SMMU_GERROR, ARM §6.3.17).
+    ///
+    /// Bit-field of global error conditions:
+    ///   Bit 0:  SFE            — Service Fault Enable error
+    ///   Bit 2:  MSI_ABT_ERR    — MSI transaction aborted
+    ///   Bit 4:  PRIQ_ABT_ERR   — PRI queue aborted
+    ///   Bit 5:  EVENTQ_ABT_ERR — Event queue aborted
+    ///   Bit 7:  CMDQ_ERR       — Command queue processing error (key)
+    ///   Bit 8:  CMDQ_ABT_ERR   — Command queue aborted
+    ///
+    /// Set by the SMMU when a global error is detected (e.g., command error).
+    /// Cleared by software writing to SMMU_GERRORN (see `clear_gerror()`).
+    gerror: AtomicU32,
 }
 
 impl SMMU {
+    // ========================================================================
+    // ARM §6.3.17: SMMU_GERROR bit constants (public for downstream testing)
+    // ========================================================================
+
+    /// GERROR bit 0: SFE — Service Fault Enable error (§6.3.17)
+    pub const GERROR_SFE: u32            = 1 << 0;
+    /// GERROR bit 2: MSI_ABT_ERR — MSI transaction aborted (§6.3.17)
+    pub const GERROR_MSI_ABT_ERR: u32    = 1 << 2;
+    /// GERROR bit 4: PRIQ_ABT_ERR — PRI queue transaction aborted (§6.3.17)
+    pub const GERROR_PRIQ_ABT_ERR: u32   = 1 << 4;
+    /// GERROR bit 5: EVENTQ_ABT_ERR — Event queue transaction aborted (§6.3.17)
+    pub const GERROR_EVENTQ_ABT_ERR: u32 = 1 << 5;
+    /// GERROR bit 7: CMDQ_ERR — Command queue processing error (§6.3.17)
+    ///
+    /// Set when the SMMU detects an error during command processing (e.g.,
+    /// unsupported command opcode, C_BAD_STREAMID) and halts the command queue.
+    /// Software must clear this bit (via `clear_gerror`) before command
+    /// processing can resume.
+    pub const GERROR_CMDQ_ERR: u32       = 1 << 7;
+    /// GERROR bit 8: CMDQ_ABT_ERR — Command queue bus transaction aborted (§6.3.17)
+    pub const GERROR_CMDQ_ABT_ERR: u32   = 1 << 8;
+
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
     // ========================================================================
@@ -403,6 +439,7 @@ impl SMMU {
             fault_timestamp_counter: AtomicU64::new(0),
             stall_queue: DashMap::new(),
             stag_counter: AtomicU16::new(1),
+            gerror: AtomicU32::new(0),
         }
     }
 
@@ -537,6 +574,49 @@ impl SMMU {
         self.check_shutdown()?;
         self.enabled.store(false, Ordering::Release);
         Ok(())
+    }
+
+    // ========================================================================
+    // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model
+    // ========================================================================
+
+    /// Read SMMU_GERROR — global error status register (ARM §6.3.17).
+    ///
+    /// Returns the current value of the GERROR register. Non-zero indicates
+    /// one or more global error conditions are active.  Bit positions:
+    /// - Bit 7 (`GERROR_CMDQ_ERR`): command queue processing error
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert_eq!(smmu.get_gerror(), 0, "GERROR must be zero after reset");
+    /// ```
+    #[must_use]
+    pub fn get_gerror(&self) -> u32 {
+        self.gerror.load(Ordering::Acquire)
+    }
+
+    /// Write to SMMU_GERRORN — clear GERROR bits (ARM §6.3.18).
+    ///
+    /// Clears only the bits specified in `bits`.  Other GERROR bits are
+    /// unaffected.  This mirrors the hardware semantics of writing a 1 to
+    /// each bit position in SMMU_GERRORN to acknowledge and clear the
+    /// corresponding GERROR bit.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);   // ack command queue error
+    /// assert_eq!(smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR, 0);
+    /// ```
+    pub fn clear_gerror(&self, bits: u32) {
+        self.gerror.fetch_and(!bits, Ordering::Release);
     }
 
     /// Configure a stream with specified configuration
@@ -1889,7 +1969,12 @@ impl SMMU {
 
             match command {
                 Some(cmd) => {
-                    self.process_single_command(cmd)?;
+                    // ARM §6.3.17: set CMDQ_ERR and halt queue on command
+                    // processing error (FINDING-M-06).
+                    if let Err(e) = self.process_single_command(cmd) {
+                        self.gerror.fetch_or(Self::GERROR_CMDQ_ERR, Ordering::Release);
+                        return Err(e);
+                    }
                     processed += 1;
                 },
                 None => break,
@@ -2160,10 +2245,34 @@ impl SMMU {
                         .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
                 }
             },
-            _ => {
-                // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll —
-                // no side-effect processing required
+            // CMD_CFGI_STE (§4.3.1): invalidate STE for a specific stream.
+            // ARM §4.3.1: if the SID is unknown, this is a C_BAD_STREAMID error
+            // that sets CMDQ_ERR and halts command queue processing (FINDING-M-06).
+            CommandType::CfgiSte => {
+                if !self.streams.contains_key(&command.stream_id) && command.stream_id != 0 {
+                    // Generate C_BAD_STREAMID event and set CMDQ_ERR
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::CBadStreamid,
+                        stream_id: command.stream_id,
+                        pasid: command.pasid,
+                        address: 0,
+                        security_state: SecurityState::NonSecure,
+                        error_code: 0x03,  // C_BAD_STREAMID opcode per §7.3.3
+                        timestamp,
+                    };
+                    let _ = self.submit_event(event);
+                    return Err(SMMUError::InvalidCommandParameters(format!(
+                        "CMD_CFGI_STE: unknown stream_id {}", command.stream_id
+                    )));
+                }
+                // Known stream (or stream_id==0): no TLB state to flush in this model.
             },
+            // CMD_CFGI_ALL, CMD_PREFETCH_CONFIG, CMD_PREFETCH_ADDR —
+            // no side-effect processing required in the software model.
+            CommandType::CfgiAll
+            | CommandType::PrefetchConfig
+            | CommandType::PrefetchAddr => {},
         }
 
         Ok(())

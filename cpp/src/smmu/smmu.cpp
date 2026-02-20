@@ -58,7 +58,8 @@ SMMU::SMMU()
       eventqProd(0),
       eventqCons(0),
       priqProd(0),
-      priqCons(0) {
+      priqCons(0),
+      gerrorStatus(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -91,7 +92,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       eventqProd(0),
       eventqCons(0),
       priqProd(0),
-      priqCons(0) {
+      priqCons(0),
+      gerrorStatus(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -580,6 +582,9 @@ void SMMU::reset() {
     clearEventQueue();
     clearCommandQueue();
     clearPRIQueue();
+
+    // ARM §6.3.17: Reset global error register (FINDING-M-06)
+    gerrorStatus = 0;
 }
 
 // Helper methods
@@ -1664,10 +1669,23 @@ void SMMU::processCommand(const CommandEntry& command) {
             break;
             
         default:
-            // Unknown command type
+            // Unknown command type — ARM §6.3.17: set CMDQ_ERR (FINDING-M-06)
+            gerrorStatus |= GERROR_CMDQ_ERR;
             generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
     }
+}
+
+// ARM §6.3.17: Read SMMU_GERROR register (FINDING-M-06)
+uint32_t SMMU::getGerror() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return gerrorStatus;
+}
+
+// ARM §6.3.18: Clear SMMU_GERROR bits by writing to SMMU_GERRORN (FINDING-M-06)
+void SMMU::clearGerror(uint32_t bits) {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    gerrorStatus &= ~bits;
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address, SecurityState securityState) {

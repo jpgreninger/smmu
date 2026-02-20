@@ -119,6 +119,10 @@ public:
     void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid);
     void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr);
     
+    // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model (FINDING-M-06)
+    uint32_t getGerror() const;
+    void clearGerror(uint32_t bits);
+
     // Statistics and debugging
     size_t getStreamCount() const;
     uint64_t getTotalTranslations() const;
@@ -176,6 +180,9 @@ private:
     uint32_t cmdqCons;         // CMDQ_CONS register equivalent
     uint32_t eventqCons;       // EVENTQ_CONS register equivalent
     uint32_t priqCons;         // PRIQ_CONS register equivalent
+
+    // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
+    uint32_t gerrorStatus;     // global error flags; cleared by clearGerror()
 
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;

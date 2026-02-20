@@ -400,7 +400,7 @@ When STE.Config indicates a disabled/abort stream, transactions must generate an
 
 ---
 
-### FINDING-M-06 ❌ — No GERROR Register Modeling
+### FINDING-M-06 ✅ — No GERROR Register Modeling
 **Spec**: §6.3.17 (SMMU_GERROR), §7.5 (Global error recording)
 **Affected**: Both
 
@@ -408,8 +408,27 @@ SMMU_GERROR bits indicate global error conditions (SFE, MSI_ABT_ERR,
 PRIQ_ABT_ERR, EVENTQ_ABT_ERR, CMDQ_ERR, CMDQ_ABT_ERR). Neither implementation
 sets CMDQ_ERR when a command error occurs.
 
-**Recommendation**: Add a GERROR status register abstraction. Set CMDQ_ERR when
-a command error occurs. Fire interrupt notifications when configured.
+**Fix**: Added SMMU_GERROR register abstraction to both implementations.
+- **Bit constants** defined for all §6.3.17 fields: `GERROR_SFE` (bit 0),
+  `GERROR_MSI_ABT_ERR` (bit 2), `GERROR_PRIQ_ABT_ERR` (bit 4),
+  `GERROR_EVENTQ_ABT_ERR` (bit 5), `GERROR_CMDQ_ERR` (bit 7),
+  `GERROR_CMDQ_ABT_ERR` (bit 8).
+- **`gerror` / `gerrorStatus` field** (AtomicU32 / uint32_t) initialised to 0
+  after construction and reset.
+- **`get_gerror()` / `getGerror()`** reads the current GERROR value.
+- **`clear_gerror(bits)` / `clearGerror(bits)`** clears only the specified bits
+  (SMMU_GERRORN write semantics per §6.3.18).
+- **CMDQ_ERR set on command error**:
+  - **Rust**: `process_command_queue()` sets `GERROR_CMDQ_ERR` atomically when
+    `process_single_command()` returns an error and halts the queue. `CMD_CFGI_STE`
+    with an unrecognised stream ID generates a `C_BAD_STREAMID` event and returns
+    an error (ARM §4.3.1 CONSTRAINED UNPREDICTABLE path), triggering the halt.
+  - **C++**: `processCommand()` `default:` arm (unknown command opcode) sets
+    `gerrorStatus |= GERROR_CMDQ_ERR` in addition to generating `C_BAD_STE`.
+    `reset()` clears `gerrorStatus`.
+- **Tests**: 11 Rust spec tests in `tests/test_gerror_spec.rs`; 11 C++ spec
+  tests in `cpp/tests/unit/test_gerror_spec.cpp` — all pass with zero
+  regressions (45/45 C++, 157/157 Rust).
 
 ---
 
@@ -662,7 +681,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 ### Medium-term (feature completeness)
 15. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
 16. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
-17. FINDING-M-06 — GERROR register conditions for command queue errors
+17. ~~FINDING-M-06 — GERROR register conditions for command queue errors~~ ✅ Fixed
 18. FINDING-L-04 — Validate fault syndrome register encoding against spec tables
 19. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
 

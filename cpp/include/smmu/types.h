@@ -1122,6 +1122,15 @@ struct CacheStatistics {
     }
 };
 
+// ARM §6.3.17: SMMU_GERROR bit constants (FINDING-M-06)
+// Set by hardware; cleared by software writing to SMMU_GERRORN.
+static constexpr uint32_t GERROR_SFE            = (1u << 0);  ///< bit 0: Service Fault Enable error
+static constexpr uint32_t GERROR_MSI_ABT_ERR    = (1u << 2);  ///< bit 2: MSI transaction aborted
+static constexpr uint32_t GERROR_PRIQ_ABT_ERR   = (1u << 4);  ///< bit 4: PRI queue aborted
+static constexpr uint32_t GERROR_EVENTQ_ABT_ERR = (1u << 5);  ///< bit 5: Event queue aborted
+static constexpr uint32_t GERROR_CMDQ_ERR       = (1u << 7);  ///< bit 7: Command queue processing error
+static constexpr uint32_t GERROR_CMDQ_ABT_ERR   = (1u << 8);  ///< bit 8: Command queue aborted
+
 // Task 5.3: Event and Command Processing - Command types for SMMU command queue
 // Opcode values match ARM IHI0070G.b §4.1.1 exactly.
 enum class CommandType {
