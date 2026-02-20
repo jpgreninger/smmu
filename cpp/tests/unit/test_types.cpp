@@ -186,5 +186,38 @@ TEST_F(TypesTest, PASIDRange) {
     EXPECT_GT(invalidPASID, MAX_PASID);
 }
 
+// FINDING-M-04: PageEntry default Access Flag and Dirty State fields
+TEST_F(TypesTest, PageEntryDefaultAccessFlagFalse) {
+    PageEntry entry;
+    EXPECT_FALSE(entry.accessFlag);
+    EXPECT_FALSE(entry.dirty);
+}
+
+TEST_F(TypesTest, PageEntryConstructorWithPaAndPermsHasDefaultFlags) {
+    PagePermissions perms(true, true, false);
+    PageEntry entry(0x40000000ULL, perms);
+    EXPECT_FALSE(entry.accessFlag);
+    EXPECT_FALSE(entry.dirty);
+}
+
+TEST_F(TypesTest, PageEntryConstructorWithSecStateHasDefaultFlags) {
+    PagePermissions perms(true, true, false);
+    PageEntry entry(0x40000000ULL, perms, SecurityState::NonSecure);
+    EXPECT_FALSE(entry.accessFlag);
+    EXPECT_FALSE(entry.dirty);
+}
+
+TEST_F(TypesTest, ContextDescriptorDefaultHaHdFalse) {
+    ContextDescriptor cd;
+    EXPECT_FALSE(cd.ha);
+    EXPECT_FALSE(cd.hd);
+}
+
+TEST_F(TypesTest, StreamConfigDefaultHaHdFalse) {
+    StreamConfig config;
+    EXPECT_FALSE(config.ha);
+    EXPECT_FALSE(config.hd);
+}
+
 } // namespace test
 } // namespace smmu

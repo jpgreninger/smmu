@@ -2230,5 +2230,154 @@ TEST_F(StreamContextTest, StatisticsAccuracyValidation) {
     EXPECT_GT(finalStats.lastAccessTimestamp, initialStats.creationTimestamp);
 }
 
+// ==========================================================================
+// FINDING-M-04: Hardware Access Flag and Dirty State management (ARM §3.13)
+// ==========================================================================
+
+// HA/HD setter and getter methods exist and work correctly
+TEST_F(StreamContextTest, HardwareAccessFlagSetterGetter) {
+    EXPECT_FALSE(streamContext->isHardwareAccessFlagEnabled());
+    streamContext->setHardwareAccessFlag(true);
+    EXPECT_TRUE(streamContext->isHardwareAccessFlagEnabled());
+    streamContext->setHardwareAccessFlag(false);
+    EXPECT_FALSE(streamContext->isHardwareAccessFlagEnabled());
+}
+
+TEST_F(StreamContextTest, HardwareDirtyStateSetterGetter) {
+    EXPECT_FALSE(streamContext->isHardwareDirtyStateEnabled());
+    streamContext->setHardwareDirtyState(true);
+    EXPECT_TRUE(streamContext->isHardwareDirtyStateEnabled());
+    streamContext->setHardwareDirtyState(false);
+    EXPECT_FALSE(streamContext->isHardwareDirtyStateEnabled());
+}
+
+// After translate with ha=true, AF is set in the address space
+TEST_F(StreamContextTest, HardwareAccessFlagSetAfterTranslate) {
+    streamContext->setHardwareAccessFlag(true);
+    streamContext->setStage1Enabled(true);
+
+    PASID pasid = 0;
+    streamContext->createPASID(pasid);
+
+    IOVA iova = 0x1000;
+    PA pa = 0x2000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+
+    streamContext->mapPage(pasid, iova, pa, perms);
+
+    // Before translate: AF should be false
+    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    ASSERT_NE(as, nullptr);
+    EXPECT_FALSE(as->getPageAccessFlag(iova));
+
+    // Translate triggers AF update
+    TranslationResult result = streamContext->translate(pasid, iova, AccessType::Read);
+    EXPECT_TRUE(result.isOk());
+
+    // After translate: AF should be true
+    EXPECT_TRUE(as->getPageAccessFlag(iova));
+    // Dirty should still be false (read access, hd=false)
+    EXPECT_FALSE(as->getPageDirty(iova));
+}
+
+// After translate with hd=true and write access, dirty is set
+TEST_F(StreamContextTest, HardwareDirtyStateSetAfterWriteTranslate) {
+    streamContext->setHardwareDirtyState(true);
+    streamContext->setStage1Enabled(true);
+
+    PASID pasid = 0;
+    streamContext->createPASID(pasid);
+
+    IOVA iova = 0x1000;
+    PA pa = 0x2000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+
+    streamContext->mapPage(pasid, iova, pa, perms);
+
+    TranslationResult result = streamContext->translate(pasid, iova, AccessType::Write);
+    EXPECT_TRUE(result.isOk());
+
+    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    ASSERT_NE(as, nullptr);
+    EXPECT_TRUE(as->getPageDirty(iova));
+    // AF was NOT enabled, so should remain false
+    EXPECT_FALSE(as->getPageAccessFlag(iova));
+}
+
+// With ha=false and hd=false, AF and dirty remain false after translate
+TEST_F(StreamContextTest, NoFlagUpdateWhenHaHdDisabled) {
+    streamContext->setHardwareAccessFlag(false);
+    streamContext->setHardwareDirtyState(false);
+    streamContext->setStage1Enabled(true);
+
+    PASID pasid = 0;
+    streamContext->createPASID(pasid);
+
+    IOVA iova = 0x1000;
+    PA pa = 0x2000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+
+    streamContext->mapPage(pasid, iova, pa, perms);
+    streamContext->translate(pasid, iova, AccessType::Write);
+
+    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    ASSERT_NE(as, nullptr);
+    EXPECT_FALSE(as->getPageAccessFlag(iova));
+    EXPECT_FALSE(as->getPageDirty(iova));
+}
+
+// Read access does not set dirty even when hd=true
+TEST_F(StreamContextTest, ReadTranslateDoesNotSetDirtyWithHdEnabled) {
+    streamContext->setHardwareDirtyState(true);
+    streamContext->setStage1Enabled(true);
+
+    PASID pasid = 0;
+    streamContext->createPASID(pasid);
+
+    IOVA iova = 0x1000;
+    PA pa = 0x2000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+
+    streamContext->mapPage(pasid, iova, pa, perms);
+    streamContext->translate(pasid, iova, AccessType::Read);
+
+    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    ASSERT_NE(as, nullptr);
+    EXPECT_FALSE(as->getPageDirty(iova));
+}
+
+// Both HA and HD enabled: write sets both AF and dirty
+TEST_F(StreamContextTest, BothHaHdEnabledWriteSetsAfAndDirty) {
+    streamContext->setHardwareAccessFlag(true);
+    streamContext->setHardwareDirtyState(true);
+    streamContext->setStage1Enabled(true);
+
+    PASID pasid = 0;
+    streamContext->createPASID(pasid);
+
+    IOVA iova = 0x1000;
+    PA pa = 0x2000;
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+
+    streamContext->mapPage(pasid, iova, pa, perms);
+    TranslationResult result = streamContext->translate(pasid, iova, AccessType::Write);
+    EXPECT_TRUE(result.isOk());
+
+    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    ASSERT_NE(as, nullptr);
+    EXPECT_TRUE(as->getPageAccessFlag(iova));
+    EXPECT_TRUE(as->getPageDirty(iova));
+}
+
 } // namespace test
 } // namespace smmu

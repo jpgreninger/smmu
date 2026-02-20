@@ -55,6 +55,17 @@ public:
     // IOVAs >= (1ULL << bits) produce AddressSizeFault during translation.
     void setInputAddressSize(uint8_t bits);
 
+    // Access Flag and Dirty State management (ARM §3.13)
+    // Updates AF/dirty bits on page entry after successful translation.
+    // ha=true: set accessFlag on first access
+    // hd=true: set dirty on write access
+    // Returns true if any flag was updated.
+    bool updateAccessFlags(IOVA iova, bool ha, bool hd, AccessType accessType);
+
+    // Query AF/dirty state of a page entry (for testing/inspection)
+    bool getPageAccessFlag(IOVA iova) const;
+    bool getPageDirty(IOVA iova) const;
+
     // Cache invalidation mechanisms
     void invalidateRange(IOVA startIova, IOVA endIova);
     void invalidateAll();

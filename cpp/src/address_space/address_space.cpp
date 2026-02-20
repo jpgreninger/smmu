@@ -109,6 +109,60 @@ void AddressSpace::setInputAddressSize(uint8_t bits) {
     inputAddressSizeBits = bits;
 }
 
+// Update hardware Access Flag and Dirty State bits on a page entry (ARM §3.13).
+// ha=true: set accessFlag on any access (first access detection).
+// hd=true: set dirty on write or read-write access.
+// Returns true if any bit was changed, false otherwise.
+bool AddressSpace::updateAccessFlags(IOVA iova, bool ha, bool hd, AccessType accessType) {
+    if (!ha && !hd) {
+        return false;
+    }
+
+    uint64_t pageNum = pageNumber(iova);
+    auto it = pageTable.find(pageNum);
+    if (it == pageTable.end()) {
+        return false;
+    }
+
+    PageEntry& entry = it->second;
+    bool changed = false;
+
+    if (ha && !entry.accessFlag) {
+        entry.accessFlag = true;
+        changed = true;
+    }
+
+    bool isWrite = (accessType == AccessType::Write || accessType == AccessType::ReadWrite);
+    if (hd && isWrite && !entry.dirty) {
+        entry.dirty = true;
+        changed = true;
+    }
+
+    return changed;
+}
+
+// Query access flag state of a page entry.
+// Returns false if the page is not mapped.
+bool AddressSpace::getPageAccessFlag(IOVA iova) const {
+    uint64_t pageNum = pageNumber(iova);
+    auto it = pageTable.find(pageNum);
+    if (it == pageTable.end()) {
+        return false;
+    }
+    return it->second.accessFlag;
+}
+
+// Query dirty state of a page entry.
+// Returns false if the page is not mapped.
+bool AddressSpace::getPageDirty(IOVA iova) const {
+    uint64_t pageNum = pageNumber(iova);
+    auto it = pageTable.find(pageNum);
+    if (it == pageTable.end()) {
+        return false;
+    }
+    return it->second.dirty;
+}
+
 // Translate virtual address to physical address with ARM SMMU v3 semantics
 TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, SecurityState securityState) const {
     // ARM §3.4.1: Address size fault when IOVA >= 2^inputAddressSizeBits.
@@ -584,13 +638,17 @@ bool AddressSpace::checkPermissions(const PagePermissions& perms, AccessType acc
     switch (accessType) {
         case AccessType::Read:
             return perms.read;
-            
+
         case AccessType::Write:
             return perms.write;
-            
+
         case AccessType::Execute:
             return perms.execute;
-            
+
+        case AccessType::ReadWrite:
+            // Read-write (atomic) requires both read and write permissions
+            return perms.read && perms.write;
+
         default:
             // Unknown access type - deny by default for security
             return false;

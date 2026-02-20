@@ -43,6 +43,12 @@ public:
     // Propagates the per-context input address size to the AddressSpace for
     // the given PASID.  Valid bit-widths: 32–52.
     VoidResult setAddressSpaceInputSize(PASID pasid, uint8_t bits);
+
+    // Hardware Access Flag/Dirty State management (ARM §3.13)
+    void setHardwareAccessFlag(bool ha);
+    void setHardwareDirtyState(bool hd);
+    bool isHardwareAccessFlagEnabled() const;
+    bool isHardwareDirtyStateEnabled() const;
     
     // Query operations
     bool hasPASID(PASID pasid) const;
@@ -229,6 +235,10 @@ private:
 
     // Resource limits
     uint32_t maxPASIDsPerStream;  // Maximum number of PASIDs allowed per stream
+
+    // Hardware Access Flag and Dirty State management (ARM §3.13)
+    bool ha;  // CD.HA: hardware access flag management enabled
+    bool hd;  // CD.HD: hardware dirty state management enabled
 
     // Thread safety synchronization
     mutable std::mutex contextMutex;

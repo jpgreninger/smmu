@@ -1613,5 +1613,89 @@ TEST_F(AddressSpaceTest, Task32ErrorHandlingAndEdgeCases) {
     EXPECT_TRUE(addressSpace->hasOverlappingMappings(0x000FFFFFFFFFF000ULL, 0x000FFFFFFFFFF000ULL));
 }
 
+// ==========================================================================
+// FINDING-M-04: Access Flag and Dirty State simulation (ARM §3.13)
+// ==========================================================================
+
+// updateAccessFlags sets AF on read when ha=true
+TEST_F(AddressSpaceTest, UpdateAccessFlagsHaSetsAfOnRead) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    EXPECT_FALSE(addressSpace->getPageAccessFlag(TEST_IOVA_1));
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, true, false, AccessType::Read);
+    EXPECT_TRUE(changed);
+    EXPECT_TRUE(addressSpace->getPageAccessFlag(TEST_IOVA_1));
+}
+
+// updateAccessFlags sets dirty on write when hd=true
+TEST_F(AddressSpaceTest, UpdateAccessFlagsHdSetsDirtyOnWrite) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    EXPECT_FALSE(addressSpace->getPageDirty(TEST_IOVA_1));
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, false, true, AccessType::Write);
+    EXPECT_TRUE(changed);
+    EXPECT_TRUE(addressSpace->getPageDirty(TEST_IOVA_1));
+}
+
+// updateAccessFlags does NOT set dirty on read when hd=true
+TEST_F(AddressSpaceTest, UpdateAccessFlagsHdNoDirtyOnRead) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    addressSpace->updateAccessFlags(TEST_IOVA_1, false, true, AccessType::Read);
+    EXPECT_FALSE(addressSpace->getPageDirty(TEST_IOVA_1));
+}
+
+// no change when both ha=false and hd=false
+TEST_F(AddressSpaceTest, UpdateAccessFlagsNoOpWhenBothDisabled) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, false, false, AccessType::Write);
+    EXPECT_FALSE(changed);
+}
+
+// second update returns false when AF already set
+TEST_F(AddressSpaceTest, UpdateAccessFlagsNoChangeWhenAfAlreadySet) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    addressSpace->updateAccessFlags(TEST_IOVA_1, true, false, AccessType::Read);
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, true, false, AccessType::Read);
+    EXPECT_FALSE(changed);
+}
+
+// getPageAccessFlag and getPageDirty return false for unmapped page
+TEST_F(AddressSpaceTest, UpdateAccessFlagsReturnsFalseForUnmappedPage) {
+    IOVA unmapped = 0x99000000;
+    EXPECT_FALSE(addressSpace->getPageAccessFlag(unmapped));
+    EXPECT_FALSE(addressSpace->getPageDirty(unmapped));
+    bool changed = addressSpace->updateAccessFlags(unmapped, true, true, AccessType::Write);
+    EXPECT_FALSE(changed);
+}
+
+// Both HA and HD set together on a write access
+TEST_F(AddressSpaceTest, UpdateAccessFlagsBothHaHdOnWrite) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, true, true, AccessType::Write);
+    EXPECT_TRUE(changed);
+    EXPECT_TRUE(addressSpace->getPageAccessFlag(TEST_IOVA_1));
+    EXPECT_TRUE(addressSpace->getPageDirty(TEST_IOVA_1));
+}
+
+// ReadWrite access type sets dirty when hd=true
+TEST_F(AddressSpaceTest, UpdateAccessFlagsReadWriteSetsDirty) {
+    PagePermissions perms(true, true, false);
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+
+    bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, false, true, AccessType::ReadWrite);
+    EXPECT_TRUE(changed);
+    EXPECT_TRUE(addressSpace->getPageDirty(TEST_IOVA_1));
+}
+
 } // namespace test
 } // namespace smmu

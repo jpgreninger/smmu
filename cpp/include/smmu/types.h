@@ -458,7 +458,9 @@ enum class AccessType {
     /// @brief Write access - stores, atomic operations
     Write,
     /// @brief Execute access - instruction fetches
-    Execute
+    Execute,
+    /// @brief Read-write access - atomic read-modify-write operations
+    ReadWrite
 };
 
 /**
@@ -965,14 +967,24 @@ struct PageEntry {
     PagePermissions permissions;
     bool valid;
     SecurityState securityState;
-    
-    PageEntry() : physicalAddress(0), valid(false), securityState(SecurityState::NonSecure) {
+    bool accessFlag;  // Hardware Access Flag (AF) — set on first access when CD.HA=1
+    bool dirty;       // Hardware Dirty State — set on write when CD.HD=1
+
+    PageEntry() : physicalAddress(0), valid(false), securityState(SecurityState::NonSecure),
+                  accessFlag(false), dirty(false) {
     }
-    
-    PageEntry(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms), valid(true), securityState(SecurityState::NonSecure) {
+
+    PageEntry(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms), valid(true),
+                                              securityState(SecurityState::NonSecure),
+                                              accessFlag(false), dirty(false) {
     }
-    
-    PageEntry(PA pa, PagePermissions perms, SecurityState secState) : physicalAddress(pa), permissions(perms), valid(true), securityState(secState) {
+
+    PageEntry(PA pa, PagePermissions perms, SecurityState secState) : physicalAddress(pa),
+                                                                       permissions(perms),
+                                                                       valid(true),
+                                                                       securityState(secState),
+                                                                       accessFlag(false),
+                                                                       dirty(false) {
     }
 };
 
@@ -1013,9 +1025,12 @@ struct StreamConfig {
     bool stage1Enabled;
     bool stage2Enabled;
     FaultMode faultMode;
-    
-    StreamConfig() : translationEnabled(false), stage1Enabled(false), 
-                    stage2Enabled(false), faultMode(FaultMode::Terminate) {
+    bool ha;  // Hardware Access Flag management enabled (CD.HA)
+    bool hd;  // Hardware Dirty State management enabled (CD.HD)
+
+    StreamConfig() : translationEnabled(false), stage1Enabled(false),
+                    stage2Enabled(false), faultMode(FaultMode::Terminate),
+                    ha(false), hd(false) {
     }
 };
 
@@ -1309,25 +1324,27 @@ struct ContextDescriptor {
     bool ttbr1Valid;                        // TTBR1 is valid and configured
     bool globalTranslations;                // Global vs non-global translations
     uint8_t contextDescriptorIndex;         // CD index within CD table
-    
+    bool ha;                                // Hardware Access Flag management enabled (CD bit 43)
+    bool hd;                                // Hardware Dirty State management enabled (CD bit 42)
+
     ContextDescriptor()
         : ttbr0(0), ttbr1(0), asid(0), securityState(SecurityState::NonSecure),
           ttbr0Valid(false), ttbr1Valid(false), globalTranslations(false),
-          contextDescriptorIndex(0) {
+          contextDescriptorIndex(0), ha(false), hd(false) {
     }
-    
+
     ContextDescriptor(uint64_t ttbr0Addr, uint16_t asidValue, SecurityState secState)
         : ttbr0(ttbr0Addr), ttbr1(0), asid(asidValue), securityState(secState),
           ttbr0Valid(true), ttbr1Valid(false), globalTranslations(false),
-          contextDescriptorIndex(0) {
+          contextDescriptorIndex(0), ha(false), hd(false) {
     }
-    
+
     ContextDescriptor(uint64_t ttbr0Addr, uint64_t ttbr1Addr, uint16_t asidValue,
                      const TranslationControlRegister& tcrValue,
                      const MemoryAttributeRegister& mairValue, SecurityState secState)
         : ttbr0(ttbr0Addr), ttbr1(ttbr1Addr), tcr(tcrValue), mair(mairValue),
           asid(asidValue), securityState(secState), ttbr0Valid(true), ttbr1Valid(true),
-          globalTranslations(false), contextDescriptorIndex(0) {
+          globalTranslations(false), contextDescriptorIndex(0), ha(false), hd(false) {
     }
 };
 

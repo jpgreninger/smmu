@@ -21,7 +21,9 @@ StreamContext::StreamContext()
       faultMode(FaultMode::Terminate),  // Default to immediate DMA termination
       streamEnabled(false),    // Stream disabled by default per ARM SMMU v3
       configurationChanged(false),  // Configuration initially unchanged
-      maxPASIDsPerStream(1024) {  // Default PASID limit per stream (configurable)
+      maxPASIDsPerStream(1024),  // Default PASID limit per stream (configurable)
+      ha(false),               // CD.HA: hardware access flag management disabled by default
+      hd(false) {              // CD.HD: hardware dirty state management disabled by default
 
     // Initialize default configuration
     currentConfiguration.translationEnabled = false;  // Default: translation disabled
@@ -296,6 +298,30 @@ VoidResult StreamContext::setAddressSpaceInputSize(PASID pasid, uint8_t bits) {
 
     it->second->setInputAddressSize(bits);
     return makeVoidSuccess();
+}
+
+// Enable or disable hardware Access Flag management (CD.HA, ARM §3.13)
+void StreamContext::setHardwareAccessFlag(bool haEnabled) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    ha = haEnabled;
+}
+
+// Enable or disable hardware Dirty State management (CD.HD, ARM §3.13)
+void StreamContext::setHardwareDirtyState(bool hdEnabled) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    hd = hdEnabled;
+}
+
+// Query whether hardware Access Flag management is enabled
+bool StreamContext::isHardwareAccessFlagEnabled() const {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    return ha;
+}
+
+// Query whether hardware Dirty State management is enabled
+bool StreamContext::isHardwareDirtyStateEnabled() const {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    return hd;
 }
 
 // Query if specific PASID exists in this stream context
@@ -1021,6 +1047,14 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return stage1Result;
+        }
+
+        // ARM §3.13: Update AF/dirty bits when hardware management enabled
+        if (ha || hd) {
+            AddressSpace* as1 = getPASIDAddressSpaceUnlocked(pasid);
+            if (as1) {
+                as1->updateAccessFlags(iova, ha, hd, accessType);
+            }
         }
 
         // Use Stage-1 output as input to Stage-2
