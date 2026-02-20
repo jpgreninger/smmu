@@ -31,6 +31,7 @@ use std::time::Instant;
 #[test]
 fn test_tlb_cache_hit_miss_tracking() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -135,6 +136,7 @@ fn test_tlb_cache_hit_miss_tracking() {
 #[test]
 fn test_tlb_cache_multiple_pages() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -212,6 +214,7 @@ fn test_tlb_cache_multiple_pages() {
 #[test]
 fn test_tlb_cache_invalidation_on_unmap() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -274,6 +277,7 @@ fn test_tlb_cache_invalidation_on_unmap() {
 #[test]
 fn test_tlb_cache_stream_invalidation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -330,6 +334,7 @@ fn test_tlb_cache_stream_invalidation() {
 #[test]
 fn test_tlb_cache_pasid_removal_invalidation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -382,6 +387,7 @@ fn test_tlb_cache_pasid_removal_invalidation() {
 #[test]
 fn test_tlb_cache_permission_checking() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -440,6 +446,7 @@ fn test_tlb_cache_permission_checking() {
 #[test]
 fn test_tlb_cache_permission_upgrade() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -493,6 +500,7 @@ fn test_tlb_cache_permission_upgrade() {
 #[test]
 fn test_tlb_cache_execute_permission() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -535,6 +543,7 @@ fn test_tlb_cache_execute_permission() {
 #[test]
 fn test_tlb_performance_improvement() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -616,6 +625,7 @@ fn test_tlb_performance_improvement() {
 #[test]
 fn test_tlb_performance_multiple_pages() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -692,6 +702,7 @@ fn test_tlb_performance_multiple_pages() {
 #[test]
 fn test_tlb_cache_statistics_accuracy() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -799,6 +810,7 @@ fn test_tlb_cache_statistics_accuracy() {
 #[test]
 fn test_tlb_cache_cross_pasid_isolation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();
@@ -872,6 +884,7 @@ fn test_tlb_cache_cross_pasid_isolation() {
 #[test]
 fn test_tlb_cache_with_bypass_mode() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
 
     // Configure stream in bypass mode

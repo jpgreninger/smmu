@@ -10,7 +10,10 @@ use smmu::SMMU;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn make_smmu() -> SMMU {
-    SMMU::new()
+    let smmu = SMMU::new();
+    // SMMUEN must be set (§6.3.9) for per-stream disable to be reached.
+    smmu.enable().unwrap();
+    smmu
 }
 
 fn sid(n: u32) -> StreamID {

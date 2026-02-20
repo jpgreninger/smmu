@@ -267,8 +267,9 @@ fn test_memory_efficiency() {
 
 #[test]
 fn test_permissions_backward_compatibility() {
-    // Ensure PagePermissions bitfield maintains backward compatibility
+
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     let stream_id = StreamID::new(1).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::stage1_only())
         .unwrap();

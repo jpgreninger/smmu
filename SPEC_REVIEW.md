@@ -270,21 +270,23 @@ The ARM specification encodes SEC_SID as: `0b00`=NonSecure, `0b01`=Secure,
 
 ---
 
-### FINDING-H-08 ❌ — No SMMU Global Enable/Disable (SMMU_CR0.SMMUEN)
+### FINDING-H-08 ✅ — No SMMU Global Enable/Disable (SMMU_CR0.SMMUEN)
 **Spec**: §6.3.9 (SMMU_CR0), bit 0 SMMUEN
 **Affected**: Both
+**Fixed**: Rust (commit — see below)
 
 When SMMUEN=0 all transactions must bypass the SMMU (no translation or fault).
 The SMMU must start disabled after reset.
 
 - **C++**: `translate()` performs translation immediately after construction.
-  `SMMU::reset()` does not model SMMUEN.
-- **Rust**: `SMMU::initialize()` is documented as a no-op. `is_shutdown()` is
-  not equivalent to the SMMUEN enable control.
-
-**Recommendation**: Add a global `enabled` atomic boolean defaulting to `false`.
-Add `enable()` / `disable()` methods. All `translate()` calls must bypass when
-`enabled == false`.
+  `SMMU::reset()` does not model SMMUEN. (Pending)
+- **Rust**: Added `enabled: AtomicBool` (default `false`) to `SMMU`. Added
+  `enable()`, `disable()`, `is_enabled()` methods (all gated on non-shutdown).
+  `translate()` now bypasses (identity PA=IOVA, no fault) when SMMUEN=0.
+  12 spec tests in `tests/test_smmuen_spec.rs` covering boot state, bypass
+  semantics, toggle, fault suppression, and shutdown interaction — all pass.
+  Pre-existing tests in 7 test files updated to call `smmu.enable()` before
+  performing stream-level translations.
 
 ---
 
@@ -585,7 +587,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 5. ~~FINDING-M-05 — Generate F_STREAM_DISABLED instead of generic fault~~ ✅ Fixed
 
 ### Short-term (behavioural conformance)
-6. FINDING-H-08 — Add SMMUEN global enable/disable
+6. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
 7. FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation
 8. FINDING-M-02 — Add VMID to STE config and TLB entries
 9. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking

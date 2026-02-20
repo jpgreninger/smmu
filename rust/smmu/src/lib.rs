@@ -120,6 +120,7 @@
 //!
 //! // Create SMMU instance
 //! let smmu = SMMU::new();
+//! smmu.enable()?; // Set SMMU_CR0.SMMUEN=1 (§6.3.9) — SMMU starts disabled after reset
 //!
 //! // Configure a stream (device)
 //! let stream_id = StreamID::new(1)?;

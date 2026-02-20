@@ -58,6 +58,7 @@ fn two_stage_config() -> StreamConfig {
 #[test]
 fn test_basic_two_stage_translation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(100).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -100,6 +101,7 @@ fn test_basic_two_stage_translation() {
 #[test]
 fn test_two_stage_multiple_pages() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(101).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -155,6 +157,7 @@ fn test_two_stage_multiple_pages() {
 #[test]
 fn test_stage1_translation_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(102).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -187,6 +190,7 @@ fn test_stage1_translation_fault() {
 #[test]
 fn test_stage2_translation_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(103).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -220,6 +224,7 @@ fn test_stage2_translation_fault() {
 #[test]
 fn test_two_stage_permission_intersection() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(104).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -271,6 +276,7 @@ fn test_two_stage_permission_intersection() {
 #[test]
 fn test_two_stage_concurrent_translations() {
     let smmu = Arc::new(SMMU::new());
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(105).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -355,6 +361,7 @@ fn test_two_stage_concurrent_translations() {
 #[test]
 fn test_basic_stream_isolation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream1 = StreamID::new(100).unwrap();
     let stream2 = StreamID::new(200).unwrap();
@@ -408,6 +415,7 @@ fn test_basic_stream_isolation() {
 #[test]
 fn test_fault_isolation_between_streams() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream1 = StreamID::new(500).unwrap();
     let stream2 = StreamID::new(600).unwrap();
@@ -450,6 +458,7 @@ fn test_fault_isolation_between_streams() {
 #[test]
 fn test_permission_isolation_between_streams() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let readonly_stream = StreamID::new(900).unwrap();
     let readwrite_stream = StreamID::new(1000).unwrap();
@@ -513,6 +522,7 @@ fn test_permission_isolation_between_streams() {
 #[test]
 fn test_concurrent_multi_stream_access() {
     let smmu = Arc::new(SMMU::new());
+    smmu.enable().unwrap();
 
     const NUM_STREAMS: u32 = 10;
     const TRANSLATIONS_PER_STREAM: usize = 100;
@@ -600,6 +610,7 @@ fn test_concurrent_multi_stream_access() {
 #[test]
 fn test_cross_stream_pasid_isolation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream1 = StreamID::new(1500).unwrap();
     let stream2 = StreamID::new(1600).unwrap();
@@ -663,6 +674,7 @@ fn test_cross_stream_pasid_isolation() {
 #[test]
 fn test_basic_pasid_context_switching() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(100).unwrap();
     let test_pasids: Vec<u32> = vec![1, 2, 3, 4, 5];
@@ -776,6 +788,7 @@ fn test_pasid_context_isolation() {
 #[test]
 fn test_pasid_lifecycle_management() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(100).unwrap();
     let test_pasid = PASID::new(30).unwrap();
@@ -818,6 +831,7 @@ fn test_pasid_lifecycle_management() {
 #[test]
 fn test_large_scale_pasid_switching() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(100).unwrap();
     const NUM_PASIDS: u32 = 100;
@@ -870,6 +884,7 @@ fn test_large_scale_pasid_switching() {
 #[test]
 fn test_concurrent_pasid_switching() {
     let smmu = Arc::new(SMMU::new());
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(100).unwrap();
     const NUM_THREADS: usize = 8;
@@ -1365,6 +1380,7 @@ fn test_complete_smmu_lifecycle() {
 fn test_arm_smmu_v3_compliance() {
     // Comprehensive ARM SMMU v3 specification compliance test
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     // Section 3.2: Address Translation
     let stream_id = StreamID::new(1).unwrap();

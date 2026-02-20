@@ -24,6 +24,7 @@ use smmu::SMMU;
 #[test]
 fn test_new_smmu() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     assert!(!smmu.is_shutdown());
     assert_eq!(smmu.get_stream_count(), 0);
 }
@@ -48,6 +49,7 @@ fn test_smmu_default() {
 #[test]
 fn test_configure_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let config = StreamConfig::stage1_only();
 
@@ -60,6 +62,7 @@ fn test_configure_stream() {
 #[test]
 fn test_configure_multiple_streams() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
 
     for i in 1..=10 {
         let stream_id = StreamID::new(i).unwrap();
@@ -72,6 +75,7 @@ fn test_configure_multiple_streams() {
 #[test]
 fn test_configure_stream_zero() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(0).unwrap();
 
     let result = smmu.configure_stream(stream_id, StreamConfig::stage1_only());
@@ -86,6 +90,7 @@ fn test_configure_stream_zero() {
 #[ignore = "TODO: API doesn't have enable_stream/disable_stream methods"]
 fn test_enable_disable_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
 
     smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
@@ -111,6 +116,7 @@ fn test_disable_nonexistent_stream() {
 #[test]
 fn test_translate_with_pasid_zero() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -136,6 +142,7 @@ fn test_translate_with_pasid_zero() {
 #[test]
 fn test_translate_basic() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -160,6 +167,7 @@ fn test_translate_basic() {
 #[test]
 fn test_translate_nonexistent_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -175,6 +183,7 @@ fn test_translate_nonexistent_stream() {
 #[test]
 fn test_multiple_streams_independent() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream1 = StreamID::new(1).unwrap();
     let stream2 = StreamID::new(2).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -225,6 +234,7 @@ fn test_multiple_streams_independent() {
 #[test]
 fn test_record_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -244,6 +254,7 @@ fn test_record_fault() {
 #[test]
 fn test_clear_faults() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -267,6 +278,7 @@ fn test_clear_faults() {
 #[test]
 fn test_get_events() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let events = smmu.get_events();
     assert!(events.is_empty());
 }
@@ -278,6 +290,7 @@ fn test_get_events() {
 #[test]
 fn test_shutdown() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
 
     smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
@@ -290,6 +303,7 @@ fn test_shutdown() {
 #[test]
 fn test_operations_after_shutdown() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     smmu.shutdown().unwrap();
 
     let stream_id = StreamID::new(1).unwrap();
@@ -304,6 +318,7 @@ fn test_operations_after_shutdown() {
 #[test]
 fn test_translation_statistics() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();

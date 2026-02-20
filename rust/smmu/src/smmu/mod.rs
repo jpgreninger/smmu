@@ -141,6 +141,13 @@ pub struct SMMU {
     /// Used to reject new operations during graceful shutdown.
     shutdown: AtomicBool,
 
+    /// Global SMMU enable flag (SMMU_CR0.SMMUEN, §6.3.9)
+    ///
+    /// When false (reset default), all transactions bypass the SMMU and
+    /// receive an identity mapping (PA == IOVA) without fault.
+    /// When true, translations go through the full stream/page-table path.
+    enabled: AtomicBool,
+
     /// Fault event queue
     ///
     /// Thread-safe fault recording for diagnostic and compliance purposes.
@@ -271,6 +278,7 @@ impl SMMU {
             streams: DashMap::new(),
             config: Arc::new(RwLock::new(config)),
             shutdown: AtomicBool::new(false),
+            enabled: AtomicBool::new(false),
             fault_queue: Arc::new(Mutex::new(Vec::new())),
             total_translations: CacheAligned::new(AtomicU64::new(0)),
             successful_translations: CacheAligned::new(AtomicU64::new(0)),
@@ -386,6 +394,41 @@ impl SMMU {
     #[must_use]
     pub fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::Relaxed)
+    }
+
+    /// Returns true when SMMU_CR0.SMMUEN is set (§6.3.9).
+    #[inline]
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
+    /// Set SMMU_CR0.SMMUEN=1 — enable the SMMU globally.
+    ///
+    /// After this call, translations proceed through the full stream/page-table
+    /// path instead of bypassing.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ShutdownInProgress` if the SMMU has been shut down.
+    pub fn enable(&self) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        self.enabled.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Clear SMMU_CR0.SMMUEN — disable the SMMU globally.
+    ///
+    /// After this call, all transactions bypass the SMMU (identity mapping,
+    /// no fault), regardless of stream configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ShutdownInProgress` if the SMMU has been shut down.
+    pub fn disable(&self) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        self.enabled.store(false, Ordering::Release);
+        Ok(())
     }
 
     /// Configure a stream with specified configuration
@@ -1133,6 +1176,19 @@ impl SMMU {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Do NOT fall through to record_translation_fault below.
             return Err(TranslationError::StreamNotConfigured);
+        }
+
+        // §6.3.9 SMMUEN=0: bypass — identity mapping, no fault.
+        if !self.enabled.load(Ordering::Acquire) {
+            // PA = IOVA (identity); grant full permissions matching the request.
+            let pa = crate::types::PA::new(iova.as_u64())
+                .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
+            self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+            return Ok(crate::types::TranslationData::new(
+                pa,
+                crate::types::PagePermissions::read_write(),
+                security_state,
+            ));
         }
 
         // Slow path: TLB cache miss - perform full page table walk

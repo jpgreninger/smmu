@@ -983,6 +983,7 @@ fn test_translation_stats_successful_translation() {
 #[test]
 fn test_translation_stats_failed_translation_no_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required to reach stream-not-found path (§6.3.9)
     let stream_id = StreamID::new(999).unwrap();
 
     // Translate without configuring stream
@@ -1439,6 +1440,7 @@ fn test_get_config_returns_copy() {
 #[test]
 fn test_translation_records_fault_on_stream_not_found() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required to reach stream-not-found fault path (§6.3.9)
     let stream_id = StreamID::new(999).unwrap();
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0x1000).unwrap();

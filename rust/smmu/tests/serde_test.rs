@@ -95,7 +95,7 @@ mod serde_tests {
 
     #[test]
     fn test_event_entry_serde() {
-        let event = EventEntry::new(EventType::TranslationFault, 42, 1, 0x1000);
+        let event = EventEntry::new(EventType::FTranslation, 42, 1, 0x1000);
         let serialized = serde_json::to_string(&event).unwrap();
         let deserialized: EventEntry = serde_json::from_str(&serialized).unwrap();
         assert_eq!(event, deserialized);

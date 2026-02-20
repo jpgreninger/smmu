@@ -25,6 +25,7 @@ use smmu::SMMU;
 #[test]
 fn test_fault_type_translation_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -44,6 +45,7 @@ fn test_fault_type_translation_fault() {
 #[test]
 fn test_fault_type_permission_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -70,6 +72,7 @@ fn test_fault_type_permission_fault() {
 #[test]
 fn test_fault_type_access_fault() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -106,6 +109,7 @@ fn test_fault_detector_creation() {
 #[test]
 fn test_fault_filtering_by_type() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
 
@@ -131,6 +135,7 @@ fn test_fault_filtering_by_type() {
 #[test]
 fn test_fault_filtering_by_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream1 = StreamID::new(1).unwrap();
     let stream2 = StreamID::new(2).unwrap();
     let pasid = PASID::new(1).unwrap();
@@ -154,6 +159,7 @@ fn test_fault_filtering_by_stream() {
 #[test]
 fn test_fault_filtering_by_pasid() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid1 = PASID::new(1).unwrap();
     let pasid2 = PASID::new(2).unwrap();
@@ -179,6 +185,7 @@ fn test_fault_filtering_by_pasid() {
 #[test]
 fn test_fault_statistics_counting() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
 
@@ -210,6 +217,7 @@ fn test_fault_processor_creation_with_mode() {
 #[test]
 fn test_fault_with_read_access() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -225,6 +233,7 @@ fn test_fault_with_read_access() {
 #[test]
 fn test_fault_with_write_access() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -240,6 +249,7 @@ fn test_fault_with_write_access() {
 #[test]
 fn test_fault_with_execute_access() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -386,6 +396,7 @@ fn test_fault_record_clone() {
 #[test]
 fn test_large_scale_fault_handling() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach fault path (§6.3.9)
     let stream_id = StreamID::new(1).unwrap();
     let pasid = PASID::new(1).unwrap();
 

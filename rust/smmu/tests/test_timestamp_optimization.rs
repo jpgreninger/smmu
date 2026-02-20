@@ -7,6 +7,7 @@ mod timestamp_tests {
     #[test]
     fn test_fault_timestamps_monotonic() {
         let smmu = SMMU::new();
+        smmu.enable().unwrap(); // SMMUEN=1 required to reach fault path (§6.3.9)
         let stream_id = StreamID::new(1).unwrap();
         smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
 

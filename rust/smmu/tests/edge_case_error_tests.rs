@@ -194,6 +194,7 @@ fn test_address_space_exhaustion() {
 #[test]
 fn test_unmapped_address_in_valid_range() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -244,6 +245,7 @@ fn test_address_alignment_edge_cases() {
 #[test]
 fn test_completely_unconfigured_stream() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
     let pasid = PASID::new(VALID_PASID).unwrap();
@@ -314,6 +316,7 @@ fn test_invalid_pasid() {
 #[test]
 fn test_non_existent_pasid() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -328,6 +331,7 @@ fn test_non_existent_pasid() {
 #[test]
 fn test_stream_removal_and_reconfiguration() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -363,6 +367,7 @@ fn test_event_queue_overflow() {
     let queue_config = QueueConfig::default().with_event_queue_size(16);
     let config = SMMUConfig::builder().queue_config(queue_config).build().unwrap();
     let smmu = SMMU::with_config(config);
+    smmu.enable().unwrap();
 
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
@@ -449,6 +454,7 @@ fn test_queue_recovery_after_overflow() {
     let queue_config = QueueConfig::default().with_event_queue_size(16); // Minimum is 16
     let config = SMMUConfig::builder().queue_config(queue_config).build().unwrap();
     let smmu = SMMU::with_config(config);
+    smmu.enable().unwrap();
 
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
@@ -481,6 +487,7 @@ fn test_concurrent_queue_access_under_full_conditions() {
     let queue_config = QueueConfig::default().with_event_queue_size(50);
     let config = SMMUConfig::builder().queue_config(queue_config).build().unwrap();
     let smmu = Arc::new(SMMU::with_config(config));
+    smmu.enable().unwrap();
 
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
@@ -537,6 +544,7 @@ fn test_concurrent_queue_access_under_full_conditions() {
 #[test]
 fn test_read_violation_on_write_only_page() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -563,6 +571,7 @@ fn test_read_violation_on_write_only_page() {
 #[test]
 fn test_write_violation_on_read_only_page() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -595,6 +604,7 @@ fn test_write_violation_on_read_only_page() {
 #[test]
 fn test_execute_violation_on_non_executable_page() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -628,6 +638,7 @@ fn test_execute_violation_on_non_executable_page() {
 #[allow(clippy::too_many_lines)]
 fn test_all_permission_combinations() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -790,6 +801,7 @@ fn test_security_state_permission_violations() {
 #[test]
 fn test_concurrent_permission_violations() {
     let smmu = Arc::new(SMMU::new());
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -871,6 +883,7 @@ fn test_concurrent_permission_violations() {
 #[test]
 fn test_translation_consistency_after_remapping() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();
@@ -918,6 +931,7 @@ fn test_translation_consistency_after_remapping() {
 #[test]
 fn test_multiple_pasid_isolation() {
     let smmu = SMMU::new();
+    smmu.enable().unwrap();
     setup_basic_stream(&smmu, VALID_STREAM_ID);
 
     let stream_id = StreamID::new(VALID_STREAM_ID).unwrap();

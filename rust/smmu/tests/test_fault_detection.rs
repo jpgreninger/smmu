@@ -20,7 +20,10 @@ use smmu::SMMU;
 // ============================================================================
 
 fn default_smmu() -> SMMU {
-    SMMU::new()
+    let smmu = SMMU::new();
+    // SMMUEN must be set (§6.3.9) for translations to proceed past bypass.
+    smmu.enable().unwrap();
+    smmu
 }
 
 fn iova(addr: u64) -> IOVA {
