@@ -98,6 +98,11 @@ pub struct CommandEntry {
     /// Target VMID for `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA` (ARM §4.4, §5.2).
     /// Ignored by other command types.
     pub vmid: u16,
+
+    /// Stall TAG for `CMD_RESUME` / `CMD_STALL_TERM` (ARM §4.6–§4.7, §3.12.2).
+    /// Identifies the stalled transaction group to resume or terminate.
+    /// Ignored by other command types.
+    pub stag: u16,
 }
 
 impl CommandEntry {
@@ -114,6 +119,7 @@ impl CommandEntry {
             timestamp: 0,
             asid: 0,
             vmid: 0,
+            stag: 0,
         }
     }
 }

@@ -448,7 +448,7 @@ pub mod types;
 pub mod prelude;
 
 // Re-export main types for convenience
-pub use smmu::SMMU;
+pub use smmu::{StallRecord, SMMU};
 
 // Re-export core types
 pub use types::{

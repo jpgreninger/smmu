@@ -217,13 +217,23 @@ ASID-targeted invalidation. Add VMID field support for Stage-2 invalidation.
 
 ---
 
-### FINDING-H-05 ❌ — Stall Mode / CMD_RESUME Not Implemented
-**Spec**: §4.6 (CMD_RESUME), §3.12.2 (Stall fault model)
+### FINDING-H-05 ✅ Fixed (Rust) — Stall Mode / CMD_RESUME Not Implemented
+**Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM), §3.12.2 (Stall fault model)
 **Affected**: Both
 
 The Stall model requires the SMMU to halt transaction processing and wait for
 `CMD_RESUME(StreamID, SSec, STAG, Action, Abort)`. The STAG field identifies
 the stalled transaction group.
+
+**Rust fix** (committed):
+- Added `TranslationError::Stalled { stag: u16 }` error variant.
+- Added `StallRecord` struct (stag, stream_id, pasid, iova, access, security_state).
+- Added `stall_queue: DashMap<u16, StallRecord>` and `stag_counter: AtomicU16` to SMMU.
+- Added `stall_enabled: AtomicBool` to `StreamContext`; set from `FaultMode::Stall` in `configure_stream()`.
+- `translate()` checks stall mode on fault; enqueues `StallRecord` and returns `Err(Stalled { stag })`.
+- `process_single_command()` handles `Resume` and `StallTerm` by removing matching STAG from stall queue.
+- Public API: `get_stalled_transactions()` and `abort_stalled_transaction(stag)`.
+- 13 TDD spec tests in `tests/test_stall_resume_spec.rs` — all pass.
 
 - **C++**: `FaultMode::Stall` is defined and `RESUME` command type exists, but
   `processCommand` does not implement stall semantics. No mechanism holds a
@@ -604,7 +614,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 7. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
 8. ~~FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation~~ ✅ Fixed (Rust)
 9. ~~FINDING-M-02 — Add VMID to STE config and TLB entries~~ ✅ Fixed (Rust)
-10. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking
+10. ~~FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking~~ ✅ Fixed (Rust)
 11. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
 12. FINDING-M-09 — Implement range-based ATC invalidation (Rust)
 13. FINDING-M-10 — Add address size fault checking (C++)

@@ -79,6 +79,18 @@ pub enum TranslationError {
     /// TLB conflict
     #[error("TLB conflict detected")]
     TlbConflict,
+
+    /// Transaction stalled pending CMD_RESUME (ARM §3.12.2)
+    ///
+    /// Returned when a stream is configured with `FaultMode::Stall` and a
+    /// translation fault occurs.  The `stag` is a unique Stall TAG that the
+    /// software must pass back in a `CMD_RESUME` or `CMD_STALL_TERM` command
+    /// to complete or abort the stalled transaction.
+    #[error("Transaction stalled (STAG={stag:#06x})")]
+    Stalled {
+        /// Stall TAG — unique identifier for this stalled transaction
+        stag: u16,
+    },
 }
 
 /// Translation result data structure

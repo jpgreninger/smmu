@@ -118,6 +118,11 @@ pub struct StreamContext {
     /// Tags Stage-2 TLB entries for VMID-targeted invalidation via
     /// `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA`.  Default 0.
     vmid: AtomicU16,
+
+    /// Stall fault mode enabled — ARM §3.12.2.
+    /// When true, faulting translations stall (returning `Stalled { stag }`)
+    /// instead of immediately aborting.  Corresponds to `FaultMode::Stall`.
+    stall_enabled: AtomicBool,
 }
 
 impl StreamContext {
@@ -152,6 +157,7 @@ impl StreamContext {
             fault_retry_enabled: AtomicBool::new(false),
             fault_timestamp_counter: AtomicUsize::new(0),
             vmid: AtomicU16::new(0),
+            stall_enabled: AtomicBool::new(false),
         }
     }
 
@@ -269,6 +275,21 @@ impl StreamContext {
     #[inline]
     pub fn set_vmid(&self, vmid: u16) {
         self.vmid.store(vmid, Ordering::Relaxed);
+    }
+
+    /// Returns whether stall fault mode is enabled for this stream (ARM §3.12.2).
+    #[inline]
+    pub fn is_stall_enabled(&self) -> bool {
+        self.stall_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Enables or disables stall fault mode for this stream (ARM §3.12.2).
+    ///
+    /// When enabled, faulting translations return `Stalled { stag }` instead
+    /// of an immediate abort error.
+    #[inline]
+    pub fn set_stall_enabled(&self, enabled: bool) {
+        self.stall_enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace

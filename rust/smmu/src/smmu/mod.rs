@@ -64,7 +64,7 @@ use crate::types::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Cache-aligned atomic counter to prevent false sharing
@@ -83,6 +83,28 @@ impl<T> CacheAligned<T> {
     const fn new(value: T) -> Self {
         Self(value)
     }
+}
+
+/// Record of a stalled transaction in the stall queue (ARM §3.12.2).
+///
+/// When a stream is configured with `FaultMode::Stall` and a translation fault
+/// occurs, the SMMU creates one `StallRecord` per fault and enqueues it.
+/// Software retrieves the STAG from `TranslationError::Stalled { stag }` and
+/// later sends `CMD_RESUME` or `CMD_STALL_TERM` to complete or abort the stall.
+#[derive(Debug, Clone)]
+pub struct StallRecord {
+    /// Unique Stall TAG for this transaction group.
+    pub stag: u16,
+    /// Stream that issued the faulting transaction.
+    pub stream_id: u32,
+    /// PASID of the faulting transaction.
+    pub pasid: u32,
+    /// IOVA of the faulting access.
+    pub iova: u64,
+    /// Access type of the faulting transaction.
+    pub access: AccessType,
+    /// Security state of the faulting transaction.
+    pub security_state: SecurityState,
 }
 
 /// SMMU controller - Central coordination and translation engine
@@ -208,6 +230,19 @@ pub struct SMMU {
     ///
     /// **Performance**: Atomic increment is ~1-2ns vs 20-50ns for SystemTime::now()
     fault_timestamp_counter: AtomicU64,
+
+    /// Stall queue: STAG → StallRecord (ARM §3.12.2).
+    ///
+    /// Holds pending stalled transactions for streams configured with
+    /// `FaultMode::Stall`.  Software resolves stalls by sending `CMD_RESUME`
+    /// or `CMD_STALL_TERM` with the matching STAG.
+    stall_queue: DashMap<u16, StallRecord>,
+
+    /// Monotonic STAG (Stall TAG) counter.
+    ///
+    /// Wrapping increment ensures unique STAGs for up to 65 535 concurrent
+    /// stalls before wrap-around.
+    stag_counter: AtomicU16,
 }
 
 impl SMMU {
@@ -295,6 +330,8 @@ impl SMMU {
             invalidation_count: AtomicU64::new(0),
             tlb_cache,
             fault_timestamp_counter: AtomicU64::new(0),
+            stall_queue: DashMap::new(),
+            stag_counter: AtomicU16::new(1),
         }
     }
 
@@ -495,6 +532,7 @@ impl SMMU {
         stream_context.set_stage1_enabled(config.stage1_enabled);
         stream_context.set_stage2_enabled(config.stage2_enabled);
         stream_context.set_vmid(config.vmid);
+        stream_context.set_stall_enabled(config.fault_mode == crate::types::FaultMode::Stall);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
@@ -731,6 +769,47 @@ impl SMMU {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
         Ok(stream_context.get_vmid())
+    }
+
+    // ========================================================================
+    // Section 3.12.2: Stall fault model — public API
+    // ========================================================================
+
+    /// Returns all currently stalled transactions (ARM §3.12.2).
+    ///
+    /// Each entry in the returned vector corresponds to one stalled fault.
+    /// Software uses the `stag` field to issue `CMD_RESUME` or
+    /// `CMD_STALL_TERM` to resolve each stall.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert!(smmu.get_stalled_transactions().is_empty());
+    /// ```
+    #[must_use]
+    pub fn get_stalled_transactions(&self) -> Vec<StallRecord> {
+        self.stall_queue.iter().map(|entry| entry.value().clone()).collect()
+    }
+
+    /// Aborts the stalled transaction identified by `stag` (ARM §3.12.2).
+    ///
+    /// Equivalent to sending `CMD_STALL_TERM` with the given STAG.
+    /// Returns `true` if the record was found and removed, `false` if the
+    /// STAG was unknown (no-op).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert!(!smmu.abort_stalled_transaction(42), "unknown STAG returns false");
+    /// ```
+    pub fn abort_stalled_transaction(&self, stag: u16) -> bool {
+        self.stall_queue.remove(&stag).is_some()
     }
 
     /// Remove a PASID from a stream
@@ -1258,16 +1337,17 @@ impl SMMU {
         let stream_value = stream_id.as_u32();
         let stream_guard = self.streams.get(&stream_value);
 
-        // Capture ASID (CD.ASID, §3.17) and VMID (STE.S2VMID, §5.2) while holding
-        // the stream guard, so TLB entries can be tagged for both ASID-targeted
-        // (CMD_TLBI_NH_ASID) and VMID-targeted (CMD_TLBI_S12_VMALL) invalidation.
-        let (result, entry_asid, entry_vmid) = if let Some(stream_ref) = stream_guard {
+        // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), and stall mode
+        // while holding the stream guard, so TLB entries can be tagged and stall
+        // decisions made without re-locking the map.
+        let (result, entry_asid, entry_vmid, stall_mode) = if let Some(stream_ref) = stream_guard {
             let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
             let vmid = stream_ref.value().get_vmid();
+            let stall = stream_ref.value().is_stall_enabled();
             // Delegate to StreamContext for actual translation
             // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
             let r = stream_ref.value().translate(pasid, iova, access, security_state);
-            (r, asid, vmid)
+            (r, asid, vmid, stall)
         } else {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Record fault before returning error
@@ -1290,10 +1370,28 @@ impl SMMU {
             self.tlb_cache.insert(cache_key, entry);
         }
 
-        // Record fault on translation error
+        // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).
+        // If so, enqueue a StallRecord and return Stalled { stag } instead of the
+        // raw fault error — software must send CMD_RESUME or CMD_STALL_TERM to resolve.
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             self.record_translation_fault(stream_id, pasid, iova, access, security_state, error);
+
+            if stall_mode {
+                // Generate a unique STAG (wrapping counter, starting at 1).
+                let stag = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                let stag = if stag == 0 { self.stag_counter.fetch_add(1, Ordering::Relaxed) } else { stag };
+                let record = StallRecord {
+                    stag,
+                    stream_id: stream_id.as_u32(),
+                    pasid: pasid.as_u32(),
+                    iova: iova.as_u64(),
+                    access,
+                    security_state,
+                };
+                self.stall_queue.insert(stag, record);
+                return Err(TranslationError::Stalled { stag });
+            }
         } else {
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
         }
@@ -1433,6 +1531,9 @@ impl SMMU {
             TranslationError::StreamDisabled => FaultType::StreamDisabled,
             TranslationError::InvalidPASID => FaultType::BadCD,
             TranslationError::PASIDNotFound => FaultType::BadCD,
+            // Stalled is a stall-mode outcome, not a distinct fault class.
+            // Map to TranslationFault for event recording purposes.
+            TranslationError::Stalled { .. } => FaultType::TranslationFault,
         }
     }
 
@@ -1784,9 +1885,19 @@ impl SMMU {
 
                 let _ = self.submit_event(event);
             },
+            CommandType::Resume => {
+                // CMD_RESUME (§4.6, §3.12.2): remove the matching stall record so that
+                // the stalled transaction is considered resumed / retired.
+                self.stall_queue.remove(&command.stag);
+            },
+            CommandType::StallTerm => {
+                // CMD_STALL_TERM (§4.7, §3.12.2): abort the stalled transaction
+                // identified by STAG.  Remove from stall queue to discard.
+                self.stall_queue.remove(&command.stag);
+            },
             _ => {
                 // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll,
-                // PriResp, Resume, StallTerm — no side-effect processing required
+                // PriResp — no side-effect processing required
             },
         }
 
