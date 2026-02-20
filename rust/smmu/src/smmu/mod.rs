@@ -1866,10 +1866,38 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
-                // Address range invalidation
-                // For simplicity, invalidate entire cache for now
-                // TODO: Add range-based invalidation API to TlbCache
-                self.tlb_cache.invalidate_all();
+                // CMD_ATC_INV (§4.5.1): range-based or global ATC invalidation.
+                //
+                // flags bit 0 = G (Global):
+                //   G=0: invalidate entries for addresses in [start_address, end_address]
+                //   G=1: invalidate ALL entries for (stream_id, PASID) regardless of address
+                let global = (command.flags & 1) != 0;
+
+                if let (Ok(stream_id), Ok(pasid)) = (
+                    StreamID::new(command.stream_id),
+                    PASID::new(command.pasid),
+                ) {
+                    if global {
+                        // Global: evict all entries for this (stream, PASID) pair.
+                        self.tlb_cache.invalidate_by_stream_pasid(stream_id, pasid);
+                    } else {
+                        // Range: evict only entries within [start, end].
+                        // If address construction fails (out-of-range value), fall back
+                        // to stream+PASID invalidation to avoid skipping any entries.
+                        match (
+                            crate::types::IOVA::new(command.start_address),
+                            crate::types::IOVA::new(command.end_address),
+                        ) {
+                            (Ok(start), Ok(end)) => {
+                                self.tlb_cache.invalidate_by_va_range(stream_id, pasid, start, end);
+                            },
+                            _ => {
+                                // Fallback: scoped to stream+PASID (conservative)
+                                self.tlb_cache.invalidate_by_stream_pasid(stream_id, pasid);
+                            },
+                        }
+                    }
+                }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
 
                 // Generate completion event with monotonic timestamp

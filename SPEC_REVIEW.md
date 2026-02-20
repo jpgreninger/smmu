@@ -434,20 +434,25 @@ cycle. Neither `PRIEntry` nor `CommandEntry` has a `prg_index` field.
 
 ---
 
-### FINDING-M-09 ❌ — AtcInv Does Full Flush Instead of Range
+### FINDING-M-09 ✅ Fixed (Rust) — AtcInv Does Full Flush Instead of Range
 **Spec**: §4.5.1 (CMD_ATC_INV)
 **Affected**: Rust
 
 `CMD_ATC_INV(StreamID, SubstreamID, SSV, Global, Address, Size)` must invalidate
-ATC entries for a specific address range. The Rust implementation calls
-`tlb_cache.invalidate_all()` with a TODO comment acknowledging the gap.
+ATC entries for a specific address range.
 
-**Relevant file**: `rust/smmu/src/smmu/mod.rs`, `process_single_command`,
-`CommandType::AtcInv` arm.
-
-**Recommendation**: Implement range-based TLB invalidation using the
-`start_address` and `end_address` fields of `CommandEntry`. Expose
-`invalidate_range(stream_id, start, end)` on `TlbCache`.
+**Rust fix** (committed):
+- Replaced `tlb_cache.invalidate_all()` with scoped invalidation in `CMD_ATC_INV` handler.
+- G=0 (range mode): calls `tlb_cache.invalidate_by_va_range(stream_id, pasid, start, end)` —
+  evicts only entries whose IOVA falls within [start_address, end_address] for the
+  specified (stream, PASID). Entries outside the range are preserved.
+- G=1 (Global flag, `CommandEntry.flags` bit 0): calls
+  `tlb_cache.invalidate_by_stream_pasid(stream_id, pasid)` — evicts all entries for
+  the (stream, PASID) pair regardless of address.
+- Both modes leave entries for other streams and PASIDs intact.
+- AtcInvalidateCompletion event and invalidation_count counter still emitted/updated.
+- `TlbCache::invalidate_by_va_range()` was already implemented; no new cache API needed.
+- 9 TDD spec tests in `tests/test_atc_inv_range_spec.rs` — all pass.
 
 ---
 
@@ -620,7 +625,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 9. ~~FINDING-M-02 — Add VMID to STE config and TLB entries~~ ✅ Fixed (Rust)
 10. ~~FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking~~ ✅ Fixed (Rust)
 11. ~~FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types~~ ✅ Fixed (Rust)
-12. FINDING-M-09 — Implement range-based ATC invalidation (Rust)
+12. ~~FINDING-M-09 — Implement range-based ATC invalidation (Rust)~~ ✅ Fixed (Rust)
 13. FINDING-M-10 — Add address size fault checking (C++)
 
 ### Medium-term (feature completeness)
