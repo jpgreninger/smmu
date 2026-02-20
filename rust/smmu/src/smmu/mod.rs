@@ -1399,6 +1399,24 @@ impl SMMU {
         result
     }
 
+    /// Returns the total number of TLB / ATC / CD invalidation operations performed.
+    ///
+    /// Includes all invalidation commands: `CMD_TLBI_*`, `CMD_ATC_INV`,
+    /// `CMD_CFGI_CD`, and `CMD_CFGI_CD_ALL`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert_eq!(smmu.get_invalidation_count(), 0);
+    /// ```
+    #[must_use]
+    pub fn get_invalidation_count(&self) -> u64 {
+        self.invalidation_count.load(Ordering::Relaxed)
+    }
+
     /// Get translation statistics
     ///
     /// Returns tuple of (total, successful, failed) translation counts.
@@ -1894,6 +1912,25 @@ impl SMMU {
                 // CMD_STALL_TERM (§4.7, §3.12.2): abort the stalled transaction
                 // identified by STAG.  Remove from stall queue to discard.
                 self.stall_queue.remove(&command.stag);
+            },
+            CommandType::CfgiCd => {
+                // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
+                // Context Descriptor for the specified (stream, PASID) pair.
+                if let (Ok(stream_id), Ok(pasid)) = (
+                    StreamID::new(command.stream_id),
+                    PASID::new(command.pasid),
+                ) {
+                    self.tlb_cache.invalidate_by_stream_pasid(stream_id, pasid);
+                }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            CommandType::CfgiCdAll => {
+                // CMD_CFGI_CD_ALL (§4.3.4): invalidate TLB entries cached from
+                // all Context Descriptors of the specified stream.
+                if let Ok(stream_id) = StreamID::new(command.stream_id) {
+                    self.tlb_cache.invalidate_by_stream(stream_id);
+                }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             _ => {
                 // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll,

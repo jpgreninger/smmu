@@ -188,17 +188,21 @@ Add the missing TLB invalidation variants and `CMD_STALL_TERM`.
 
 ---
 
-### FINDING-H-03 ❌ — CFGI_CD and CFGI_CD_ALL Not Implemented
-**Spec**: §4.3.3 (CMD_CFGI_CD), §4.3.4 (CMD_CFGI_CD_ALL)
+### FINDING-H-03 ✅ Fixed (Rust) — CFGI_CD and CFGI_CD_ALL Not Implemented
+**Spec**: §4.3.3 (CMD_CFGI_CD, opcode 0x05), §4.3.4 (CMD_CFGI_CD_ALL, opcode 0x06)
 **Affected**: Both
 
 `CMD_CFGI_CD(StreamID, SSec, SubstreamID, Leaf)` invalidates a single CD entry.
-`CMD_CFGI_CD_ALL(StreamID, SSec)` invalidates all CDs for a stream. Neither
-command type exists in either implementation.
+`CMD_CFGI_CD_ALL(StreamID, SSec)` invalidates all CDs for a stream.
 
-**Recommendation**: Add `CfgiCd` and `CfgiCdAll` to `CommandType` and implement
-handlers that invalidate PASID-level (CD) configuration caches for the
-specified stream.
+**Rust fix** (committed):
+- Added `CommandType::CfgiCd = 0x05` and `CommandType::CfgiCdAll = 0x06`.
+- `CMD_CFGI_CD` → `tlb_cache.invalidate_by_stream_pasid(stream_id, pasid)` — evicts
+  all TLB entries for the specified (stream, PASID) pair and increments invalidation_count.
+- `CMD_CFGI_CD_ALL` → `tlb_cache.invalidate_by_stream(stream_id)` — evicts all TLB
+  entries for all PASIDs of the specified stream.
+- Added `get_invalidation_count()` public API to observe the invalidation counter.
+- 10 TDD spec tests in `tests/test_cfgi_cd_spec.rs` — all pass.
 
 ---
 
@@ -615,7 +619,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 8. ~~FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation~~ ✅ Fixed (Rust)
 9. ~~FINDING-M-02 — Add VMID to STE config and TLB entries~~ ✅ Fixed (Rust)
 10. ~~FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking~~ ✅ Fixed (Rust)
-11. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
+11. ~~FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types~~ ✅ Fixed (Rust)
 12. FINDING-M-09 — Implement range-based ATC invalidation (Rust)
 13. FINDING-M-10 — Add address size fault checking (C++)
 

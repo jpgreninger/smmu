@@ -23,6 +23,16 @@ pub enum CommandType {
     /// All / STE-range configuration invalidation — CMD_CFGI_ALL / CMD_CFGI_STE_RANGE
     /// (opcode 0x04; the two commands share the same opcode per §4.1.1)
     CfgiAll = 0x04,
+    /// Context Descriptor invalidation — CMD_CFGI_CD (opcode 0x05)
+    ///
+    /// Invalidates all information cached from the CD for the specified
+    /// SubstreamID (PASID) of the specified stream (ARM §4.3.3).
+    CfgiCd = 0x05,
+    /// All-CDs invalidation — CMD_CFGI_CD_ALL (opcode 0x06)
+    ///
+    /// Invalidates all information cached from every CD of the specified
+    /// stream (ARM §4.3.4).
+    CfgiCdAll = 0x06,
     // ---- TLB invalidation — Non-secure Hyp (§4.4) ----
     /// CMD_TLBI_NH_ALL (opcode 0x10)
     TlbiNhAll = 0x10,
