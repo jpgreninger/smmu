@@ -2024,6 +2024,7 @@ impl SMMU {
     ///
     /// Internal method to process one command and generate appropriate completion events.
     #[allow(clippy::unnecessary_wraps)]
+    #[allow(clippy::too_many_lines)]
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
             // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4)
@@ -2142,9 +2143,26 @@ impl SMMU {
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
+            CommandType::PriResp => {
+                // ARM §8.3: Find and retire the pending PRIEntry whose
+                // (stream_id, prg_index) matches this response command.
+                // If no match is found the command is a software usage error;
+                // the SMMU generates no fault for this condition (ARM §8.3).
+                let mut queue = self.pri_queue.write().unwrap();
+                if let Some(pos) = queue.iter().position(|entry| {
+                    entry.stream_id == command.stream_id
+                        && entry.prg_index == command.prg_index
+                }) {
+                    queue.remove(pos);
+                    // ARM §3.5.1: advance PRIQ_CONS to reflect the removal.
+                    let cons = self.priq_cons.load(Ordering::Relaxed);
+                    self.priq_cons
+                        .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                }
+            },
             _ => {
-                // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll,
-                // PriResp — no side-effect processing required
+                // PrefetchConfig, PrefetchAddr, CfgiSte, CfgiAll —
+                // no side-effect processing required
             },
         }
 
@@ -2171,6 +2189,11 @@ impl SMMU {
         }
         queue.push_back(request);
         self.pri_count.fetch_add(1, Ordering::Relaxed);
+        // ARM §3.5.1: advance PRIQ_PROD after each enqueue so software can
+        // observe queue fullness via (PROD - CONS).
+        let prod = self.priq_prod.load(Ordering::Relaxed);
+        self.priq_prod
+            .store(Self::advance_index(prod, self.priq_log2size), Ordering::Release);
         Ok(())
     }
 
@@ -2192,12 +2215,21 @@ impl SMMU {
         loop {
             let request = {
                 let mut queue = self.pri_queue.write().unwrap();
-                queue.pop_front()
+                let entry = queue.pop_front();
+                if entry.is_some() {
+                    // ARM §3.5.1: advance PRIQ_CONS after each dequeue.
+                    let cons = self.priq_cons.load(Ordering::Relaxed);
+                    self.priq_cons
+                        .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                }
+                entry
             };
 
             match request {
                 Some(req) => {
-                    // Generate PRI event for this request with monotonic timestamp
+                    // Generate PRI event for this request with monotonic timestamp.
+                    // The event carries the prg_index via the error_code field so
+                    // that software can correlate events with PRI queue entries.
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
                     let event = EventEntry {
@@ -2206,7 +2238,7 @@ impl SMMU {
                         pasid: req.pasid,
                         address: req.requested_address,
                         security_state: SecurityState::NonSecure,
-                        error_code: 0,
+                        error_code: u32::from(req.prg_index),
                         timestamp,
                     };
 

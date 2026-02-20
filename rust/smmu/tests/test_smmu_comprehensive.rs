@@ -147,6 +147,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -168,6 +169,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -189,6 +191,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -210,6 +213,7 @@ fn test_command_queue_submit_atc_inv() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -232,6 +236,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         end_address: 0x1000,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -257,6 +262,7 @@ fn test_command_queue_submit_sync() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -278,6 +284,7 @@ fn test_command_queue_submit_prefetch_config() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -298,6 +305,7 @@ fn test_command_queue_submit_prefetch_addr() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -318,6 +326,7 @@ fn test_command_queue_submit_cfgi_ste() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -338,6 +347,7 @@ fn test_command_queue_submit_cfgi_all() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -358,6 +368,7 @@ fn test_command_queue_submit_pri_resp() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -378,6 +389,7 @@ fn test_command_queue_submit_resume() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -398,6 +410,7 @@ fn test_command_queue_process_single_tlbi() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -429,6 +442,7 @@ fn test_command_queue_process_multiple_commands() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            prg_index: 0,
             asid: 0,
             vmid: 0,
         stag: 0,
@@ -459,6 +473,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         end_address: 0x2000,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -486,6 +501,7 @@ fn test_command_queue_process_sync_generates_event() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -523,6 +539,7 @@ fn test_command_queue_clear() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            prg_index: 0,
             asid: 0,
             vmid: 0,
         stag: 0,
@@ -553,6 +570,7 @@ fn test_command_queue_is_full() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            prg_index: 0,
             asid: 0,
             vmid: 0,
         stag: 0,
@@ -828,6 +846,7 @@ fn test_pri_queue_submit_page_request() {
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
+        prg_index: 0,
     };
 
     assert!(smmu.submit_page_request(pri_entry).is_ok());
@@ -847,6 +866,7 @@ fn test_pri_queue_submit_multiple_requests() {
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
+            prg_index: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -870,6 +890,7 @@ fn test_pri_queue_overflow_with_small_queue() {
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
+            prg_index: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -884,6 +905,7 @@ fn test_pri_queue_overflow_with_small_queue() {
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
+        prg_index: 0,
     };
 
     let result = smmu.submit_page_request(overflow_entry);
@@ -907,6 +929,7 @@ fn test_pri_queue_get_all_requests() {
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
+            prg_index: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -927,6 +950,7 @@ fn test_pri_queue_process_generates_events() {
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
+        prg_index: 0,
     };
     smmu.submit_page_request(pri_entry).unwrap();
 
@@ -957,6 +981,7 @@ fn test_pri_queue_process_multiple_requests() {
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
+            prg_index: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -991,6 +1016,7 @@ fn test_pri_queue_clear() {
             access_type: AccessType::Read,
             is_last_request: false,
             timestamp: 0,
+            prg_index: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1116,6 +1142,7 @@ fn test_queue_statistics() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -1129,6 +1156,7 @@ fn test_queue_statistics() {
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
+        prg_index: 0,
     })
     .unwrap();
 
@@ -1155,6 +1183,7 @@ fn test_cache_statistics_invalidation_count() {
             end_address: 0,
             flags: 0,
             timestamp: 0,
+            prg_index: 0,
             asid: 0,
             vmid: 0,
         stag: 0,
@@ -1192,6 +1221,7 @@ fn test_reset_queues_atomically() {
         end_address: 0,
         flags: 0,
         timestamp: 0,
+        prg_index: 0,
         asid: 0,
         vmid: 0,
         stag: 0,
@@ -1205,6 +1235,7 @@ fn test_reset_queues_atomically() {
         access_type: AccessType::Read,
         is_last_request: false,
         timestamp: 0,
+        prg_index: 0,
     })
     .unwrap();
 

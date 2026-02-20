@@ -634,3 +634,45 @@ fn test_spec_compliance_request_grouping() {
     entry.is_last_request = true;
     assert!(entry.is_last_request);
 }
+
+// ============================================================================
+// FINDING-M-08: PRGIndex Tracking (ARM §8.2, §8.3)
+// ============================================================================
+
+#[test]
+fn test_pri_entry_has_prg_index_field() {
+    // ARM §8.2: Every PRIEntry must carry a PRGIndex (Page Request Group Index).
+    // Default value must be 0.
+    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    assert_eq!(entry.prg_index, 0);
+}
+
+#[test]
+fn test_pri_entry_with_prg_index_builder() {
+    // ARM §8.2: Builder method `with_prg_index` sets a non-zero PRGIndex.
+    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+        .with_prg_index(42);
+    assert_eq!(entry.prg_index, 42);
+}
+
+#[test]
+fn test_pri_entry_with_prg_index_max() {
+    // Boundary: u16::MAX is a valid PRGIndex value.
+    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+        .with_prg_index(u16::MAX);
+    assert_eq!(entry.prg_index, u16::MAX);
+}
+
+#[test]
+fn test_pri_entry_with_prg_index_preserves_other_fields() {
+    // Builder must not disturb any other field.
+    let entry = PRIEntry::new(7, 3, 0x4000, AccessType::Write)
+        .with_prg_index(10);
+    assert_eq!(entry.stream_id, 7);
+    assert_eq!(entry.pasid, 3);
+    assert_eq!(entry.requested_address, 0x4000);
+    assert_eq!(entry.access_type, AccessType::Write);
+    assert!(!entry.is_last_request);
+    assert_eq!(entry.timestamp, 0);
+    assert_eq!(entry.prg_index, 10);
+}

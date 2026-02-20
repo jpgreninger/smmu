@@ -83,6 +83,7 @@ const fn resume_cmd(stag: u16) -> CommandEntry {
         asid: 0,
         vmid: 0,
         stag,
+        prg_index: 0,
     }
 }
 
@@ -99,6 +100,7 @@ const fn stall_term_cmd(stag: u16) -> CommandEntry {
         asid: 0,
         vmid: 0,
         stag,
+        prg_index: 0,
     }
 }
 

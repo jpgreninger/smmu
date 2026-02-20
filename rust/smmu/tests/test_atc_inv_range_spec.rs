@@ -61,6 +61,7 @@ const fn atc_inv(stream_id: u32, pasid_val: u32, start: u64, end: u64, flags: u3
         asid: 0,
         vmid: 0,
         stag: 0,
+        prg_index: 0,
     }
 }
 

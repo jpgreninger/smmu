@@ -86,6 +86,7 @@ const fn cfgi_cd_cmd(stream_id: u32, pasid_val: u32) -> CommandEntry {
         asid: 0,
         vmid: 0,
         stag: 0,
+        prg_index: 0,
     }
 }
 
@@ -101,6 +102,7 @@ const fn cfgi_cd_all_cmd(stream_id: u32) -> CommandEntry {
         asid: 0,
         vmid: 0,
         stag: 0,
+        prg_index: 0,
     }
 }
 

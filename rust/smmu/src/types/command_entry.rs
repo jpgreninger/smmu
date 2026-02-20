@@ -113,10 +113,27 @@ pub struct CommandEntry {
     /// Identifies the stalled transaction group to resume or terminate.
     /// Ignored by other command types.
     pub stag: u16,
+
+    /// Page Request Group index for `CMD_PRI_RESP` (ARM §8.3).
+    ///
+    /// The SMMU uses this value together with `stream_id` to locate and retire
+    /// the matching [`PRIEntry`](crate::types::PRIEntry) in the PRI queue.
+    /// Must equal the `prg_index` carried in the original `PRIEntry` (ARM §8.2).
+    /// Ignored by all command types other than `PriResp`.
+    pub prg_index: u16,
 }
 
 impl CommandEntry {
     /// Create a new command entry
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{CommandEntry, CommandType};
+    ///
+    /// let cmd = CommandEntry::new(CommandType::PriResp, 1, 0);
+    /// assert_eq!(cmd.prg_index, 0);
+    /// ```
     #[must_use]
     pub const fn new(cmd_type: CommandType, stream_id: u32, pasid: u32) -> Self {
         Self {
@@ -130,6 +147,7 @@ impl CommandEntry {
             asid: 0,
             vmid: 0,
             stag: 0,
+            prg_index: 0,
         }
     }
 }
