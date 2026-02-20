@@ -123,6 +123,14 @@ pub struct StreamContext {
     /// When true, faulting translations stall (returning `Stalled { stag }`)
     /// instead of immediately aborting.  Corresponds to `FaultMode::Stall`.
     stall_enabled: AtomicBool,
+
+    /// Hardware Access Flag management enabled (CD.HA bit 43, ARM SMMU v3 §3.13).
+    /// When true, the AF bit in the page table entry is set on first access.
+    ha: AtomicBool,
+
+    /// Hardware Dirty State management enabled (CD.HD bit 42, ARM SMMU v3 §3.13).
+    /// When true, the dirty bit in the page table entry is set on first write.
+    hd: AtomicBool,
 }
 
 impl StreamContext {
@@ -158,6 +166,8 @@ impl StreamContext {
             fault_timestamp_counter: AtomicUsize::new(0),
             vmid: AtomicU16::new(0),
             stall_enabled: AtomicBool::new(false),
+            ha: AtomicBool::new(false),
+            hd: AtomicBool::new(false),
         }
     }
 
@@ -290,6 +300,34 @@ impl StreamContext {
     #[inline]
     pub fn set_stall_enabled(&self, enabled: bool) {
         self.stall_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Returns whether hardware Access Flag management is enabled (CD.HA, ARM SMMU v3 §3.13).
+    #[inline]
+    pub fn is_ha_enabled(&self) -> bool {
+        self.ha.load(Ordering::Relaxed)
+    }
+
+    /// Enables or disables hardware Access Flag management (CD.HA bit 43, ARM SMMU v3 §3.13).
+    ///
+    /// When enabled, the AF bit in the page table entry is set on first access.
+    #[inline]
+    pub fn set_ha(&self, enabled: bool) {
+        self.ha.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Returns whether hardware Dirty State management is enabled (CD.HD, ARM SMMU v3 §3.13).
+    #[inline]
+    pub fn is_hd_enabled(&self) -> bool {
+        self.hd.load(Ordering::Relaxed)
+    }
+
+    /// Enables or disables hardware Dirty State management (CD.HD bit 42, ARM SMMU v3 §3.13).
+    ///
+    /// When enabled, the dirty bit in the page table entry is set on first write.
+    #[inline]
+    pub fn set_hd(&self, enabled: bool) {
+        self.hd.store(enabled, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace
@@ -848,6 +886,15 @@ impl StreamContext {
         // Perform Stage-1 translation (no RwLock needed - AddressSpace is lock-free)
         let result = addr_space.translate_page(iova, access_type, security_state);
 
+        // On successful translation, update Access Flag / Dirty State per ARM §3.13
+        if result.is_ok() {
+            let ha = self.ha.load(Ordering::Relaxed);
+            let hd = self.hd.load(Ordering::Relaxed);
+            if ha || hd {
+                addr_space.update_access_flags(iova, ha, hd, access_type);
+            }
+        }
+
         // Record fault on error
         if let Err(ref error) = result {
             let fault_type = match error {
@@ -904,7 +951,15 @@ impl StreamContext {
 
         // Stage-1: IOVA → IPA; use explicit match to avoid fragile unwrap()
         let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
-            Ok(data) => data,
+            Ok(data) => {
+                // Update Access Flag / Dirty State per ARM §3.13 after successful Stage-1
+                let ha = self.ha.load(Ordering::Relaxed);
+                let hd = self.hd.load(Ordering::Relaxed);
+                if ha || hd {
+                    addr_space.update_access_flags(iova, ha, hd, access_type);
+                }
+                data
+            },
             Err(error) => {
                 let fault_type = match error {
                     TranslationError::PageNotMapped => FaultType::TranslationFault,
@@ -1554,6 +1609,69 @@ mod tests {
         ctx.set_stage2_enabled(true);
         assert!(!ctx.is_stage1_enabled());
         assert!(ctx.is_stage2_enabled());
+    }
+
+    // ========================================================================
+    // TDD tests for FINDING-M-04: Access Flag and Dirty State simulation
+    // These tests will FAIL before implementation.
+    // ========================================================================
+
+    #[test]
+    fn test_stream_context_ha_sets_af_after_translate() {
+        let ctx = StreamContext::new();
+        ctx.set_ha(true);
+
+        let pasid = PASID::new(0).unwrap();
+        ctx.create_pasid(pasid).unwrap();
+
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        ctx.map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        // Translate — should set AF
+        let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
+
+        // Verify AF was set on the address space
+        let addr_space_ref = ctx.pasid_map.get(&0).unwrap();
+        assert_eq!(addr_space_ref.get_page_access_flag(iova), Some(true));
+    }
+
+    #[test]
+    fn test_stream_context_hd_sets_dirty_on_write() {
+        let ctx = StreamContext::new();
+        ctx.set_hd(true);
+
+        let pasid = PASID::new(0).unwrap();
+        ctx.create_pasid(pasid).unwrap();
+
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        ctx.map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        // Write translate — should set dirty
+        let _ = ctx.translate(pasid, iova, AccessType::Write, SecurityState::NonSecure);
+
+        let addr_space_ref = ctx.pasid_map.get(&0).unwrap();
+        assert_eq!(addr_space_ref.get_page_dirty(iova), Some(true));
+    }
+
+    #[test]
+    fn test_stream_context_hd_not_set_on_read() {
+        let ctx = StreamContext::new();
+        ctx.set_hd(true);
+
+        let pasid = PASID::new(0).unwrap();
+        ctx.create_pasid(pasid).unwrap();
+
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        ctx.map_page(pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        // Read translate — should NOT set dirty
+        let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
+
+        let addr_space_ref = ctx.pasid_map.get(&0).unwrap();
+        assert_eq!(addr_space_ref.get_page_dirty(iova), Some(false));
     }
 
     #[test]

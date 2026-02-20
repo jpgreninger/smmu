@@ -533,6 +533,9 @@ impl SMMU {
         stream_context.set_stage2_enabled(config.stage2_enabled);
         stream_context.set_vmid(config.vmid);
         stream_context.set_stall_enabled(config.fault_mode == crate::types::FaultMode::Stall);
+        // Apply hardware Access Flag / Dirty State management (CD.HA/CD.HD, ARM §3.13)
+        stream_context.set_ha(config.ha);
+        stream_context.set_hd(config.hd);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);

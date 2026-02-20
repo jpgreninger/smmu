@@ -90,6 +90,14 @@ pub struct StreamConfig {
     /// Tags Stage-2 TLB entries; used by `CMD_TLBI_S12_VMALL` and
     /// `CMD_TLBI_S2_IPA` for VMID-targeted invalidation.
     pub vmid: u16,
+
+    /// Hardware Access Flag management enabled (CD.HA bit 43, ARM SMMU v3 §3.13).
+    /// When true, the SMMU sets the Access Flag in the page table entry on first access.
+    pub ha: bool,
+
+    /// Hardware Dirty State management enabled (CD.HD bit 42, ARM SMMU v3 §3.13).
+    /// When true, the SMMU sets the dirty bit in the page table entry on first write.
+    pub hd: bool,
 }
 
 impl StreamConfig {
@@ -117,6 +125,8 @@ impl StreamConfig {
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
             vmid: 0,
+            ha: false,
+            hd: false,
         }
     }
 
@@ -132,6 +142,8 @@ impl StreamConfig {
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
             vmid: 0,
+            ha: false,
+            hd: false,
         }
     }
 
@@ -147,6 +159,8 @@ impl StreamConfig {
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
             vmid: 0,
+            ha: false,
+            hd: false,
         }
     }
 
@@ -162,6 +176,8 @@ impl StreamConfig {
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
             vmid: 0,
+            ha: false,
+            hd: false,
         }
     }
 
@@ -235,6 +251,8 @@ pub struct StreamConfigBuilder {
     fault_mode: FaultMode,
     security_enforced: bool,
     vmid: u16,
+    ha: bool,
+    hd: bool,
 }
 
 impl StreamConfigBuilder {
@@ -250,6 +268,8 @@ impl StreamConfigBuilder {
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
             vmid: 0,
+            ha: false,
+            hd: false,
         }
     }
 
@@ -309,6 +329,20 @@ impl StreamConfigBuilder {
         self
     }
 
+    /// Enable or disable hardware Access Flag management (CD.HA bit 43, ARM SMMU v3 §3.13)
+    #[must_use]
+    pub fn ha(mut self, ha: bool) -> Self {
+        self.ha = ha;
+        self
+    }
+
+    /// Enable or disable hardware Dirty State management (CD.HD bit 42, ARM SMMU v3 §3.13)
+    #[must_use]
+    pub fn hd(mut self, hd: bool) -> Self {
+        self.hd = hd;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -321,6 +355,8 @@ impl StreamConfigBuilder {
             fault_mode: self.fault_mode,
             security_enforced: self.security_enforced,
             vmid: self.vmid,
+            ha: self.ha,
+            hd: self.hd,
         };
 
         config.validate()?;

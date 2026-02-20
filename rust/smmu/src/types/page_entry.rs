@@ -265,6 +265,10 @@ pub struct PageEntry {
     shareable: bool,
     /// Device memory attribute
     device_memory: bool,
+    /// Hardware Access Flag (CD.HA bit 43) — set on first access when HA=1
+    access_flag: bool,
+    /// Hardware Dirty State (CD.HD bit 42) — set on first write when HD=1
+    dirty: bool,
 }
 
 impl PageEntry {
@@ -297,6 +301,8 @@ impl PageEntry {
             cacheable: true,
             shareable: true,
             device_memory: false,
+            access_flag: false,
+            dirty: false,
         }
     }
 
@@ -321,6 +327,8 @@ impl PageEntry {
             cacheable: true,
             shareable: true,
             device_memory: false,
+            access_flag: false,
+            dirty: false,
         }
     }
 
@@ -428,6 +436,78 @@ impl PageEntry {
         self.permissions = permissions;
         self
     }
+
+    /// Returns true if the hardware Access Flag is set (CD.HA bit 43, ARM SMMU v3 §3.13)
+    ///
+    /// When CD.HA=1, the SMMU sets this flag on the first access to a page.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{PageEntry, PagePermissions, PA};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let entry = PageEntry::new(pa, PagePermissions::read_write());
+    /// assert!(!entry.is_access_flag_set());
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn is_access_flag_set(&self) -> bool {
+        self.access_flag
+    }
+
+    /// Returns true if the hardware Dirty State bit is set (CD.HD bit 42, ARM SMMU v3 §3.13)
+    ///
+    /// When CD.HD=1, the SMMU sets this flag on the first write to a page.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{PageEntry, PagePermissions, PA};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let entry = PageEntry::new(pa, PagePermissions::read_write());
+    /// assert!(!entry.is_dirty());
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Sets the Access Flag state (CD.HA simulation, ARM SMMU v3 §3.13)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{PageEntry, PagePermissions, PA};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let entry = PageEntry::new(pa, PagePermissions::read_write()).with_access_flag(true);
+    /// assert!(entry.is_access_flag_set());
+    /// ```
+    #[must_use]
+    pub const fn with_access_flag(mut self, v: bool) -> Self {
+        self.access_flag = v;
+        self
+    }
+
+    /// Sets the Dirty State bit (CD.HD simulation, ARM SMMU v3 §3.13)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{PageEntry, PagePermissions, PA};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let entry = PageEntry::new(pa, PagePermissions::read_write()).with_dirty(true);
+    /// assert!(entry.is_dirty());
+    /// ```
+    #[must_use]
+    pub const fn with_dirty(mut self, v: bool) -> Self {
+        self.dirty = v;
+        self
+    }
 }
 
 impl Default for PageEntry {
@@ -441,6 +521,8 @@ impl Default for PageEntry {
             cacheable: false,
             shareable: false,
             device_memory: false,
+            access_flag: false,
+            dirty: false,
         }
     }
 }
@@ -470,6 +552,8 @@ pub struct PageEntryBuilder {
     cacheable: bool,
     shareable: bool,
     device_memory: bool,
+    access_flag: bool,
+    dirty: bool,
 }
 
 impl PageEntryBuilder {
@@ -483,6 +567,8 @@ impl PageEntryBuilder {
             cacheable: true,
             shareable: true,
             device_memory: false,
+            access_flag: false,
+            dirty: false,
         }
     }
 
@@ -528,6 +614,20 @@ impl PageEntryBuilder {
         self
     }
 
+    /// Sets the Access Flag (CD.HA simulation, ARM SMMU v3 §3.13)
+    #[must_use]
+    pub const fn access_flag(mut self, v: bool) -> Self {
+        self.access_flag = v;
+        self
+    }
+
+    /// Sets the Dirty State bit (CD.HD simulation, ARM SMMU v3 §3.13)
+    #[must_use]
+    pub const fn dirty(mut self, v: bool) -> Self {
+        self.dirty = v;
+        self
+    }
+
     /// Builds the PageEntry
     ///
     /// # Panics
@@ -545,6 +645,8 @@ impl PageEntryBuilder {
             cacheable: self.cacheable,
             shareable: self.shareable,
             device_memory: self.device_memory,
+            access_flag: self.access_flag,
+            dirty: self.dirty,
         };
 
         // Enforce device memory constraints
@@ -559,6 +661,39 @@ impl PageEntryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================================================
+    // TDD tests for FINDING-M-04: Access Flag and Dirty State simulation
+    // These tests will FAIL before implementation.
+    // ========================================================================
+
+    #[test]
+    fn test_page_entry_access_flag_default_false() {
+        let pa = PA::new(0x1000).unwrap();
+        let entry = PageEntry::new(pa, PagePermissions::read_write());
+        assert!(!entry.is_access_flag_set());
+    }
+
+    #[test]
+    fn test_page_entry_dirty_default_false() {
+        let pa = PA::new(0x1000).unwrap();
+        let entry = PageEntry::new(pa, PagePermissions::read_write());
+        assert!(!entry.is_dirty());
+    }
+
+    #[test]
+    fn test_page_entry_with_access_flag() {
+        let pa = PA::new(0x1000).unwrap();
+        let entry = PageEntry::new(pa, PagePermissions::read_write()).with_access_flag(true);
+        assert!(entry.is_access_flag_set());
+    }
+
+    #[test]
+    fn test_page_entry_with_dirty() {
+        let pa = PA::new(0x1000).unwrap();
+        let entry = PageEntry::new(pa, PagePermissions::read_write()).with_dirty(true);
+        assert!(entry.is_dirty());
+    }
 
     #[test]
     fn test_page_permissions_basic() {

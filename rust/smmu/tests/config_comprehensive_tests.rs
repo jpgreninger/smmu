@@ -2994,6 +2994,8 @@ fn test_stream_config_validation_error_paths() {
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
         vmid: 0,
+        ha: false,
+        hd: false,
     };
     assert!(config1.validate().is_err());
 
@@ -3007,6 +3009,8 @@ fn test_stream_config_validation_error_paths() {
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
         vmid: 0,
+        ha: false,
+        hd: false,
     };
     assert!(config2.validate().is_err());
 
@@ -3020,6 +3024,8 @@ fn test_stream_config_validation_error_paths() {
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
         vmid: 0,
+        ha: false,
+        hd: false,
     };
     assert!(config3.validate().is_err());
 
@@ -3033,6 +3039,8 @@ fn test_stream_config_validation_error_paths() {
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
         vmid: 0,
+        ha: false,
+        hd: false,
     };
     assert!(config4.validate().is_err());
 
@@ -3046,6 +3054,8 @@ fn test_stream_config_validation_error_paths() {
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
         vmid: 0,
+        ha: false,
+        hd: false,
     };
     assert!(config5.validate().is_err());
 }

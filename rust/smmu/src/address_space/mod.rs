@@ -1345,6 +1345,102 @@ impl AddressSpace {
         // No-op - AddressSpace maintains authoritative state
     }
 
+    /// Updates the Access Flag (AF) and Dirty State bits on a page entry after
+    /// successful translation, simulating hardware page table walk behaviour per
+    /// ARM SMMU v3 §3.13.
+    ///
+    /// - Sets `access_flag = true` when `ha = true` and AF is not already set.
+    /// - Sets `dirty = true` when `hd = true` and the access is a write variant.
+    ///
+    /// Returns `true` if any flag was updated (page table entry modified).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::address_space::AddressSpace;
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, AccessType};
+    ///
+    /// let addr_space = AddressSpace::new();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    ///
+    /// let changed = addr_space.update_access_flags(iova, true, false, AccessType::Read);
+    /// assert!(changed);
+    /// assert_eq!(addr_space.get_page_access_flag(iova), Some(true));
+    /// ```
+    pub fn update_access_flags(&self, iova: IOVA, ha: bool, hd: bool, access_type: AccessType) -> bool {
+        if !ha && !hd {
+            return false;
+        }
+        let page_num = self.page_number(iova);
+        if let Some(mut entry) = self.page_table.get_mut(&page_num) {
+            let af_changed = if ha && !entry.is_access_flag_set() {
+                *entry = entry.clone().with_access_flag(true);
+                true
+            } else {
+                false
+            };
+            let is_write = matches!(
+                access_type,
+                AccessType::Write | AccessType::ReadWrite | AccessType::WriteExecute | AccessType::ReadWriteExecute
+            );
+            let dirty_changed = if hd && is_write && !entry.is_dirty() {
+                *entry = entry.clone().with_dirty(true);
+                true
+            } else {
+                false
+            };
+            af_changed || dirty_changed
+        } else {
+            false
+        }
+    }
+
+    /// Returns the `access_flag` state of a mapped page entry (for testing and inspection).
+    ///
+    /// Returns `None` if the page is not mapped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::address_space::AddressSpace;
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    ///
+    /// let addr_space = AddressSpace::new();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// assert_eq!(addr_space.get_page_access_flag(iova), Some(false));
+    /// ```
+    #[must_use]
+    pub fn get_page_access_flag(&self, iova: IOVA) -> Option<bool> {
+        let page_num = self.page_number(iova);
+        self.page_table.get(&page_num).map(|e| e.is_access_flag_set())
+    }
+
+    /// Returns the `dirty` state of a mapped page entry (for testing and inspection).
+    ///
+    /// Returns `None` if the page is not mapped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::address_space::AddressSpace;
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState};
+    ///
+    /// let addr_space = AddressSpace::new();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// let pa = PA::new(0x2000).unwrap();
+    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// assert_eq!(addr_space.get_page_dirty(iova), Some(false));
+    /// ```
+    #[must_use]
+    pub fn get_page_dirty(&self, iova: IOVA) -> Option<bool> {
+        let page_num = self.page_number(iova);
+        self.page_table.get(&page_num).map(|e| e.is_dirty())
+    }
+
     // Private helper methods
 
     /// Converts IOVA to page number for sparse indexing
@@ -1421,5 +1517,76 @@ mod tests {
 
         let result = addr_space.translate_page(iova, AccessType::Write, SecurityState::NonSecure);
         assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // TDD tests for FINDING-M-04: Access Flag and Dirty State simulation
+    // These tests will FAIL before implementation.
+    // ========================================================================
+
+    #[test]
+    fn test_update_access_flags_ha_sets_af_on_read() {
+        let addr_space = AddressSpace::new();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        // AF should be false initially
+        assert_eq!(addr_space.get_page_access_flag(iova), Some(false));
+
+        // After update with ha=true, AF should be set
+        let changed = addr_space.update_access_flags(iova, true, false, AccessType::Read);
+        assert!(changed);
+        assert_eq!(addr_space.get_page_access_flag(iova), Some(true));
+    }
+
+    #[test]
+    fn test_update_access_flags_hd_sets_dirty_on_write() {
+        let addr_space = AddressSpace::new();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        assert_eq!(addr_space.get_page_dirty(iova), Some(false));
+
+        let changed = addr_space.update_access_flags(iova, false, true, AccessType::Write);
+        assert!(changed);
+        assert_eq!(addr_space.get_page_dirty(iova), Some(true));
+    }
+
+    #[test]
+    fn test_update_access_flags_hd_does_not_set_dirty_on_read() {
+        let addr_space = AddressSpace::new();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        addr_space.update_access_flags(iova, false, true, AccessType::Read);
+        assert_eq!(addr_space.get_page_dirty(iova), Some(false));
+    }
+
+    #[test]
+    fn test_update_access_flags_no_change_when_already_set() {
+        let addr_space = AddressSpace::new();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        // Set AF once
+        addr_space.update_access_flags(iova, true, false, AccessType::Read);
+        // Second call should return false (no change)
+        let changed = addr_space.update_access_flags(iova, true, false, AccessType::Read);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn test_update_access_flags_no_flags_enabled_returns_false() {
+        let addr_space = AddressSpace::new();
+        let iova = IOVA::new(0x1000).unwrap();
+        let pa = PA::new(0x2000).unwrap();
+        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+
+        let changed = addr_space.update_access_flags(iova, false, false, AccessType::Write);
+        assert!(!changed);
     }
 }

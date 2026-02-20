@@ -364,9 +364,10 @@ invalidation in the C++ implementation.
 
 ---
 
-### FINDING-M-04 ❌ — No Access Flag / Dirty State Management
+### FINDING-M-04 ✅ — No Access Flag / Dirty State Management
 **Spec**: §3.13 (Translation tables and AF/Dirty state), §3.13.2–3.13.5
 **Affected**: Both
+**Fixed**: Both — added `access_flag`/`dirty` to `PageEntry`; added `ha`/`hd` to `StreamConfig` (Rust) and `ContextDescriptor`/`StreamConfig` (C++); `update_access_flags()` sets AF on first access when HA=1 and dirty on write when HD=1; wired through `translate_stage1_only` / `translateUnlocked`.
 
 CD.HA (bit 43) enables hardware Access Flag management. CD.HD (bit 42) enables
 hardware Dirty State management.
@@ -642,9 +643,9 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 11. ~~FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types~~ ✅ Fixed (Rust)
 12. ~~FINDING-M-09 — Implement range-based ATC invalidation (Rust)~~ ✅ Fixed (Rust)
 13. ~~FINDING-M-10 — Add address size fault checking (C++)~~ ✅ Fixed (C++)
+14. ~~FINDING-M-04 — Access Flag and Dirty State simulation~~ ✅ Fixed (Both)
 
 ### Medium-term (feature completeness)
-14. FINDING-M-04 — Access Flag and Dirty State simulation
 15. FINDING-M-01 — Circular queue PROD/CONS index semantics
 16. FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling
 17. FINDING-M-06 — GERROR register conditions for command queue errors
