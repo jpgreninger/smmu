@@ -1481,7 +1481,7 @@ TEST_F(SMMUPriority2CoverageTest, Translate_ExpiredCacheEntry) {
 TEST_F(SMMUPriority2CoverageTest, ConfigureStream_UpdateExistingStream) {
     setupBasicStream(STREAM1, PASID1);
 
-    // Update existing stream configuration
+    // ARM §3.11: reject direct reconfiguration; must removeStream first
     StreamConfig newConfig;
     newConfig.translationEnabled = true;
     newConfig.stage1Enabled = false;
@@ -1489,7 +1489,8 @@ TEST_F(SMMUPriority2CoverageTest, ConfigureStream_UpdateExistingStream) {
     newConfig.faultMode = FaultMode::Stall;
 
     VoidResult result = smmuController->configureStream(STREAM1, newConfig);
-    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.isError());
+    EXPECT_EQ(result.getError(), SMMUError::StreamAlreadyConfigured);
 }
 
 // Test disableStream with error (line 306)

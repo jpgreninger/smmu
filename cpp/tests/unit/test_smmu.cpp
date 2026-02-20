@@ -581,13 +581,14 @@ TEST_F(SMMUTest, StreamConfigurationUpdates) {
     EXPECT_TRUE(configResult.isOk());
     EXPECT_TRUE(configResult.getValue());
     
-    // Update configuration
+    // Update configuration (ARM §3.11: remove first, then re-add)
+    EXPECT_TRUE(smmuController->removeStream(TEST_STREAM_ID_1).isOk());
     StreamConfig config2;
     config2.translationEnabled = false; // Disable translation
     config2.stage1Enabled = false;
     config2.stage2Enabled = false;
     config2.faultMode = FaultMode::Stall;
-    
+
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config2).isOk());
     Result<bool> configResult2 = smmuController->isStreamConfigured(TEST_STREAM_ID_1);
     (void)configResult2; // Used for testing - suppress unused warning
@@ -1177,6 +1178,8 @@ TEST_F(SMMUTest, ARMSMMUv3SpecificationCompliance) {
     EXPECT_EQ(bypassResult.getValue().physicalAddress, TEST_IOVA); // Should pass through unchanged
     
     // 6. Fault handling modes (Terminate, Stall)
+    // ARM §3.11: remove TEST_STREAM_ID_2 (configured above as bypassConfig) first
+    EXPECT_TRUE(smmuController->removeStream(TEST_STREAM_ID_2).isOk());
     StreamConfig stallConfig = config;
     stallConfig.faultMode = FaultMode::Stall;
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_2, stallConfig).isOk());

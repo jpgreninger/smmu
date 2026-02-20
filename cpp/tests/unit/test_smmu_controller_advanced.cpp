@@ -63,6 +63,8 @@ TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_UnconfiguredStream
 
 TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisabled_BypassMode) {
     // Target: Lines 674-679 - Translation disabled bypass mode
+    // ARM §3.11: remove existing stream before reconfiguring
+    smmu->removeStream(TEST_STREAM_ID);
     StreamConfig config;
     config.translationEnabled = false;
     config.stage1Enabled = false;
@@ -82,6 +84,8 @@ TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisable
 
 TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_NoStagesEnabled_ConfigurationError) {
     // Target: Lines 690-704 - No stages enabled but translation enabled
+    // ARM §3.11: remove existing stream before reconfiguring
+    smmu->removeStream(TEST_STREAM_ID);
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = false;

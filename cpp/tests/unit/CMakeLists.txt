@@ -32,6 +32,7 @@ set(UNIT_TEST_SOURCES
     test_addr_size_fault_spec.cpp
     test_gerror_spec.cpp
     test_fault_syndrome_spec.cpp
+    test_stream_reconfigure_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

@@ -601,20 +601,24 @@ now include it.
 
 ---
 
-### FINDING-L-06 ❌ — C++ Allows Stream Reconfiguration Without Invalidation
+### FINDING-L-06 ✅ Fixed — C++ Allows Stream Reconfiguration Without Invalidation
 **Spec**: §3.11 (Reset, Enable and initialization)
 **Affected**: C++ only
 
 The specification requires a `CFGI_STE` + `CMD_SYNC` sequence before changing
 stream configuration to maintain TLB and configuration cache consistency.
-`SMMU::configureStream` allows updating an existing stream directly without
-requiring this sequence.
+`SMMU::configureStream` previously allowed updating an existing stream directly
+without requiring this sequence.
 
-The Rust implementation is more conservative — it returns
-`SMMUError::StreamAlreadyExists` if the stream is already configured.
+**Fix**: `SMMU::configureStream` now returns `SMMUError::StreamAlreadyConfigured`
+when the target stream ID is already present in the stream map, matching the
+conservative Rust model.  Callers that need to change a stream's configuration
+must follow the correct ARM §3.11 sequence:
+1. `removeStream(id)` — invalidates and removes the existing STE
+2. `configureStream(id, newConfig)` — installs the new STE
 
-**Recommendation**: Either reject reconfiguration of existing streams (follow
-Rust's approach) or require a `CMD_CFGI_STE` + `CMD_SYNC` sequence first.
+All affected tests updated and 5 new TDD spec tests added in
+`test_stream_reconfigure_spec.cpp`.  39/39 C++ unit tests pass.
 
 ---
 
@@ -695,7 +699,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 16. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
 17. ~~FINDING-M-06 — GERROR register conditions for command queue errors~~ ✅ Fixed
 18. ~~FINDING-L-04 — Validate fault syndrome register encoding against spec tables~~ ✅ Fixed
-19. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
+19. ~~FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)~~ ✅ Fixed
 
 ### Low-priority / document as limitation
 20. FINDING-C-01 — Register map (software model scope; document limitation)

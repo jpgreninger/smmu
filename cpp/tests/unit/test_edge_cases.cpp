@@ -261,8 +261,9 @@ TEST_F(UnconfiguredStreamTest, ReconfigurationOfConfiguredStream) {
     newConfig.faultMode = FaultMode::Stall;
     
     VoidResult result = smmuController->configureStream(VALID_STREAM_ID, newConfig);
-    // This should succeed as reconfiguration is allowed
-    EXPECT_TRUE(result.isOk());
+    // ARM §3.11: reconfiguration without CMD_CFGI_STE+CMD_SYNC must be rejected
+    EXPECT_TRUE(result.isError());
+    EXPECT_EQ(result.getError(), SMMUError::StreamAlreadyConfigured);
 }
 
 // Test operations with invalid PASID

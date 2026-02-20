@@ -231,15 +231,9 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     // Check if stream already exists
     if (streamMap.find(streamID) != streamMap.end()) {
-        // Update existing stream configuration
-        StreamContext* streamContext = streamMap[streamID].get();
-        VoidResult updateResult = streamContext->updateConfiguration(config);
-        if (updateResult.isError()) {
-            return updateResult;
-        }
-        
-        // Note: Stream enable/disable is managed separately from configuration
-        // ARM SMMU v3 spec: Configuration and stream enabling are separate operations
+        // ARM §3.11: Changing a stream table entry requires CMD_CFGI_STE + CMD_SYNC
+        // first.  Reject direct reconfiguration; caller must removeStream first.
+        return makeVoidError(SMMUError::StreamAlreadyConfigured);
     } else {
         // Create new StreamContext
         std::unique_ptr<StreamContext> streamContext(new StreamContext());

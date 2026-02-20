@@ -443,14 +443,14 @@ TEST_F(SMMUAdvancedCoverageTest, StreamReconfiguration) {
     ASSERT_TRUE(smmuController->configureStream(STREAM1, config1).isOk());
     ASSERT_TRUE(smmuController->enableStream(STREAM1).isOk());
 
-    // Reconfigure with different settings
+    // Reconfigure with different settings (ARM §3.11: remove first, then re-add)
+    ASSERT_TRUE(smmuController->removeStream(STREAM1).isOk());
     StreamConfig config2;
     config2.translationEnabled = true;
     config2.stage1Enabled = true;
     config2.stage2Enabled = false;
     config2.faultMode = FaultMode::Stall;
 
-    // This should update existing stream configuration
     EXPECT_TRUE(smmuController->configureStream(STREAM1, config2).isOk());
 
     // Verify stream still exists

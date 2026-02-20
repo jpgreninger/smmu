@@ -349,7 +349,9 @@ TEST_F(SMMUCoverageTest, TwoStageTranslation_BypassMode) {
     // First configure a normal stream to get basic setup
     configureBasicStream(TEST_STREAM_ID);
 
-    // Now reconfigure it for bypass mode
+    // Now reconfigure it for bypass mode (ARM §3.11: remove first, then re-add)
+    ASSERT_TRUE(smmuController->removeStream(TEST_STREAM_ID).isOk());
+
     StreamConfig bypassConfig;
     bypassConfig.translationEnabled = false;
     bypassConfig.stage1Enabled = false;
@@ -718,7 +720,7 @@ TEST_F(SMMUCoverageTest, Configuration_UpdateExistingStream) {
 
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID, config1).isOk());
 
-    // Update with different configuration (line 197-205)
+    // ARM §3.11: direct reconfiguration must be rejected; must remove first
     StreamConfig config2;
     config2.translationEnabled = false;
     config2.stage1Enabled = false;
@@ -726,7 +728,8 @@ TEST_F(SMMUCoverageTest, Configuration_UpdateExistingStream) {
     config2.faultMode = FaultMode::Stall;
 
     VoidResult result = smmuController->configureStream(TEST_STREAM_ID, config2);
-    EXPECT_TRUE(result.isOk());
+    EXPECT_TRUE(result.isError());
+    EXPECT_EQ(result.getError(), SMMUError::StreamAlreadyConfigured);
 }
 
 TEST_F(SMMUCoverageTest, Configuration_GlobalFaultModeStall) {
