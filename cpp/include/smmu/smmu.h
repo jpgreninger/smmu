@@ -43,6 +43,12 @@ public:
     // PASID management for streams
     VoidResult createStreamPASID(StreamID streamID, PASID pasid);
     VoidResult removeStreamPASID(StreamID streamID, PASID pasid);
+
+    // Address size configuration (ARM §3.4.1)
+    // Sets the input address size (in bits) for the context descriptor of the
+    // given (streamID, pasid) pair.  Valid range: 32–52.
+    // IOVAs >= (1ULL << bits) will produce F_ADDR_SIZE during translation.
+    VoidResult setStreamInputAddressSize(StreamID streamID, PASID pasid, uint8_t bits);
     
     // Page mapping operations
     VoidResult mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);

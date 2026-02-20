@@ -7,9 +7,10 @@
 namespace smmu {
 
 // Constructor - initializes empty sparse page table
-AddressSpace::AddressSpace() {
+AddressSpace::AddressSpace() : inputAddressSizeBits(52) {
     // Empty sparse page table - no initialization required for std::unordered_map
     // This provides efficient O(1) average case lookups with minimal memory overhead
+    // inputAddressSizeBits defaults to 52 (global max per ARM SMMU v3 spec)
 }
 
 // Destructor - automatic cleanup via RAII
@@ -19,8 +20,8 @@ AddressSpace::~AddressSpace() {
 }
 
 // Copy constructor - deep copy of page table for C++11 compliance
-AddressSpace::AddressSpace(const AddressSpace& other) 
-    : pageTable(other.pageTable) {
+AddressSpace::AddressSpace(const AddressSpace& other)
+    : pageTable(other.pageTable), inputAddressSizeBits(other.inputAddressSizeBits) {
     // std::unordered_map copy constructor performs deep copy of all entries
     // Each PageEntry is copied, maintaining independent page tables
 }
@@ -29,6 +30,7 @@ AddressSpace::AddressSpace(const AddressSpace& other)
 AddressSpace& AddressSpace::operator=(const AddressSpace& other) {
     if (this != &other) {
         pageTable = other.pageTable;  // Deep copy via map assignment
+        inputAddressSizeBits = other.inputAddressSizeBits;
     }
     return *this;
 }
@@ -100,8 +102,23 @@ VoidResult AddressSpace::unmapPage(IOVA iova) {
     return makeVoidSuccess();
 }
 
+// Set the per-context input address size (ARM §3.4.1 — TCR.T0SZ).
+// Valid bit-widths are 32–52.  Calls with out-of-range values are silently clamped
+// to the nearest valid boundary by callers that validate first (SMMU API).
+void AddressSpace::setInputAddressSize(uint8_t bits) {
+    inputAddressSizeBits = bits;
+}
+
 // Translate virtual address to physical address with ARM SMMU v3 semantics
 TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, SecurityState securityState) const {
+    // ARM §3.4.1: Address size fault when IOVA >= 2^inputAddressSizeBits.
+    // Only checked when the context has been restricted below 52-bit.
+    if (inputAddressSizeBits < 52) {
+        if (iova >= (static_cast<uint64_t>(1) << inputAddressSizeBits)) {
+            return makeTranslationError(FaultType::AddressSizeFault);
+        }
+    }
+
     uint64_t pageNum = pageNumber(iova);
     
     // Look up page entry in sparse page table

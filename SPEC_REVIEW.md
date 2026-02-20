@@ -456,18 +456,33 @@ ATC entries for a specific address range.
 
 ---
 
-### FINDING-M-10 ❌ — No Address Size Fault Checking
+### FINDING-M-10 ✅ Fixed (C++) — No Address Size Fault Checking
 **Spec**: §3.4 (Address sizes), §3.4.1 (Input address size)
 **Affected**: C++
 
 The SMMU must raise `AddressSizeFault` when the input address exceeds the
-address size configured by TCR.T0SZ. `MAX_VIRTUAL_ADDRESS` is set to 52-bit
-but no validation against the context descriptor's `inputAddressSize` is
-performed in `AddressSpace::translatePage`.
+address size configured by TCR.T0SZ.
 
-**Recommendation**: Add address size validation in `AddressSpace::translatePage`
-that checks the IOVA against the configured T0SZ and raises `AddressSizeFault`
-if exceeded.
+**C++ fix** (committed):
+- Added `uint8_t inputAddressSizeBits` (default 52) to `AddressSpace`.
+- Added `AddressSpace::setInputAddressSize(uint8_t bits)` setter.
+- `AddressSpace::translatePage()` now checks `iova >= (1ULL << bits)` before
+  the page table lookup and returns `FaultType::AddressSizeFault`
+  (`SMMUError::InvalidAddress`) when exceeded.
+- Added `StreamContext::setAddressSpaceInputSize(PASID, uint8_t bits)` that
+  propagates the limit to the relevant `AddressSpace`. Valid range: 32–52.
+- Added `SMMU::setStreamInputAddressSize(StreamID, PASID, uint8_t bits)` public
+  API; rejects out-of-range values with `SMMUError::InvalidAddress`.
+- `SMMU::handleTranslationFailure()` now calls
+  `generateEvent(EventType::F_ADDR_SIZE, ...)` for `SMMUError::InvalidAddress`
+  errors, producing the §7.3.14 `F_ADDR_SIZE` (0x11) event.
+- `performStage1OnlyTranslation()` and `performStage2OnlyTranslation()` now
+  classify `SMMUError::InvalidAddress` as `FaultType::AddressSizeFault` in the
+  fault record (was `AccessFault`).
+- Per-context limits are independent: different (stream, PASID) pairs can have
+  different address sizes without affecting each other.
+- 10 TDD spec tests in `cpp/tests/unit/test_addr_size_fault_spec.cpp` — all pass.
+- Full 44-test suite passes with zero regressions.
 
 ---
 
@@ -626,7 +641,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 10. ~~FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking~~ ✅ Fixed (Rust)
 11. ~~FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types~~ ✅ Fixed (Rust)
 12. ~~FINDING-M-09 — Implement range-based ATC invalidation (Rust)~~ ✅ Fixed (Rust)
-13. FINDING-M-10 — Add address size fault checking (C++)
+13. ~~FINDING-M-10 — Add address size fault checking (C++)~~ ✅ Fixed (C++)
 
 ### Medium-term (feature completeness)
 14. FINDING-M-04 — Access Flag and Dirty State simulation

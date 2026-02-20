@@ -280,6 +280,24 @@ void StreamContext::setMaxPASIDsPerStream(uint32_t maxPASIDs) {
     maxPASIDsPerStream = maxPASIDs;
 }
 
+// Set the per-context input address size for the AddressSpace of the given PASID.
+// Valid bit-widths: 32–52 (ARM §3.4.1, TCR.T0SZ encoding).
+VoidResult StreamContext::setAddressSpaceInputSize(PASID pasid, uint8_t bits) {
+    // Validate bit-width bounds
+    if (bits < 32 || bits > 52) {
+        return makeVoidError(SMMUError::InvalidAddress);
+    }
+
+    std::lock_guard<std::mutex> lock(contextMutex);
+    auto it = pasidMap.find(pasid);
+    if (it == pasidMap.end()) {
+        return makeVoidError(SMMUError::PASIDNotFound);
+    }
+
+    it->second->setInputAddressSize(bits);
+    return makeVoidSuccess();
+}
+
 // Query if specific PASID exists in this stream context
 // ARM SMMU v3 spec: PASID existence check for management operations
 bool StreamContext::hasPASID(PASID pasid) const {

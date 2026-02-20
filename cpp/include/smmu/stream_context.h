@@ -38,6 +38,11 @@ public:
     void setFaultMode(FaultMode mode);
     VoidResult setFaultModeAtomic(FaultMode mode);
     void setMaxPASIDsPerStream(uint32_t maxPASIDs);
+
+    // Address size configuration (ARM §3.4.1)
+    // Propagates the per-context input address size to the AddressSpace for
+    // the given PASID.  Valid bit-widths: 32–52.
+    VoidResult setAddressSpaceInputSize(PASID pasid, uint8_t bits);
     
     // Query operations
     bool hasPASID(PASID pasid) const;

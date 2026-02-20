@@ -50,6 +50,11 @@ public:
     AddressSpace(const AddressSpace& other);
     AddressSpace& operator=(const AddressSpace& other);
     
+    // Address size configuration (ARM §3.4.1 — TCR.T0SZ)
+    // Sets the maximum IOVA bit-width for this context.  Valid range: 32–52.
+    // IOVAs >= (1ULL << bits) produce AddressSizeFault during translation.
+    void setInputAddressSize(uint8_t bits);
+
     // Cache invalidation mechanisms
     void invalidateRange(IOVA startIova, IOVA endIova);
     void invalidateAll();
@@ -59,6 +64,10 @@ public:
 private:
     // Sparse page table using hash map for efficiency
     std::unordered_map<uint64_t, PageEntry> pageTable;
+
+    // Per-context input address size (ARM §3.4.1, TCR.T0SZ).
+    // Default 52 — allows any IOVA up to MAX_VIRTUAL_ADDRESS.
+    uint8_t inputAddressSizeBits;
     
     // Helper methods
     uint64_t pageNumber(IOVA iova) const;

@@ -330,6 +330,24 @@ VoidResult SMMU::removeStreamPASID(StreamID streamID, PASID pasid) {
     return result;
 }
 
+// Address size configuration (ARM §3.4.1 — TCR.T0SZ)
+// Sets the per-context input address size for (streamID, pasid).
+// Valid bit-widths: 32–52.  Out-of-range values are rejected.
+VoidResult SMMU::setStreamInputAddressSize(StreamID streamID, PASID pasid, uint8_t bits) {
+    if (bits < 32 || bits > 52) {
+        return makeVoidError(SMMUError::InvalidAddress);
+    }
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return makeVoidError(SMMUError::StreamNotFound);
+    }
+
+    return streamIt->second->setAddressSpaceInputSize(pasid, bits);
+}
+
 // Per-stream per-PASID page operations
 VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
     size_t stripe = getStreamStripe(streamID);
@@ -919,6 +937,10 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidSecurityState:
                 fault.faultType = FaultType::SecurityFault;
                 break;
+            case SMMUError::InvalidAddress:
+                // ARM §3.4.1: IOVA exceeded the per-context input address size.
+                fault.faultType = FaultType::AddressSizeFault;
+                break;
             default:
                 fault.faultType = FaultType::AccessFault;
                 break;
@@ -957,6 +979,9 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidSecurityState:
                 fault.faultType = FaultType::SecurityFault;
                 break;
+            case SMMUError::InvalidAddress:
+                fault.faultType = FaultType::AddressSizeFault;
+                break;
             default:
                 fault.faultType = FaultType::AccessFault;
                 break;
@@ -991,7 +1016,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
+                // §7.3.14: Generate F_ADDR_SIZE (event code 0x11) when IOVA exceeds
+                // the configured input address size (ARM §3.4.1, TCR.T0SZ).
                 faultType = FaultType::AddressSizeFault;
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;

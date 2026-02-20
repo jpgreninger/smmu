@@ -29,6 +29,7 @@ set(UNIT_TEST_SOURCES
     test_tlb_cache.cpp
     test_tlb_cache_coverage.cpp
     test_task53_event_command_processing.cpp
+    test_addr_size_fault_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp
