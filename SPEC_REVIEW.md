@@ -428,15 +428,24 @@ Five regression tests added in `tests/test_fault_detection.rs`.
 
 ---
 
-### FINDING-M-08 ❌ — No PRG Index Tracking
+### FINDING-M-08 ✅ — No PRG Index Tracking
 **Spec**: §8 (Page request queue), §8.3 (PRG Response Message codes)
 **Affected**: Both
 
 `CMD_PRI_RESP` requires a matching PRGIndex to complete a page request response
-cycle. Neither `PRIEntry` nor `CommandEntry` has a `prg_index` field.
+cycle.
 
-**Recommendation**: Add `prg_index: u16` to `PRIEntry` and `CommandEntry` (for
-`PriResp`). Implement matching logic in PRI queue processing.
+**Fixed**: Added `prg_index: u16` / `prgIndex: uint16_t` to both `PRIEntry` and
+`CommandEntry` in both implementations. Implemented PRGIndex matching in
+`CMD_PRI_RESP` processing to find and remove the corresponding pending PRIEntry
+from the PRI queue (by `stream_id + prg_index`). Also fixed the PRIQ PROD/CONS
+index advancement that was missing for the PRI queue in the FINDING-M-01 fix.
+- **Rust**: 13 new tests across 2 test files. `process_single_command()` now
+  has an explicit `PriResp` arm. `submit_page_request()` advances `priq_prod`;
+  `process_pri_queue()` advances `priq_cons`. All 63 test suites pass.
+- **C++**: 8 new `SMMUPRGIndexTest` tests. Added `getCommandQueue()` accessor.
+  `submitPageRequest()` advances `priqProd`; `PRI_RESP` case in
+  `processCommand()` finds and removes matching entry, advances `priqCons`.
 
 ---
 
@@ -652,7 +661,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 
 ### Medium-term (feature completeness)
 15. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
-16. FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling
+16. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
 17. FINDING-M-06 — GERROR register conditions for command queue errors
 18. FINDING-L-04 — Validate fault syndrome register encoding against spec tables
 19. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
