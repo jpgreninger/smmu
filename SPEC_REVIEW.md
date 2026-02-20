@@ -580,37 +580,38 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 ## Prioritised Fix Order
 
 ### Immediate (spec correctness claims)
-1. FINDING-H-02 — Correct command opcode values to ARM hex constants
-2. FINDING-H-01 — Add missing event types (F_STREAM_DISABLED, C_BAD_SUBSTREAMID, etc.)
-3. FINDING-L-05 — Add `Root = 0b11` security state to both implementations
-4. FINDING-H-07 — Fix security state bit encoding (Secure/NonSecure inverted in Rust)
+1. ~~FINDING-H-02 — Correct command opcode values to ARM hex constants~~ ✅ Fixed
+2. ~~FINDING-H-01 — Add missing event types (F_STREAM_DISABLED, C_BAD_SUBSTREAMID, etc.)~~ ✅ Fixed
+3. ~~FINDING-L-05 — Add `Root = 0b11` security state to both implementations~~ ✅ Fixed
+4. ~~FINDING-H-07 — Fix security state bit encoding (Secure/NonSecure inverted in Rust)~~ ✅ Fixed
 5. ~~FINDING-M-05 — Generate F_STREAM_DISABLED instead of generic fault~~ ✅ Fixed
+6. ~~FINDING-M-07 — Fault records hard-coded to NonSecure security state~~ ✅ Fixed
 
 ### Short-term (behavioural conformance)
-6. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
-7. FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation
-8. FINDING-M-02 — Add VMID to STE config and TLB entries
-9. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking
-10. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
-11. FINDING-M-09 — Implement range-based ATC invalidation (Rust)
-12. FINDING-M-10 — Add address size fault checking (C++)
+7. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
+8. FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation
+9. FINDING-M-02 — Add VMID to STE config and TLB entries
+10. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking
+11. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
+12. FINDING-M-09 — Implement range-based ATC invalidation (Rust)
+13. FINDING-M-10 — Add address size fault checking (C++)
 
 ### Medium-term (feature completeness)
-13. FINDING-M-04 — Access Flag and Dirty State simulation
-14. FINDING-M-01 — Circular queue PROD/CONS index semantics
-15. FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling
-16. FINDING-M-06 — GERROR register conditions for command queue errors
-17. FINDING-L-04 — Validate fault syndrome register encoding against spec tables
-18. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
+14. FINDING-M-04 — Access Flag and Dirty State simulation
+15. FINDING-M-01 — Circular queue PROD/CONS index semantics
+16. FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling
+17. FINDING-M-06 — GERROR register conditions for command queue errors
+18. FINDING-L-04 — Validate fault syndrome register encoding against spec tables
+19. FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)
 
 ### Low-priority / document as limitation
-19. FINDING-C-01 — Register map (software model scope; document limitation)
-20. FINDING-C-02/C-03 — Binary STE/CD format (document as software model)
-21. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
-22. FINDING-L-01 — Interrupt modeling
-23. FINDING-L-02 — MSI write in CMD_SYNC
-24. FINDING-L-03 — Translation Hardening (SMMUv3.4)
-25. FINDING-L-07 — VMS support
+20. FINDING-C-01 — Register map (software model scope; document limitation)
+21. FINDING-C-02/C-03 — Binary STE/CD format (document as software model)
+22. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
+23. FINDING-L-01 — Interrupt modeling
+24. FINDING-L-02 — MSI write in CMD_SYNC
+25. FINDING-L-03 — Translation Hardening (SMMUv3.4)
+26. FINDING-L-07 — VMS support
 
 ---
 
