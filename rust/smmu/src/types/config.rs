@@ -85,6 +85,11 @@ pub struct StreamConfig {
 
     /// Security state enforcement enabled
     pub security_enforced: bool,
+
+    /// VMID (Virtual Machine ID) — STE Word 2 bits 63:48 per ARM §5.2.
+    /// Tags Stage-2 TLB entries; used by `CMD_TLBI_S12_VMALL` and
+    /// `CMD_TLBI_S2_IPA` for VMID-targeted invalidation.
+    pub vmid: u16,
 }
 
 impl StreamConfig {
@@ -111,6 +116,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
+            vmid: 0,
         }
     }
 
@@ -125,6 +131,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            vmid: 0,
         }
     }
 
@@ -139,6 +146,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            vmid: 0,
         }
     }
 
@@ -153,6 +161,7 @@ impl StreamConfig {
             max_pasid: Self::MAX_PASID,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            vmid: 0,
         }
     }
 
@@ -225,6 +234,7 @@ pub struct StreamConfigBuilder {
     max_pasid: u32,
     fault_mode: FaultMode,
     security_enforced: bool,
+    vmid: u16,
 }
 
 impl StreamConfigBuilder {
@@ -239,6 +249,7 @@ impl StreamConfigBuilder {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
+            vmid: 0,
         }
     }
 
@@ -291,6 +302,13 @@ impl StreamConfigBuilder {
         self
     }
 
+    /// Set the VMID (STE Word 2 bits 63:48, ARM §5.2)
+    #[must_use]
+    pub fn vmid(mut self, vmid: u16) -> Self {
+        self.vmid = vmid;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -302,6 +320,7 @@ impl StreamConfigBuilder {
             max_pasid: self.max_pasid,
             fault_mode: self.fault_mode,
             security_enforced: self.security_enforced,
+            vmid: self.vmid,
         };
 
         config.validate()?;

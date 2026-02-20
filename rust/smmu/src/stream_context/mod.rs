@@ -30,7 +30,7 @@ use crate::types::{
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// StreamContext - Per-stream state and PASID management
@@ -113,6 +113,11 @@ pub struct StreamContext {
 
     /// Monotonic fault timestamp counter (avoids SystemTime overhead)
     fault_timestamp_counter: AtomicUsize,
+
+    /// VMID (Virtual Machine ID) — STE Word 2 bits 63:48 per ARM §5.2.
+    /// Tags Stage-2 TLB entries for VMID-targeted invalidation via
+    /// `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA`.  Default 0.
+    vmid: AtomicU16,
 }
 
 impl StreamContext {
@@ -146,6 +151,7 @@ impl StreamContext {
             fault_rate_limit: AtomicUsize::new(usize::MAX),
             fault_retry_enabled: AtomicBool::new(false),
             fault_timestamp_counter: AtomicUsize::new(0),
+            vmid: AtomicU16::new(0),
         }
     }
 
@@ -240,6 +246,29 @@ impl StreamContext {
     #[inline]
     pub(crate) fn get_pasid_asid_or_default(&self, pasid: PASID) -> u16 {
         self.pasid_asid_map.get(&pasid.as_u32()).map(|v| *v).unwrap_or(0)
+    }
+
+    // ========================================================================
+    // VMID Management (STE.S2VMID per ARM §5.2, §3.8)
+    // ========================================================================
+
+    /// Returns the VMID (STE Word 2 bits 63:48) for this stream.
+    ///
+    /// Default is 0. VMID tags Stage-2 TLB entries for VMID-targeted
+    /// invalidation via `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA`.
+    #[inline]
+    pub fn get_vmid(&self) -> u16 {
+        self.vmid.load(Ordering::Relaxed)
+    }
+
+    /// Sets the VMID for this stream (STE Word 2 bits 63:48, ARM §5.2).
+    ///
+    /// New TLB entries installed after this call will be tagged with the
+    /// new VMID.  Existing cached entries retain the old tag; issue
+    /// `CMD_TLBI_S12_VMALL` with the old VMID to evict them.
+    #[inline]
+    pub fn set_vmid(&self, vmid: u16) {
+        self.vmid.store(vmid, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace

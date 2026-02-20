@@ -2993,6 +2993,7 @@ fn test_stream_config_validation_error_paths() {
         max_pasid: 0,
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
+        vmid: 0,
     };
     assert!(config1.validate().is_err());
 
@@ -3005,6 +3006,7 @@ fn test_stream_config_validation_error_paths() {
         max_pasid: 0,
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
+        vmid: 0,
     };
     assert!(config2.validate().is_err());
 
@@ -3017,6 +3019,7 @@ fn test_stream_config_validation_error_paths() {
         max_pasid: 100,
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
+        vmid: 0,
     };
     assert!(config3.validate().is_err());
 
@@ -3029,6 +3032,7 @@ fn test_stream_config_validation_error_paths() {
         max_pasid: StreamConfig::MAX_PASID + 1,
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
+        vmid: 0,
     };
     assert!(config4.validate().is_err());
 
@@ -3041,6 +3045,7 @@ fn test_stream_config_validation_error_paths() {
         max_pasid: 100,
         fault_mode: FaultMode::Terminate,
         security_enforced: false,
+        vmid: 0,
     };
     assert!(config5.validate().is_err());
 }

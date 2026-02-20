@@ -94,6 +94,10 @@ pub struct CommandEntry {
     /// Target ASID for `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID` (ARM §4.4).
     /// Ignored by other command types.
     pub asid: u16,
+
+    /// Target VMID for `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA` (ARM §4.4, §5.2).
+    /// Ignored by other command types.
+    pub vmid: u16,
 }
 
 impl CommandEntry {
@@ -109,6 +113,7 @@ impl CommandEntry {
             flags: 0,
             timestamp: 0,
             asid: 0,
+            vmid: 0,
         }
     }
 }

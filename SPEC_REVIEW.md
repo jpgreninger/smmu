@@ -306,18 +306,25 @@ Both use `std::deque` (C++) / `VecDeque` (Rust) with no PROD/CONS index pair.
 
 ---
 
-### FINDING-M-02 ❌ — No VMID in Two-Stage Translation
+### FINDING-M-02 ✅ — No VMID in Two-Stage Translation (Rust Fixed)
 **Spec**: §3.8 (Virtualization), §5.2 (STE S2VMID field)
-**Affected**: Both
+**Affected**: Both (C++ still open)
 
 Stage-2 translation requires a VMID (STE Word 2, bits 63:48) to tag TLB
 entries. TLB invalidation uses VMID for targeted invalidation.
 
-Neither implementation includes a VMID field in stream table configuration or
-TLB cache entries.
+- **C++**: No VMID field in stream table configuration or TLB entries. ❌ Still open.
+- **Rust**: ✅ Fixed — `StreamConfig` carries `vmid: u16` (STE.S2VMID); builder
+  exposes `.vmid()`. `StreamContext` stores `vmid: AtomicU16` (get/set_vmid()).
+  `configure_stream()` propagates `config.vmid`. `CacheEntry` has `vmid: u16`;
+  new `new_with_tags(iova, pa, perms, ss, asid, vmid, ts)` constructor tags entries
+  with both ASID and VMID. `TlbCache::invalidate_by_vmid()` scans entries by VMID.
+  `CommandEntry` has `vmid: u16`. `CMD_TLBI_S12_VMALL` and `CMD_TLBI_S2_IPA`
+  dispatch to `invalidate_by_vmid()` instead of stream-targeted flush.
+  `SMMU::set_stream_vmid()` / `get_stream_vmid()` exposed in public API.
+  12 spec tests in `test_vmid_tlb_spec.rs` pass.
 
-**Recommendation**: Add VMID to stream table entry config. Tag TLB entries with
-VMID. Support `CMD_TLBI_S12_VMALL` VMID-targeted invalidation.
+**Recommendation**: Add VMID to C++ STE config and TLB entries.
 
 ---
 
@@ -596,7 +603,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 ### Short-term (behavioural conformance)
 7. ~~FINDING-H-08 — Add SMMUEN global enable/disable~~ ✅ Fixed (Rust)
 8. ~~FINDING-M-03 — Add ASID to TLB entries; implement ASID-targeted invalidation~~ ✅ Fixed (Rust)
-9. FINDING-M-02 — Add VMID to STE config and TLB entries
+9. ~~FINDING-M-02 — Add VMID to STE config and TLB entries~~ ✅ Fixed (Rust)
 10. FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking
 11. FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types
 12. FINDING-M-09 — Implement range-based ATC invalidation (Rust)

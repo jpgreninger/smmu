@@ -66,6 +66,11 @@ pub struct CacheEntry {
     /// ASID (Address Space Identifier) from CD.ASID — used for ASID-targeted invalidation.
     /// Defaults to 0 for Stage-2-only or bypass entries.
     pub asid: u16,
+
+    /// VMID (Virtual Machine ID) from STE.S2VMID (ARM §5.2) — used for
+    /// VMID-targeted invalidation via `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA`.
+    /// Defaults to 0.
+    pub vmid: u16,
 }
 
 impl CacheEntry {
@@ -81,10 +86,11 @@ impl CacheEntry {
             security_state: SecurityState::NonSecure,
             timestamp,
             asid: 0,
+            vmid: 0,
         }
     }
 
-    /// Create a new cache entry with explicit security state and ASID=0
+    /// Create a new cache entry with explicit security state, ASID=0, VMID=0
     #[inline]
     pub const fn new_with_security(
         iova: IOVA,
@@ -100,14 +106,13 @@ impl CacheEntry {
             security_state,
             timestamp,
             asid: 0,
+            vmid: 0,
         }
     }
 
-    /// Create a new cache entry with explicit security state and ASID.
+    /// Create a new cache entry with explicit security state and ASID (VMID=0).
     ///
-    /// Used for Stage-1 TLB entries that must be tagged with CD.ASID
-    /// per ARM SMMU v3 §3.17 so that `CMD_TLBI_NH_ASID` / `CMD_TLBI_EL2_ASID`
-    /// can perform ASID-targeted invalidation.
+    /// Used for Stage-1 TLB entries tagged with CD.ASID per ARM §3.17.
     #[inline]
     pub const fn new_with_asid(
         iova: IOVA,
@@ -124,6 +129,34 @@ impl CacheEntry {
             security_state,
             timestamp,
             asid,
+            vmid: 0,
+        }
+    }
+
+    /// Create a new cache entry tagged with both ASID (CD.ASID, ARM §3.17) and
+    /// VMID (STE.S2VMID, ARM §5.2).
+    ///
+    /// This is the primary constructor used by `translate()` so that both
+    /// ASID-targeted (`CMD_TLBI_NH_ASID`) and VMID-targeted
+    /// (`CMD_TLBI_S12_VMALL`) invalidation work correctly.
+    #[inline]
+    pub const fn new_with_tags(
+        iova: IOVA,
+        physical_address: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+        asid: u16,
+        vmid: u16,
+        timestamp: u64,
+    ) -> Self {
+        Self {
+            iova,
+            physical_address,
+            permissions,
+            security_state,
+            timestamp,
+            asid,
+            vmid,
         }
     }
 }
@@ -137,6 +170,7 @@ impl Default for CacheEntry {
             security_state: SecurityState::NonSecure,
             timestamp: 0,
             asid: 0,
+            vmid: 0,
         }
     }
 }
@@ -905,6 +939,39 @@ impl TlbCache {
         // Scan all entries; evict those tagged with the target ASID.
         for entry in self.entries.iter() {
             if entry.value().asid == target_asid {
+                keys_to_remove.push(*entry.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all TLB entries tagged with the given VMID.
+    ///
+    /// Implements `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA` per ARM SMMU v3 §4.4.
+    /// Only entries whose `CacheEntry::vmid` matches `target_vmid` are evicted;
+    /// all other entries remain cached.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - The 16-bit VMID to invalidate (STE.S2VMID, §5.2)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// cache.invalidate_by_vmid(42);
+    /// ```
+    pub fn invalidate_by_vmid(&self, target_vmid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        // Scan all entries; evict those tagged with the target VMID.
+        for entry in self.entries.iter() {
+            if entry.value().vmid == target_vmid {
                 keys_to_remove.push(*entry.key());
             }
         }

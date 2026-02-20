@@ -494,6 +494,7 @@ impl SMMU {
         // Apply stream configuration
         stream_context.set_stage1_enabled(config.stage1_enabled);
         stream_context.set_stage2_enabled(config.stage2_enabled);
+        stream_context.set_vmid(config.vmid);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
@@ -700,6 +701,36 @@ impl SMMU {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
         stream_context.get_pasid_asid(pasid).map_err(SMMUError::from)
+    }
+
+    /// Set the VMID (STE.S2VMID) for a stream — ARM SMMU v3 §5.2, §3.8
+    ///
+    /// Configures the Virtual Machine Identifier stored in the Stream Table
+    /// Entry (STE Word 2 bits 63:48). TLB entries installed after this call
+    /// will be tagged with the new VMID so that `CMD_TLBI_S12_VMALL` and
+    /// `CMD_TLBI_S2_IPA` can target them.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if stream is not found.
+    pub fn set_stream_vmid(&self, stream_id: StreamID, vmid: u16) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.set_vmid(vmid);
+        Ok(())
+    }
+
+    /// Get the VMID (STE.S2VMID) currently set for a stream — ARM SMMU v3 §5.2
+    ///
+    /// Returns the 16-bit VMID. Returns `0` if no VMID has been set (default).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if stream is not found.
+    pub fn get_stream_vmid(&self, stream_id: StreamID) -> Result<u16, SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        Ok(stream_context.get_vmid())
     }
 
     /// Remove a PASID from a stream
@@ -1227,15 +1258,16 @@ impl SMMU {
         let stream_value = stream_id.as_u32();
         let stream_guard = self.streams.get(&stream_value);
 
-        // Capture ASID (CD.ASID) while holding the stream guard, so TLB entries
-        // can be tagged for ASID-targeted invalidation (ARM §3.17, §4.4).
-        let (result, entry_asid) = if let Some(stream_ref) = stream_guard {
-            // Read ASID before calling translate() (both use the same stream_ref)
+        // Capture ASID (CD.ASID, §3.17) and VMID (STE.S2VMID, §5.2) while holding
+        // the stream guard, so TLB entries can be tagged for both ASID-targeted
+        // (CMD_TLBI_NH_ASID) and VMID-targeted (CMD_TLBI_S12_VMALL) invalidation.
+        let (result, entry_asid, entry_vmid) = if let Some(stream_ref) = stream_guard {
             let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
+            let vmid = stream_ref.value().get_vmid();
             // Delegate to StreamContext for actual translation
             // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
             let r = stream_ref.value().translate(pasid, iova, access, security_state);
-            (r, asid)
+            (r, asid, vmid)
         } else {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Record fault before returning error
@@ -1243,15 +1275,16 @@ impl SMMU {
             return Err(TranslationError::StreamNotConfigured);
         };
 
-        // On successful translation, populate TLB cache tagged with CD.ASID so
-        // that CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID can selectively evict entries.
+        // On successful translation, populate TLB cache tagged with both CD.ASID
+        // and STE.S2VMID so that ASID-targeted and VMID-targeted invalidation work.
         if let Ok(ref data) = result {
-            let entry = CacheEntry::new_with_asid(
+            let entry = CacheEntry::new_with_tags(
                 iova,
                 data.physical_address(),
                 data.permissions(),
                 data.security_state(),
                 entry_asid,
+                entry_vmid,
                 0,
             );
             self.tlb_cache.insert(cache_key, entry);
@@ -1708,13 +1741,9 @@ impl SMMU {
                 self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
+            // VMID-targeted invalidation: remove only entries tagged with cmd.vmid (§4.4, §5.2)
             CommandType::TlbiS12Vmall | CommandType::TlbiS2Ipa => {
-                // Stream/PASID-specific TLB invalidation
-                // Extract stream_id from command parameters
-                let stream_id = StreamID::new(command.stream_id);
-                if let Ok(stream_id) = stream_id {
-                    self.tlb_cache.invalidate_by_stream(stream_id);
-                }
+                self.tlb_cache.invalidate_by_vmid(command.vmid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
