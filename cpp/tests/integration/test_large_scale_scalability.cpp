@@ -24,15 +24,18 @@ protected:
     void SetUp() override {
         // Use default SMMU configuration for scalability testing
         smmu = std::make_unique<SMMU>();
-        
+
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Test parameters
         page_size = 4096;
         base_iova = 0x100000000ULL;  // Use 64-bit address space
         base_pa = 0x200000000ULL;
-        
+
         // Initialize high-quality random number generator
         rng.seed(std::chrono::steady_clock::now().time_since_epoch().count());
-        
+
         // Performance thresholds (realistic for large-scale scenarios)
         max_translation_time_us = 50.0;      // 50 microseconds per translation (large-scale)
         max_context_switch_time_us = 1.0;    // 1 microsecond per context switch

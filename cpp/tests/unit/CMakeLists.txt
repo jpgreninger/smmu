@@ -35,6 +35,7 @@ set(UNIT_TEST_SOURCES
     test_stream_reconfigure_spec.cpp
     test_c_bad_streamid_spec.cpp
     test_event_queue_stall_overflow_spec.cpp
+    test_smmuen_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

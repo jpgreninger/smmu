@@ -21,6 +21,9 @@ protected:
         // Create SMMU with default constructor
         smmu = std::make_unique<SMMU>();
 
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Test parameters
         page_size = 4096;
         base_iova = 0x1000000;

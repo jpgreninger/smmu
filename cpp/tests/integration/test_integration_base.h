@@ -44,7 +44,10 @@ protected:
         config.setAddressConfiguration(addressConfig);
         
         smmu = std::make_unique<SMMU>(config);
-        
+
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Common test parameters
         page_size = 4096;
         base_iova = 0x100000000ULL;  // 4GB base

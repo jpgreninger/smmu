@@ -60,7 +60,7 @@ SMMU::SMMU()
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
-      smmuen_(true),
+      smmuen_(false),
       gbpaAbort_(false) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
@@ -96,7 +96,7 @@ SMMU::SMMU(const SMMUConfiguration& config)
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
-      smmuen_(true),
+      smmuen_(false),
       gbpaAbort_(false) {
     // Validate the provided configuration
     if (!config.isValid()) {
@@ -600,6 +600,10 @@ void SMMU::reset() {
 
     // ARM §6.3.17: Reset global error register (FINDING-M-06)
     gerrorStatus = 0;
+
+    // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
+    smmuen_ = false;
+    gbpaAbort_ = false;
 }
 
 // Helper methods

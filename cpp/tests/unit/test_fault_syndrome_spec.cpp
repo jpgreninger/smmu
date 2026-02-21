@@ -60,6 +60,9 @@ protected:
     void SetUp() override {
         smmu = std::make_unique<SMMU>();
 
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Create a two-stage stream so that all faults go through
         // performBothStagesTranslation -> recordComprehensiveFault ->
         // generateFaultSyndrome -> encodeFaultSyndromeRegister.

@@ -62,6 +62,9 @@ TEST_F(SMMUPhase5ErrorTest, Constructor_InvalidConfiguration_FallsBackToDefault)
     // Constructor should handle gracefully
     smmu = std::make_unique<SMMU>(invalidConfig);
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     // SMMU should be operational with default config
     EXPECT_NE(smmu.get(), nullptr);
 }
@@ -69,6 +72,9 @@ TEST_F(SMMUPhase5ErrorTest, Constructor_InvalidConfiguration_FallsBackToDefault)
 TEST_F(SMMUPhase5ErrorTest, Constructor_DefaultConfiguration_Succeeds) {
     // Verify default constructor works
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     EXPECT_NE(smmu.get(), nullptr);
 }
@@ -78,6 +84,9 @@ TEST_F(SMMUPhase5ErrorTest, Constructor_DefaultConfiguration_Succeeds) {
 TEST_F(SMMUPhase5ErrorTest, Translate_CacheSecurityStateMismatch_SkipsCache) {
     // Target: Line 102 - TLB entry security state doesn't match request
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     // Configure stream with translation enabled
     StreamConfig config;
@@ -109,6 +118,9 @@ TEST_F(SMMUPhase5ErrorTest, Translate_CacheSecurityStateRealmMismatch_HandleCorr
     // Target: Line 102 - Different security state variants
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -137,6 +149,9 @@ TEST_F(SMMUPhase5ErrorTest, ConfigureStream_InvalidStreamID_ReturnsError) {
     // Target: Line 203, 285 - Configuration validation failures
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -153,6 +168,9 @@ TEST_F(SMMUPhase5ErrorTest, ConfigureStream_InvalidStreamID_ReturnsError) {
 TEST_F(SMMUPhase5ErrorTest, ConfigureStream_BothStagesDisabled_ReturnsError) {
     // Target: Line 285, 306 - Stage configuration errors
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -171,6 +189,9 @@ TEST_F(SMMUPhase5ErrorTest, EnableStream_ConfigurationError_ReturnsError) {
     // Target: Line 459 - Stream enable errors
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     // Try to enable stream without configuring it first
     VoidResult result = smmu->enableStream(TEST_STREAM_ID);
 
@@ -180,6 +201,9 @@ TEST_F(SMMUPhase5ErrorTest, EnableStream_ConfigurationError_ReturnsError) {
 TEST_F(SMMUPhase5ErrorTest, DisableStream_UnconfiguredStream_ReturnsError) {
     // Target: Stream disable errors
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     VoidResult result = smmu->disableStream(TEST_STREAM_ID);
 
@@ -208,6 +232,9 @@ TEST_F(SMMUPhase5ErrorTest, RecordFault_InternalWithNoHandler_HandlesGracefully)
     // Target: Internal fault recording without handler
     smmu = std::make_unique<SMMU>();  // Default constructor
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     // Configure and create fault condition
     StreamConfig config;
     config.translationEnabled = true;
@@ -230,6 +257,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_NullStreamContext_ReturnsError) {
     // Target: Lines 654-665 - Null StreamContext check
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     // Try to translate unconfigured stream - internal method gets null context
     TranslationResult result = smmu->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
@@ -240,6 +270,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_NullStreamContext_ReturnsError) {
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationDisabledBypassMode_ReturnsIOVA) {
     // Target: Lines 674-678 - Translation disabled bypass
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = false;  // Bypass mode
@@ -260,6 +293,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_BothStagesDisabledButTranslationEnab
     // Target: Lines 692-703 - Configuration error: no stages enabled
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = false;
@@ -273,6 +309,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_BothStagesDisabledButTranslationEnab
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_Stage2EnabledButNoAddressSpace_ReturnsError) {
     // Target: Lines 713-724 - Stage-2 null address space check
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -291,6 +330,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_Stage2EnabledButNoAddressSpace_Retur
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationToNullAddress_ReturnsError) {
     // Target: Lines 710-724 - Null address translation detection
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -315,6 +357,9 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationToNullAddress_ReturnsErro
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_PermissionValidationFailure_ReturnsFault) {
     // Target: Lines 729-740 - Permission validation failure
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -355,6 +400,9 @@ TEST_F(SMMUPhase5ErrorTest, GetCacheStatistics_CacheDisabled_ReturnsZeros) {
 
     smmu = std::make_unique<SMMU>(config);
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     CacheStatistics stats = smmu->getCacheStatistics();
 
     // Should return valid statistics even with cache disabled
@@ -372,6 +420,9 @@ TEST_F(SMMUPhase5ErrorTest, CacheLookup_ExpiredEntry_TreatsAsMiss) {
     config.setCacheConfiguration(cacheConfig);
 
     smmu = std::make_unique<SMMU>(config);
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig streamConfig;
     streamConfig.translationEnabled = true;
@@ -404,6 +455,9 @@ TEST_F(SMMUPhase5ErrorTest, Translate_AddressExceedsSupportedSize_ReturnsError) 
     // Target: Lines 853-855, 862, 864 - Address size fault detection
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -424,6 +478,9 @@ TEST_F(SMMUPhase5ErrorTest, Translate_AddressExceedsSupportedSize_ReturnsError) 
 TEST_F(SMMUPhase5ErrorTest, Translate_OutputAddressExceedsSize_ReturnsError) {
     // Target: Line 864 - Output address validation
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -454,6 +511,9 @@ TEST_F(SMMUPhase5ErrorTest, Translate_Stage1PermissionFailure_ReturnsFault) {
     // Target: Lines 938-940 - Stage-1 permission failure
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -475,6 +535,9 @@ TEST_F(SMMUPhase5ErrorTest, Translate_Stage1PermissionFailure_ReturnsFault) {
 TEST_F(SMMUPhase5ErrorTest, Translate_ExecutePermissionFailure_ReturnsFault) {
     // Target: Execute permission validation
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -498,6 +561,9 @@ TEST_F(SMMUPhase5ErrorTest, TwoStageTranslation_Stage2PermissionFailure_ReturnsF
     // Target: Lines 946-948 - Stage-2 permission failure
     // Note: Two-stage translation requires both stages to be configured
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     // Enable both stages
     StreamConfig config;
@@ -525,6 +591,9 @@ TEST_F(SMMUPhase5ErrorTest, TwoStageTranslation_Stage2PermissionFailure_ReturnsF
 TEST_F(SMMUPhase5ErrorTest, TwoStageTranslation_PermissionIntersection_EnforcesStrictest) {
     // Target: Lines 954-956 - Permission intersection
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     StreamConfig config;
     config.translationEnabled = true;
@@ -555,6 +624,9 @@ TEST_F(SMMUPhase5ErrorTest, InvalidateCache_DuringTranslation_HandlesCorrectly) 
     // Target: Concurrent cache invalidation
     smmu = std::make_unique<SMMU>();
 
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -582,6 +654,9 @@ TEST_F(SMMUPhase5ErrorTest, InvalidateCache_DuringTranslation_HandlesCorrectly) 
 TEST_F(SMMUPhase5ErrorTest, RemoveStream_UnconfiguredStream_ReturnsError) {
     // Target: Stream removal errors
     smmu = std::make_unique<SMMU>();
+
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
 
     VoidResult result = smmu->removeStream(TEST_STREAM_ID);
 

@@ -19,6 +19,9 @@ protected:
         // Create SMMU with default configuration
         smmu = std::make_unique<SMMU>();
 
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Common test parameters
         testStreamID = 100;
         testPASID = 1;

@@ -17,14 +17,17 @@ class Task53EventCommandProcessingTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmu = std::unique_ptr<SMMU>(new SMMU());
-        
+
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Configure a basic stream for testing
         StreamConfig config;
         config.translationEnabled = true;
         config.stage1Enabled = true;
         config.stage2Enabled = false;
         config.faultMode = FaultMode::Terminate;
-        
+
         ASSERT_TRUE(smmu->configureStream(testStreamID, config));
         
         // Enable stream after configuration (ARM SMMU v3 spec: separate operations)

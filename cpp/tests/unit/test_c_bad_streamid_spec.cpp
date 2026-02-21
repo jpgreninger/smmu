@@ -25,6 +25,8 @@ static constexpr IOVA     IOVA_1000    = 0x1000;
 static std::unique_ptr<SMMU> makeSMMU() {
     SMMUConfiguration cfg;
     auto smmu = std::make_unique<SMMU>(cfg);
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
     return smmu;
 }
 

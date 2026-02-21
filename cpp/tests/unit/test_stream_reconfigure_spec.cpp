@@ -32,6 +32,9 @@ protected:
     void SetUp() override {
         smmu = std::unique_ptr<SMMU>(new SMMU());
 
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Configure a basic stage-1 stream
         StreamConfig cfg;
         cfg.translationEnabled = true;

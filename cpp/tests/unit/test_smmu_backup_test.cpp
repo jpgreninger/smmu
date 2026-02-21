@@ -12,6 +12,8 @@ class SMMUTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmuController = std::make_unique<SMMU>();
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmuController->enable();
     }
 
     void TearDown() override {
@@ -32,11 +34,12 @@ protected:
 // Test default construction
 TEST_F(SMMUTest, DefaultConstruction) {
     ASSERT_NE(smmuController, nullptr);
-    
-    // Verify that translation on unconfigured SMMU fails
+
+    // With SMMU globally enabled and no stream configured, translation
+    // must fail with StreamNotConfigured (ARM §6.3.9 / FINDING-NEW-09).
     TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Test stream configuration

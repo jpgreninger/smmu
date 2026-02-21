@@ -16,6 +16,8 @@ class SMMUTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmuController = std::unique_ptr<SMMU>(new SMMU());
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmuController->enable();
     }
 
     void TearDown() override {
@@ -23,7 +25,7 @@ protected:
     }
 
     std::unique_ptr<SMMU> smmuController;
-    
+
     // Test helper constants
     static constexpr StreamID TEST_STREAM_ID_1 = 0x1000;
     static constexpr StreamID TEST_STREAM_ID_2 = 0x2000;
@@ -2206,18 +2208,21 @@ TEST_F(SMMUTest, Task52_IntegrationWithExistingSMMU) {
     EXPECT_GT(translationsBefore, 0);
     
     smmuController->reset();
-    
+
     // After reset, cache statistics should be cleared
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
     EXPECT_EQ(smmuController->getCacheMissCount(), 0);
     EXPECT_EQ(smmuController->getTotalTranslations(), 0);
-    
+
+    // ARM §6.3.9 / FINDING-NEW-09: reset() sets SMMUEN=0; re-enable before use.
+    smmuController->enable();
+
     // Verify SMMU still functions after reset
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_2, config).isOk());
     EXPECT_TRUE(smmuController->enableStream(TEST_STREAM_ID_2).isOk());
     EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_2, TEST_PASID_1).isOk());
     EXPECT_TRUE(smmuController->mapPage(TEST_STREAM_ID_2, TEST_PASID_1, TEST_IOVA, TEST_PA, perms).isOk());
-    
+
     TranslationResult postResetResult = smmuController->translate(TEST_STREAM_ID_2, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(postResetResult.isOk());
     EXPECT_EQ(postResetResult.getValue().physicalAddress, TEST_PA);

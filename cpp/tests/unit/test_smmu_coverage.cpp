@@ -17,6 +17,8 @@ class SMMUCoverageTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmuController = std::unique_ptr<SMMU>(new SMMU());
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmuController->enable();
     }
 
     void TearDown() override {

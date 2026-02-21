@@ -24,7 +24,10 @@ static constexpr size_t SMALL_QUEUE = 16;
 static std::unique_ptr<SMMU> makeSmallQueueSMMU() {
     QueueConfiguration qcfg(SMALL_QUEUE, SMALL_QUEUE, SMALL_QUEUE);
     SMMUConfiguration cfg(qcfg, CacheConfiguration(), AddressConfiguration(), ResourceLimits());
-    return std::make_unique<SMMU>(cfg);
+    auto smmu = std::make_unique<SMMU>(cfg);
+    // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+    smmu->enable();
+    return smmu;
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

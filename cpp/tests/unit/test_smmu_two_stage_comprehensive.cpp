@@ -26,6 +26,8 @@ protected:
     void SetUp() override {
         faultHandler = std::make_shared<FaultHandler>();
         smmu = std::make_unique<SMMU>();
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
     }
 
     void TearDown() override {

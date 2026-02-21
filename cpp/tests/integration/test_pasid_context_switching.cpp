@@ -22,16 +22,19 @@ protected:
     void SetUp() override {
         // Create SMMU with default configuration
         smmu = std::make_unique<SMMU>();
-        
+
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Test parameters
         testStreamID = 100;
         page_size = 4096;
         base_iova = 0x1000000;
         base_pa = 0x10000000;
-        
+
         // Setup base stream configuration
         setupTestStream();
-        
+
         // Initialize random number generator
         rng.seed(std::chrono::steady_clock::now().time_since_epoch().count());
     }

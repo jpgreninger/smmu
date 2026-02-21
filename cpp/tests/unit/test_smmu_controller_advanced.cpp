@@ -25,6 +25,9 @@ protected:
     void SetUp() override {
         smmu = std::make_unique<SMMU>();
 
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Configure basic stream
         StreamConfig config;
         config.translationEnabled = true;

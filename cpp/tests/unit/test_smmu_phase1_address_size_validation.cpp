@@ -44,6 +44,8 @@ class SMMUAddressSizeValidationTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmu = std::make_unique<SMMU>();
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
     }
 
     void TearDown() override {

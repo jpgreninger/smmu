@@ -15,7 +15,10 @@ protected:
     void SetUp() override {
         // Use default configuration
         smmu = std::make_unique<SMMU>();
-        
+
+        // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
+        smmu->enable();
+
         // Test parameters
         testStreamID = 100;
         testPASID = 1;
