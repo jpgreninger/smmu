@@ -689,14 +689,22 @@ All affected tests updated and 5 new TDD spec tests added in
 
 ---
 
-### FINDING-L-07 ❌ — No VMS (Virtual Machine Structure) Support
+### FINDING-L-07 ✅ — No VMS (Virtual Machine Structure) Support
 **Spec**: §5.6 (VMS, Virtual Machine Structure)
 **Affected**: Both
 
 The VMS structure for VM-level TLB invalidation is not modeled. Only relevant
 for hypervisor simulation.
 
-**Recommendation**: Document as not implemented.
+**Resolution (Software Model Scope)**: The VMS is a hardware structure used to
+accelerate VM-granule TLB invalidation by grouping VMIDs under a single handle,
+avoiding the need to issue per-VMID invalidation commands when a VM is migrated
+or destroyed. It is only relevant when modeling a hypervisor that manages
+multiple VMs across multiple SMMUs. This project targets single-VM / bare-metal
+device driver simulation; no hypervisor context is in scope. VM-level TLB
+invalidation can be achieved through existing `TLBI_NH_VMID` commands. The VMS
+structure is accepted as out-of-scope and documented here for integrators
+building hypervisor-level simulation platforms.
 
 ---
 
@@ -777,7 +785,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 25. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
 26. ~~FINDING-L-02 — MSI write in CMD_SYNC~~ ✅ Documented as software model scope limitation
 27. ~~FINDING-L-03 — Translation Hardening (SMMUv3.4)~~ ✅ Documented as software model scope limitation
-28. FINDING-L-07 — VMS support
+28. ~~FINDING-L-07 — VMS support~~ ✅ Documented as software model scope limitation
 
 ---
 
