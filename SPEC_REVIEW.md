@@ -353,13 +353,15 @@ The ARM specification encodes SEC_SID as: `0b00`=NonSecure, `0b01`=Secure,
 ### FINDING-H-08 ✅ — No SMMU Global Enable/Disable (SMMU_CR0.SMMUEN)
 **Spec**: §6.3.9 (SMMU_CR0), bit 0 SMMUEN
 **Affected**: Both
-**Fixed**: Rust (commit — see below)
+**Fixed**: Both (C++ completed via FINDING-NEW-09)
 
 When SMMUEN=0 all transactions must bypass the SMMU (no translation or fault).
 The SMMU must start disabled after reset.
 
-- **C++**: `translate()` performs translation immediately after construction.
-  `SMMU::reset()` does not model SMMUEN. (Pending)
+- **C++**: ✅ Fixed — see FINDING-NEW-09. Constructors now default `smmuen_=false`;
+  `reset()` also clears `smmuen_` to `false`. Full bypass / abort path in
+  `translate()` (added by FINDING-NEW-01) is now active from construction.
+  18 spec tests in `cpp/tests/unit/test_smmuen_spec.cpp` — all pass.
 - **Rust**: Added `enabled: AtomicBool` (default `false`) to `SMMU`. Added
   `enable()`, `disable()`, `is_enabled()` methods (all gated on non-shutdown).
   `translate()` now bypasses (identity PA=IOVA, no fault) when SMMUEN=0.
@@ -946,18 +948,29 @@ case CommandType::STALL_TERM:
 
 ---
 
-### FINDING-NEW-09 ❌ — SMMUEN Global Enable Not Implemented (C++)
+### FINDING-NEW-09 ✅ Fixed (C++) — SMMUEN Global Enable Not Implemented
 **Spec**: §3.11 (Reset, Enable, and initialization), §6.3.9 (SMMU_CR0.SMMUEN)
 **Affected**: C++
 
-FINDING-H-08 was marked fixed but only for Rust. The C++ `SMMU` class has no
-`enabled` flag, no `enable()` / `disable()` methods, and no SMMUEN check in
-`translate()`. After `reset()` the SMMU translates immediately without requiring
-software to set SMMUEN=1, violating the spec's initialization contract.
+FINDING-H-08 was marked fixed but only for Rust. The C++ `SMMU` class had the
+`enable()` / `disable()` / `isEnabled()` infrastructure added by FINDING-NEW-01
+but both constructors defaulted `smmuen_(true)` for backward compatibility.
+After `reset()` the SMMU translated immediately without requiring software to
+set SMMUEN=1, violating the spec's initialization contract.
 
-**Evidence** (`cpp/src/smmu/smmu.cpp:553-582`): `reset()` clears queues and
-statistics but sets no disabled state. `translate()` (lines 119-226) has no
-SMMUEN check.
+**Fix**:
+- Both constructors changed from `smmuen_(true)` to `smmuen_(false)` —
+  the SMMU now starts disabled per ARM §3.11.
+- `reset()` now explicitly sets `smmuen_ = false` and `gbpaAbort_ = false`
+  so a reset returns the SMMU to the spec-required disabled initial state.
+- All 40 existing test fixtures updated to call `smmu->enable()` in `SetUp()`
+  (or equivalent per-test init) to restore prior passing behaviour.
+- 18 TDD spec tests in `cpp/tests/unit/test_smmuen_spec.cpp` covering:
+  disabled-by-default construction, bypass identity-PA semantics,
+  `enable()` / `disable()` toggle, `reset()` re-disables, `isEnabled()` state,
+  GBPA.ABORT=1 abort path, fault suppression while disabled — all pass.
+- Full suite: 49/50 tests pass (1 pre-existing unrelated failure in
+  `PASIDSecurityStateContextSwitching`).
 
 ---
 
@@ -1073,7 +1086,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 35. ~~FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)~~ ✅ Fixed
 36. ~~FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)~~ ✅ Fixed
 37. ~~FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)~~ ✅ Fixed
-38. FINDING-NEW-09 — SMMUEN global enable not implemented (C++)
+38. ~~FINDING-NEW-09 — SMMUEN global enable not implemented (C++)~~ ✅ Fixed
 39. FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)
 
 ---
