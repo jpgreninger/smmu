@@ -6,7 +6,7 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~65% | Rust ~68% (software model scope)
+**Overall Conformance**: C++ ~68% | Rust ~76% (software model scope)
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -370,6 +370,66 @@ The SMMU must start disabled after reset.
 
 ---
 
+### FINDING-NEW-01 ❌ — GBPA.ABORT Path Not Modeled (SMMUEN=0)
+**Spec**: §3.11 (Reset, Enable, and initialization), §6.3.9 (SMMU_CR0), §13.2 (SMMU disabled global bypass attributes)
+**Affected**: Both
+
+When `SMMUEN == 0` the spec does not unconditionally mandate bypass. The actual
+behavior is controlled by `SMMU_(*_)GBPA.ABORT`:
+
+- `GBPA.ABORT == 1`: all transactions are **aborted** (bus error) — not bypassed.
+- `GBPA.ABORT == 0`: transactions bypass with identity PA and attributes from `SMMU_(A)GBPA`.
+
+Both implementations unconditionally return `PA = IOVA` with full permissions
+when disabled, hardwiring the `GBPA.ABORT == 0` (bypass) path. The abort-on-disable
+path — used in security-sensitive deployments to guarantee no traffic escapes when
+the SMMU resets — is not modeled. Neither `SMMUConfig` nor `StreamConfig` has a
+`gbpa_abort` field.
+
+**Evidence**:
+- **Rust** (`rust/smmu/src/smmu/mod.rs:1475-1486`): `if !self.enabled` → identity PA, full RW, no fault.
+- **C++** (`cpp/src/smmu/smmu.cpp:119-226`): no SMMUEN check at all; translates on every call.
+
+---
+
+### FINDING-NEW-02 ❌ — Stream-Not-Found Emits Wrong Event Type (Rust)
+**Spec**: §7.3.3 (C_BAD_STREAMID), §7.2 (Event queue)
+**Affected**: Rust
+
+When a translation arrives for an unknown StreamID, spec §7.3.3 requires event
+`C_BAD_STREAMID` (code `0x02`). The Rust implementation emits `F_TRANSLATION`
+(`0x10`) instead. The fault record correctly uses `FaultType::BadStreamID` but
+`map_fault_type_to_event_type()` routes it to `EventType::FTranslation`.
+
+**Evidence** (`rust/smmu/src/smmu/mod.rs:1658-1676`):
+```rust
+FaultType::BadSTE
+| FaultType::BadCD
+| FaultType::BadStreamID      // ← routes to FTranslation, not CBadStreamid
+| FaultType::AddressSizeFault
+...
+| FaultType::AccessFlagFault => EventType::FTranslation,
+```
+
+---
+
+### FINDING-NEW-03 ❌ — Stall Events Discarded on Event Queue Overflow (Both)
+**Spec**: §3.5.3 (Event queue behavior), §7.2
+**Affected**: Both
+
+Spec §3.5.3: *"Events resulting from stalled faulting transactions are never
+discarded if the Event queue is full, but are recorded when entries are consumed
+from the Event queue and space next becomes available."* Both implementations
+treat stall events identically to non-stall events on overflow. A lost stall
+event leaves the corresponding STAG in the stall queue with no way for software
+to issue `CMD_RESUME` or `CMD_STALL_TERM` — a spec-prohibited deadlock.
+
+**Evidence**:
+- **Rust** (`rust/smmu/src/smmu/mod.rs:1761-1767`): stall events silently dropped when `queue.len() >= capacity`.
+- **C++** (`cpp/src/smmu/smmu.cpp:1690-1695`): evicts oldest event from the front (potentially a stall event) to make room — doubly incorrect.
+
+---
+
 ## Medium Findings
 
 ### FINDING-M-01 ✅ — Circular Queue PROD/CONS Semantics Not Implemented
@@ -586,6 +646,88 @@ address size configured by TCR.T0SZ.
 
 ---
 
+### FINDING-NEW-04 ❌ — CMD_RESUME Missing Action/Abort Parameters (Rust)
+**Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM)
+**Affected**: Rust
+
+`CMD_RESUME` carries `STAG`, `Action (Ac)`, and `Abort (Ab)`. The spec defines
+three distinct outcomes:
+- `Ac=1`: Retry — transaction retried as if freshly arrived.
+- `Ac=0, Ab=0`: Terminate successfully (RAZ/WI).
+- `Ac=0, Ab=1`: Abort with bus error.
+
+The Rust implementation removes the stall record unconditionally with no `Ac`/`Ab`
+distinction. `CommandEntry` has no `action` or `abort` fields. All three outcomes
+are collapsed into a simple queue removal.
+
+**Evidence** (`rust/smmu/src/smmu/mod.rs:2202-2210`):
+```rust
+CommandType::Resume => {
+    self.stall_queue.remove(&command.stag);  // no Ac/Ab; no outcome differentiation
+},
+```
+
+---
+
+### FINDING-NEW-05 ❌ — CMD_CFGI_STE_RANGE Prefix Semantics Not Implemented (Both)
+**Spec**: §4.3.2 (CMD_CFGI_STE_RANGE)
+**Affected**: Both
+
+`CMD_CFGI_STE_RANGE(StreamID, SSec, Range)` (opcode `0x04`) invalidates only
+STEs whose StreamID matches `n[StreamIDSize-1:k+1]` — a prefix-masked range.
+`CMD_CFGI_ALL` is the same opcode with `Range == 31` and invalidates everything.
+Both implementations collapse the two into a single `CfgiAll` variant that always
+performs a full global invalidation, over-invalidating for the range form. The
+`CommandEntry` struct has no `Range` field.
+
+**Evidence**:
+- **Rust** (`rust/smmu/src/types/command_entry.rs:23-25`): single `CfgiAll = 0x04` variant; command processor no-ops it entirely.
+- **C++** (`cpp/src/smmu/smmu.cpp:1483-1487`): `CFGI_ALL` → `invalidateTranslationCache()` unconditionally.
+
+---
+
+### FINDING-NEW-06 ❌ — EventEntry Missing Stall Bit (Rust)
+**Spec**: §7.3 (Event records), §3.12.2 (Stall model)
+**Affected**: Rust
+
+Spec §7.3 requires event records for stalled transactions to carry a `Stall` bit
+set to `1`. This bit is how software identifies which event queue entries require
+a `CMD_RESUME` or `CMD_STALL_TERM`. `EventEntry` has no `stall` field; stall
+events are structurally identical to terminated-fault events. Software consuming
+the event queue cannot implement a correct stall-resume loop.
+
+**Evidence** (`rust/smmu/src/types/event_entry.rs`):
+```rust
+pub struct EventEntry {
+    pub event_type: EventType,
+    pub stream_id: u32,
+    pub pasid: u32,
+    pub address: u64,
+    pub security_state: SecurityState,
+    pub error_code: u32,
+    pub timestamp: u64,
+    // No `stall: bool` field
+}
+```
+
+---
+
+### FINDING-NEW-07 ❌ — Stream-Not-Found Emits Wrong Fault Type (C++)
+**Spec**: §7.3.3 (C_BAD_STREAMID), §7.2
+**Affected**: C++
+
+Mirrors FINDING-NEW-02 for C++. When a translation arrives for an unknown
+StreamID, `translate()` records `FaultType::TranslationFault` instead of a
+`BadStreamID` / `C_BAD_STREAMID` event. No `C_BAD_STREAMID` (code `0x02`)
+event is generated anywhere in the stream-not-found path.
+
+**Evidence** (`cpp/src/smmu/smmu.cpp:184-197`):
+```cpp
+fault.faultType = FaultType::TranslationFault;  // WRONG: should be C_BAD_STREAMID
+```
+
+---
+
 ## Low Findings
 
 ### FINDING-L-01 ✅ — No Interrupt Modeling
@@ -732,6 +874,62 @@ building hypervisor-level simulation platforms.
 
 ---
 
+### FINDING-NEW-08 ❌ — CMD_RESUME / CMD_STALL_TERM Are No-Ops; No Action/Abort (C++)
+**Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM), §3.12.2 (Stall model)
+**Affected**: C++
+
+The C++ `processCommand()` switch handles `RESUME` and `STALL_TERM` with empty
+`break` stubs. No stall queue exists in C++ (FINDING-H-05 was Rust-only). Beyond
+the missing stall infrastructure, `CommandEntry` also lacks `stag`, `action`, and
+`abort` fields, so the `Ac`/`Ab` outcome semantics cannot be added without a
+struct extension.
+
+**Evidence** (`cpp/src/smmu/smmu.cpp:1648-1657`):
+```cpp
+case CommandType::RESUME:
+    // Could implement transaction restart logic
+    break;
+case CommandType::STALL_TERM:
+    break;
+```
+
+---
+
+### FINDING-NEW-09 ❌ — SMMUEN Global Enable Not Implemented (C++)
+**Spec**: §3.11 (Reset, Enable, and initialization), §6.3.9 (SMMU_CR0.SMMUEN)
+**Affected**: C++
+
+FINDING-H-08 was marked fixed but only for Rust. The C++ `SMMU` class has no
+`enabled` flag, no `enable()` / `disable()` methods, and no SMMUEN check in
+`translate()`. After `reset()` the SMMU translates immediately without requiring
+software to set SMMUEN=1, violating the spec's initialization contract.
+
+**Evidence** (`cpp/src/smmu/smmu.cpp:553-582`): `reset()` clears queues and
+statistics but sets no disabled state. `translate()` (lines 119-226) has no
+SMMUEN check.
+
+---
+
+### FINDING-NEW-10 ❌ — CMD_RESUME Does Not Verify STAG Belongs to StreamID (Rust)
+**Spec**: §4.6 (CMD_RESUME), §3.12.2 (Stall model)
+**Affected**: Rust
+
+Spec §4.6: *"Verify that a STAG value corresponds to the given StreamID. If the
+transaction does not match the given StreamID, this command has no effect."*
+
+The Rust implementation removes stall records by STAG key alone, without checking
+that `stall_record.stream_id == command.stream_id`. A `CMD_RESUME` from the wrong
+stream can erroneously retire a stalled transaction belonging to a different stream.
+
+**Evidence** (`rust/smmu/src/smmu/mod.rs:2202-2210`):
+```rust
+CommandType::Resume => {
+    self.stall_queue.remove(&command.stag);  // stream_id not verified
+},
+```
+
+---
+
 ## Features Correctly Implemented
 
 ### C++ Implementation
@@ -812,16 +1010,28 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 28. ~~FINDING-L-03 — Translation Hardening (SMMUv3.4)~~ ✅ Documented as software model scope limitation
 29. ~~FINDING-L-07 — VMS support~~ ✅ Documented as software model scope limitation
 
+### New findings (2026-02-20 review)
+30. FINDING-NEW-02 — C_BAD_STREAMID event type wrong (Rust)
+31. FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)
+32. FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)
+33. FINDING-NEW-06 — EventEntry missing Stall bit (Rust)
+34. FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)
+35. FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)
+36. FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)
+37. FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)
+38. FINDING-NEW-09 — SMMUEN global enable not implemented (C++)
+39. FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)
+
 ---
 
 ## Key Files for Fixes
 
 | File | Relevant Findings |
 |------|------------------|
-| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10 |
-| `rust/smmu/src/types/command_entry.rs` | H-02, H-03 |
-| `rust/smmu/src/types/event_entry.rs` | H-01, M-05 |
+| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09 |
+| `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05 |
+| `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10 |
 | `rust/smmu/src/cache/` | M-03, M-04 |
