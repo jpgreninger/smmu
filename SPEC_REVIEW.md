@@ -1136,13 +1136,14 @@ When stall mode was active and any translation fault occurred, the C++ `translat
 
 ## Test Coverage
 
-**C++**: Functional test suite — 100% pass rate per `cpp/QA_REPORT.md`.
-Gaps: disabled-stream fault type correctness, `CFGI_CD` handling, stall mode.
+**C++**: Functional test suite — 100% pass rate. All previously noted gaps
+(disabled-stream event type, `CFGI_CD`/`CFGI_CD_ALL` handling, stall mode
+event type, `C_BAD_SUBSTREAMID`) resolved by NEW-05 through NEW-13.
 
-**Rust**: 2,239 tests passing (100%) per `rust/QA-RUST.md`. Line coverage
-71.06%, region 74.24%, function 65.17%. Notable gaps: `address_space` module
-(20.86%), `stream_context` module (50.00%). Missing: binary STE/CD format
-tests, VMID handling, ASID-targeted invalidation, stall mode completion.
+**Rust**: All tests passing (100%). 10 new spec tests added for NEW-11
+(`tests/test_c_bad_substreamid_spec.rs`). Previously noted coverage gaps
+(`address_space` 20.86%, `stream_context` 50.00%) partially improved by the
+NEW-11 stage-context path coverage. Missing: binary STE/CD format tests.
 
 ---
 
@@ -1214,7 +1215,9 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
 | `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05 |
 | `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06 |
+| `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
+| `rust/smmu/src/types/translation_result.rs` | NEW-11 |
 | `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11 |
 | `rust/smmu/src/stream_context/mod.rs` | NEW-11 |
 | `rust/smmu/src/cache/` | M-03, M-04 |
