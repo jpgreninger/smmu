@@ -564,16 +564,23 @@ address size configured by TCR.T0SZ.
 
 ## Low Findings
 
-### FINDING-L-01 ❌ — No Interrupt Modeling
+### FINDING-L-01 ✅ — No Interrupt Modeling
 **Spec**: §3.16 (Interrupts), §6.3 (IRQ_CTRL, GERROR_IRQ_CFG registers)
 **Affected**: Both
 
 Three interrupt sources (GERROR, EVENTQ, PRIQ) with MSI or wired interrupt
 mechanisms are not modeled.
 
-**Recommendation**: Document as a known software-model limitation. Optionally
-add interrupt callbacks: `set_gerror_handler()`, `set_eventq_handler()`,
-`set_priq_handler()`.
+**Resolution (Software Model Scope)**: Wired and MSI interrupts are physical
+signalling mechanisms that exist at the hardware/OS boundary. A behavioral
+software model has no interrupt controller, no PCIe fabric, and no kernel IRQ
+handler to signal. The functional equivalent — surfacing fault, event-queue, and
+PRI-queue activity to the caller — is provided through the model's polling and
+callback APIs (`getEvents()`, `getFaults()`, event-queue drain). Callers that
+need interrupt-driven notification can wrap these APIs with their own callback
+or condition-variable mechanism. Modeling `IRQ_CTRL` / `GERROR_IRQ_CFG` register
+writes has no behavioral effect in a software simulation. This limitation is
+documented as a known, accepted out-of-scope item for the behavioral model.
 
 ---
 
@@ -749,7 +756,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 22. ~~FINDING-C-03 — Binary CD format (document as software model)~~ ✅ Documented as software model scope limitation
 23. ~~FINDING-C-04 — L1STD two-level stream table (document as software model)~~ ✅ Documented as software model scope limitation
 24. ~~FINDING-H-06 — L1CD two-level context descriptor table~~ ✅ Documented as software model scope limitation
-25. FINDING-L-01 — Interrupt modeling
+25. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
 26. FINDING-L-02 — MSI write in CMD_SYNC
 27. FINDING-L-03 — Translation Hardening (SMMUv3.4)
 28. FINDING-L-07 — VMS support
