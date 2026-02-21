@@ -2211,13 +2211,23 @@ impl SMMU {
                 //   Ac=1 (action=true):                 Retry — transaction retried as if freshly arrived.
                 //   Ac=0, Ab=0 (action=false, abort=false): Terminate successfully (RAZ/WI).
                 //   Ac=0, Ab=1 (action=false, abort=true):  Abort — transaction terminated with bus error.
-                // In all cases, retire the stall record.
-                self.stall_queue.remove(&command.stag);
+                // ARM §4.6: verify the STAG belongs to the given StreamID; if not, command has no effect.
+                let stream_matches = self.stall_queue
+                    .get(&command.stag)
+                    .map_or(false, |r| r.stream_id == command.stream_id);
+                if stream_matches {
+                    self.stall_queue.remove(&command.stag);
+                }
             },
             CommandType::StallTerm => {
-                // CMD_STALL_TERM (§4.7, §3.12.2): abort the stalled transaction
-                // identified by STAG.  Remove from stall queue to discard.
-                self.stall_queue.remove(&command.stag);
+                // CMD_STALL_TERM (§4.7, §3.12.2): abort the stalled transaction identified by STAG.
+                // ARM §4.6/§4.7: verify the STAG belongs to the given StreamID; if not, no effect.
+                let stream_matches = self.stall_queue
+                    .get(&command.stag)
+                    .map_or(false, |r| r.stream_id == command.stream_id);
+                if stream_matches {
+                    self.stall_queue.remove(&command.stag);
+                }
             },
             CommandType::CfgiCd => {
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the

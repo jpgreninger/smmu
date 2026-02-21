@@ -926,23 +926,26 @@ SMMUEN check.
 
 ---
 
-### FINDING-NEW-10 ❌ — CMD_RESUME Does Not Verify STAG Belongs to StreamID (Rust)
+### FINDING-NEW-10 ✅ Fixed (Rust) — CMD_RESUME Does Not Verify STAG Belongs to StreamID
 **Spec**: §4.6 (CMD_RESUME), §3.12.2 (Stall model)
 **Affected**: Rust
 
 Spec §4.6: *"Verify that a STAG value corresponds to the given StreamID. If the
 transaction does not match the given StreamID, this command has no effect."*
 
-The Rust implementation removes stall records by STAG key alone, without checking
-that `stall_record.stream_id == command.stream_id`. A `CMD_RESUME` from the wrong
-stream can erroneously retire a stalled transaction belonging to a different stream.
-
-**Evidence** (`rust/smmu/src/smmu/mod.rs:2202-2210`):
-```rust
-CommandType::Resume => {
-    self.stall_queue.remove(&command.stag);  // stream_id not verified
-},
-```
+**Rust fix** (committed):
+- `CMD_RESUME` handler now reads the stall record under a read lock, checks
+  `record.stream_id == command.stream_id`, and only calls `remove()` when they
+  match; otherwise the command is silently ignored (no effect).
+- `CMD_STALL_TERM` receives the same StreamID guard by symmetry (§4.7 has the
+  same requirement).
+- All four resume/stall helper functions in the test file updated to carry an
+  explicit `stream_id: u32` parameter so callers pass the owning stream.
+- 2 TDD spec tests added in `rust/smmu/tests/test_stall_resume_spec.rs`:
+  `test_resume_wrong_stream_id_is_noop` and
+  `test_stall_term_wrong_stream_id_is_noop` — both verify the no-effect
+  behaviour AND confirm the correct StreamID does retire the record.
+- Full test suite (19 stall/resume tests) passes; `cargo clippy -- -D warnings` clean.
 
 ---
 
@@ -1032,7 +1035,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 32. ~~FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)~~ ✅ Fixed
 33. ~~FINDING-NEW-06 — EventEntry missing Stall bit (Both)~~ ✅ Fixed (resolved by NEW-03)
 34. ~~FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)~~ ✅ Fixed
-35. FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)
+35. ~~FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)~~ ✅ Fixed
 36. FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)
 37. FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)
 38. FINDING-NEW-09 — SMMUEN global enable not implemented (C++)

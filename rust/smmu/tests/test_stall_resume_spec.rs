@@ -70,11 +70,11 @@ fn setup_stall_stream(smmu: &SMMU, stream_n: u32, iova_addr: u64, pa_addr: u64) 
     .unwrap();
 }
 
-/// Build a CMD_RESUME command for a given STAG (Ac=0, Ab=0: terminate successfully).
-const fn resume_cmd(stag: u16) -> CommandEntry {
+/// Build a CMD_RESUME command (Ac=0, Ab=0: terminate successfully).
+const fn resume_cmd(stag: u16, stream_id: u32) -> CommandEntry {
     CommandEntry {
         cmd_type: CommandType::Resume,
-        stream_id: 0,
+        stream_id,
         pasid: 0,
         start_address: 0,
         end_address: 0,
@@ -89,11 +89,11 @@ const fn resume_cmd(stag: u16) -> CommandEntry {
     }
 }
 
-/// Build a CMD_RESUME command with Ac=1 (retry) for a given STAG.
-const fn resume_cmd_retry(stag: u16) -> CommandEntry {
+/// Build a CMD_RESUME command with Ac=1 (retry).
+const fn resume_cmd_retry(stag: u16, stream_id: u32) -> CommandEntry {
     CommandEntry {
         cmd_type: CommandType::Resume,
-        stream_id: 0,
+        stream_id,
         pasid: 0,
         start_address: 0,
         end_address: 0,
@@ -108,11 +108,11 @@ const fn resume_cmd_retry(stag: u16) -> CommandEntry {
     }
 }
 
-/// Build a CMD_RESUME command with Ac=0, Ab=1 (abort with bus error) for a given STAG.
-const fn resume_cmd_abort(stag: u16) -> CommandEntry {
+/// Build a CMD_RESUME command with Ac=0, Ab=1 (abort with bus error).
+const fn resume_cmd_abort(stag: u16, stream_id: u32) -> CommandEntry {
     CommandEntry {
         cmd_type: CommandType::Resume,
-        stream_id: 0,
+        stream_id,
         pasid: 0,
         start_address: 0,
         end_address: 0,
@@ -128,10 +128,10 @@ const fn resume_cmd_abort(stag: u16) -> CommandEntry {
 }
 
 /// Build a CMD_STALL_TERM command for a given STAG.
-const fn stall_term_cmd(stag: u16) -> CommandEntry {
+const fn stall_term_cmd(stag: u16, stream_id: u32) -> CommandEntry {
     CommandEntry {
         cmd_type: CommandType::StallTerm,
-        stream_id: 0,
+        stream_id,
         pasid: 0,
         start_address: 0,
         end_address: 0,
@@ -314,7 +314,7 @@ fn test_resume_command_clears_stall_queue() {
 
     assert_eq!(smmu.get_stalled_transactions().len(), 1);
 
-    smmu.submit_command(resume_cmd(stag)).unwrap();
+    smmu.submit_command(resume_cmd(stag, 1)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert!(
@@ -346,7 +346,7 @@ fn test_resume_with_wrong_stag_leaves_queue_intact() {
 
     // Send Resume with a different STAG (wrong one)
     let wrong_stag = stag.wrapping_add(1);
-    smmu.submit_command(resume_cmd(wrong_stag)).unwrap();
+    smmu.submit_command(resume_cmd(wrong_stag, 1)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert_eq!(
@@ -381,7 +381,7 @@ fn test_stall_term_command_aborts_stalled_transaction() {
 
     assert_eq!(smmu.get_stalled_transactions().len(), 1);
 
-    smmu.submit_command(stall_term_cmd(stag)).unwrap();
+    smmu.submit_command(stall_term_cmd(stag, 1)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert!(
@@ -451,7 +451,7 @@ fn test_resume_ac1_retry_clears_stall_record() {
     };
     assert_eq!(smmu.get_stalled_transactions().len(), 1);
 
-    smmu.submit_command(resume_cmd_retry(stag)).unwrap();
+    smmu.submit_command(resume_cmd_retry(stag, 10)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert!(
@@ -484,7 +484,7 @@ fn test_resume_ac0_ab0_terminate_clears_stall_record() {
     assert_eq!(smmu.get_stalled_transactions().len(), 1);
 
     // resume_cmd uses action=false, abort=false (Ac=0, Ab=0)
-    smmu.submit_command(resume_cmd(stag)).unwrap();
+    smmu.submit_command(resume_cmd(stag, 11)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert!(
@@ -516,7 +516,7 @@ fn test_resume_ac0_ab1_abort_clears_stall_record() {
     };
     assert_eq!(smmu.get_stalled_transactions().len(), 1);
 
-    smmu.submit_command(resume_cmd_abort(stag)).unwrap();
+    smmu.submit_command(resume_cmd_abort(stag, 12)).unwrap();
     smmu.process_command_queue().unwrap();
 
     assert!(
@@ -529,17 +529,98 @@ fn test_resume_ac0_ab1_abort_clears_stall_record() {
 #[test]
 fn test_resume_command_entry_has_action_abort_fields() {
     // action=true → Ac=1 (retry)
-    let retry_cmd = resume_cmd_retry(1);
+    let retry_cmd = resume_cmd_retry(1, 0);
     assert!(retry_cmd.action, "action must be true for Ac=1 retry");
     assert!(!retry_cmd.abort, "abort must be false for Ac=1 retry");
 
     // action=false, abort=false → Ac=0, Ab=0 (terminate success)
-    let term_cmd = resume_cmd(1);
+    let term_cmd = resume_cmd(1, 0);
     assert!(!term_cmd.action, "action must be false for Ac=0");
     assert!(!term_cmd.abort, "abort must be false for Ab=0 terminate success");
 
     // action=false, abort=true → Ac=0, Ab=1 (abort)
-    let abort_cmd = resume_cmd_abort(1);
+    let abort_cmd = resume_cmd_abort(1, 0);
     assert!(!abort_cmd.action, "action must be false for Ac=0");
     assert!(abort_cmd.abort, "abort must be true for Ab=1");
+}
+
+// ── FINDING-NEW-10: CMD_RESUME STAG/StreamID verification (ARM §4.6) ──────────
+
+/// CMD_RESUME with correct STAG but wrong StreamID must be a no-op (ARM §4.6).
+/// Spec §4.6: "If the transaction does not match the given StreamID, this command
+/// has no effect."
+#[test]
+fn test_resume_wrong_stream_id_is_noop() {
+    let smmu = make_smmu();
+    let s = sid(20);
+    let config = StreamConfig::builder()
+        .stage1_enabled(true)
+        .translation_enabled(true)
+        .security_enforced(false)
+        .fault_mode(FaultMode::Stall)
+        .build()
+        .unwrap();
+    smmu.configure_stream(s, config).unwrap();
+    smmu.create_pasid(s, pasid(0)).unwrap();
+
+    // Stall a translation on stream 20
+    let result = smmu.translate(s, pasid(0), iova(0xDEAD_0000), AccessType::Read, SecurityState::NonSecure);
+    let stag = match result {
+        Err(TranslationError::Stalled { stag }) => stag,
+        other => panic!("Expected Stalled, got {:?}", other),
+    };
+    assert_eq!(smmu.get_stalled_transactions().len(), 1);
+
+    // Send CMD_RESUME with correct STAG but wrong StreamID (21, not 20)
+    smmu.submit_command(resume_cmd(stag, 21)).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    assert_eq!(
+        smmu.get_stalled_transactions().len(),
+        1,
+        "CMD_RESUME with wrong StreamID must not retire the stall record (ARM §4.6)"
+    );
+
+    // Now confirm the correct StreamID does retire it
+    smmu.submit_command(resume_cmd(stag, 20)).unwrap();
+    smmu.process_command_queue().unwrap();
+    assert!(smmu.get_stalled_transactions().is_empty(), "Correct StreamID must retire the record");
+}
+
+/// CMD_STALL_TERM with correct STAG but wrong StreamID must be a no-op (ARM §4.6 / §4.7).
+#[test]
+fn test_stall_term_wrong_stream_id_is_noop() {
+    let smmu = make_smmu();
+    let s = sid(21);
+    let config = StreamConfig::builder()
+        .stage1_enabled(true)
+        .translation_enabled(true)
+        .security_enforced(false)
+        .fault_mode(FaultMode::Stall)
+        .build()
+        .unwrap();
+    smmu.configure_stream(s, config).unwrap();
+    smmu.create_pasid(s, pasid(0)).unwrap();
+
+    let result = smmu.translate(s, pasid(0), iova(0xDEAD_0000), AccessType::Read, SecurityState::NonSecure);
+    let stag = match result {
+        Err(TranslationError::Stalled { stag }) => stag,
+        other => panic!("Expected Stalled, got {:?}", other),
+    };
+    assert_eq!(smmu.get_stalled_transactions().len(), 1);
+
+    // Send CMD_STALL_TERM with wrong StreamID (99, not 21)
+    smmu.submit_command(stall_term_cmd(stag, 99)).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    assert_eq!(
+        smmu.get_stalled_transactions().len(),
+        1,
+        "CMD_STALL_TERM with wrong StreamID must not retire the stall record (ARM §4.6/§4.7)"
+    );
+
+    // Correct StreamID must retire it
+    smmu.submit_command(stall_term_cmd(stag, 21)).unwrap();
+    smmu.process_command_queue().unwrap();
+    assert!(smmu.get_stalled_transactions().is_empty(), "Correct StreamID must retire the record");
 }
