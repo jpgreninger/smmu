@@ -1658,10 +1658,11 @@ impl SMMU {
     fn map_fault_type_to_event_type(fault_type: FaultType) -> EventType {
         match fault_type {
             FaultType::StreamDisabled => EventType::FStreamDisabled,
+            // §7.3.3: stream table lookup failure → C_BAD_STREAMID (0x02), not F_TRANSLATION.
+            FaultType::BadStreamID => EventType::CBadStreamid,
             FaultType::TranslationFault
             | FaultType::BadSTE
             | FaultType::BadCD
-            | FaultType::BadStreamID
             | FaultType::AddressSizeFault
             | FaultType::AlignmentFault
             | FaultType::ExternalAbort
@@ -1793,9 +1794,9 @@ impl SMMU {
 
         self.record_fault(fault);
 
-        // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
+        // §7.3.3: stream-not-found → C_BAD_STREAMID (0x02), not F_TRANSLATION (0x10).
         let event = EventEntry {
-            event_type: EventType::FTranslation,
+            event_type: EventType::CBadStreamid,
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             address: iova.as_u64(),

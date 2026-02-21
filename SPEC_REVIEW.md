@@ -392,7 +392,7 @@ the SMMU resets — is not modeled. Neither `SMMUConfig` nor `StreamConfig` has 
 
 ---
 
-### FINDING-NEW-02 ❌ — Stream-Not-Found Emits Wrong Event Type (Rust)
+### FINDING-NEW-02 ✅ — Stream-Not-Found Emits Wrong Event Type (Rust)
 **Spec**: §7.3.3 (C_BAD_STREAMID), §7.2 (Event queue)
 **Affected**: Rust
 
@@ -401,15 +401,14 @@ When a translation arrives for an unknown StreamID, spec §7.3.3 requires event
 (`0x10`) instead. The fault record correctly uses `FaultType::BadStreamID` but
 `map_fault_type_to_event_type()` routes it to `EventType::FTranslation`.
 
-**Evidence** (`rust/smmu/src/smmu/mod.rs:1658-1676`):
-```rust
-FaultType::BadSTE
-| FaultType::BadCD
-| FaultType::BadStreamID      // ← routes to FTranslation, not CBadStreamid
-| FaultType::AddressSizeFault
-...
-| FaultType::AccessFlagFault => EventType::FTranslation,
-```
+**Fixed**:
+- `map_fault_type_to_event_type()` (`rust/smmu/src/smmu/mod.rs`): `FaultType::BadStreamID`
+  now maps to `EventType::CBadStreamid` (0x02) — extracted as its own arm before the
+  `FTranslation` catch-all.
+- `record_stream_not_found_fault()`: hardcoded `EventType::FTranslation` replaced with
+  `EventType::CBadStreamid`.
+- 5 TDD spec tests in `rust/smmu/tests/test_c_bad_streamid_spec.rs` — all pass; full
+  suite green with zero regressions.
 
 ---
 
@@ -1011,7 +1010,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 29. ~~FINDING-L-07 — VMS support~~ ✅ Documented as software model scope limitation
 
 ### New findings (2026-02-20 review)
-30. FINDING-NEW-02 — C_BAD_STREAMID event type wrong (Rust)
+30. ~~FINDING-NEW-02 — C_BAD_STREAMID event type wrong (Rust)~~ ✅ Fixed
 31. FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)
 32. FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)
 33. FINDING-NEW-06 — EventEntry missing Stall bit (Rust)
