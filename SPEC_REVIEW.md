@@ -6,8 +6,8 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~85% | Rust ~91% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 43 fixes — 39 from QA re-review + 4 from 2026-02-21 follow-up session)_
+**Overall Conformance**: C++ ~85% | Rust ~93% (software model scope)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1012,9 +1012,9 @@ transaction does not match the given StreamID, this command has no effect."*
 
 ---
 
-### FINDING-NEW-11 ✅ Fixed (C++) — C_BAD_SUBSTREAMID Not Generated for Stage-2-Only / Bypass with Non-Zero PASID
+### FINDING-NEW-11 ✅ Fixed (Both) — C_BAD_SUBSTREAMID Not Generated for Stage-2-Only / Bypass with Non-Zero PASID
 **Spec**: §3.9 (Substream ID), §7.3.9 (C_BAD_SUBSTREAMID, event code 0x08)
-**Affected**: Both (C++ fixed; Rust still open)
+**Affected**: Both
 
 Spec §3.9: *"If transactions from a Function are translated using stage 2 but stage 1 is unused and in bypass, there are no stage 1 translation contexts to differentiate with a PASID. Supply of a PASID or SubstreamID to a configuration without stage 1 translation causes the translation to fail. Such transactions are terminated with an abort and C_BAD_SUBSTREAMID is recorded."*
 
@@ -1032,8 +1032,20 @@ Both implementations accepted non-zero PASIDs on stage-2-only and bypass streams
   correctly treated as non-SubstreamID transactions).
 - 10 TDD spec tests in `cpp/tests/unit/test_c_bad_substreamid_spec.cpp` — all pass.
 
-**Rust status**: ❌ Still open — `translate_stage2_only()` and `translate_bypass()` in
-`rust/smmu/src/stream_context/mod.rs` still perform no PASID check.
+**Rust fix** (commit aa3f1ef):
+- Added `TranslationError::BadSubstreamId` to `src/types/translation_result.rs`.
+- Added `FaultType::BadSubstreamId = 0x11` to `src/types/fault_type.rs` with all
+  supporting match arms (name, description, severity=Critical,
+  is_configuration_fault=true, can_occur_in_stage1/2=false, from_code=0x11).
+- `StreamContext::translate()` (`src/stream_context/mod.rs`): added guard after
+  loading stage flags — `if pasid.as_u32() != 0 && !stage1_enabled { return Err(BadSubstreamId); }`
+- `SMMU::map_translation_error_to_fault_type()`: `BadSubstreamId → FaultType::BadSubstreamId`.
+- `SMMU::map_fault_type_to_event_type()`: `BadSubstreamId → EventType::CBadSubstreamid`.
+- `SMMU::translate()` stall path: `BadSubstreamId` is always an abort per §3.9 —
+  guarded with `!bad_substreamid` to skip the stall queue.
+- 4 existing tests in `test_stream_context_comprehensive.rs` updated to use PASID=0
+  for stage-2-only/bypass calls (non-zero now correctly rejected).
+- 10 TDD spec tests in `tests/test_c_bad_substreamid_spec.rs` — all pass.
 
 ---
 
@@ -1186,7 +1198,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 39. ~~FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)~~ ✅ Fixed
 
 ### New findings (2026-02-21 QA re-review)
-40. ~~FINDING-NEW-11 — C_BAD_SUBSTREAMID not generated for stage-2-only / bypass with non-zero PASID (C++ fixed; Rust still open)~~ ✅ Fixed (C++)
+40. ~~FINDING-NEW-11 — C_BAD_SUBSTREAMID not generated for stage-2-only / bypass with non-zero PASID (Both)~~ ✅ Fixed (Both)
 41. ~~FINDING-NEW-12 — CMD_CFGI_CD / CMD_CFGI_CD_ALL missing from C++~~ ✅ Fixed (C++)
 42. ~~FINDING-NEW-13 — Stall mode hard-codes F_TRANSLATION event regardless of actual fault type (C++)~~ ✅ Fixed (C++)
 43. ~~FINDING-NEW-14 — PASIDSecurityStateContextSwitching test stale after FINDING-L-06 (C++ test debt)~~ ✅ Fixed (C++)
