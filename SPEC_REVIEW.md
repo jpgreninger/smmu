@@ -118,7 +118,7 @@ in-memory CD table.
 
 ---
 
-### FINDING-C-04 ❌ — No L1STD (2-Level Stream Table) Support
+### FINDING-C-04 ✅ — No L1STD (2-Level Stream Table) Support
 **Spec**: §5.1 (L1STD), §6.3.29 (STRTAB_BASE_CFG.FMT)
 **Affected**: Both
 
@@ -126,8 +126,16 @@ STRTAB_BASE_CFG.FMT selects `0b00`=linear or `0b01`=2-level table. The L1STD
 is a 64-bit descriptor with L2Ptr[51:6] pointing to a span of 16 STEs. Both
 implementations use in-memory hash maps, bypassing the table walk entirely.
 
-**Recommendation**: Add stream table format configuration and a lookup procedure
-that simulates either linear or 2-level stream table walk.
+**Resolution (Software Model Scope)**: The linear vs. 2-level stream table walk
+is a hardware memory-access optimization that reduces DRAM bandwidth for sparse
+StreamID spaces. In a behavioral software model there is no DRAM; stream contexts
+are stored in a hash map keyed by StreamID, which provides O(1) lookup regardless
+of StreamID density. The behavioral outcome — correct STE lookup for any StreamID
+— is identical to either hardware table format. Supporting `STRTAB_BASE_CFG.FMT`
+selection is only meaningful for a model that simulates bus transactions to a
+memory-mapped stream table, which is outside this project's scope. This limitation
+is documented for integrators who need to emulate the two-level table walk for
+hardware-compatibility testing.
 
 ---
 
@@ -731,11 +739,12 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 20. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
 21. ~~FINDING-C-02 — Binary STE format (document as software model)~~ ✅ Documented as software model scope limitation
 22. ~~FINDING-C-03 — Binary CD format (document as software model)~~ ✅ Documented as software model scope limitation
-23. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
-24. FINDING-L-01 — Interrupt modeling
-25. FINDING-L-02 — MSI write in CMD_SYNC
-26. FINDING-L-03 — Translation Hardening (SMMUv3.4)
-27. FINDING-L-07 — VMS support
+23. ~~FINDING-C-04 — L1STD two-level stream table (document as software model)~~ ✅ Documented as software model scope limitation
+24. FINDING-H-06 — L1CD two-level context descriptor table
+25. FINDING-L-01 — Interrupt modeling
+26. FINDING-L-02 — MSI write in CMD_SYNC
+27. FINDING-L-03 — Translation Hardening (SMMUv3.4)
+28. FINDING-L-07 — VMS support
 
 ---
 
