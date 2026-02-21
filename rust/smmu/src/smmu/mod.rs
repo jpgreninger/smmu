@@ -2289,10 +2289,34 @@ impl SMMU {
                 }
                 // Known stream (or stream_id==0): no TLB state to flush in this model.
             },
-            // CMD_CFGI_ALL, CMD_PREFETCH_CONFIG, CMD_PREFETCH_ADDR —
+            // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (ARM §4.3.2):
+            // Both use opcode 0x04 (CfgiAll); the `range` field distinguishes them.
+            //   range == 31 → CMD_CFGI_ALL: invalidate all STE-cached TLB entries globally.
+            //   range < 31  → CMD_CFGI_STE_RANGE: invalidate only streams matching the
+            //                  upper-bit prefix: (sid >> (range+1)) == (cmd.stream_id >> (range+1)).
+            // NOTE: shifting a u32 by 32 bits is UB/panic, so range==31 is handled separately.
+            CommandType::CfgiAll => {
+                if command.range == 31 {
+                    // CMD_CFGI_ALL — full global TLB invalidation
+                    self.tlb_cache.invalidate_all();
+                } else {
+                    // CMD_CFGI_STE_RANGE — prefix-matched stream invalidation
+                    let prefix_bits = u32::from(command.range) + 1;
+                    let cmd_prefix = command.stream_id >> prefix_bits;
+                    for entry in &self.streams {
+                        let raw_sid = *entry.key();
+                        if (raw_sid >> prefix_bits) == cmd_prefix {
+                            if let Ok(stream_id) = StreamID::new(raw_sid) {
+                                self.tlb_cache.invalidate_by_stream(stream_id);
+                            }
+                        }
+                    }
+                }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // CMD_PREFETCH_CONFIG, CMD_PREFETCH_ADDR —
             // no side-effect processing required in the software model.
-            CommandType::CfgiAll
-            | CommandType::PrefetchConfig
+            CommandType::PrefetchConfig
             | CommandType::PrefetchAddr => {},
         }
 

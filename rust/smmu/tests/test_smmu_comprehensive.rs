@@ -153,6 +153,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -177,6 +178,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -201,6 +203,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -225,6 +228,7 @@ fn test_command_queue_submit_atc_inv() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -250,6 +254,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     let result = smmu.submit_command(command);
@@ -278,6 +283,7 @@ fn test_command_queue_submit_sync() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -302,6 +308,7 @@ fn test_command_queue_submit_prefetch_config() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -325,6 +332,7 @@ fn test_command_queue_submit_prefetch_addr() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -348,6 +356,7 @@ fn test_command_queue_submit_cfgi_ste() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -371,6 +380,7 @@ fn test_command_queue_submit_cfgi_all() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -394,6 +404,7 @@ fn test_command_queue_submit_pri_resp() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -417,6 +428,7 @@ fn test_command_queue_submit_resume() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -440,6 +452,7 @@ fn test_command_queue_process_single_tlbi() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     smmu.submit_command(command).unwrap();
@@ -474,6 +487,7 @@ fn test_command_queue_process_multiple_commands() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -507,6 +521,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     smmu.submit_command(command).unwrap();
@@ -537,6 +552,7 @@ fn test_command_queue_process_sync_generates_event() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     };
 
     smmu.submit_command(command).unwrap();
@@ -577,6 +593,7 @@ fn test_command_queue_clear() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -610,6 +627,7 @@ fn test_command_queue_is_full() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -1198,6 +1216,7 @@ fn test_queue_statistics() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     })
     .unwrap();
 
@@ -1241,6 +1260,7 @@ fn test_cache_statistics_invalidation_count() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
         })
         .unwrap();
     }
@@ -1282,6 +1302,7 @@ fn test_reset_queues_atomically() {
         stag: 0,
         action: false,
         abort: false,
+        range: 31,
     })
     .unwrap();
 

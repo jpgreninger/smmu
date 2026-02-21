@@ -1489,8 +1489,22 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
             
         case CommandType::CFGI_ALL:
-            // All configuration invalidation - full cache invalidation
-            invalidateTranslationCache();
+            // ARM §4.3.2: CMD_CFGI_ALL (range==31) or CMD_CFGI_STE_RANGE (range<31).
+            // NOTE: shifting uint32_t by 32 bits is UB, so range==31 is handled separately.
+            if (command.range == 31) {
+                // CMD_CFGI_ALL — full global STE-cache / TLB invalidation
+                invalidateTranslationCache();
+            } else {
+                // CMD_CFGI_STE_RANGE — invalidate only streams matching the upper-bit prefix:
+                // match condition: (sid >> (range+1)) == (command.streamID >> (range+1))
+                uint32_t prefixBits = static_cast<uint32_t>(command.range) + 1u;
+                StreamID cmdPrefix = command.streamID >> prefixBits;
+                for (const auto& pair : streamMap) {
+                    if ((pair.first >> prefixBits) == cmdPrefix) {
+                        invalidateStreamCache(pair.first);
+                    }
+                }
+            }
             break;
             
         case CommandType::TLBI_NH_ALL:

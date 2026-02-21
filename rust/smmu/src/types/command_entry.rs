@@ -137,6 +137,19 @@ pub struct CommandEntry {
     /// `false` (Ab=0) terminates the transaction silently (RAZ/WI).
     /// Ignored by all command types other than `Resume`.
     pub abort: bool,
+
+    /// Range field for `CMD_CFGI_STE_RANGE` / `CMD_CFGI_ALL` (ARM §4.3.2).
+    ///
+    /// Both commands share opcode `0x04` (`CommandType::CfgiAll`); the `range`
+    /// value distinguishes them:
+    /// - `range == 31`: CMD_CFGI_ALL — invalidate all STE-cached TLB entries globally.
+    /// - `range < 31`: CMD_CFGI_STE_RANGE — invalidate only streams whose StreamID
+    ///   matches the upper-bit prefix `n[StreamIDSize-1 : range+1]`:
+    ///   match condition `(sid >> (range+1)) == (command.stream_id >> (range+1))`.
+    ///
+    /// Defaults to 31 (CMD_CFGI_ALL semantics).
+    /// Ignored by all command types other than `CfgiAll`.
+    pub range: u8,
 }
 
 impl CommandEntry {
@@ -166,6 +179,7 @@ impl CommandEntry {
             prg_index: 0,
             action: false,
             abort: false,
+            range: 31,
         }
     }
 }

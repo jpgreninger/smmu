@@ -86,6 +86,7 @@ const fn resume_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         prg_index: 0,
         action: false,
         abort: false,
+        range: 31,
     }
 }
 
@@ -105,6 +106,7 @@ const fn resume_cmd_retry(stag: u16, stream_id: u32) -> CommandEntry {
         prg_index: 0,
         action: true,
         abort: false,
+        range: 31,
     }
 }
 
@@ -124,6 +126,7 @@ const fn resume_cmd_abort(stag: u16, stream_id: u32) -> CommandEntry {
         prg_index: 0,
         action: false,
         abort: true,
+        range: 31,
     }
 }
 
@@ -143,6 +146,7 @@ const fn stall_term_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         prg_index: 0,
         action: false,
         abort: false,
+        range: 31,
     }
 }
 

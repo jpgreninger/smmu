@@ -684,7 +684,7 @@ three distinct outcomes:
 
 ---
 
-### FINDING-NEW-05 ❌ — CMD_CFGI_STE_RANGE Prefix Semantics Not Implemented (Both)
+### FINDING-NEW-05 ✅ — CMD_CFGI_STE_RANGE Prefix Semantics Not Implemented (Both)
 **Spec**: §4.3.2 (CMD_CFGI_STE_RANGE)
 **Affected**: Both
 
@@ -698,6 +698,29 @@ performs a full global invalidation, over-invalidating for the range form. The
 **Evidence**:
 - **Rust** (`rust/smmu/src/types/command_entry.rs:23-25`): single `CfgiAll = 0x04` variant; command processor no-ops it entirely.
 - **C++** (`cpp/src/smmu/smmu.cpp:1483-1487`): `CFGI_ALL` → `invalidateTranslationCache()` unconditionally.
+
+**Rust fix** (committed):
+- Added `pub range: u8` to `CommandEntry` (`rust/smmu/src/types/command_entry.rs`),
+  defaulting to `31` in `new()` (CMD_CFGI_ALL semantics).
+- `CfgiAll` match arm in `process_single_command` (`rust/smmu/src/smmu/mod.rs`) now:
+  - `range == 31` → `tlb_cache.invalidate_all()` (CMD_CFGI_ALL — full global eviction).
+  - `range < 31`  → iterates `self.streams` and calls `tlb_cache.invalidate_by_stream(sid)`
+    for each stream where `(sid >> (range+1)) == (command.stream_id >> (range+1))`
+    (CMD_CFGI_STE_RANGE — prefix-matched eviction).
+  - In both cases `invalidation_count` is incremented by 1.
+  - NOTE: `u32 >> 32` is a shift-overflow panic in Rust debug; the `range == 31` branch
+    is handled separately to avoid this.
+- All existing `CommandEntry` struct literals in 4 test files updated with `range: 31`.
+- 10 TDD spec tests added in `rust/smmu/tests/test_cfgi_ste_range_spec.rs` — all pass.
+
+**C++ fix** (committed):
+- Added `uint8_t range;` field (default `31`) to `CommandEntry` in
+  `cpp/include/smmu/types.h`; both constructors initialise it to `31`.
+- `CFGI_ALL` case in `executeInvalidationCommand` (`cpp/src/smmu/smmu.cpp`) updated:
+  - `command.range == 31` → `invalidateTranslationCache()` (full invalidation).
+  - `command.range < 31`  → iterate `streamMap`, call `invalidateStreamCache(pair.first)`
+    for matching prefix streams.
+- Full Rust test suite (167 tests) passes; `cargo clippy -- -D warnings` clean.
 
 ---
 
@@ -1036,7 +1059,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 33. ~~FINDING-NEW-06 — EventEntry missing Stall bit (Both)~~ ✅ Fixed (resolved by NEW-03)
 34. ~~FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)~~ ✅ Fixed
 35. ~~FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)~~ ✅ Fixed
-36. FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)
+36. ~~FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)~~ ✅ Fixed
 37. FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)
 38. FINDING-NEW-09 — SMMUEN global enable not implemented (C++)
 39. FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)

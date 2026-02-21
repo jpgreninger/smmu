@@ -1170,15 +1170,19 @@ struct CommandEntry {
     uint32_t flags;
     uint64_t timestamp;
     uint16_t prgIndex;  // ARM §8.3 PRGIndex — echoed back in CMD_PRI_RESP
+    /// Range field for CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (ARM §4.3.2).
+    /// 31 → CMD_CFGI_ALL (full global invalidation).
+    /// <31 → CMD_CFGI_STE_RANGE: match streams where (sid >> (range+1)) == (streamID >> (range+1)).
+    uint8_t range;  // defaults to 31 (CMD_CFGI_ALL semantics)
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
-                    prgIndex(0) {
+                    prgIndex(0), range(31) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
-          flags(0), timestamp(0), prgIndex(0) {
+          flags(0), timestamp(0), prgIndex(0), range(31) {
     }
 };
 
