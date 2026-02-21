@@ -80,7 +80,8 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, NullStreamContext_UnconfiguredStream_Record
         EXPECT_EQ(fault.streamID, INVALID_STREAM);
         EXPECT_EQ(fault.pasid, PASID_1);
         EXPECT_EQ(fault.address, BASE_IOVA);
-        EXPECT_EQ(fault.faultType, FaultType::TranslationFault);
+        // §7.3.3: stream-not-found → BadStreamID, not TranslationFault (FINDING-NEW-07)
+        EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
     }
 }
 

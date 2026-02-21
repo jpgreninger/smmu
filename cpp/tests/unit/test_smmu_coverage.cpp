@@ -526,7 +526,8 @@ TEST_F(SMMUCoverageTest, AdvancedFault_StreamNotConfigured) {
     EXPECT_EQ(fault.streamID, TEST_STREAM_ID);
     EXPECT_EQ(fault.pasid, TEST_PASID);
     EXPECT_EQ(fault.address, TEST_IOVA);
-    EXPECT_EQ(fault.faultType, FaultType::TranslationFault);
+    // §7.3.3: stream-not-found must use BadStreamID, not TranslationFault (FINDING-NEW-07)
+    EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
     EXPECT_GT(fault.timestamp, 0);
 }
 

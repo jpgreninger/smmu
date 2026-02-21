@@ -33,6 +33,7 @@ set(UNIT_TEST_SOURCES
     test_gerror_spec.cpp
     test_fault_syndrome_spec.cpp
     test_stream_reconfigure_spec.cpp
+    test_c_bad_streamid_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

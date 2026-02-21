@@ -617,7 +617,11 @@ enum class FaultType {
 
     /// @brief Stream disabled — STE.Config indicates disabled/abort stream (§7.3.7)
     /// Generates F_STREAM_DISABLED event (event code 0x06) per ARM IHI0070G.b §7.3.7.
-    StreamDisabled
+    StreamDisabled,
+
+    /// @brief StreamID not found in stream table (§7.3.3)
+    /// Generates C_BAD_STREAMID event (event code 0x02) per ARM IHI0070G.b §7.3.3.
+    BadStreamID
 };
 
 /**

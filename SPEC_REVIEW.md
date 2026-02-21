@@ -711,7 +711,7 @@ pub struct EventEntry {
 
 ---
 
-### FINDING-NEW-07 ❌ — Stream-Not-Found Emits Wrong Fault Type (C++)
+### FINDING-NEW-07 ✅ — Stream-Not-Found Emits Wrong Fault Type (C++)
 **Spec**: §7.3.3 (C_BAD_STREAMID), §7.2
 **Affected**: C++
 
@@ -720,10 +720,18 @@ StreamID, `translate()` records `FaultType::TranslationFault` instead of a
 `BadStreamID` / `C_BAD_STREAMID` event. No `C_BAD_STREAMID` (code `0x02`)
 event is generated anywhere in the stream-not-found path.
 
-**Evidence** (`cpp/src/smmu/smmu.cpp:184-197`):
-```cpp
-fault.faultType = FaultType::TranslationFault;  // WRONG: should be C_BAD_STREAMID
-```
+**Fixed**:
+- Added `FaultType::BadStreamID` to the `FaultType` enum (`cpp/include/smmu/types.h`)
+  with doc comment referencing §7.3.3.
+- Stream-not-found path in `translate()` (`cpp/src/smmu/smmu.cpp`): changed
+  `fault.faultType` from `TranslationFault` to `BadStreamID`, and added a call to
+  `generateEvent(EventType::C_BAD_STREAMID, ...)`.
+- Added `case FaultType::BadStreamID:` to the `handleTranslationFailure()` switch
+  to silence the `-Wswitch` warning.
+- Two pre-existing tests that asserted `FaultType::TranslationFault` for an
+  unconfigured stream updated to expect `FaultType::BadStreamID`.
+- 5 TDD spec tests in `cpp/tests/unit/test_c_bad_streamid_spec.cpp` — all pass;
+  47/48 C++ tests pass (1 pre-existing unrelated failure in integration suite).
 
 ---
 
@@ -1011,7 +1019,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 
 ### New findings (2026-02-20 review)
 30. ~~FINDING-NEW-02 — C_BAD_STREAMID event type wrong (Rust)~~ ✅ Fixed
-31. FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)
+31. ~~FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)~~ ✅ Fixed
 32. FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)
 33. FINDING-NEW-06 — EventEntry missing Stall bit (Rust)
 34. FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)

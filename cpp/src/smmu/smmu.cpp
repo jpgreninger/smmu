@@ -185,15 +185,17 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         lock.unlock();
+        // §7.3.3: StreamID not in stream table → C_BAD_STREAMID (0x02), not F_TRANSLATION.
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
         fault.address = iova;
-        fault.faultType = FaultType::TranslationFault;
+        fault.faultType = FaultType::BadStreamID;
         fault.accessType = accessType;
         fault.securityState = securityState;
         fault.timestamp = currentTime;
         recordFault(fault);
+        generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
         return makeTranslationError(SMMUError::StreamNotConfigured);
     }
 
@@ -1119,6 +1121,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
 
         case FaultType::StreamDisabled:
             // §7.3.7: Stream is administratively disabled — event was generated above; no recovery needed
+            break;
+
+        case FaultType::BadStreamID:
+            // §7.3.3: StreamID not in stream table — C_BAD_STREAMID event was generated in translate(); no recovery
             break;
 
         // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
