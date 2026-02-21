@@ -606,14 +606,23 @@ integrators building full-system simulation platforms.
 
 ---
 
-### FINDING-L-03 ❌ — No Translation Hardening (FEAT_HAFDBS)
+### FINDING-L-03 ✅ — No Translation Hardening (FEAT_HAFDBS)
 **Spec**: §3.27 (Translation Hardening)
 **Affected**: Both
 
 SMMUv3.4 Translation Hardening for speculative execution side-channel
 mitigation is not modeled.
 
-**Recommendation**: Document as out of scope for the simulation model.
+**Resolution (Software Model Scope)**: Translation Hardening (introduced in
+SMMUv3.4 / FEAT_HAFDBS) is a microarchitectural defence against speculative
+execution side-channel attacks. It constrains the physical addresses speculatively
+walked during page-table traversal and adds barriers to prevent the SMMU from
+prefetching PTEs into hardware caches before permission checks complete. None of
+these concerns exist in a sequential behavioral software model: there is no
+speculative execution, no hardware cache, and no out-of-order PTE fetch. The
+feature is therefore entirely out-of-scope and undocumented omission has no effect
+on the correctness of any functional behaviour modeled here. This is documented as
+an accepted limitation for integrators targeting SMMUv3.4 compliance validation.
 
 ---
 
@@ -767,7 +776,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 24. ~~FINDING-H-06 — L1CD two-level context descriptor table~~ ✅ Documented as software model scope limitation
 25. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
 26. ~~FINDING-L-02 — MSI write in CMD_SYNC~~ ✅ Documented as software model scope limitation
-27. FINDING-L-03 — Translation Hardening (SMMUv3.4)
+27. ~~FINDING-L-03 — Translation Hardening (SMMUv3.4)~~ ✅ Documented as software model scope limitation
 28. FINDING-L-07 — VMS support
 
 ---
