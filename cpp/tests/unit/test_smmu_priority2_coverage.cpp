@@ -307,10 +307,10 @@ TEST_F(SMMUPriority2CoverageTest, Stage2OnlyTranslation_NullPhysicalAddress) {
     PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, TEST_IOVA1, NULL_PA, perms).isOk());
 
-    // Fails because stage2AddressSpace is null (PASID1 != PASID0, so no auto-link).
+    // Fails because stage-2-only stream rejects non-zero PASID (ARM §3.9 C_BAD_SUBSTREAMID).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidPASID);
 }
 
 // ========== VALIDATE ACCESS PERMISSIONS ERROR PATH (Target line 1050-1051) ==========

@@ -363,7 +363,7 @@ TEST_F(SMMUCoverageTest, TwoStageTranslation_BypassMode) {
     ASSERT_TRUE(smmuController->configureStream(TEST_STREAM_ID, bypassConfig).isOk());
 
     // In bypass mode (line 674-678), IOVA = PA (no translation needed)
-    TranslationResult result = smmuController->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmuController->translate(TEST_STREAM_ID, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
     if (result.isOk()) {
         EXPECT_EQ(result.getValue().physicalAddress, TEST_IOVA);

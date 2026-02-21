@@ -140,7 +140,7 @@ TEST_F(SMMUTwoStageComprehensiveTest, TwoStage_TranslationDisabled_BypassMode) {
 
     // In bypass mode, IOVA = PA
     IOVA iova = BASE_IOVA;
-    TranslationResult result = smmu->translate(STREAM_1, PASID_1, iova, AccessType::Read);
+    TranslationResult result = smmu->translate(STREAM_1, 0, iova, AccessType::Read);
 
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, iova);

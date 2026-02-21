@@ -632,7 +632,12 @@ enum class FaultType {
 
     /// @brief StreamID not found in stream table (§7.3.3)
     /// Generates C_BAD_STREAMID event (event code 0x02) per ARM IHI0070G.b §7.3.3.
-    BadStreamID
+    BadStreamID,
+
+    /// @brief Non-zero SubstreamID/PASID on a stream with no stage-1 translation (§3.9, §7.3.9)
+    /// Generates C_BAD_SUBSTREAMID event (event code 0x08) when a PASID is supplied
+    /// to a stage-2-only or bypass stream that has no stage-1 context to consume it.
+    BadSubstreamId
 };
 
 /**
@@ -856,6 +861,9 @@ inline SMMUError faultTypeToSMMUError(FaultType faultType) {
             
         case FaultType::StreamDisabled:
             return SMMUError::StreamDisabled;
+
+        case FaultType::BadSubstreamId:
+            return SMMUError::InvalidPASID;
 
         case FaultType::AccessFault:
         case FaultType::AccessFlagFault:

@@ -103,7 +103,7 @@ TEST_F(SMMUTest, DisabledStreamTranslation) {
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config).isOk());
     
     // Translation should bypass SMMU (pass-through mode)
-    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, TEST_IOVA);  // Should return input address unchanged
 }
@@ -598,7 +598,7 @@ TEST_F(SMMUTest, StreamConfigurationUpdates) {
     EXPECT_TRUE(configResult.getValue());
     
     // Verify pass-through behavior after configuration update
-    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, TEST_IOVA); // Pass-through
 }
@@ -1175,7 +1175,7 @@ TEST_F(SMMUTest, ARMSMMUv3SpecificationCompliance) {
     
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_2, bypassConfig).isOk());
     
-    TranslationResult bypassResult = smmuController->translate(TEST_STREAM_ID_2, TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    TranslationResult bypassResult = smmuController->translate(TEST_STREAM_ID_2, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(bypassResult.isOk());
     EXPECT_EQ(bypassResult.getValue().physicalAddress, TEST_IOVA); // Should pass through unchanged
     
@@ -1541,22 +1541,23 @@ TEST_F(SMMUTest, Task52_TwoStageTranslationStage2Only) {
     
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config).isOk());
     EXPECT_TRUE(smmuController->enableStream(TEST_STREAM_ID_1).isOk());
-    EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_1, TEST_PASID_1).isOk());
-    
+    // ARM §3.9: stage-2-only stream has no stage-1; PASID=0 is the only valid PASID.
+    EXPECT_TRUE(smmuController->createStreamPASID(TEST_STREAM_ID_1, 0).isOk());
+
     // For Stage2-only, input addresses are treated as intermediate physical addresses
     // This is a complex scenario in real hardware, but for testing we verify the logic works
     PagePermissions perms(true, true, false);
-    EXPECT_TRUE(smmuController->mapPage(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, TEST_PA, perms).isOk());
-    
+    EXPECT_TRUE(smmuController->mapPage(TEST_STREAM_ID_1, 0, TEST_IOVA, TEST_PA, perms).isOk());
+
     smmuController->resetStatistics();
-    
-    // Perform Stage2-only translation
-    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
-    
+
+    // Perform Stage2-only translation with PASID=0 (spec-correct for stage-2-only)
+    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
+
     // The implementation should handle Stage2-only configuration
     // Exact behavior depends on Stage2 implementation details
     EXPECT_TRUE(result.isOk() || result.getError() == SMMUError::PageNotMapped);
-    
+
     // Verify statistics are tracked for Stage2 translations
     EXPECT_GT(smmuController->getTotalTranslations(), 0);
 }
@@ -1574,17 +1575,17 @@ TEST_F(SMMUTest, Task52_TranslationBypassMode) {
     smmuController->resetStatistics();
     
     // In bypass mode, IOVA should pass through unchanged
-    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, TEST_IOVA);  // Pass-through behavior
-    
+
     // Bypass translations should still be counted but may not be cached
     EXPECT_GT(smmuController->getTotalTranslations(), 0);
-    
+
     // Test multiple bypass translations
     for (int i = 0; i < 5; i++) {
         IOVA testIova = TEST_IOVA + (i * 0x1000);
-        TranslationResult bypassResult = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, testIova, AccessType::Read);
+        TranslationResult bypassResult = smmuController->translate(TEST_STREAM_ID_1, 0, testIova, AccessType::Read);
         EXPECT_TRUE(bypassResult.isOk());
         EXPECT_EQ(bypassResult.getValue().physicalAddress, testIova);
     }
@@ -2430,7 +2431,7 @@ TEST_F(SMMUTest, Task81_ComprehensiveTwoStageTranslationPipeline) {
     const StreamID bypassStream = 0x2001;
     EXPECT_TRUE(smmuController->configureStream(bypassStream, bypassConfig).isOk());
     
-    TranslationResult bypassResult = smmuController->translate(bypassStream, pasid1, iova, AccessType::Read);
+    TranslationResult bypassResult = smmuController->translate(bypassStream, 0, iova, AccessType::Read);
     EXPECT_TRUE(bypassResult.isOk());
     EXPECT_EQ(bypassResult.getValue().physicalAddress, iova);  // Identity mapping in bypass
     

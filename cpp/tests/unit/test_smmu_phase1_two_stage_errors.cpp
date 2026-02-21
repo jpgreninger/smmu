@@ -101,7 +101,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, TranslationDisabled_BypassMode_IOVAEqualsPA
 
     // In bypass mode, IOVA = PA directly without translation
     IOVA testIOVA = 0x12345000;
-    TranslationResult result = smmu->translate(STREAM_1, PASID_1, testIOVA, AccessType::Read);
+    TranslationResult result = smmu->translate(STREAM_1, 0, testIOVA, AccessType::Read);
 
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, testIOVA);
@@ -593,7 +593,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, MinAddressSize_ZeroIOVA_TranslatesToZeroInB
     ASSERT_TRUE(smmu->createStreamPASID(STREAM_1, PASID_1).isOk());
 
     // In bypass mode, IOVA=0 should translate to PA=0
-    TranslationResult result = smmu->translate(STREAM_1, PASID_1, ZERO_IOVA, AccessType::Read);
+    TranslationResult result = smmu->translate(STREAM_1, 0, ZERO_IOVA, AccessType::Read);
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, ZERO_IOVA);
 }

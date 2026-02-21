@@ -76,7 +76,7 @@ TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisable
     smmu->configureStream(TEST_STREAM_ID, config);
 
     // Translation should bypass and return IOVA as PA
-    TranslationResult result = smmu->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmu->translate(TEST_STREAM_ID, 0, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isOk());
     if (result.isOk()) {

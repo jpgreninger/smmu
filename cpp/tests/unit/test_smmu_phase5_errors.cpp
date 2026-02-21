@@ -283,7 +283,7 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationDisabledBypassMode_Return
     ASSERT_TRUE(smmu->createStreamPASID(TEST_STREAM_ID, TEST_PASID).isOk());
 
     // In bypass mode, IOVA = PA
-    TranslationResult result = smmu->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
+    TranslationResult result = smmu->translate(TEST_STREAM_ID, 0, TEST_IOVA, AccessType::Read);
 
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, TEST_IOVA);  // IOVA = PA in bypass

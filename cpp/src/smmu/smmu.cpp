@@ -752,7 +752,22 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
     // ARM SMMU v3 spec: Handle different stage combinations
     if (!config.translationEnabled) {
-        // Translation disabled - bypass mode (IOVA = PA)
+        // ARM §3.9: Bypass stream — stage 1 is absent. A non-zero PASID/SubstreamID
+        // has no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
+        if (pasid != 0) {
+            FaultRecord fault;
+            fault.streamID = streamID;
+            fault.pasid = pasid;
+            fault.address = iova;
+            fault.faultType = FaultType::BadSubstreamId;
+            fault.accessType = accessType;
+            fault.securityState = securityState;
+            fault.timestamp = currentTime;
+            recordFault(fault);
+            generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidPASID);
+        }
+        // PASID=0: bypass — identity mapping (PA == IOVA), no fault.
         PagePermissions bypassPerms(true, true, true); // Full permissions in bypass
         TranslationData data(iova, bypassPerms, securityState);
         return TranslationResult(data);
@@ -765,6 +780,21 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         // Stage-1 only: IOVA -> PA directly
         result = performStage1OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
     } else if (!config.stage1Enabled && config.stage2Enabled) {
+        // ARM §3.9: Stage-2-only stream — stage 1 is absent. A non-zero PASID has
+        // no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
+        if (pasid != 0) {
+            FaultRecord fault;
+            fault.streamID = streamID;
+            fault.pasid = pasid;
+            fault.address = iova;
+            fault.faultType = FaultType::BadSubstreamId;
+            fault.accessType = accessType;
+            fault.securityState = securityState;
+            fault.timestamp = currentTime;
+            recordFault(fault);
+            generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidPASID);
+        }
         // Stage-2 only: IPA -> PA (IOVA = IPA)
         result = performStage2OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
     } else {
@@ -1165,6 +1195,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
 
         case FaultType::BadStreamID:
             // §7.3.3: StreamID not in stream table — C_BAD_STREAMID event was generated in translate(); no recovery
+            break;
+
+        case FaultType::BadSubstreamId:
+            // §7.3.9 / §3.9: Non-zero PASID on stage-2-only or bypass stream — C_BAD_SUBSTREAMID event
+            // already generated in performTwoStageTranslation(); no additional recovery needed.
             break;
 
         // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
