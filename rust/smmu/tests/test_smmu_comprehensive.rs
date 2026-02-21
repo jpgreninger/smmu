@@ -597,6 +597,7 @@ fn test_event_queue_submit_translation_fault() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 12_345,
+        stall: false,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -615,6 +616,7 @@ fn test_event_queue_submit_permission_fault() {
         security_state: SecurityState::Secure,
         error_code: 0,
         timestamp: 12_346,
+        stall: false,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -633,6 +635,7 @@ fn test_event_queue_submit_access_fault() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 12_347,
+        stall: false,
     };
 
     smmu.submit_event(event).unwrap();
@@ -656,6 +659,7 @@ fn test_event_queue_overflow_with_small_queue() {
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
+            stall: false,
         };
         smmu.submit_event(event).unwrap();
     }
@@ -671,6 +675,7 @@ fn test_event_queue_overflow_with_small_queue() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 9999,
+        stall: false,
     };
 
     let result = smmu.submit_event(overflow_event);
@@ -696,6 +701,7 @@ fn test_event_queue_large_queue_no_overflow() {
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
+            stall: false,
         };
         assert!(smmu.submit_event(event).is_ok());
     }
@@ -717,6 +723,7 @@ fn test_event_queue_get_all_events() {
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
+            stall: false,
         };
         smmu.submit_event(event).unwrap();
     }
@@ -738,6 +745,7 @@ fn test_event_queue_filter_by_type() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 1,
+        stall: false,
     })
     .unwrap();
 
@@ -749,6 +757,7 @@ fn test_event_queue_filter_by_type() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 2,
+        stall: false,
     })
     .unwrap();
 
@@ -760,6 +769,7 @@ fn test_event_queue_filter_by_type() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 3,
+        stall: false,
     })
     .unwrap();
 
@@ -784,6 +794,7 @@ fn test_event_queue_filter_by_stream() {
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: i as u64,
+            stall: false,
         })
         .unwrap();
     }
@@ -796,6 +807,7 @@ fn test_event_queue_filter_by_stream() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 999,
+        stall: false,
     })
     .unwrap();
 
@@ -820,6 +832,7 @@ fn test_event_queue_clear() {
             security_state: SecurityState::NonSecure,
             error_code: 0,
             timestamp: u64::from(i),
+            stall: false,
         })
         .unwrap();
     }
@@ -1131,6 +1144,7 @@ fn test_queue_statistics() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 1,
+        stall: false,
     })
     .unwrap();
 
@@ -1210,6 +1224,7 @@ fn test_reset_queues_atomically() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 1,
+        stall: false,
     })
     .unwrap();
 
@@ -1653,6 +1668,7 @@ fn test_multiple_event_types() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 1,
+        stall: false,
     })
     .unwrap();
 
@@ -1664,6 +1680,7 @@ fn test_multiple_event_types() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 2,
+        stall: false,
     })
     .unwrap();
 
@@ -1675,6 +1692,7 @@ fn test_multiple_event_types() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 3,
+        stall: false,
     })
     .unwrap();
 
@@ -1686,6 +1704,7 @@ fn test_multiple_event_types() {
         security_state: SecurityState::NonSecure,
         error_code: 0,
         timestamp: 4,
+        stall: false,
     })
     .unwrap();
 

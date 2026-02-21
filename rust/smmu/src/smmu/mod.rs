@@ -1529,7 +1529,7 @@ impl SMMU {
         // raw fault error — software must send CMD_RESUME or CMD_STALL_TERM to resolve.
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error);
+            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error, stall_mode);
 
             if stall_mode {
                 // Generate a unique STAG (wrapping counter, starting at 1).
@@ -1729,6 +1729,7 @@ impl SMMU {
         access: AccessType,
         security_state: SecurityState,
         error: &TranslationError,
+        is_stall: bool,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -1758,10 +1759,11 @@ impl SMMU {
             security_state,
             error_code: 0,
             timestamp,
+            stall: is_stall,
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
-            if queue.len() < self.event_queue_capacity {
+            if event.stall || queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
             }
@@ -1803,6 +1805,7 @@ impl SMMU {
             security_state,
             error_code: 0,
             timestamp,
+            stall: false,
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
@@ -2180,6 +2183,7 @@ impl SMMU {
                     security_state: SecurityState::NonSecure,
                     error_code: 0,
                     timestamp,
+                    stall: false,
                 };
 
                 let _ = self.submit_event(event);
@@ -2196,6 +2200,7 @@ impl SMMU {
                     security_state: SecurityState::NonSecure,
                     error_code: 0,
                     timestamp,
+                    stall: false,
                 };
 
                 let _ = self.submit_event(event);
@@ -2261,6 +2266,7 @@ impl SMMU {
                         security_state: SecurityState::NonSecure,
                         error_code: 0x03,  // C_BAD_STREAMID opcode per §7.3.3
                         timestamp,
+                        stall: false,
                     };
                     let _ = self.submit_event(event);
                     return Err(SMMUError::InvalidCommandParameters(format!(
@@ -2350,6 +2356,7 @@ impl SMMU {
                         security_state: SecurityState::NonSecure,
                         error_code: u32::from(req.prg_index),
                         timestamp,
+                        stall: false,
                     };
 
                     let _ = self.submit_event(event);

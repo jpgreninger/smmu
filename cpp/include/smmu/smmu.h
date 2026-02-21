@@ -270,7 +270,8 @@ private:
     
     // Task 5.3: Helper methods for event and command processing
     void processCommand(const CommandEntry& command);
-    void generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address, SecurityState securityState = SecurityState::NonSecure);
+    void generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
+                       SecurityState securityState = SecurityState::NonSecure, bool isStall = false);
     uint64_t getCurrentTimestamp() const;
 };
 

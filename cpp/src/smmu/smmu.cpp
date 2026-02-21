@@ -1688,16 +1688,21 @@ void SMMU::clearGerror(uint32_t bits) {
     gerrorStatus &= ~bits;
 }
 
-void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address, SecurityState securityState) {
+void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
+                         SecurityState securityState, bool isStall) {
     // ARM SMMU v3 spec: Generate event for event queue processing.
     // BUG-03 fix: protect eventQueue with queueMutex. Uses recursive_mutex so
     // that callers already holding queueMutex (e.g. processCommandQueue) can
     // safely call this without deadlocking.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (eventQueue.size() >= maxEventQueueSize) {
-        eventQueue.pop_front();
-        // ARM §3.5.1: Overflow eviction counts as a consumer advance (FINDING-M-01)
-        eventqCons = advanceQueueIndex(eventqCons, eventqLog2Size);
+        if (!isStall) {
+            // §3.5.3: Non-stall events may be discarded when queue is full.
+            // Do NOT evict oldest — discard incoming event instead.
+            return;
+        }
+        // Stall event: must not be lost even if it exceeds soft capacity.
+        // Fall through to push_back without evicting the oldest entry.
     }
 
     // Create new event
@@ -1708,7 +1713,8 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     event.address = address;
     event.securityState = securityState;
     event.timestamp = getCurrentTimestamp();
-    
+    event.stall = isStall;
+
     // ARM SMMU v3 spec: Set appropriate error codes
     switch (type) {
         case EventType::F_TRANSLATION:

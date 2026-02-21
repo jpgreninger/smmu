@@ -1239,19 +1239,23 @@ struct EventEntry {
     SecurityState securityState;
     uint32_t errorCode;
     uint64_t timestamp;
-    
+    bool stall;   ///< §7.3: true when this event corresponds to a stalled transaction (§3.5.3)
+
     EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
-                  address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0) {
+                  address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
+                  stall(false) {
     }
-    
-    EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr) 
-        : type(eventType), streamID(sid), pasid(p), address(addr), 
-          securityState(SecurityState::NonSecure), errorCode(0), timestamp(0) {
+
+    EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr)
+        : type(eventType), streamID(sid), pasid(p), address(addr),
+          securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
+          stall(false) {
     }
-    
-    EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState) 
-        : type(eventType), streamID(sid), pasid(p), address(addr), 
-          securityState(secState), errorCode(0), timestamp(0) {
+
+    EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState)
+        : type(eventType), streamID(sid), pasid(p), address(addr),
+          securityState(secState), errorCode(0), timestamp(0),
+          stall(false) {
     }
 };
 

@@ -412,7 +412,7 @@ When a translation arrives for an unknown StreamID, spec §7.3.3 requires event
 
 ---
 
-### FINDING-NEW-03 ❌ — Stall Events Discarded on Event Queue Overflow (Both)
+### FINDING-NEW-03 ✅ — Stall Events Discarded on Event Queue Overflow (Both)
 **Spec**: §3.5.3 (Event queue behavior), §7.2
 **Affected**: Both
 
@@ -423,9 +423,20 @@ treat stall events identically to non-stall events on overflow. A lost stall
 event leaves the corresponding STAG in the stall queue with no way for software
 to issue `CMD_RESUME` or `CMD_STALL_TERM` — a spec-prohibited deadlock.
 
-**Evidence**:
-- **Rust** (`rust/smmu/src/smmu/mod.rs:1761-1767`): stall events silently dropped when `queue.len() >= capacity`.
-- **C++** (`cpp/src/smmu/smmu.cpp:1690-1695`): evicts oldest event from the front (potentially a stall event) to make room — doubly incorrect.
+**Fixed**:
+- **Rust** (`rust/smmu/src/smmu/mod.rs`): Added `is_stall: bool` parameter to
+  `record_translation_fault()`; the call site passes `stall_mode` (captured from
+  the stream's `is_stall_enabled()` before translation). The enqueue condition
+  changed from `if queue.len() < capacity` to
+  `if event.stall || queue.len() < capacity` so stall events bypass the capacity
+  drop. Added `pub stall: bool` to `EventEntry` (also resolves FINDING-NEW-06).
+  4 new TDD spec tests added and passing.
+- **C++** (`cpp/src/smmu/smmu.cpp`): `generateEvent()` now takes a 6th `bool isStall = false`
+  parameter. On queue-full, the old `pop_front()` eviction is replaced with
+  `if (!isStall) return;` — non-stall events are discarded, stall events are
+  pushed unconditionally. Added `bool stall` to `EventEntry` struct with `false`
+  defaults in all three constructors (also resolves FINDING-NEW-06). 4 new TDD
+  spec tests added and passing.
 
 ---
 
@@ -685,29 +696,22 @@ performs a full global invalidation, over-invalidating for the range form. The
 
 ---
 
-### FINDING-NEW-06 ❌ — EventEntry Missing Stall Bit (Rust)
+### FINDING-NEW-06 ✅ — EventEntry Missing Stall Bit (Both)
 **Spec**: §7.3 (Event records), §3.12.2 (Stall model)
-**Affected**: Rust
+**Affected**: Both (was listed as Rust-only; C++ also lacked the field)
 
 Spec §7.3 requires event records for stalled transactions to carry a `Stall` bit
 set to `1`. This bit is how software identifies which event queue entries require
-a `CMD_RESUME` or `CMD_STALL_TERM`. `EventEntry` has no `stall` field; stall
-events are structurally identical to terminated-fault events. Software consuming
-the event queue cannot implement a correct stall-resume loop.
+a `CMD_RESUME` or `CMD_STALL_TERM`. `EventEntry` had no `stall` field in either
+implementation; stall events were structurally identical to terminated-fault
+events.
 
-**Evidence** (`rust/smmu/src/types/event_entry.rs`):
-```rust
-pub struct EventEntry {
-    pub event_type: EventType,
-    pub stream_id: u32,
-    pub pasid: u32,
-    pub address: u64,
-    pub security_state: SecurityState,
-    pub error_code: u32,
-    pub timestamp: u64,
-    // No `stall: bool` field
-}
-```
+**Fixed** (as part of FINDING-NEW-03):
+- **Rust** (`rust/smmu/src/types/event_entry.rs`): Added `pub stall: bool` as last
+  field; `EventEntry::new()` defaults it to `false`. `record_translation_fault()`
+  sets `stall: is_stall` where `is_stall` reflects the stream's `FaultMode::Stall`.
+- **C++** (`cpp/include/smmu/types.h`): Added `bool stall` to `EventEntry`; all
+  three constructors initialize it to `false`. `generateEvent()` sets `event.stall = isStall`.
 
 ---
 
@@ -1020,8 +1024,8 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 ### New findings (2026-02-20 review)
 30. ~~FINDING-NEW-02 — C_BAD_STREAMID event type wrong (Rust)~~ ✅ Fixed
 31. ~~FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)~~ ✅ Fixed
-32. FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)
-33. FINDING-NEW-06 — EventEntry missing Stall bit (Rust)
+32. ~~FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)~~ ✅ Fixed
+33. ~~FINDING-NEW-06 — EventEntry missing Stall bit (Both)~~ ✅ Fixed (resolved by NEW-03)
 34. FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)
 35. FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)
 36. FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)
