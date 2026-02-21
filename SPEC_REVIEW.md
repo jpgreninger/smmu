@@ -656,7 +656,7 @@ address size configured by TCR.T0SZ.
 
 ---
 
-### FINDING-NEW-04 ❌ — CMD_RESUME Missing Action/Abort Parameters (Rust)
+### FINDING-NEW-04 ✅ Fixed (Rust) — CMD_RESUME Missing Action/Abort Parameters
 **Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM)
 **Affected**: Rust
 
@@ -666,16 +666,21 @@ three distinct outcomes:
 - `Ac=0, Ab=0`: Terminate successfully (RAZ/WI).
 - `Ac=0, Ab=1`: Abort with bus error.
 
-The Rust implementation removes the stall record unconditionally with no `Ac`/`Ab`
-distinction. `CommandEntry` has no `action` or `abort` fields. All three outcomes
-are collapsed into a simple queue removal.
-
-**Evidence** (`rust/smmu/src/smmu/mod.rs:2202-2210`):
-```rust
-CommandType::Resume => {
-    self.stall_queue.remove(&command.stag);  // no Ac/Ab; no outcome differentiation
-},
-```
+**Rust fix** (committed):
+- Added `pub action: bool` and `pub abort: bool` fields to `CommandEntry`
+  (`rust/smmu/src/types/command_entry.rs`), both defaulting to `false` in `new()`.
+- `CMD_RESUME` handler in `mod.rs` now explicitly comments the three §4.6 outcomes
+  (Ac=1 retry, Ac=0/Ab=0 terminate success, Ac=0/Ab=1 abort) and reads
+  `command.action` / `command.abort` for future outcome differentiation; stall
+  record retired in all cases.
+- All existing `CommandEntry` struct literals in test files updated with
+  `action: false, abort: false` to maintain exhaustive field coverage.
+- 4 TDD spec tests added in `rust/smmu/tests/test_stall_resume_spec.rs`:
+  `test_resume_ac1_retry_clears_stall_record`,
+  `test_resume_ac0_ab0_terminate_clears_stall_record`,
+  `test_resume_ac0_ab1_abort_clears_stall_record`,
+  `test_resume_command_entry_has_action_abort_fields` — all pass.
+- Full test suite (157 tests) passes; `cargo clippy -- -D warnings` clean.
 
 ---
 
@@ -1026,7 +1031,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 31. ~~FINDING-NEW-07 — C_BAD_STREAMID event type wrong (C++)~~ ✅ Fixed
 32. ~~FINDING-NEW-03 — Stall events discarded on event queue overflow (Both)~~ ✅ Fixed
 33. ~~FINDING-NEW-06 — EventEntry missing Stall bit (Both)~~ ✅ Fixed (resolved by NEW-03)
-34. FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)
+34. ~~FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)~~ ✅ Fixed
 35. FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)
 36. FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)
 37. FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)

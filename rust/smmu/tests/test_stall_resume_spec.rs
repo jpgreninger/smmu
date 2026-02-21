@@ -70,7 +70,7 @@ fn setup_stall_stream(smmu: &SMMU, stream_n: u32, iova_addr: u64, pa_addr: u64) 
     .unwrap();
 }
 
-/// Build a CMD_RESUME command for a given STAG.
+/// Build a CMD_RESUME command for a given STAG (Ac=0, Ab=0: terminate successfully).
 const fn resume_cmd(stag: u16) -> CommandEntry {
     CommandEntry {
         cmd_type: CommandType::Resume,
@@ -84,6 +84,46 @@ const fn resume_cmd(stag: u16) -> CommandEntry {
         vmid: 0,
         stag,
         prg_index: 0,
+        action: false,
+        abort: false,
+    }
+}
+
+/// Build a CMD_RESUME command with Ac=1 (retry) for a given STAG.
+const fn resume_cmd_retry(stag: u16) -> CommandEntry {
+    CommandEntry {
+        cmd_type: CommandType::Resume,
+        stream_id: 0,
+        pasid: 0,
+        start_address: 0,
+        end_address: 0,
+        flags: 0,
+        timestamp: 0,
+        asid: 0,
+        vmid: 0,
+        stag,
+        prg_index: 0,
+        action: true,
+        abort: false,
+    }
+}
+
+/// Build a CMD_RESUME command with Ac=0, Ab=1 (abort with bus error) for a given STAG.
+const fn resume_cmd_abort(stag: u16) -> CommandEntry {
+    CommandEntry {
+        cmd_type: CommandType::Resume,
+        stream_id: 0,
+        pasid: 0,
+        start_address: 0,
+        end_address: 0,
+        flags: 0,
+        timestamp: 0,
+        asid: 0,
+        vmid: 0,
+        stag,
+        prg_index: 0,
+        action: false,
+        abort: true,
     }
 }
 
@@ -101,6 +141,8 @@ const fn stall_term_cmd(stag: u16) -> CommandEntry {
         vmid: 0,
         stag,
         prg_index: 0,
+        action: false,
+        abort: false,
     }
 }
 
@@ -382,4 +424,122 @@ fn test_abort_unknown_stag_returns_false() {
     let smmu = make_smmu();
     let removed = smmu.abort_stalled_transaction(0xFFFF);
     assert!(!removed, "abort_stalled_transaction must return false for unknown STAG");
+}
+
+// ── FINDING-NEW-04: CMD_RESUME Action/Abort parameters (ARM §4.6, Table 4-10) ─
+
+/// CMD_RESUME with Ac=1 (action=true, retry) must clear the stall record.
+/// Spec: ARM §4.6 — Ac=1: transaction retried as if freshly arrived.
+#[test]
+fn test_resume_ac1_retry_clears_stall_record() {
+    let smmu = make_smmu();
+    let s = sid(10);
+    let config = StreamConfig::builder()
+        .stage1_enabled(true)
+        .translation_enabled(true)
+        .security_enforced(false)
+        .fault_mode(FaultMode::Stall)
+        .build()
+        .unwrap();
+    smmu.configure_stream(s, config).unwrap();
+    smmu.create_pasid(s, pasid(0)).unwrap();
+
+    let result = smmu.translate(s, pasid(0), iova(0xDEAD_0000), AccessType::Read, SecurityState::NonSecure);
+    let stag = match result {
+        Err(TranslationError::Stalled { stag }) => stag,
+        other => panic!("Expected Stalled, got {:?}", other),
+    };
+    assert_eq!(smmu.get_stalled_transactions().len(), 1);
+
+    smmu.submit_command(resume_cmd_retry(stag)).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    assert!(
+        smmu.get_stalled_transactions().is_empty(),
+        "Ac=1 (retry) CMD_RESUME must remove the stall record"
+    );
+}
+
+/// CMD_RESUME with Ac=0, Ab=0 (terminate successfully) must clear the stall record.
+/// Spec: ARM §4.6 — Ac=0, Ab=0: terminate successfully (RAZ/WI).
+#[test]
+fn test_resume_ac0_ab0_terminate_clears_stall_record() {
+    let smmu = make_smmu();
+    let s = sid(11);
+    let config = StreamConfig::builder()
+        .stage1_enabled(true)
+        .translation_enabled(true)
+        .security_enforced(false)
+        .fault_mode(FaultMode::Stall)
+        .build()
+        .unwrap();
+    smmu.configure_stream(s, config).unwrap();
+    smmu.create_pasid(s, pasid(0)).unwrap();
+
+    let result = smmu.translate(s, pasid(0), iova(0xDEAD_0000), AccessType::Read, SecurityState::NonSecure);
+    let stag = match result {
+        Err(TranslationError::Stalled { stag }) => stag,
+        other => panic!("Expected Stalled, got {:?}", other),
+    };
+    assert_eq!(smmu.get_stalled_transactions().len(), 1);
+
+    // resume_cmd uses action=false, abort=false (Ac=0, Ab=0)
+    smmu.submit_command(resume_cmd(stag)).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    assert!(
+        smmu.get_stalled_transactions().is_empty(),
+        "Ac=0, Ab=0 CMD_RESUME must remove the stall record"
+    );
+}
+
+/// CMD_RESUME with Ac=0, Ab=1 (abort with bus error) must clear the stall record.
+/// Spec: ARM §4.6 — Ac=0, Ab=1: abort, transaction terminated with bus error.
+#[test]
+fn test_resume_ac0_ab1_abort_clears_stall_record() {
+    let smmu = make_smmu();
+    let s = sid(12);
+    let config = StreamConfig::builder()
+        .stage1_enabled(true)
+        .translation_enabled(true)
+        .security_enforced(false)
+        .fault_mode(FaultMode::Stall)
+        .build()
+        .unwrap();
+    smmu.configure_stream(s, config).unwrap();
+    smmu.create_pasid(s, pasid(0)).unwrap();
+
+    let result = smmu.translate(s, pasid(0), iova(0xDEAD_0000), AccessType::Read, SecurityState::NonSecure);
+    let stag = match result {
+        Err(TranslationError::Stalled { stag }) => stag,
+        other => panic!("Expected Stalled, got {:?}", other),
+    };
+    assert_eq!(smmu.get_stalled_transactions().len(), 1);
+
+    smmu.submit_command(resume_cmd_abort(stag)).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    assert!(
+        smmu.get_stalled_transactions().is_empty(),
+        "Ac=0, Ab=1 CMD_RESUME must remove the stall record"
+    );
+}
+
+/// CommandEntry for CMD_RESUME must carry action and abort fields per ARM §4.6.
+#[test]
+fn test_resume_command_entry_has_action_abort_fields() {
+    // action=true → Ac=1 (retry)
+    let retry_cmd = resume_cmd_retry(1);
+    assert!(retry_cmd.action, "action must be true for Ac=1 retry");
+    assert!(!retry_cmd.abort, "abort must be false for Ac=1 retry");
+
+    // action=false, abort=false → Ac=0, Ab=0 (terminate success)
+    let term_cmd = resume_cmd(1);
+    assert!(!term_cmd.action, "action must be false for Ac=0");
+    assert!(!term_cmd.abort, "abort must be false for Ab=0 terminate success");
+
+    // action=false, abort=true → Ac=0, Ab=1 (abort)
+    let abort_cmd = resume_cmd_abort(1);
+    assert!(!abort_cmd.action, "action must be false for Ac=0");
+    assert!(abort_cmd.abort, "abort must be true for Ab=1");
 }

@@ -2206,8 +2206,12 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Resume => {
-                // CMD_RESUME (§4.6, §3.12.2): remove the matching stall record so that
-                // the stalled transaction is considered resumed / retired.
+                // CMD_RESUME (§4.6, §3.12.2): resolve the stalled transaction.
+                // The Ac (action) and Ab (abort) bits determine the outcome per ARM §4.6, Table 4-10:
+                //   Ac=1 (action=true):                 Retry — transaction retried as if freshly arrived.
+                //   Ac=0, Ab=0 (action=false, abort=false): Terminate successfully (RAZ/WI).
+                //   Ac=0, Ab=1 (action=false, abort=true):  Abort — transaction terminated with bus error.
+                // In all cases, retire the stall record.
                 self.stall_queue.remove(&command.stag);
             },
             CommandType::StallTerm => {

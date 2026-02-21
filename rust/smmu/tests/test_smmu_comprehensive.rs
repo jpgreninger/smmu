@@ -151,6 +151,8 @@ fn test_command_queue_submit_tlbi_nh_all() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -173,6 +175,8 @@ fn test_command_queue_submit_tlbi_el2_all() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -195,6 +199,8 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -217,6 +223,8 @@ fn test_command_queue_submit_atc_inv() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -240,6 +248,8 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     let result = smmu.submit_command(command);
@@ -266,6 +276,8 @@ fn test_command_queue_submit_sync() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -288,6 +300,8 @@ fn test_command_queue_submit_prefetch_config() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -309,6 +323,8 @@ fn test_command_queue_submit_prefetch_addr() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -330,6 +346,8 @@ fn test_command_queue_submit_cfgi_ste() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -351,6 +369,8 @@ fn test_command_queue_submit_cfgi_all() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -372,6 +392,8 @@ fn test_command_queue_submit_pri_resp() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -393,6 +415,8 @@ fn test_command_queue_submit_resume() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -414,6 +438,8 @@ fn test_command_queue_process_single_tlbi() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -446,6 +472,8 @@ fn test_command_queue_process_multiple_commands() {
             asid: 0,
             vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -477,6 +505,8 @@ fn test_command_queue_process_atc_inv_generates_event() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -505,6 +535,8 @@ fn test_command_queue_process_sync_generates_event() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -543,6 +575,8 @@ fn test_command_queue_clear() {
             asid: 0,
             vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -574,6 +608,8 @@ fn test_command_queue_is_full() {
             asid: 0,
             vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -1160,6 +1196,8 @@ fn test_queue_statistics() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     })
     .unwrap();
 
@@ -1201,6 +1239,8 @@ fn test_cache_statistics_invalidation_count() {
             asid: 0,
             vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
         })
         .unwrap();
     }
@@ -1240,6 +1280,8 @@ fn test_reset_queues_atomically() {
         asid: 0,
         vmid: 0,
         stag: 0,
+        action: false,
+        abort: false,
     })
     .unwrap();
 

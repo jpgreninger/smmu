@@ -121,6 +121,22 @@ pub struct CommandEntry {
     /// Must equal the `prg_index` carried in the original `PRIEntry` (ARM §8.2).
     /// Ignored by all command types other than `PriResp`.
     pub prg_index: u16,
+
+    /// Action (Ac) bit for `CMD_RESUME` (ARM §4.6, Table 4-10).
+    ///
+    /// When `true` (Ac=1), the SMMU retries the stalled transaction as if it
+    /// arrived freshly. When `false` (Ac=0), the transaction is terminated;
+    /// the `abort` bit further qualifies the termination outcome.
+    /// Ignored by all command types other than `Resume`.
+    pub action: bool,
+
+    /// Abort (Ab) bit for `CMD_RESUME` (ARM §4.6, Table 4-10).
+    ///
+    /// Only meaningful when `action=false` (Ac=0):
+    /// `true` (Ab=1) signals a bus error to the originating master;
+    /// `false` (Ab=0) terminates the transaction silently (RAZ/WI).
+    /// Ignored by all command types other than `Resume`.
+    pub abort: bool,
 }
 
 impl CommandEntry {
@@ -148,6 +164,8 @@ impl CommandEntry {
             vmid: 0,
             stag: 0,
             prg_index: 0,
+            action: false,
+            abort: false,
         }
     }
 }
