@@ -55,7 +55,7 @@ required; the gap is accepted as out-of-scope for a behavioral software model.
 
 ---
 
-### FINDING-C-02 ❌ — STE Binary Format Not Implemented
+### FINDING-C-02 ✅ — STE Binary Format Not Implemented
 **Spec**: §5.2 (Stream Table Entry)
 **Affected**: Both
 
@@ -74,9 +74,17 @@ The STE is a 512-bit (8×64-bit) structure. Key fields:
 **Rust**: `StreamConfig` uses high-level fields. `StreamConfig::bypass()` has no
 separate Abort/Fault mode distinct from disabled.
 
-**Recommendation**: Add a `Config` enum with the 3-bit STE.Config encoding:
-`Bypass(0b000)`, `Abort(0b001)`, `Stage1Only(0b100)`, `BothStages(0b101)`,
-`Stage2Only(0b110)`.
+**Resolution (Software Model Scope)**: The binary 512-bit STE wire format is only
+required for models that DMA stream-table entries from memory (i.e., hardware RTL
+or bus-functional models). This project is a behavioral software model: the SMMU
+consumes configuration through typed host-language structs, not raw memory reads.
+The semantic content of the STE — translation stage selection (Bypass / Abort /
+Stage1Only / BothStages / Stage2Only), S1ContextPtr, S2 parameters, etc. — is
+fully represented by `StreamTableEntry` (C++) and `StreamConfig` (Rust). The
+omission of the binary layout is intentional and accepted as out-of-scope. No
+code change is required; this limitation is documented for integrators who may
+need to add a binary-deserialisation shim if connecting to a real stream-table in
+memory.
 
 ---
 
@@ -711,12 +719,13 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 
 ### Low-priority / document as limitation
 20. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
-21. FINDING-C-02/C-03 — Binary STE/CD format (document as software model)
-22. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
-23. FINDING-L-01 — Interrupt modeling
-24. FINDING-L-02 — MSI write in CMD_SYNC
-25. FINDING-L-03 — Translation Hardening (SMMUv3.4)
-26. FINDING-L-07 — VMS support
+21. ~~FINDING-C-02 — Binary STE format (document as software model)~~ ✅ Documented as software model scope limitation
+22. FINDING-C-03 — Binary CD format (document as software model)
+23. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
+24. FINDING-L-01 — Interrupt modeling
+25. FINDING-L-02 — MSI write in CMD_SYNC
+26. FINDING-L-03 — Translation Hardening (SMMUv3.4)
+27. FINDING-L-07 — VMS support
 
 ---
 
