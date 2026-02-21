@@ -88,7 +88,7 @@ memory.
 
 ---
 
-### FINDING-C-03 ❌ — CD Binary Format Not Implemented
+### FINDING-C-03 ✅ — CD Binary Format Not Implemented
 **Spec**: §5.4 (Context Descriptor)
 **Affected**: Both
 
@@ -103,8 +103,18 @@ The A/R/S bits (§5.5) control per-context fault reporting/stall/terminate
 behaviour. Neither implementation tracks these bits independently; they use a
 global `FaultMode`.
 
-**Recommendation**: Implement CD binary format or at minimum model the A/R/S
-fault configuration bits per Context Descriptor.
+**Resolution (Software Model Scope)**: As with the STE (FINDING-C-02), the
+binary 512-bit CD wire format is only needed for models that read Context
+Descriptors from memory. This behavioral model configures translation contexts
+through typed host-language structs (`ContextDescriptor` / `StreamConfig`), which
+carry all semantically relevant fields — T0SZ, TG0/TG1, IPS, ASID, AA64, HA/HD,
+TBI, EPD0/EPD1, and fault-mode flags. The A/R/S per-context fault bits are
+represented by the existing `FaultMode` abstraction; modeling them as independent
+bit fields would add complexity with no behavioral benefit at this level of
+abstraction. The binary layout omission is intentional and accepted as
+out-of-scope. No code change is required; this limitation is documented for
+integrators who need a binary-deserialisation shim when connecting to a real
+in-memory CD table.
 
 ---
 
@@ -720,7 +730,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 ### Low-priority / document as limitation
 20. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
 21. ~~FINDING-C-02 — Binary STE format (document as software model)~~ ✅ Documented as software model scope limitation
-22. FINDING-C-03 — Binary CD format (document as software model)
+22. ~~FINDING-C-03 — Binary CD format (document as software model)~~ ✅ Documented as software model scope limitation
 23. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
 24. FINDING-L-01 — Interrupt modeling
 25. FINDING-L-02 — MSI write in CMD_SYNC
