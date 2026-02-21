@@ -195,14 +195,12 @@ private:
     uint32_t eventqLog2Size;   // log2(eventQueue capacity)
     uint32_t priqLog2Size;     // log2(priQueue capacity)
 
-    // Producer indices (advanced on enqueue)
+    // PROD/CONS index pairs per queue (declaration order must match constructor init list)
     uint32_t cmdqProd;         // CMDQ_PROD register equivalent
-    uint32_t eventqProd;       // EVENTQ_PROD register equivalent
-    uint32_t priqProd;         // PRIQ_PROD register equivalent
-
-    // Consumer indices (advanced on dequeue/process)
     uint32_t cmdqCons;         // CMDQ_CONS register equivalent
+    uint32_t eventqProd;       // EVENTQ_PROD register equivalent
     uint32_t eventqCons;       // EVENTQ_CONS register equivalent
+    uint32_t priqProd;         // PRIQ_PROD register equivalent
     uint32_t priqCons;         // PRIQ_CONS register equivalent
 
     // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
