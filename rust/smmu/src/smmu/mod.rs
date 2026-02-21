@@ -1560,11 +1560,14 @@ impl SMMU {
         // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).
         // If so, enqueue a StallRecord and return Stalled { stag } instead of the
         // raw fault error — software must send CMD_RESUME or CMD_STALL_TERM to resolve.
+        // §3.9: C_BAD_SUBSTREAMID is always an abort — never stalled, regardless of stream mode.
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error, stall_mode);
+            let bad_substreamid = matches!(error, TranslationError::BadSubstreamId);
+            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error,
+                                          stall_mode && !bad_substreamid);
 
-            if stall_mode {
+            if stall_mode && !bad_substreamid {
                 // Generate a unique STAG (wrapping counter, starting at 1).
                 let stag = self.stag_counter.fetch_add(1, Ordering::Relaxed);
                 let stag = if stag == 0 { self.stag_counter.fetch_add(1, Ordering::Relaxed) } else { stag };
@@ -1693,6 +1696,8 @@ impl SMMU {
             FaultType::StreamDisabled => EventType::FStreamDisabled,
             // §7.3.3: stream table lookup failure → C_BAD_STREAMID (0x02), not F_TRANSLATION.
             FaultType::BadStreamID => EventType::CBadStreamid,
+            // §7.3.9: non-zero PASID on stage-2-only or bypass stream → C_BAD_SUBSTREAMID (0x08).
+            FaultType::BadSubstreamId => EventType::CBadSubstreamid,
             FaultType::TranslationFault
             | FaultType::BadSTE
             | FaultType::BadCD
@@ -1743,6 +1748,8 @@ impl SMMU {
             // GbpaAbort is a global disable abort — not a per-stream translation fault.
             // Map to TranslationFault as a safe catch-all (should never reach fault recording).
             TranslationError::GbpaAbort => FaultType::TranslationFault,
+            // §3.9: non-zero PASID on stage-2-only or bypass stream → C_BAD_SUBSTREAMID.
+            TranslationError::BadSubstreamId => FaultType::BadSubstreamId,
         }
     }
 

@@ -99,6 +99,13 @@ pub enum TranslationError {
     /// bypassing them with an identity mapping.  No fault event is enqueued.
     #[error("Transaction aborted by GBPA.ABORT (SMMUEN=0, GBPA.ABORT=1)")]
     GbpaAbort,
+
+    /// Non-zero PASID (SubstreamID) on stage-2-only or bypass stream (ARM §3.9, §7.3.9)
+    ///
+    /// Generates `C_BAD_SUBSTREAMID` (event code 0x08). Always terminates with
+    /// an abort; the stall path is never taken for this fault class.
+    #[error("Non-zero PASID on stage-2-only or bypass stream (§3.9 C_BAD_SUBSTREAMID)")]
+    BadSubstreamId,
 }
 
 /// Translation result data structure

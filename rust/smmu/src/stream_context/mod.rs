@@ -855,6 +855,12 @@ impl StreamContext {
         let stage1_enabled = self.stage1_enabled.load(Ordering::Relaxed);
         let stage2_enabled = self.stage2_enabled.load(Ordering::Relaxed);
 
+        // §3.9: non-zero PASID (SubstreamID) on a stage-2-only or bypass stream is
+        // always terminated with an abort; C_BAD_SUBSTREAMID is recorded (§7.3.9).
+        if pasid.as_u32() != 0 && !stage1_enabled {
+            return Err(TranslationError::BadSubstreamId);
+        }
+
         match (stage1_enabled, stage2_enabled) {
             // Stage-1 only: IOVA → PA
             (true, false) => self.translate_stage1_only(pasid, iova, access_type, security_state),

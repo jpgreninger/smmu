@@ -99,6 +99,11 @@ pub enum FaultType {
     ///
     /// Generates F_STREAM_DISABLED (event code 0x06) per ARM IHI0070G.b §7.3.7.
     StreamDisabled = 0x10,
+
+    /// Bad SubstreamID — non-zero PASID to stage-2-only or bypass stream (§3.9, §7.3.9)
+    ///
+    /// Always generates `C_BAD_SUBSTREAMID` (event code 0x08); never stalled.
+    BadSubstreamId = 0x11,
 }
 
 impl FaultType {
@@ -129,6 +134,7 @@ impl FaultType {
             Self::BadSTE => "Bad Stream Table Entry",
             Self::STEFetchFault => "Stream Table Entry Fetch Fault",
             Self::StreamDisabled => "Stream Disabled",
+            Self::BadSubstreamId => "Bad SubstreamID",
         }
     }
 
@@ -152,6 +158,7 @@ impl FaultType {
             Self::BadSTE => "Invalid or misconfigured Stream Table Entry",
             Self::STEFetchFault => "Error fetching Stream Table Entry",
             Self::StreamDisabled => "Transaction on a disabled/abort stream (STE.Config=disabled)",
+            Self::BadSubstreamId => "Non-zero PASID (SubstreamID) supplied to a stage-2-only or bypass stream",
         }
     }
 
@@ -181,6 +188,7 @@ impl FaultType {
                 | Self::BadSTE
                 | Self::STEFetchFault
                 | Self::StreamDisabled
+                | Self::BadSubstreamId
         )
     }
 
@@ -205,7 +213,7 @@ impl FaultType {
     #[must_use]
     pub const fn severity(self) -> FaultSeverity {
         match self {
-            Self::BadSTE | Self::BadCD | Self::BadStreamID | Self::StreamDisabled => FaultSeverity::Critical,
+            Self::BadSTE | Self::BadCD | Self::BadStreamID | Self::StreamDisabled | Self::BadSubstreamId => FaultSeverity::Critical,
             Self::TranslationFault
             | Self::PermissionFault
             | Self::ExternalAbort
@@ -229,7 +237,7 @@ impl FaultType {
     /// Check if fault can occur in Stage 1
     #[must_use]
     pub const fn can_occur_in_stage1(self) -> bool {
-        !matches!(self, Self::BadSTE | Self::STEFetchFault)
+        !matches!(self, Self::BadSTE | Self::STEFetchFault | Self::BadSubstreamId)
     }
 
     /// Check if fault can occur in Stage 2
@@ -237,7 +245,12 @@ impl FaultType {
     pub const fn can_occur_in_stage2(self) -> bool {
         !matches!(
             self,
-            Self::BadStreamID | Self::BadSTE | Self::STEFetchFault | Self::BadCD | Self::CDFetchFault
+            Self::BadStreamID
+                | Self::BadSTE
+                | Self::STEFetchFault
+                | Self::BadCD
+                | Self::CDFetchFault
+                | Self::BadSubstreamId
         )
     }
 
@@ -246,7 +259,7 @@ impl FaultType {
     pub const fn is_stage_agnostic(self) -> bool {
         matches!(
             self,
-            Self::BadStreamID | Self::BadSTE | Self::ExternalAbort | Self::STEFetchFault
+            Self::BadStreamID | Self::BadSTE | Self::ExternalAbort | Self::STEFetchFault | Self::BadSubstreamId
         )
     }
 
@@ -269,6 +282,7 @@ impl FaultType {
             0x0E => Ok(Self::BadSTE),
             0x0F => Ok(Self::STEFetchFault),
             0x10 => Ok(Self::StreamDisabled),
+            0x11 => Ok(Self::BadSubstreamId),
             _ => Err(ValidationError::InvalidFaultType { code }),
         }
     }

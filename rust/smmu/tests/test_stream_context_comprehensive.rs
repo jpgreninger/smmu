@@ -231,8 +231,8 @@ fn test_stage2_only_translation_success() {
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(true);
 
-    let pasid = PASID::new(1).unwrap();
-    ctx.create_pasid(pasid).unwrap();
+    // §3.9: stage-2-only streams only accept PASID=0 (SubstreamID absent).
+    let pasid = PASID::new(0).unwrap();
     ctx.create_stage2_address_space().unwrap();
 
     // Map Stage-2: IPA → PA
@@ -253,8 +253,8 @@ fn test_stage2_only_translation_fault() {
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(true);
 
-    let pasid = PASID::new(1).unwrap();
-    ctx.create_pasid(pasid).unwrap();
+    // §3.9: stage-2-only streams only accept PASID=0 (SubstreamID absent).
+    let pasid = PASID::new(0).unwrap();
     ctx.create_stage2_address_space().unwrap();
 
     // Don't map any pages
@@ -291,8 +291,8 @@ fn test_bypass_mode_translation() {
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(false);
 
-    let pasid = PASID::new(1).unwrap();
-    ctx.create_pasid(pasid).unwrap();
+    // §3.9: bypass streams only accept PASID=0 (SubstreamID absent).
+    let pasid = PASID::new(0).unwrap();
 
     // No mapping needed in bypass mode
     let iova = IOVA::new(0x1000).unwrap();
@@ -309,8 +309,8 @@ fn test_bypass_mode_full_permissions() {
     ctx.set_stage1_enabled(false);
     ctx.set_stage2_enabled(false);
 
-    let pasid = PASID::new(1).unwrap();
-    ctx.create_pasid(pasid).unwrap();
+    // §3.9: bypass streams only accept PASID=0 (SubstreamID absent).
+    let pasid = PASID::new(0).unwrap();
 
     let iova = IOVA::new(0x1000).unwrap();
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
