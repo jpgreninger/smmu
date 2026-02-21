@@ -25,7 +25,7 @@ specification, which is the root cause of the Critical findings below.
 
 ## Critical Findings
 
-### FINDING-C-01 ❌ — No Hardware Register Map
+### FINDING-C-01 ✅ — No Hardware Register Map
 **Spec**: Chapter 6 (Memory Map and Registers), §6.1–6.3
 **Affected**: Both
 
@@ -42,8 +42,16 @@ SMMU_IDR0 (§6.3.1) must advertise capability bits (COHACC, BTM, HTTU, HYP, ATS,
 NS1, S1P, S2P, NX, TTF, OAS, IAS, STALL_MODEL, VMID16, MSI, PASID, etc.).
 Neither implementation exposes any equivalent capability advertisement.
 
-**Recommendation**: For a simulation model, add a `register_map` module with at
-minimum IDR0, CR0, STRTAB_BASE, CMDQ_BASE/PROD/CONS, and EVENTQ_BASE/PROD/CONS.
+**Resolution (Software Model Scope)**: This is a deliberate design decision within
+the scope of a software simulation model. A hardware register map is only required
+for RTL or bus-functional models that must respond to MMIO accesses. This project
+models SMMU *behavior* (translation, fault handling, command/event queues, PRI) at
+the functional level; software configuration through typed C++ / Rust structs
+(`SMMUConfiguration` / `SMMUConfig`) provides equivalent capability advertisement
+without the overhead of a byte-addressable register file. This limitation is
+documented here so integrators are aware that the model cannot be memory-mapped
+directly into a simulation bus fabric without an adapter layer. No code change is
+required; the gap is accepted as out-of-scope for a behavioral software model.
 
 ---
 
@@ -702,7 +710,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 19. ~~FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)~~ ✅ Fixed
 
 ### Low-priority / document as limitation
-20. FINDING-C-01 — Register map (software model scope; document limitation)
+20. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
 21. FINDING-C-02/C-03 — Binary STE/CD format (document as software model)
 22. FINDING-C-04 / FINDING-H-06 — L1STD / L1CD two-level tables
 23. FINDING-L-01 — Interrupt modeling
