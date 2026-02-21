@@ -1153,6 +1153,8 @@ enum class CommandType {
     PREFETCH_ADDR   = 0x02, // CMD_PREFETCH_ADDR
     CFGI_STE        = 0x03, // CMD_CFGI_STE — Stream Table Entry invalidation
     CFGI_ALL        = 0x04, // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (same opcode per §4.1.1)
+    CFGI_CD         = 0x05, // CMD_CFGI_CD — Context Descriptor invalidation for (SID, SSID)
+    CFGI_CD_ALL     = 0x06, // CMD_CFGI_CD_ALL — Context Descriptor invalidation for all SSIDs of SID
     TLBI_NH_ALL     = 0x10, // CMD_TLBI_NH_ALL — TLB invalidation non-secure hyp all
     TLBI_NH_ASID    = 0x11, // CMD_TLBI_NH_ASID
     TLBI_NH_VA      = 0x12, // CMD_TLBI_NH_VA

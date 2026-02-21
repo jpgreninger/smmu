@@ -1547,6 +1547,18 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             }
             break;
             
+        case CommandType::CFGI_CD:
+            // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
+            // Maps to PASID-scoped TLB invalidation in SW model.
+            invalidatePASIDCache(command.streamID, command.pasid);
+            break;
+
+        case CommandType::CFGI_CD_ALL:
+            // ARM §4.3.4: Invalidate all cached CDs for StreamID.
+            // Maps to stream-wide TLB invalidation in SW model.
+            invalidateStreamCache(command.streamID);
+            break;
+
         case CommandType::TLBI_NH_ALL:
         case CommandType::TLBI_NH_ASID:
         case CommandType::TLBI_NH_VA:
@@ -1671,6 +1683,8 @@ void SMMU::processCommand(const CommandEntry& command) {
             
         case CommandType::CFGI_STE:
         case CommandType::CFGI_ALL:
+        case CommandType::CFGI_CD:
+        case CommandType::CFGI_CD_ALL:
         case CommandType::TLBI_NH_ALL:
         case CommandType::TLBI_NH_ASID:
         case CommandType::TLBI_NH_VA:
