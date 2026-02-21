@@ -357,16 +357,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDCacheBehavior) {
 
 // Test 7: PASID Context Switching with Different Security States
 TEST_F(PASIDContextSwitchingTest, PASIDSecurityStateContextSwitching) {
-    // Reconfigure stream for both secure and non-secure operation
-    StreamConfig streamConfig;
-    streamConfig.translationEnabled = true;
-    streamConfig.stage1Enabled = true;
-    streamConfig.stage2Enabled = false;
-    streamConfig.faultMode = FaultMode::Terminate;
-
-    auto result = smmu->configureStream(testStreamID, streamConfig);
-    ASSERT_TRUE(result.isOk());
-    
+    // Stream is already configured by SetUp() with stage1Enabled=true, stage2Enabled=false
     const PASID nonsecure_pasid = 50;
     const PASID secure_pasid = 51;
     
@@ -387,7 +378,7 @@ TEST_F(PASIDContextSwitchingTest, PASIDSecurityStateContextSwitching) {
     perms.write = true;
     perms.execute = false;
     
-    result = smmu->mapPage(testStreamID, nonsecure_pasid, test_iova, nonsecure_pa, perms, SecurityState::NonSecure);
+    auto result = smmu->mapPage(testStreamID, nonsecure_pasid, test_iova, nonsecure_pa, perms, SecurityState::NonSecure);
     ASSERT_TRUE(result.isOk());
     
     result = smmu->mapPage(testStreamID, secure_pasid, test_iova, secure_pa, perms, SecurityState::Secure);
