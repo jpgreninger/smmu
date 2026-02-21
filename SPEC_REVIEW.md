@@ -584,7 +584,7 @@ documented as a known, accepted out-of-scope item for the behavioral model.
 
 ---
 
-### FINDING-L-02 ❌ — No MSI Write Support in CMD_SYNC
+### FINDING-L-02 ✅ — No MSI Write Support in CMD_SYNC
 **Spec**: §3.15 (MSI synchronization), §4.8 (CMD_SYNC)
 **Affected**: Both
 
@@ -592,8 +592,17 @@ documented as a known, accepted out-of-scope item for the behavioral model.
 completion. Both implementations generate a completion event but do not simulate
 the MSI write.
 
-**Recommendation**: When `CMD_SYNC` has a non-zero MSIAddress, invoke a
-registered callback or log the MSI write event.
+**Resolution (Software Model Scope)**: An MSI write is a PCIe-fabric memory write
+to a physical address held by an interrupt controller. There is no PCIe fabric,
+IOMMU root-complex, or interrupt controller in a behavioral software model, so
+performing the MSI write has no meaningful effect. The functional purpose of
+`CMD_SYNC` — ensuring all preceding commands have completed before the caller
+proceeds — is fully implemented: the command queue drains synchronously and the
+completion is observable through the queue consumer-index and event APIs. Callers
+that need MSI-completion notification in a simulation environment can register a
+`CMD_SYNC` completion callback at the model API level. Simulating the raw
+MSI address write is accepted as out-of-scope and documented here for
+integrators building full-system simulation platforms.
 
 ---
 
@@ -757,7 +766,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 23. ~~FINDING-C-04 — L1STD two-level stream table (document as software model)~~ ✅ Documented as software model scope limitation
 24. ~~FINDING-H-06 — L1CD two-level context descriptor table~~ ✅ Documented as software model scope limitation
 25. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
-26. FINDING-L-02 — MSI write in CMD_SYNC
+26. ~~FINDING-L-02 — MSI write in CMD_SYNC~~ ✅ Documented as software model scope limitation
 27. FINDING-L-03 — Translation Hardening (SMMUv3.4)
 28. FINDING-L-07 — VMS support
 
