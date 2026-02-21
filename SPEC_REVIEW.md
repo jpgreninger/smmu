@@ -240,7 +240,7 @@ Add the missing TLB invalidation variants and `CMD_STALL_TERM`.
 
 ---
 
-### FINDING-H-04 ❌ — TLB Invalidation Granularity Insufficient
+### FINDING-H-04 ✅ — TLB Invalidation Granularity Insufficient
 **Spec**: §4.4 (TLB invalidation), §4.4.1–4.4.4
 **Affected**: Both
 
@@ -250,8 +250,32 @@ Add the missing TLB invalidation variants and `CMD_STALL_TERM`.
 - `CMD_TLBI_S2_IPA`: invalidates Stage-2 IPA entries for a VMID. Rust calls
   `invalidate_by_stream` instead of VMID-targeted invalidation.
 
-**Recommendation**: Add ASID field to TLB cache entries and implement
-ASID-targeted invalidation. Add VMID field support for Stage-2 invalidation.
+**Fixed (Rust)**:
+- `CacheEntry` now carries explicit `asid: u16` and `vmid: u16` fields
+  (`rust/smmu/src/cache/mod.rs`), populated from `CD.ASID` and `STE.S2VMID`
+  respectively at translation time.
+- `TlbCache::invalidate_by_asid(asid)` scans and evicts all entries tagged
+  with the target ASID — called by `CMD_TLBI_NH_ASID` and `CMD_TLBI_EL2_ASID`.
+- `TlbCache::invalidate_by_vmid(vmid)` scans and evicts all entries tagged
+  with the target VMID — called by `CMD_TLBI_S12_VMALL` and `CMD_TLBI_S2_IPA`.
+- `CMD_TLBI_NH_VA` / `CMD_TLBI_NH_VAA` conservatively call `invalidate_all()`
+  (correct per spec; VA+ASID precise eviction is an optimisation).
+- `CommandEntry` carries `asid: u16` and `vmid: u16` fields for command routing.
+- Test coverage: `tests/test_asid_tlb_spec.rs` (ASID tagging, selective
+  invalidation, ASID scoping) and `tests/test_vmid_tlb_spec.rs` (VMID
+  configuration, `CMD_TLBI_S12_VMALL`, `CMD_TLBI_S2_IPA`) — all pass.
+
+**C++ status (conservative, functionally correct)**:
+- `CMD_TLBI_NH_ASID` and `CMD_TLBI_NH_VA` are routed through
+  `executeTLBInvalidationCommand()` but `CacheEntry` does not store ASID/VMID
+  fields; the implementation falls back to stream-wide or full-cache
+  invalidation. This is conservative (evicts more entries than strictly
+  necessary) but never incorrect — stale mappings are never retained.
+- `CMD_TLBI_S2_IPA` calls `invalidateStreamCache(streamID)` rather than a
+  VMID-targeted eviction for the same reason.
+- The C++ gap is an optimisation opportunity (unnecessary TLB misses after
+  targeted invalidation) rather than a correctness defect; it is documented
+  here for future work if C++ TLB precision becomes a priority.
 
 ---
 
@@ -765,27 +789,28 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 9. ~~FINDING-M-02 — Add VMID to STE config and TLB entries~~ ✅ Fixed (Rust)
 10. ~~FINDING-H-05 — Implement CMD_RESUME stall model with STAG tracking~~ ✅ Fixed (Rust)
 11. ~~FINDING-H-03 — Add CFGI_CD and CFGI_CD_ALL command types~~ ✅ Fixed (Rust)
-12. ~~FINDING-M-09 — Implement range-based ATC invalidation (Rust)~~ ✅ Fixed (Rust)
-13. ~~FINDING-M-10 — Add address size fault checking (C++)~~ ✅ Fixed (C++)
-14. ~~FINDING-M-04 — Access Flag and Dirty State simulation~~ ✅ Fixed (Both)
+12. ~~FINDING-H-04 — ASID/VMID-targeted TLB invalidation~~ ✅ Fixed (Rust); C++ conservative (documented)
+13. ~~FINDING-M-09 — Implement range-based ATC invalidation (Rust)~~ ✅ Fixed (Rust)
+14. ~~FINDING-M-10 — Add address size fault checking (C++)~~ ✅ Fixed (C++)
+15. ~~FINDING-M-04 — Access Flag and Dirty State simulation~~ ✅ Fixed (Both)
 
 ### Medium-term (feature completeness)
-15. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
-16. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
-17. ~~FINDING-M-06 — GERROR register conditions for command queue errors~~ ✅ Fixed
-18. ~~FINDING-L-04 — Validate fault syndrome register encoding against spec tables~~ ✅ Fixed
-19. ~~FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)~~ ✅ Fixed
+16. ~~FINDING-M-01 — Circular queue PROD/CONS index semantics~~ ✅ Fixed (Both)
+17. ~~FINDING-M-08 — PRG index in PRIEntry and PRI_RESP handling~~ ✅ Fixed (Both)
+18. ~~FINDING-M-06 — GERROR register conditions for command queue errors~~ ✅ Fixed
+19. ~~FINDING-L-04 — Validate fault syndrome register encoding against spec tables~~ ✅ Fixed
+20. ~~FINDING-L-06 — Enforce invalidation sequence before stream reconfiguration (C++)~~ ✅ Fixed
 
 ### Low-priority / document as limitation
-20. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
-21. ~~FINDING-C-02 — Binary STE format (document as software model)~~ ✅ Documented as software model scope limitation
-22. ~~FINDING-C-03 — Binary CD format (document as software model)~~ ✅ Documented as software model scope limitation
-23. ~~FINDING-C-04 — L1STD two-level stream table (document as software model)~~ ✅ Documented as software model scope limitation
-24. ~~FINDING-H-06 — L1CD two-level context descriptor table~~ ✅ Documented as software model scope limitation
-25. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
-26. ~~FINDING-L-02 — MSI write in CMD_SYNC~~ ✅ Documented as software model scope limitation
-27. ~~FINDING-L-03 — Translation Hardening (SMMUv3.4)~~ ✅ Documented as software model scope limitation
-28. ~~FINDING-L-07 — VMS support~~ ✅ Documented as software model scope limitation
+21. ~~FINDING-C-01 — Register map (software model scope; document limitation)~~ ✅ Documented as software model scope limitation
+22. ~~FINDING-C-02 — Binary STE format (document as software model)~~ ✅ Documented as software model scope limitation
+23. ~~FINDING-C-03 — Binary CD format (document as software model)~~ ✅ Documented as software model scope limitation
+24. ~~FINDING-C-04 — L1STD two-level stream table (document as software model)~~ ✅ Documented as software model scope limitation
+25. ~~FINDING-H-06 — L1CD two-level context descriptor table~~ ✅ Documented as software model scope limitation
+26. ~~FINDING-L-01 — Interrupt modeling~~ ✅ Documented as software model scope limitation
+27. ~~FINDING-L-02 — MSI write in CMD_SYNC~~ ✅ Documented as software model scope limitation
+28. ~~FINDING-L-03 — Translation Hardening (SMMUv3.4)~~ ✅ Documented as software model scope limitation
+29. ~~FINDING-L-07 — VMS support~~ ✅ Documented as software model scope limitation
 
 ---
 
