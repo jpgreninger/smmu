@@ -245,9 +245,23 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
                 stallQueue_[stag] = record;
             }
-            // Generate the fault event with stall=true so software can identify
-            // which event queue entries require CMD_RESUME (§7.3, §3.5.3).
-            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState, /*isStall=*/true);
+            // ARM §7.3 / FINDING-NEW-13: Derive the correct EventType from the actual
+            // error so the OS fault handler receives the right fault classification.
+            // Mirrors the mapping in handleTranslationFailure().
+            EventType stallEventType;
+            switch (result.getError()) {
+                case SMMUError::PagePermissionViolation:
+                    stallEventType = EventType::F_PERMISSION;
+                    break;
+                case SMMUError::InvalidAddress:
+                    stallEventType = EventType::F_ADDR_SIZE;
+                    break;
+                case SMMUError::PageNotMapped:
+                default:
+                    stallEventType = EventType::F_TRANSLATION;
+                    break;
+            }
+            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true);
             return makeTranslationError(SMMUError::Stalled);
         }
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
