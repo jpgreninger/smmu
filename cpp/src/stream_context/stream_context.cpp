@@ -324,6 +324,12 @@ bool StreamContext::isHardwareDirtyStateEnabled() const {
     return hd;
 }
 
+// Return the current fault mode for this stream context (FINDING-NEW-08)
+FaultMode StreamContext::getFaultMode() const {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    return faultMode;
+}
+
 // Query if specific PASID exists in this stream context
 // ARM SMMU v3 spec: PASID existence check for management operations
 bool StreamContext::hasPASID(PASID pasid) const {

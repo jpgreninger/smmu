@@ -138,6 +138,15 @@ public:
     /// Returns the current value of SMMU_GBPA.ABORT.
     bool isGbpaAbort() const;
 
+    // ARM §3.12.2: Stall queue management (FINDING-NEW-08)
+    /// Returns a snapshot of all currently stalled transactions.
+    std::vector<StallRecord> getStalledTransactions() const;
+    /// Forcibly abort a stalled transaction by STAG (removes from stall queue).
+    /// Returns true if the STAG was found and removed; false if not found.
+    bool abortStalledTransaction(uint16_t stag);
+    /// Returns the number of currently stalled transactions.
+    size_t getStalledTransactionCount() const;
+
     // Statistics and debugging
     size_t getStreamCount() const;
     uint64_t getTotalTranslations() const;
@@ -202,6 +211,11 @@ private:
     // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
     bool smmuen_;              // SMMUEN bit — false (disabled) at reset
     bool gbpaAbort_;           // GBPA.ABORT bit — false (bypass) at reset
+
+    // ARM §3.12.2: Stall queue for stalled transactions (FINDING-NEW-08)
+    std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map
+    std::atomic<uint16_t> stagCounter_;                       ///< Monotonically incrementing STAG generator
+    mutable std::mutex stallQueueMutex_;                      ///< Protects stallQueue_
 
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;

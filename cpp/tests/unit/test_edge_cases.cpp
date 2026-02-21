@@ -396,13 +396,14 @@ TEST_F(FullQueueTest, CommandQueueOverflow) {
 
 // Test PRI queue overflow
 TEST_F(FullQueueTest, PRIQueueOverflow) {
-    // Configure stream with PRI enabled
+    // Configure stream — use Terminate mode so translation faults return
+    // PageNotMapped directly (stall mode returns SMMUError::Stalled per §3.12.2).
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
     config.stage2Enabled = false;
-    config.faultMode = FaultMode::Stall;  // Enable PRI with stall mode
-    
+    config.faultMode = FaultMode::Terminate;
+
     ASSERT_TRUE(smmuController->configureStream(VALID_STREAM_ID, config).isOk());
     ASSERT_TRUE(smmuController->enableStream(VALID_STREAM_ID).isOk());
     ASSERT_TRUE(smmuController->createStreamPASID(VALID_STREAM_ID, VALID_PASID).isOk());

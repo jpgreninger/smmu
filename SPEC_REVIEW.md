@@ -279,9 +279,9 @@ Add the missing TLB invalidation variants and `CMD_STALL_TERM`.
 
 ---
 
-### FINDING-H-05 ✅ Fixed (Rust) — Stall Mode / CMD_RESUME Not Implemented
+### FINDING-H-05 ✅ Fixed (Both) — Stall Mode / CMD_RESUME Not Implemented
 **Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM), §3.12.2 (Stall fault model)
-**Affected**: Both
+**Affected**: Both (C++ completed via FINDING-NEW-08)
 
 The Stall model requires the SMMU to halt transaction processing and wait for
 `CMD_RESUME(StreamID, SSec, STAG, Action, Abort)`. The STAG field identifies
@@ -297,15 +297,10 @@ the stalled transaction group.
 - Public API: `get_stalled_transactions()` and `abort_stalled_transaction(stag)`.
 - 13 TDD spec tests in `tests/test_stall_resume_spec.rs` — all pass.
 
-- **C++**: `FaultMode::Stall` is defined and `RESUME` command type exists, but
-  `processCommand` does not implement stall semantics. No mechanism holds a
-  stalled transaction or matches it with a RESUME STAG.
-- **Rust**: `Resume` command type exists but falls through to the `_` arm in
-  `process_single_command` with no processing.
-
-**Recommendation**: Implement stall transaction queuing with a STAG. The
-`CMD_RESUME` handler must look up the stalled transaction by STAG and either
-complete or abort it.
+- **C++**: ✅ Fixed — see FINDING-NEW-08. Full stall queue with STAG tracking,
+  CMD_RESUME with Ac/Ab semantics and StreamID verification, CMD_STALL_TERM
+  that terminates all stalled transactions for a stream. 17 spec tests pass.
+- **Rust**: ✅ Fixed — as described above.
 
 ---
 
@@ -927,24 +922,34 @@ building hypervisor-level simulation platforms.
 
 ---
 
-### FINDING-NEW-08 ❌ — CMD_RESUME / CMD_STALL_TERM Are No-Ops; No Action/Abort (C++)
+### FINDING-NEW-08 ✅ Fixed (C++) — CMD_RESUME / CMD_STALL_TERM Are No-Ops; No Action/Abort
 **Spec**: §4.6 (CMD_RESUME), §4.7 (CMD_STALL_TERM), §3.12.2 (Stall model)
 **Affected**: C++
 
-The C++ `processCommand()` switch handles `RESUME` and `STALL_TERM` with empty
-`break` stubs. No stall queue exists in C++ (FINDING-H-05 was Rust-only). Beyond
-the missing stall infrastructure, `CommandEntry` also lacks `stag`, `action`, and
-`abort` fields, so the `Ac`/`Ab` outcome semantics cannot be added without a
-struct extension.
-
-**Evidence** (`cpp/src/smmu/smmu.cpp:1648-1657`):
-```cpp
-case CommandType::RESUME:
-    // Could implement transaction restart logic
-    break;
-case CommandType::STALL_TERM:
-    break;
-```
+**Fix**:
+- Added `SMMUError::Stalled` to the error enum — returned when `FaultMode::Stall`
+  is active and a translation fault occurs.
+- Added `StallRecord` struct carrying STAG, StreamID, PASID, IOVA, AccessType,
+  SecurityState, and timestamp (`cpp/include/smmu/types.h`).
+- Extended `CommandEntry` with `stag: uint16_t`, `action: bool` (Ac bit),
+  `abort: bool` (Ab bit); both constructors default to `0/false/false`.
+- Added `stallQueue_: unordered_map<uint16_t, StallRecord>`,
+  `stagCounter_: atomic<uint16_t>`, and `stallQueueMutex_: mutex` to `SMMU`.
+- Added `StreamContext::getFaultMode() const` public accessor.
+- `translate()`: when `streamContext->getFaultMode() == FaultMode::Stall` and a
+  fault occurs, atomically allocates a STAG, inserts a `StallRecord` into
+  `stallQueue_`, generates `F_TRANSLATION` event with `stall=true`, and returns
+  `SMMUError::Stalled`.
+- `CMD_RESUME` handler: looks up STAG in `stallQueue_`, verifies StreamID match
+  per §4.6, erases record. All three Ac/Ab outcomes (retry/terminate/abort)
+  retire the stall record; no-op on STAG-not-found or StreamID mismatch.
+- `CMD_STALL_TERM` handler: erases all `StallRecord` entries whose streamID
+  matches `command.streamID` (§4.7 — terminates all stalled transactions for stream).
+- `reset()` clears `stallQueue_` and resets `stagCounter_` to 0.
+- Public API: `getStalledTransactions()`, `abortStalledTransaction(stag)`,
+  `getStalledTransactionCount()`.
+- 17 TDD spec tests in `cpp/tests/unit/test_stall_resume_spec.cpp` — all pass.
+- Full suite: 50/51 tests pass (1 pre-existing unrelated failure).
 
 ---
 
@@ -1087,7 +1092,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 36. ~~FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)~~ ✅ Fixed
 37. ~~FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)~~ ✅ Fixed
 38. ~~FINDING-NEW-09 — SMMUEN global enable not implemented (C++)~~ ✅ Fixed
-39. FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)
+39. ~~FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)~~ ✅ Fixed
 
 ---
 

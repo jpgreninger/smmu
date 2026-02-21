@@ -61,7 +61,8 @@ SMMU::SMMU()
       priqCons(0),
       gerrorStatus(0),
       smmuen_(false),
-      gbpaAbort_(false) {
+      gbpaAbort_(false),
+      stagCounter_(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -97,7 +98,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       priqCons(0),
       gerrorStatus(0),
       smmuen_(false),
-      gbpaAbort_(false) {
+      gbpaAbort_(false),
+      stagCounter_(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -232,15 +234,23 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
         cacheTranslationResult(streamID, pasid, iova, result, currentTime);
     } else if (result.isError()) {
-        handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
-
-        // ARM SMMU v3 spec: Fault recovery based on global fault mode.
-        // classifyTranslationFault acquires the stripe lock internally; it is
-        // safe to call here because the lock was released above (BUG-01/BUG-06).
-        if (globalFaultMode == FaultMode::Stall) {
-            FaultType faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);
-            (void)faultType;
+        // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
+        // If the stream is configured for stall, enqueue a StallRecord and return
+        // Stalled instead of the original error — software must issue CMD_RESUME.
+        bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall);
+        if (inStallMode) {
+            uint16_t stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+            StallRecord record(stag, streamID, pasid, iova, accessType, securityState, currentTime);
+            {
+                std::lock_guard<std::mutex> slock(stallQueueMutex_);
+                stallQueue_[stag] = record;
+            }
+            // Generate the fault event with stall=true so software can identify
+            // which event queue entries require CMD_RESUME (§7.3, §3.5.3).
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState, /*isStall=*/true);
+            return makeTranslationError(SMMUError::Stalled);
         }
+        handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
     }
 
     return result;
@@ -604,6 +614,13 @@ void SMMU::reset() {
     // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
     smmuen_ = false;
     gbpaAbort_ = false;
+
+    // ARM §3.12.2: Clear stall queue on reset.
+    {
+        std::lock_guard<std::mutex> slock(stallQueueMutex_);
+        stallQueue_.clear();
+    }
+    stagCounter_.store(0, std::memory_order_relaxed);
 }
 
 // Helper methods
@@ -1688,16 +1705,38 @@ void SMMU::processCommand(const CommandEntry& command) {
             break;
         }
 
-        case CommandType::RESUME:
-            // Resume processing command
-            // ARM SMMU v3 spec: Resume stalled transactions
-            // Could implement transaction restart logic
+        case CommandType::RESUME: {
+            // ARM §4.6: CMD_RESUME — resume or abort a stalled transaction.
+            // Three outcomes based on Ac (action) and Ab (abort) bits:
+            //   Ac=1:           Retry  — transaction may be retried.
+            //   Ac=0, Ab=0:     Terminate successfully (RAZ/WI from device perspective).
+            //   Ac=0, Ab=1:     Abort with bus error.
+            // Per §4.6: only retire the record if its StreamID matches.
+            std::lock_guard<std::mutex> slock(stallQueueMutex_);
+            auto it = stallQueue_.find(command.stag);
+            if (it != stallQueue_.end() && it->second.streamID == command.streamID) {
+                // Outcome is determined by Ac/Ab — in the SW model all three outcomes
+                // simply retire the stall record (actual retry/abort is the caller's
+                // responsibility via re-issuing or discarding the DMA transaction).
+                stallQueue_.erase(it);
+            }
+            // If STAG not found or StreamID mismatch: no effect (§4.6).
             break;
+        }
 
-        case CommandType::STALL_TERM:
-            // Stall termination command — terminate stalled transaction
-            // ARM SMMU v3 spec §4.7: No side effects beyond aborting the stall
+        case CommandType::STALL_TERM: {
+            // ARM §4.7: CMD_STALL_TERM — abort ALL stalled transactions for StreamID.
+            // Removes every StallRecord whose streamID matches command.streamID.
+            std::lock_guard<std::mutex> slock(stallQueueMutex_);
+            for (auto it = stallQueue_.begin(); it != stallQueue_.end(); ) {
+                if (it->second.streamID == command.streamID) {
+                    it = stallQueue_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             break;
+        }
             
         case CommandType::SYNC:
             // Synchronization barrier
@@ -1744,6 +1783,33 @@ void SMMU::setGbpaAbort(bool abort) {
 
 bool SMMU::isGbpaAbort() const {
     return gbpaAbort_;
+}
+
+// ARM §3.12.2: Stall queue management (FINDING-NEW-08)
+
+std::vector<StallRecord> SMMU::getStalledTransactions() const {
+    std::lock_guard<std::mutex> slock(stallQueueMutex_);
+    std::vector<StallRecord> result;
+    result.reserve(stallQueue_.size());
+    for (const auto& pair : stallQueue_) {
+        result.push_back(pair.second);
+    }
+    return result;
+}
+
+bool SMMU::abortStalledTransaction(uint16_t stag) {
+    std::lock_guard<std::mutex> slock(stallQueueMutex_);
+    auto it = stallQueue_.find(stag);
+    if (it != stallQueue_.end()) {
+        stallQueue_.erase(it);
+        return true;
+    }
+    return false;
+}
+
+size_t SMMU::getStalledTransactionCount() const {
+    std::lock_guard<std::mutex> slock(stallQueueMutex_);
+    return stallQueue_.size();
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,

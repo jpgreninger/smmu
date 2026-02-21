@@ -2557,34 +2557,35 @@ TEST_F(SMMUTest, Task81_ComprehensiveFaultHandlingIntegration) {
     const IOVA unmappedIova = 0x20000;
     const PA validPA = 0x30000;
     
-    // Configure stream for fault testing
+    // Configure stream for fault testing — use Terminate mode so fault codes
+    // are returned directly (stall mode would return SMMUError::Stalled per §3.12.2).
     StreamConfig faultConfig;
     faultConfig.translationEnabled = true;
     faultConfig.stage1Enabled = true;
     faultConfig.stage2Enabled = false;  // Use Stage1-only for consistent behavior
-    faultConfig.faultMode = FaultMode::Stall;
-    
+    faultConfig.faultMode = FaultMode::Terminate;
+
     EXPECT_TRUE(smmuController->configureStream(faultStream, faultConfig).isOk());
     EXPECT_TRUE(smmuController->enableStream(faultStream).isOk());
     EXPECT_TRUE(smmuController->createStreamPASID(faultStream, faultPasid).isOk());
-    
+
     // Map page with restricted permissions for permission fault testing
     PagePermissions readOnlyPerms(true, false, false);  // Read-only
     EXPECT_TRUE(smmuController->mapPage(faultStream, faultPasid, validIova, validPA, readOnlyPerms).isOk());
-    
+
     smmuController->clearEvents();
     uint64_t initialFaults = smmuController->getTotalFaults();
-    
+
     // Test translation fault (unmapped address)
     TranslationResult translationFaultResult = smmuController->translate(faultStream, faultPasid, unmappedIova, AccessType::Read);
     EXPECT_TRUE(translationFaultResult.isError());
     EXPECT_EQ(translationFaultResult.getError(), SMMUError::PageNotMapped);
-    
+
     // Test permission fault (write to read-only page)
     TranslationResult permissionFaultResult = smmuController->translate(faultStream, faultPasid, validIova, AccessType::Write);
     EXPECT_TRUE(permissionFaultResult.isError());
     EXPECT_EQ(permissionFaultResult.getError(), SMMUError::PagePermissionViolation);
-    
+
     // Test execute permission fault
     TranslationResult executeFaultResult = smmuController->translate(faultStream, faultPasid, validIova, AccessType::Execute);
     EXPECT_TRUE(executeFaultResult.isError());

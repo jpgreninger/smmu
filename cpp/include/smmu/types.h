@@ -145,7 +145,12 @@ enum class SMMUError {
     /// @brief Transaction aborted by SMMU_GBPA.ABORT (§3.11, §13.2).
     ///        Returned when SMMUEN=0 and GBPA.ABORT=1; all transactions are
     ///        aborted instead of bypassed with an identity mapping.
-    GbpaAbort
+    GbpaAbort,
+
+    /// @brief Transaction stalled, awaiting CMD_RESUME (§3.12.2, §4.6).
+    ///        Returned when FaultMode::Stall is active and a fault occurs.
+    ///        The caller must issue CMD_RESUME with the STAG returned in the event.
+    Stalled
 };
 
 /**
@@ -1180,15 +1185,18 @@ struct CommandEntry {
     /// 31 → CMD_CFGI_ALL (full global invalidation).
     /// <31 → CMD_CFGI_STE_RANGE: match streams where (sid >> (range+1)) == (streamID >> (range+1)).
     uint8_t range;  // defaults to 31 (CMD_CFGI_ALL semantics)
+    uint16_t stag;  ///< ARM §4.6: STAG field — identifies stalled transaction for RESUME/STALL_TERM
+    bool action;    ///< ARM §4.6: Ac bit — true=retry, false=terminate or abort
+    bool abort;     ///< ARM §4.6: Ab bit — true=abort with bus error, false=terminate successfully (only when action=false)
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
-                    prgIndex(0), range(31) {
+                    prgIndex(0), range(31), stag(0), action(false), abort(false) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
-          flags(0), timestamp(0), prgIndex(0), range(31) {
+          flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false) {
     }
 };
 
@@ -1266,6 +1274,29 @@ struct EventEntry {
         : type(eventType), streamID(sid), pasid(p), address(addr),
           securityState(secState), errorCode(0), timestamp(0),
           stall(false) {
+    }
+};
+
+/// @brief ARM §3.12.2: Record of a stalled transaction awaiting CMD_RESUME.
+struct StallRecord {
+    uint16_t stag;               ///< Stall Tag — identifies the stalled transaction group
+    StreamID streamID;           ///< Stream ID of the stalled transaction
+    PASID pasid;                 ///< PASID of the stalled transaction
+    IOVA iova;                   ///< Input address of the stalled transaction
+    AccessType accessType;       ///< Access type of the stalled transaction
+    SecurityState securityState; ///< Security state of the stalled transaction
+    uint64_t timestamp;          ///< When the stall was recorded
+
+    StallRecord()
+        : stag(0), streamID(0), pasid(0), iova(0),
+          accessType(AccessType::Read), securityState(SecurityState::NonSecure),
+          timestamp(0) {
+    }
+
+    StallRecord(uint16_t s, StreamID sid, PASID p, IOVA i, AccessType at,
+                SecurityState ss, uint64_t ts)
+        : stag(s), streamID(sid), pasid(p), iova(i), accessType(at),
+          securityState(ss), timestamp(ts) {
     }
 };
 

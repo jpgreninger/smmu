@@ -49,6 +49,8 @@ public:
     void setHardwareDirtyState(bool hd);
     bool isHardwareAccessFlagEnabled() const;
     bool isHardwareDirtyStateEnabled() const;
+    /// Returns the current fault mode for this stream context.
+    FaultMode getFaultMode() const;
     
     // Query operations
     bool hasPASID(PASID pasid) const;
