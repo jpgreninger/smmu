@@ -91,6 +91,14 @@ pub enum TranslationError {
         /// Stall TAG — unique identifier for this stalled transaction
         stag: u16,
     },
+
+    /// Transaction aborted by GBPA.ABORT (ARM §3.11, §13.2)
+    ///
+    /// Returned when `SMMUEN=0` (SMMU disabled) and `GBPA.ABORT=1`.
+    /// In this state the SMMU aborts all incoming transactions instead of
+    /// bypassing them with an identity mapping.  No fault event is enqueued.
+    #[error("Transaction aborted by GBPA.ABORT (SMMUEN=0, GBPA.ABORT=1)")]
+    GbpaAbort,
 }
 
 /// Translation result data structure

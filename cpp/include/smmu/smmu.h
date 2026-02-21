@@ -123,6 +123,21 @@ public:
     uint32_t getGerror() const;
     void clearGerror(uint32_t bits);
 
+    // ARM §6.3.9 SMMU_CR0.SMMUEN / §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
+    /// Enable the SMMU globally (SMMUEN=1).  When enabled, translations go
+    /// through the full stream/page-table path.
+    void enable();
+    /// Disable the SMMU globally (SMMUEN=0).  When disabled, transactions
+    /// bypass (identity PA) or abort depending on GBPA.ABORT.
+    void disable();
+    /// Returns true when SMMUEN=1 (SMMU globally enabled).
+    bool isEnabled() const;
+    /// Set SMMU_GBPA.ABORT.  When true and SMMUEN=0, all transactions abort
+    /// with SMMUError::GbpaAbort instead of bypassing.
+    void setGbpaAbort(bool abort);
+    /// Returns the current value of SMMU_GBPA.ABORT.
+    bool isGbpaAbort() const;
+
     // Statistics and debugging
     size_t getStreamCount() const;
     uint64_t getTotalTranslations() const;
@@ -183,6 +198,10 @@ private:
 
     // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
     uint32_t gerrorStatus;     // global error flags; cleared by clearGerror()
+
+    // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
+    bool smmuen_;              // SMMUEN bit — false (disabled) at reset
+    bool gbpaAbort_;           // GBPA.ABORT bit — false (bypass) at reset
 
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;

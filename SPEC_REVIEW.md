@@ -370,7 +370,7 @@ The SMMU must start disabled after reset.
 
 ---
 
-### FINDING-NEW-01 ❌ — GBPA.ABORT Path Not Modeled (SMMUEN=0)
+### FINDING-NEW-01 ✅ Fixed — GBPA.ABORT Path Not Modeled (SMMUEN=0)
 **Spec**: §3.11 (Reset, Enable, and initialization), §6.3.9 (SMMU_CR0), §13.2 (SMMU disabled global bypass attributes)
 **Affected**: Both
 
@@ -389,6 +389,18 @@ the SMMU resets — is not modeled. Neither `SMMUConfig` nor `StreamConfig` has 
 **Evidence**:
 - **Rust** (`rust/smmu/src/smmu/mod.rs:1475-1486`): `if !self.enabled` → identity PA, full RW, no fault.
 - **C++** (`cpp/src/smmu/smmu.cpp:119-226`): no SMMUEN check at all; translates on every call.
+
+**Fix**:
+- **Rust**: Added `gbpa_abort: AtomicBool` field to `SMMU`; added `is_gbpa_abort()` and
+  `set_gbpa_abort(bool)` methods; updated bypass path in `translate()` to check
+  `gbpa_abort` — when SMMUEN=0 and GBPA.ABORT=1 returns `TranslationError::GbpaAbort`.
+  Added `GbpaAbort` variant to `TranslationError`. 11 TDD tests in
+  `rust/smmu/tests/test_gbpa_abort_spec.rs`.
+- **C++**: Added `GbpaAbort` to `SMMUError` enum; added `smmuen_` and `gbpaAbort_` private
+  members; added `enable()`, `disable()`, `isEnabled()`, `setGbpaAbort(bool)`,
+  `isGbpaAbort()` public methods; inserted SMMUEN/GBPA check at top of `translate()`.
+  C++ defaults `smmuen_=true` (backward-compatible — C++ SMMU had no SMMUEN concept;
+  Rust correctly starts disabled).
 
 ---
 
@@ -1060,7 +1072,7 @@ tests, VMID handling, ASID-targeted invalidation, stall mode completion.
 34. ~~FINDING-NEW-04 — CMD_RESUME missing Action/Abort parameters (Rust)~~ ✅ Fixed
 35. ~~FINDING-NEW-10 — CMD_RESUME does not verify STAG/StreamID (Rust)~~ ✅ Fixed
 36. ~~FINDING-NEW-05 — CMD_CFGI_STE_RANGE range prefix semantics absent (Both)~~ ✅ Fixed
-37. FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)
+37. ~~FINDING-NEW-01 — GBPA.ABORT abort-on-disable path not modeled (Both)~~ ✅ Fixed
 38. FINDING-NEW-09 — SMMUEN global enable not implemented (C++)
 39. FINDING-NEW-08 — CMD_RESUME / CMD_STALL_TERM are no-ops; no Ac/Ab (C++)
 

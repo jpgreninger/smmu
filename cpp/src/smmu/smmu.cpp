@@ -36,7 +36,7 @@ static uint32_t queueOccupied(uint32_t prod, uint32_t cons, uint32_t log2size) {
 }
 
 // Default constructor - Initialize SMMU with default configuration
-SMMU::SMMU() 
+SMMU::SMMU()
     : faultHandler(std::shared_ptr<FaultHandler>(new FaultHandler())),
       tlbCache(std::unique_ptr<TLBCache>(new TLBCache(SMMUConfiguration::createDefault().getCacheConfiguration().tlbCacheSize))),
       configuration(SMMUConfiguration::createDefault()),
@@ -59,7 +59,9 @@ SMMU::SMMU()
       eventqCons(0),
       priqProd(0),
       priqCons(0),
-      gerrorStatus(0) {
+      gerrorStatus(0),
+      smmuen_(true),
+      gbpaAbort_(false) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -93,7 +95,9 @@ SMMU::SMMU(const SMMUConfiguration& config)
       eventqCons(0),
       priqProd(0),
       priqCons(0),
-      gerrorStatus(0) {
+      gerrorStatus(0),
+      smmuen_(true),
+      gbpaAbort_(false) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -124,7 +128,22 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // Optimization 4: Update translation statistics with relaxed memory ordering
     translationCount.fetch_add(1, std::memory_order_relaxed);
-    
+
+    // §6.3.9 SMMUEN=0: bypass or abort depending on SMMU_GBPA.ABORT (§3.11, §13.2).
+    // FINDING-NEW-01 / FINDING-NEW-09: check SMMUEN before TLB / stream lookup.
+    if (!smmuen_) {
+        if (gbpaAbort_) {
+            // GBPA.ABORT=1: abort all transactions — no identity mapping, no fault event.
+            return makeTranslationError(SMMUError::GbpaAbort);
+        }
+        // GBPA.ABORT=0: bypass — identity mapping (PA == IOVA), no fault.
+        PagePermissions allPerms;
+        allPerms.read = true;
+        allPerms.write = true;
+        allPerms.execute = true;
+        return makeTranslationSuccess(static_cast<PA>(iova), allPerms, securityState);
+    }
+
     // BUG-15: StreamID is uint32_t and MAX_STREAM_ID is 0xFFFFFFFF, so
     // streamID > MAX_STREAM_ID is always false — check removed.
 
@@ -1700,6 +1719,27 @@ uint32_t SMMU::getGerror() const {
 void SMMU::clearGerror(uint32_t bits) {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     gerrorStatus &= ~bits;
+}
+
+// ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
+void SMMU::enable() {
+    smmuen_ = true;
+}
+
+void SMMU::disable() {
+    smmuen_ = false;
+}
+
+bool SMMU::isEnabled() const {
+    return smmuen_;
+}
+
+void SMMU::setGbpaAbort(bool abort) {
+    gbpaAbort_ = abort;
+}
+
+bool SMMU::isGbpaAbort() const {
+    return gbpaAbort_;
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,

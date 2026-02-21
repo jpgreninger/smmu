@@ -170,6 +170,13 @@ pub struct SMMU {
     /// When true, translations go through the full stream/page-table path.
     enabled: AtomicBool,
 
+    /// Global Bypass/Abort flag (SMMU_GBPA.ABORT, §3.11, §13.2)
+    ///
+    /// Only relevant when SMMUEN=0.  When true, all incoming transactions are
+    /// aborted (bus error) instead of receiving an identity bypass mapping.
+    /// Defaults to false (bypass mode) per the SMMU_GBPA reset value.
+    gbpa_abort: AtomicBool,
+
     /// Fault event queue
     ///
     /// Thread-safe fault recording for diagnostic and compliance purposes.
@@ -412,6 +419,7 @@ impl SMMU {
             config: Arc::new(RwLock::new(config)),
             shutdown: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
+            gbpa_abort: AtomicBool::new(false),
             fault_queue: Arc::new(Mutex::new(Vec::new())),
             total_translations: CacheAligned::new(AtomicU64::new(0)),
             successful_translations: CacheAligned::new(AtomicU64::new(0)),
@@ -574,6 +582,26 @@ impl SMMU {
         self.check_shutdown()?;
         self.enabled.store(false, Ordering::Release);
         Ok(())
+    }
+
+    /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
+    ///
+    /// When SMMUEN=0 and this flag is true, all transactions are aborted
+    /// instead of bypassed with an identity mapping.
+    #[inline]
+    #[must_use]
+    pub fn is_gbpa_abort(&self) -> bool {
+        self.gbpa_abort.load(Ordering::Acquire)
+    }
+
+    /// Set or clear SMMU_GBPA.ABORT (§3.11, §13.2).
+    ///
+    /// - `abort=true`: when SMMUEN=0, all transactions abort with `TranslationError::GbpaAbort`.
+    /// - `abort=false` (default): when SMMUEN=0, transactions bypass with identity PA.
+    ///
+    /// Has no effect when SMMUEN=1.
+    pub fn set_gbpa_abort(&self, abort: bool) {
+        self.gbpa_abort.store(abort, Ordering::Release);
     }
 
     // ========================================================================
@@ -1472,9 +1500,14 @@ impl SMMU {
             return Err(TranslationError::StreamNotConfigured);
         }
 
-        // §6.3.9 SMMUEN=0: bypass — identity mapping, no fault.
+        // §6.3.9 SMMUEN=0: bypass or abort depending on GBPA.ABORT (§3.11, §13.2).
         if !self.enabled.load(Ordering::Acquire) {
-            // PA = IOVA (identity); grant full permissions matching the request.
+            if self.gbpa_abort.load(Ordering::Acquire) {
+                // GBPA.ABORT=1: abort all transactions — no identity mapping, no fault event.
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                return Err(TranslationError::GbpaAbort);
+            }
+            // GBPA.ABORT=0: bypass — PA = IOVA (identity); full permissions; no fault.
             let pa = crate::types::PA::new(iova.as_u64())
                 .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
@@ -1707,6 +1740,9 @@ impl SMMU {
             // Stalled is a stall-mode outcome, not a distinct fault class.
             // Map to TranslationFault for event recording purposes.
             TranslationError::Stalled { .. } => FaultType::TranslationFault,
+            // GbpaAbort is a global disable abort — not a per-stream translation fault.
+            // Map to TranslationFault as a safe catch-all (should never reach fault recording).
+            TranslationError::GbpaAbort => FaultType::TranslationFault,
         }
     }
 

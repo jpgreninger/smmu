@@ -139,7 +139,13 @@ enum class SMMUError {
     /// @brief Configuration violates specification constraints
     InvalidConfiguration,
     /// @brief Invalid state machine transition
-    StateTransitionError
+    StateTransitionError,
+
+    // GBPA.ABORT — disabled-SMMU abort path (FINDING-NEW-01)
+    /// @brief Transaction aborted by SMMU_GBPA.ABORT (§3.11, §13.2).
+    ///        Returned when SMMUEN=0 and GBPA.ABORT=1; all transactions are
+    ///        aborted instead of bypassed with an identity mapping.
+    GbpaAbort
 };
 
 /**
