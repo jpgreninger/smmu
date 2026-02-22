@@ -6,7 +6,7 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~93% | Rust ~97% (software model scope — all known gaps resolved)
+**Overall Conformance**: C++ ~91% | Rust ~93% (software model scope — 5 new open gaps from fourth-pass review)
 _(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157)_
 
 Both implementations are software-layer abstractions. They do not implement the
@@ -1764,6 +1764,142 @@ to expect 0 events (CFGI_STE is a no-op — correct per spec).
 55. ~~FINDING-NEW-26 — Stall event record missing STAG field (Both)~~ ✅ Fixed (Both)
 56. ~~FINDING-NEW-27 — CMD_SYNC CS field not modeled; SIG_NONE generates spurious event (Both)~~ ✅ Fixed (Both)
 57. ~~FINDING-NEW-28 — generateEvent() sets errorCode to wrong values (C++)~~ ✅ Fixed (C++)
+
+### New findings (2026-02-22 fourth-pass review)
+58. FINDING-NEW-29 — Two-stage permission intersection absent (Rust) ❌ Open
+59. FINDING-NEW-30 — CMD_STALL_TERM uses STAG lookup instead of StreamID sweep (Rust) ❌ Open
+60. FINDING-NEW-31 — AccessFlagFault maps to wrong event type (Both) ❌ Open
+61. FINDING-NEW-32 — E_PAGE_REQUEST hardcodes NonSecure security state (Both) ❌ Open
+62. FINDING-NEW-33 — CMD_SYNC CS=0b11 reserved not rejected with CERROR_ILL (Both) ❌ Open
+
+---
+
+### FINDING-NEW-29 ❌ — Two-Stage Permission Intersection Absent (Rust)
+**Spec**: §3.3.1 (Two-stage translation), §3.24 (Permission model)
+**Severity**: Critical
+**Affected**: Rust only
+
+`translate_two_stage()` in `rust/smmu/src/stream_context/mod.rs` (lines ~987–1043) discards the
+Stage-1 permissions after completing both walks. It returns the raw `stage2.translate_page()`
+result, which carries only Stage-2 permissions. ARM §3.3.1 requires the effective permissions to
+be the intersection of Stage-1 and Stage-2 permissions. The C++ implementation correctly
+intersects at `smmu.cpp` lines 1117–1120. `PagePermissions::intersection()` already exists in the
+Rust type system; only the call site is missing.
+
+**Evidence**:
+```rust
+// rust/smmu/src/stream_context/mod.rs lines ~1030-1043
+let result = stage2.translate_page(ipa, access_type, security_state);
+// stage1_result permissions are NEVER consulted again — result uses Stage-2 permissions only
+result
+```
+
+**Impact**: Stage-1 read-only pages are silently writable if Stage-2 grants write. Fundamental
+two-stage correctness violation.
+
+**Recommendation**: After both stages succeed, intersect permissions:
+```rust
+let final_perms = s1_data.permissions().intersection(&s2_data.permissions());
+// Validate final_perms vs access_type; return permission fault if denied
+```
+
+---
+
+### FINDING-NEW-30 ❌ — CMD_STALL_TERM Uses STAG Lookup Instead of StreamID Sweep (Rust)
+**Spec**: §4.7.2 (CMD_STALL_TERM)
+**Severity**: High
+**Affected**: Rust only
+
+ARM §4.7.2: `CMD_STALL_TERM(StreamID, SSec)` — no STAG parameter — must terminate ALL stalled
+transactions for the given StreamID. The Rust implementation (`smmu/mod.rs` lines ~2407–2415)
+performs a single STAG-keyed lookup, removing at most one record (same logic as CMD_RESUME).
+The C++ implementation (`smmu.cpp` lines ~1904–1916) correctly iterates the entire stall queue.
+
+**Evidence**:
+```rust
+// rust: smmu/mod.rs lines ~2407-2415
+CommandType::StallTerm => {
+    let stream_matches = self.stall_queue.get(&command.stag)
+        .map_or(false, |r| r.stream_id == command.stream_id);
+    if stream_matches { self.stall_queue.remove(&command.stag); }
+},
+```
+
+**Impact**: Multiple concurrent stalls for a stream are not fully cleared; residual stall records
+block stream teardown.
+
+**Recommendation**:
+```rust
+CommandType::StallTerm => {
+    self.stall_queue.retain(|_stag, record| record.stream_id != command.stream_id);
+},
+```
+
+---
+
+### FINDING-NEW-31 ❌ — AccessFlagFault Maps to Wrong Event Type (Both)
+**Spec**: §7.3.15 (F_ACCESS, TYPE=0x12)
+**Severity**: Medium
+**Affected**: Both
+
+`FaultType::AccessFlagFault` falls into the catch-all arm of `map_fault_type_to_event_type()` in
+Rust (`smmu/mod.rs` line ~1839) which maps it to `EventType::FTranslation` (0x10). It must map
+to `EventType::FAccess` (0x12). In C++, the `handleTranslationFailure()` switch falls through to
+a no-op `break` for `AccessFlagFault`, so no `F_ACCESS` event reaches the event queue at all.
+
+**Evidence**:
+```rust
+// rust: smmu/mod.rs line ~1839
+FaultType::AccessFlagFault => EventType::FTranslation,  // WRONG — should be FAccess (0x12)
+```
+
+**Impact**: Medium. Access-flag faults are misclassified as translation faults; AF-driven
+page-aging implementations cannot distinguish the fault type from the event queue.
+
+**Recommendation**:
+- Rust: add `FaultType::AccessFlagFault => EventType::FAccess,` in `map_fault_type_to_event_type()`
+- C++: call `generateEvent(EventType::F_ACCESS, ...)` from the `AccessFlagFault` branch
+
+---
+
+### FINDING-NEW-32 ❌ — E_PAGE_REQUEST Hardcodes NonSecure Security State (Both)
+**Spec**: §7.3.20 (E_PAGE_REQUEST), §8.2 (PRI queue entry)
+**Severity**: Low
+**Affected**: Both
+
+Both implementations hardcode `SecurityState::NonSecure` when generating `E_PAGE_REQUEST` events,
+ignoring the `securityState` field already present in `PRIEntry`.
+
+**Evidence**:
+- C++ `smmu.cpp` line ~1623: `generateEvent(..., SecurityState::NonSecure)`
+- Rust `smmu/mod.rs` line ~2580: `security_state: SecurityState::NonSecure`
+
+**Recommendation**:
+- C++: `request.securityState`
+- Rust: `req.security_state`
+
+---
+
+### FINDING-NEW-33 ❌ — CMD_SYNC CS=0b11 Reserved Not Rejected with CERROR_ILL (Both)
+**Spec**: §4.8 (CMD_SYNC), §6.3.17 (SMMU_CMDQ_CONS.ERR)
+**Severity**: Medium
+**Affected**: Both
+
+ARM §4.8 Table 4-11: CS=0b11 is Reserved and must cause `CMDQ_ERR` / `CERROR_ILL`. Both
+implementations treat CS=0b11 the same as CS=0b01/0b10 (generating a completion event) because
+the guard is `cs != 0` rather than `cs == 1 || cs == 2`.
+
+**Evidence**:
+- C++: `if (command.cs != 0)` — passes for cs=3
+- Rust: `if command.cs != 0 {` — same issue
+
+**Recommendation**: Add a prior guard:
+```rust
+if command.cs == 0b11 {
+    // CERROR_ILL — set GERROR CMDQ_ERR, do not generate completion
+    return Err(CommandError::IllegalCommand);
+}
+```
 
 ---
 
