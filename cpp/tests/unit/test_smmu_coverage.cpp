@@ -126,8 +126,11 @@ TEST_F(SMMUCoverageTest, TLBInvalidation_UnmapPagePath) {
     TranslationResult result = smmuController->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
 
-    // Unmap page - should trigger invalidation (line 409)
+    // Unmap page (ARM §4.4: TLB maintenance is caller's responsibility)
     EXPECT_TRUE(smmuController->unmapPage(TEST_STREAM_ID, TEST_PASID, TEST_IOVA).isOk());
+
+    // Explicit TLBI required per spec before re-translating
+    smmuController->invalidatePASIDCache(TEST_STREAM_ID, TEST_PASID);
 
     // Translation should now fail (page unmapped)
     result = smmuController->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);

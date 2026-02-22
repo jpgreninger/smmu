@@ -6,8 +6,8 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~85% | Rust ~91% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21)_
+**Overall Conformance**: C++ ~89% | Rust ~95% (software model scope)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1264,13 +1264,23 @@ NEW-15 resolved 2026-02-21: removed `generateEvent(F_STREAM_DISABLED)` for
 NEW-16 resolved 2026-02-21: OAS checks added for GBPA bypass (silent abort)
 and STE bypass (F_ADDR_SIZE) in both C++ and Rust. Tests: 4 new tests in
 `test_addr_size_fault_spec.cpp`; existing Rust bypass tests still pass.
-Open gaps (NEW-17, NEW-18) do not yet have associated test cases.
+NEW-17 resolved 2026-02-21: `CommandEntry.leaf` field added (Both). Tests:
+2 C++ tests in `test_s1dss_spec.cpp` (8/8 pass); 4 Rust tests in
+`test_s1dss_spec.rs` (17/17 pass).
+NEW-18 resolved 2026-02-21: `StreamConfig.s1dss`/`s1cdMax` fields and S1DSS
+routing (abort/bypass/CD[0]) implemented (Both). Tests: 6 C++ tests in
+`test_s1dss_spec.cpp`; 13 Rust tests in `test_s1dss_spec.rs` — all passing.
+Also fixed 2 pre-existing test failures (`TLBInvalidation_UnmapPagePath`,
+`PageUnmapCacheInvalidation`) by adding explicit `invalidatePASIDCache()` per
+ARM §4.4. C++ now 56/56 (100%).
 
 **Rust**: All 157 tests passing (100%). NEW-15 and NEW-16 implemented in
 `rust/smmu/src/smmu/mod.rs`: suppressed StreamDisabled event recording,
 added OAS checks for GBPA bypass and STE bypass, fixed `AddressSizeFault`
 → `FAddrSize` mapping in `map_fault_type_to_event_type()`.
-Open gaps (NEW-17, NEW-18) do not yet have associated test cases.
+NEW-17 and NEW-18 implemented in `rust/smmu/src/smmu/mod.rs`,
+`rust/smmu/src/stream_context/mod.rs`, `rust/smmu/src/types/command_entry.rs`,
+and `rust/smmu/src/types/config.rs`. All 157 Rust tests passing (100%).
 
 ---
 

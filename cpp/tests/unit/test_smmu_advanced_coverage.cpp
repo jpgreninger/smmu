@@ -846,8 +846,11 @@ TEST_F(SMMUAdvancedCoverageTest, PageUnmapCacheInvalidation) {
     TranslationResult r1 = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(r1.isOk());
 
-    // Unmap page (should invalidate cache)
+    // Unmap page (ARM §4.4: TLB maintenance is caller's responsibility)
     EXPECT_TRUE(smmuController->unmapPage(STREAM1, PASID1, TEST_IOVA1).isOk());
+
+    // Explicit TLBI required per spec before re-translating
+    smmuController->invalidatePASIDCache(STREAM1, PASID1);
 
     // Subsequent translation should fail (page unmapped)
     TranslationResult r2 = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
