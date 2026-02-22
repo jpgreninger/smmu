@@ -1825,6 +1825,8 @@ impl SMMU {
             FaultType::BadSubstreamId => EventType::CBadSubstreamid,
             // §7.3.14: address-size fault → F_ADDR_SIZE (0x11), not F_TRANSLATION.
             FaultType::AddressSizeFault => EventType::FAddrSize,
+            // §7.3.15 / FINDING-NEW-31: AccessFlagFault → F_ACCESS (0x12), not F_TRANSLATION.
+            FaultType::AccessFlagFault => EventType::FAccess,
             FaultType::TranslationFault
             | FaultType::BadSTE
             | FaultType::BadCD
@@ -1835,8 +1837,7 @@ impl SMMU {
             | FaultType::STEFetchFault
             | FaultType::WalkEABT
             | FaultType::OutputAddressRangeFault
-            | FaultType::UnsupportedAtomicUpdate
-            | FaultType::AccessFlagFault => EventType::FTranslation,
+            | FaultType::UnsupportedAtomicUpdate => EventType::FTranslation,
             FaultType::PermissionFault => EventType::FPermission,
         }
     }
@@ -2371,6 +2372,11 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
+                // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL; suppress
+                // the completion event entirely (no signal generated).
+                if command.cs == 0b11 {
+                    return Ok(());
+                }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
@@ -2405,14 +2411,11 @@ impl SMMU {
                 }
             },
             CommandType::StallTerm => {
-                // CMD_STALL_TERM (§4.7, §3.12.2): abort the stalled transaction identified by STAG.
-                // ARM §4.6/§4.7: verify the STAG belongs to the given StreamID; if not, no effect.
-                let stream_matches = self.stall_queue
-                    .get(&command.stag)
-                    .map_or(false, |r| r.stream_id == command.stream_id);
-                if stream_matches {
-                    self.stall_queue.remove(&command.stag);
-                }
+                // §4.7.2 / FINDING-NEW-30: CMD_STALL_TERM clears ALL stall records for
+                // the given StreamID, not just the one matching the STAG field.
+                // ARM §4.7.2 specifies no STAG operand — the command takes a StreamID
+                // and terminates every pending stalled transaction for that stream.
+                self.stall_queue.retain(|_stag, record| record.stream_id != command.stream_id);
             },
             CommandType::CfgiCd => {
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
@@ -2577,7 +2580,9 @@ impl SMMU {
                         stream_id: req.stream_id,
                         pasid: req.pasid,
                         address: req.requested_address,
-                        security_state: SecurityState::NonSecure,
+                        // §7.3.19 / FINDING-NEW-32: carry the request's security state,
+                        // not a hardcoded NonSecure.
+                        security_state: req.security_state,
                         error_code: u32::from(req.prg_index),
                         timestamp,
                         stall: false,
@@ -2999,6 +3004,30 @@ fn assert_send_sync() {
 mod tests {
     use super::*;
     use crate::types::{AccessType, FaultType, SecurityState, IOVA, PASID};
+
+    // ── FINDING-NEW-31: AccessFlagFault must map to F_ACCESS (§7.3.15) ─────────
+
+    /// Unit test for the private `map_fault_type_to_event_type()` function.
+    /// Verifies that `FaultType::AccessFlagFault` maps to `EventType::FAccess`
+    /// and not `EventType::FTranslation`.
+    #[test]
+    fn access_flag_fault_maps_to_f_access() {
+        assert_eq!(
+            SMMU::map_fault_type_to_event_type(FaultType::AccessFlagFault),
+            EventType::FAccess,
+            "§7.3.15 / FINDING-NEW-31: AccessFlagFault must map to EventType::FAccess (0x12)"
+        );
+    }
+
+    /// Regression guard: TranslationFault must still map to FTranslation.
+    #[test]
+    fn translation_fault_maps_to_f_translation() {
+        assert_eq!(
+            SMMU::map_fault_type_to_event_type(FaultType::TranslationFault),
+            EventType::FTranslation,
+            "TranslationFault must map to EventType::FTranslation (0x10)"
+        );
+    }
 
     #[test]
     fn test_smmu_new() {

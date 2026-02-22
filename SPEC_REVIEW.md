@@ -1,13 +1,13 @@
 # ARM SMMU v3 Conformance Review
 
 **Specification**: ARM IHI 0070 G.b (April 30, 2025)
-**Review Date**: 2026-02-22 (third pass re-review)
+**Review Date**: 2026-02-22 (fourth pass re-review)
 **Implementations**:
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~91% | Rust ~93% (software model scope — 5 new open gaps from fourth-pass review)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157)_
+**Overall Conformance**: C++ ~94% | Rust ~98% (software model scope — all known gaps resolved)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1766,15 +1766,15 @@ to expect 0 events (CFGI_STE is a no-op — correct per spec).
 57. ~~FINDING-NEW-28 — generateEvent() sets errorCode to wrong values (C++)~~ ✅ Fixed (C++)
 
 ### New findings (2026-02-22 fourth-pass review)
-58. FINDING-NEW-29 — Two-stage permission intersection absent (Rust) ❌ Open
-59. FINDING-NEW-30 — CMD_STALL_TERM uses STAG lookup instead of StreamID sweep (Rust) ❌ Open
-60. FINDING-NEW-31 — AccessFlagFault maps to wrong event type (Both) ❌ Open
-61. FINDING-NEW-32 — E_PAGE_REQUEST hardcodes NonSecure security state (Both) ❌ Open
-62. FINDING-NEW-33 — CMD_SYNC CS=0b11 reserved not rejected with CERROR_ILL (Both) ❌ Open
+58. ~~FINDING-NEW-29 — Two-stage permission intersection absent (Rust)~~ ✅ Fixed (Rust)
+59. ~~FINDING-NEW-30 — CMD_STALL_TERM uses STAG lookup instead of StreamID sweep (Rust)~~ ✅ Fixed (Rust)
+60. ~~FINDING-NEW-31 — AccessFlagFault maps to wrong event type (Both)~~ ✅ Fixed (Both)
+61. ~~FINDING-NEW-32 — E_PAGE_REQUEST hardcodes NonSecure security state (Both)~~ ✅ Fixed (Both)
+62. ~~FINDING-NEW-33 — CMD_SYNC CS=0b11 reserved not rejected with CERROR_ILL (Both)~~ ✅ Fixed (Both)
 
 ---
 
-### FINDING-NEW-29 ❌ — Two-Stage Permission Intersection Absent (Rust)
+### FINDING-NEW-29 ✅ — Two-Stage Permission Intersection Absent (Rust)
 **Spec**: §3.3.1 (Two-stage translation), §3.24 (Permission model)
 **Severity**: Critical
 **Affected**: Rust only
@@ -1803,9 +1803,16 @@ let final_perms = s1_data.permissions().intersection(&s2_data.permissions());
 // Validate final_perms vs access_type; return permission fault if denied
 ```
 
+**Resolution (2026-02-22)**: In `translate_two_stage()` (`stream_context/mod.rs`), after both
+stages succeed the Stage-1 and Stage-2 `PagePermissions` are now intersected via
+`PagePermissions::intersection()`. If the intersected permissions deny the requested access type,
+a `PermissionFault` is recorded and `TranslationError::PermissionViolation` returned. Otherwise a
+new `TranslationData` is constructed from Stage-2's PA, the intersected permissions, and Stage-2's
+security state. Test coverage: 3 tests in `test_new29_30_spec.rs`. Rust 158/158 tests pass.
+
 ---
 
-### FINDING-NEW-30 ❌ — CMD_STALL_TERM Uses STAG Lookup Instead of StreamID Sweep (Rust)
+### FINDING-NEW-30 ✅ — CMD_STALL_TERM Uses STAG Lookup Instead of StreamID Sweep (Rust)
 **Spec**: §4.7.2 (CMD_STALL_TERM)
 **Severity**: High
 **Affected**: Rust only
@@ -1835,9 +1842,14 @@ CommandType::StallTerm => {
 },
 ```
 
+**Resolution (2026-02-22)**: Replaced the STAG-keyed single-remove with
+`stall_queue.retain(|_, r| r.stream_id != command.stream_id)` in `smmu/mod.rs`. Test coverage:
+1 test in `test_new29_30_spec.rs` verifying all records cleared for target stream while other
+stream's records survive. Rust 158/158 tests pass.
+
 ---
 
-### FINDING-NEW-31 ❌ — AccessFlagFault Maps to Wrong Event Type (Both)
+### FINDING-NEW-31 ✅ — AccessFlagFault Maps to Wrong Event Type (Both)
 **Spec**: §7.3.15 (F_ACCESS, TYPE=0x12)
 **Severity**: Medium
 **Affected**: Both
@@ -1860,9 +1872,15 @@ page-aging implementations cannot distinguish the fault type from the event queu
 - Rust: add `FaultType::AccessFlagFault => EventType::FAccess,` in `map_fault_type_to_event_type()`
 - C++: call `generateEvent(EventType::F_ACCESS, ...)` from the `AccessFlagFault` branch
 
+**Resolution (2026-02-22)**: Rust — added dedicated arm `FaultType::AccessFlagFault =>
+EventType::FAccess` in `map_fault_type_to_event_type()`. C++ — `handleTranslationFailure()` now
+calls `generateEvent(EventType::F_ACCESS, ...)` for `FaultType::AccessFlagFault`. Test coverage:
+2 tests in `test_new31_33_spec.rs` (Rust) and 2 in `test_new31_33_spec.cpp` (C++). C++ 59/59 |
+Rust 158/158 tests pass.
+
 ---
 
-### FINDING-NEW-32 ❌ — E_PAGE_REQUEST Hardcodes NonSecure Security State (Both)
+### FINDING-NEW-32 ✅ — E_PAGE_REQUEST Hardcodes NonSecure Security State (Both)
 **Spec**: §7.3.20 (E_PAGE_REQUEST), §8.2 (PRI queue entry)
 **Severity**: Low
 **Affected**: Both
@@ -1878,9 +1896,15 @@ ignoring the `securityState` field already present in `PRIEntry`.
 - C++: `request.securityState`
 - Rust: `req.security_state`
 
+**Resolution (2026-02-22)**: Added `SecurityState securityState` to C++ `PRIEntry` and
+`security_state: SecurityState` to Rust `PRIEntry`. Both PRI event paths now propagate
+`request.securityState` / `req.security_state` instead of the hardcoded NonSecure value. Test
+coverage: 2 tests in `test_new31_33_spec.rs` and `test_new31_33_spec.cpp`. C++ 59/59 | Rust
+158/158 tests pass.
+
 ---
 
-### FINDING-NEW-33 ❌ — CMD_SYNC CS=0b11 Reserved Not Rejected with CERROR_ILL (Both)
+### FINDING-NEW-33 ✅ — CMD_SYNC CS=0b11 Reserved Not Rejected with CERROR_ILL (Both)
 **Spec**: §4.8 (CMD_SYNC), §6.3.17 (SMMU_CMDQ_CONS.ERR)
 **Severity**: Medium
 **Affected**: Both
@@ -1900,6 +1924,11 @@ if command.cs == 0b11 {
     return Err(CommandError::IllegalCommand);
 }
 ```
+
+**Resolution (2026-02-22)**: Added `if command.cs == 0b11` early-return guard in both Rust
+`process_single_command()` and C++ `processCommandQueue()`. CS=0b11 now silently suppresses the
+completion event (GERROR register modeling is out-of-scope per FINDING-C-01). Test coverage: 2
+tests in `test_new31_33_spec.rs` and `test_new31_33_spec.cpp`. C++ 59/59 | Rust 158/158 pass.
 
 ---
 

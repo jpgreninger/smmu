@@ -1330,6 +1330,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::Level2TranslationFault:
         case FaultType::Level3TranslationFault:
         case FaultType::AccessFlagFault:
+            // §7.3.15 / FINDING-NEW-31: Access flag fault → F_ACCESS event (0x12).
+            generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState);
+            break;
+
         case FaultType::DirtyBitFault:
         case FaultType::TLBConflictFault:
         case FaultType::ExternalAbort:
@@ -1566,6 +1570,16 @@ void SMMU::processCommandQueue() {
 
         // ARM SMMU v3 spec: Handle synchronization commands
         if (command.type == CommandType::SYNC) {
+            // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL.
+            // Suppress the completion event and record a configuration fault.
+            if (command.cs == 3u) {  // 0b11 = 3: Reserved per §4.8
+                FaultRecord illFault;
+                illFault.streamID = command.streamID;
+                illFault.pasid = command.pasid;
+                illFault.faultType = FaultType::ConfigurationCacheFault;
+                recordFault(illFault);
+                break;
+            }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
             if (command.cs != 0) {
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
@@ -1620,7 +1634,8 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     priQueue.push_back(timestampedRequest);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08)
     priqProd = advanceQueueIndex(priqProd, priqLog2Size);
-    generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, SecurityState::NonSecure);
+    // §7.3.19 / FINDING-NEW-32: carry the request's security state, not a hardcoded NonSecure.
+    generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, request.securityState);
 }
 
 void SMMU::processPRIQueue() {

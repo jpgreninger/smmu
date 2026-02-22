@@ -965,6 +965,7 @@ fn test_pri_queue_submit_page_request() {
         is_last_request: false,
         timestamp: 0,
         prg_index: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_page_request(pri_entry).is_ok());
@@ -985,6 +986,7 @@ fn test_pri_queue_submit_multiple_requests() {
             is_last_request: false,
             timestamp: 0,
             prg_index: 0,
+            security_state: SecurityState::NonSecure,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1009,6 +1011,7 @@ fn test_pri_queue_overflow_with_small_queue() {
             is_last_request: false,
             timestamp: 0,
             prg_index: 0,
+            security_state: SecurityState::NonSecure,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1024,6 +1027,7 @@ fn test_pri_queue_overflow_with_small_queue() {
         is_last_request: false,
         timestamp: 0,
         prg_index: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     let result = smmu.submit_page_request(overflow_entry);
@@ -1048,6 +1052,7 @@ fn test_pri_queue_get_all_requests() {
             is_last_request: false,
             timestamp: 0,
             prg_index: 0,
+            security_state: SecurityState::NonSecure,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1069,6 +1074,7 @@ fn test_pri_queue_process_generates_events() {
         is_last_request: false,
         timestamp: 0,
         prg_index: 0,
+        security_state: SecurityState::NonSecure,
     };
     smmu.submit_page_request(pri_entry).unwrap();
 
@@ -1100,6 +1106,7 @@ fn test_pri_queue_process_multiple_requests() {
             is_last_request: false,
             timestamp: 0,
             prg_index: 0,
+            security_state: SecurityState::NonSecure,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1135,6 +1142,7 @@ fn test_pri_queue_clear() {
             is_last_request: false,
             timestamp: 0,
             prg_index: 0,
+            security_state: SecurityState::NonSecure,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1282,6 +1290,7 @@ fn test_queue_statistics() {
         is_last_request: false,
         timestamp: 0,
         prg_index: 0,
+        security_state: SecurityState::NonSecure,
     })
     .unwrap();
 
@@ -1373,6 +1382,7 @@ fn test_reset_queues_atomically() {
         is_last_request: false,
         timestamp: 0,
         prg_index: 0,
+        security_state: SecurityState::NonSecure,
     })
     .unwrap();
 

@@ -1251,15 +1251,20 @@ struct PRIEntry {
     bool isLastRequest;
     uint64_t timestamp;
     uint16_t prgIndex;  // ARM §8.2 PRGIndex — Page Request Group index
+    /// §7.3.19 / FINDING-NEW-32: Security state of the page request.
+    /// The generated E_PAGE_REQUEST event must carry this state, not a
+    /// hardcoded NonSecure.
+    SecurityState securityState;
 
     PRIEntry() : streamID(0), pasid(0), requestedAddress(0),
                 accessType(AccessType::Read), isLastRequest(false), timestamp(0),
-                prgIndex(0) {
+                prgIndex(0), securityState(SecurityState::NonSecure) {
     }
 
     PRIEntry(StreamID sid, PASID p, IOVA addr, AccessType access)
         : streamID(sid), pasid(p), requestedAddress(addr), accessType(access),
-          isLastRequest(false), timestamp(0), prgIndex(0) {
+          isLastRequest(false), timestamp(0), prgIndex(0),
+          securityState(SecurityState::NonSecure) {
     }
 };
 

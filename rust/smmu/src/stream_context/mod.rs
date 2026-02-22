@@ -1037,9 +1037,32 @@ impl StreamContext {
                 _ => FaultType::TranslationFault,
             };
             self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
+            return result;
         }
 
-        result
+        // §3.3.1 / FINDING-NEW-29: Effective permissions = intersection of Stage-1 and Stage-2.
+        // Stage-2 translation succeeded; intersect its permissions with Stage-1 permissions to
+        // derive the final access rights.  If the intersected permissions deny the requested
+        // access type, record a PermissionFault and return PermissionViolation.
+        let s2_data = result.unwrap();
+        let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
+
+        let access_denied = match access_type {
+            AccessType::Read => !final_perms.read(),
+            AccessType::Write => !final_perms.write(),
+            AccessType::Execute => !final_perms.execute(),
+            AccessType::ReadWrite => !final_perms.read() || !final_perms.write(),
+            AccessType::ReadExecute => !final_perms.read() || !final_perms.execute(),
+            AccessType::WriteExecute => !final_perms.write() || !final_perms.execute(),
+            AccessType::ReadWriteExecute => !final_perms.read() || !final_perms.write() || !final_perms.execute(),
+            AccessType::None => false,
+        };
+        if access_denied {
+            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
+            return Err(TranslationError::PermissionViolation { access: access_type });
+        }
+
+        Ok(TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state()))
     }
 
     /// Bypass mode translation: IOVA = PA (identity mapping)
