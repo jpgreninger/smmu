@@ -1,13 +1,13 @@
 # ARM SMMU v3 Conformance Review
 
 **Specification**: ARM IHI 0070 G.b (April 30, 2025)
-**Review Date**: 2026-02-21 (re-review)
+**Review Date**: 2026-02-22 (third pass re-review)
 **Implementations**:
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~91% | Rust ~96% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157)_
+**Overall Conformance**: C++ ~89% | Rust ~94% (software model scope — 4 new open gaps)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28 — all open)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1352,6 +1352,239 @@ These follow the identical pattern of all other existing setters in the block.
 
 ---
 
+### FINDING-NEW-25 ❌ — TLB Fast-Path Permission Fault Bypasses Stall Mode Check (C++)
+**Spec**: §3.12.2 (Stall model), §7.3.16 (F_PERMISSION)
+**Severity**: High
+**Affected**: C++ only
+
+When a TLB cache hit is found and the cached permissions do not satisfy the requested
+access type, the C++ `translate()` fast path at lines 175-190 of `smmu.cpp` records the
+fault, generates `F_PERMISSION`, and returns `SMMUError::PagePermissionViolation` directly
+— without first checking whether the stream is configured for `FaultMode::Stall`. The stall
+mode check (lines 248-276) only runs against errors returned from
+`performTwoStageTranslation()`, so it is entirely skipped on the TLB fast path.
+
+ARM §3.12.2 states that when a stream is configured for stall mode, ALL translation faults
+(including permission faults) must enter the stall queue and return a stall indication to the
+master. There is no exception for permission faults that are detected via a TLB cache hit
+rather than a page table walk.
+
+The Rust implementation is not affected because its fast path (lines 1483-1495 of
+`rust/smmu/src/smmu/mod.rs`) falls through to the full translation path on permission failure
+(`// Cache hit but insufficient permissions - fall through to full translation`), which
+then correctly routes through the stall mode check.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp lines 174-190
+if (!validateAccessPermissions(entry.permissions, accessType)) {
+    // Permission fault - record fault and return error
+    FaultRecord fault; // ...
+    recordFault(fault);
+    generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
+    return makeTranslationError(SMMUError::PagePermissionViolation);
+    // MISSING: check streamContext->getFaultMode() == FaultMode::Stall before returning
+}
+// The stall mode check at lines 248-276 is never reached for TLB fast-path hits.
+```
+
+**Impact**: A stream configured with `FaultMode::Stall` that has a TLB entry cached for a
+page will never stall on a permission fault against that page. Instead the fault is immediately
+terminated with `PagePermissionViolation`, bypassing the stall queue. Software issuing a
+`CMD_RESUME` for such a transaction will never see the stalled transaction because it was
+never enqueued. This breaks the stall model contract for cached TLB entries.
+
+**Recommendation**: Before the `return makeTranslationError(SMMUError::PagePermissionViolation)`
+in the TLB fast-path permission fault branch, retrieve the stream context's fault mode and apply
+the same stall enqueue logic used in the slow path (lines 248-276). Alternatively, on a cache-hit
+permission failure, skip the fast path and fall through to the full translation path (mirroring
+the Rust approach) so that the existing stall logic handles the fault uniformly.
+
+---
+
+### FINDING-NEW-26 ❌ — Stall Event Record Missing STAG Field (Both)
+**Spec**: §3.12.2 (Stall model), §7.3.13 F_TRANSLATION record layout (bits [94:80] = STAG)
+**Severity**: High
+**Affected**: Both
+
+The ARM SMMU v3 specification §3.12.2 requires that when a translation fault causes a
+transaction to be stalled, the event record written to the Event queue must contain the Stall
+Tag (STAG) that uniquely identifies the stalled transaction. The STAG value is what software
+must provide in a subsequent `CMD_RESUME` to resume the stalled transaction.
+
+Per the spec's event record layout for `F_TRANSLATION` (§7.3.13), `F_ADDR_SIZE` (§7.3.14),
+`F_ACCESS` (§7.3.15), and `F_PERMISSION` (§7.3.16): bits [94:80] of the 256-bit event record
+carry the STAG when Stall==1 (bit [95]). The spec states (§7.3.13): *"The StreamID and STAG
+must be provided to a subsequent CMD_RESUME."*
+
+Neither implementation's `EventEntry` struct has a `stag` field:
+- **C++**: `struct EventEntry` (`cpp/include/smmu/types.h` lines 1290-1316) has: `type`,
+  `streamID`, `pasid`, `address`, `securityState`, `errorCode`, `timestamp`, `stall`.
+  No `stag` field.
+- **Rust**: `struct EventEntry` (`rust/smmu/src/types/event_entry.rs` lines 77-95) has:
+  `event_type`, `stream_id`, `pasid`, `address`, `security_state`, `error_code`, `timestamp`,
+  `stall`. No `stag` field.
+
+When either implementation generates a stall event (C++: `generateEvent(..., isStall=true)` at
+line 275 of `smmu.cpp`; Rust: `record_translation_fault(..., is_stall=true)` at line 1684 of
+`smmu/mod.rs`), the STAG value allocated in `stagCounter_` / `stag_counter` (lines 253 and
+1689 respectively) is stored in the `StallRecord` and returned to the caller via
+`SMMUError::Stalled` / `TranslationError::Stalled { stag }`, but is NOT placed into the
+`EventEntry`. Any software consuming events from the event queue cannot determine which STAG
+to use in a `CMD_RESUME` command.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp lines 253-275
+uint16_t stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+StallRecord record(stag, ...);
+stallQueue_[stag] = record;
+generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true);
+// stag is NOT passed to generateEvent() and NOT stored in EventEntry
+```
+```rust
+// rust/smmu/src/smmu/mod.rs lines 1689-1700
+let stag = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+self.stall_queue.insert(stag, record);
+return Err(TranslationError::Stalled { stag });
+// record_translation_fault() called at line 1684 with is_stall=true does NOT
+// receive or embed the stag in the EventEntry
+```
+
+**Impact**: Software reading the event queue to discover and handle stalled transactions
+cannot extract the STAG from the event record. The STAG is only accessible via the
+`TranslationError::Stalled { stag }` return value of `translate()`, which requires the caller
+to intercept the return value at translation time. This is not how a real OS driver works;
+driver software processes the event queue asynchronously. Without STAG in the event record,
+event-queue-driven fault handlers cannot issue `CMD_RESUME` correctly.
+
+**Recommendation**:
+1. Add a `stag: u16` field to `EventEntry` (both C++ and Rust), defaulting to 0 for
+   non-stall events.
+2. In the stall path of both implementations, pass the allocated STAG to the event
+   generation function and set `event.stag = stag` when `isStall == true`.
+
+---
+
+### FINDING-NEW-27 ❌ — CMD_SYNC CS Field Not Modeled; SIG_NONE Generates Spurious Event (Both)
+**Spec**: §4.8 CMD_SYNC (ComplSignal parameter CS, bits [14:13] of the command word)
+**Severity**: Medium
+**Affected**: Both
+
+ARM §4.8 defines the `ComplSignal` (CS) parameter of `CMD_SYNC` which controls how
+completion is signalled to host software:
+- `CS=0b00` (SIG_NONE): No completion signal. The SMMU takes no further action.
+- `CS=0b01` (SIG_IRQ): Raise an interrupt or write an MSI.
+- `CS=0b10` (SIG_SEV): Send a PE event (WFE wakeup), or SIG_NONE if SEV not supported.
+- `CS=0b11` (Reserved): Must cause `CERROR_ILL` (§6.3.17 GERROR CMDQ_ERR).
+
+Neither implementation models the CS field:
+
+**C++**: `struct CommandEntry` (`cpp/include/smmu/types.h` lines 1201-1238) has no `cs`
+field. `processCommandQueue()` (`smmu.cpp` lines 1567-1571) unconditionally calls
+`generateEvent(EventType::COMMAND_SYNC_COMPLETION, ...)` for every `CMD_SYNC` command,
+regardless of what CS would be.
+
+**Rust**: `struct CommandEntry` (`rust/smmu/src/types/command_entry.rs` lines 89-164) has no
+`cs` field. `process_single_command()` (`smmu/mod.rs` lines 2359-2374) unconditionally
+submits a `CommandSyncCompletion` event for every `Sync` command.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp lines 1567-1571
+if (command.type == CommandType::SYNC) {
+    generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
+                  command.startAddress, SecurityState::NonSecure);
+    break;  // CS field not consulted; event always generated
+}
+```
+```rust
+// rust/smmu/src/smmu/mod.rs lines 2359-2374
+CommandType::Sync => {
+    // No check of a CS field — event always generated
+    let event = EventEntry { event_type: EventType::CommandSyncCompletion, ... };
+    let _ = self.submit_event(event);
+},
+```
+
+**Impact**:
+1. Every `CMD_SYNC` with `CS=0b00` (SIG_NONE) silently generates a spurious
+   `COMMAND_SYNC_COMPLETION` event in the event queue. Test code that inspects the event
+   queue after a `CMD_SYNC` may inadvertently depend on this event's presence, masking
+   real event-queue behavior.
+2. `CS=0b11` (Reserved) must cause `CERROR_ILL` (GERROR CMDQ_ERR) per spec, but is
+   instead treated identically to other CS values.
+
+Note: The MSI write for `CS=0b01` and the SEV for `CS=0b10` are software-model limitations
+and are already documented as out-of-scope under FINDING-L-02. However, the CS=0b00 no-event
+behavior and CS=0b11 error behavior are functional correctness issues distinct from the
+hardware signalling mechanism.
+
+**Recommendation**:
+1. Add a `cs: u8` field (or `compl_signal: u8` in Rust) to `CommandEntry` in both
+   implementations, defaulting to 0 (SIG_NONE).
+2. In `processCommandQueue()` (C++) and `process_single_command()` (Rust), gate the
+   `COMMAND_SYNC_COMPLETION` event on `cs != 0b00`.
+3. When `cs == 0b11`, set `GERROR_CMDQ_ERR` and do not generate a completion event.
+
+---
+
+### FINDING-NEW-28 ❌ — generateEvent() Sets errorCode to Wrong Values (C++)
+**Spec**: §7.3 (Event records — TYPE field bits [7:0])
+**Severity**: Low
+**Affected**: C++ only
+
+The C++ `SMMU::generateEvent()` function (`smmu.cpp` lines 2015-2042) populates
+`EventEntry.errorCode` with values that are inconsistent with any spec-defined field:
+
+```cpp
+switch (type) {
+    case EventType::F_TRANSLATION:  event.errorCode = 0x01;  break;
+    case EventType::F_PERMISSION:   event.errorCode = 0x02;  break;
+    case EventType::F_ACCESS:       event.errorCode = 0x03;  break;
+    case EventType::F_ADDR_SIZE:    event.errorCode = 0x04;  break;
+    case EventType::C_BAD_STE:
+    case EventType::C_BAD_CD:
+    case EventType::C_BAD_STREAMID:
+    case EventType::C_BAD_SUBSTREAMID: event.errorCode = 0x10; break;
+    case EventType::F_TLB_CONFLICT:
+    case EventType::F_CFG_CONFLICT: event.errorCode = 0xFF;  break;
+    default:                        event.errorCode = 0x00;  break;
+}
+```
+
+The ARM SMMU v3 spec event records do not contain a generic "errorCode" field. The
+event type code (TYPE, bits [7:0]) is the primary fault identifier and is already correctly
+encoded in `EventEntry.type` via the `EventType` enum (whose discriminant values match the
+spec exactly: `F_TRANSLATION=0x10`, `F_PERMISSION=0x13`, `F_ADDR_SIZE=0x11`, etc.).
+
+The values assigned to `errorCode` above (0x01 for `F_TRANSLATION`, 0x02 for `F_PERMISSION`)
+do not correspond to any spec field. A consumer inspecting `errorCode` to classify a fault
+will see misleading values that resemble other event type codes (0x01 = `F_UUT`, 0x02 =
+`C_BAD_STREAMID`) but do not represent those events. The `errorCode` field is
+implementation-defined within this software model, but the current values create confusion.
+
+The Rust implementation does not have this problem: `EventEntry.error_code` defaults to 0
+and is never set to a misleading non-zero value except by test code that explicitly assigns it.
+
+**Evidence**:
+```cpp
+// cpp/include/smmu/types.h line 1296: uint32_t errorCode;
+// cpp/src/smmu/smmu.cpp lines 2017-2041: errorCode set to 0x01/0x02/0x03/0x04/0x10/0xFF
+// EventType enum: F_TRANSLATION=0x10, F_PERMISSION=0x13 (already correctly encoded in type field)
+```
+
+**Impact**: Low. Consumers inspecting `EventEntry.errorCode` (rather than `EventEntry.type`)
+will see misleading values. The `EventEntry.type` field, which is the authoritative fault
+classifier, remains correct. No behavioral execution path depends on `errorCode` for routing.
+
+**Recommendation**: Either:
+1. Remove the switch-statement and always set `event.errorCode = 0` (the `errorCode` field
+   has no spec counterpart and its current values add confusion), or
+2. Set `event.errorCode = static_cast<uint32_t>(type)` so that `errorCode` always equals the
+   spec-defined TYPE value already held in `type`, removing any inconsistency.
+
+---
 
 ## Features Correctly Implemented
 
@@ -1501,6 +1734,11 @@ to expect 0 events (CFGI_STE is a no-op — correct per spec).
 52. ~~FINDING-NEW-23 — F_PERMISSION event not generated on TLB cache-hit permission fault in non-stall path (C++)~~ ✅ Fixed (C++)
 53. ~~FINDING-NEW-24 — StreamConfigBuilder missing s1dss and s1cd_max setter methods (Rust)~~ ✅ Fixed (Rust)
 
+### New findings (2026-02-22 third-pass review — open gaps)
+54. FINDING-NEW-25 — TLB fast-path permission fault bypasses stall mode check (C++) ❌ Open
+55. FINDING-NEW-26 — Stall event record missing STAG field (Both) ❌ Open
+56. FINDING-NEW-27 — CMD_SYNC CS field not modeled; SIG_NONE generates spurious event (Both) ❌ Open
+57. FINDING-NEW-28 — generateEvent() sets errorCode to wrong values (C++) ❌ Open
 
 ---
 
@@ -1508,15 +1746,15 @@ to expect 0 events (CFGI_STE is a no-op — correct per spec).
 
 | File | Relevant Findings |
 |------|------------------|
-| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23 |
+| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20, NEW-26, NEW-27, NEW-28 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28 |
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
-| `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05, NEW-17 |
-| `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06 |
+| `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05, NEW-17, NEW-27 |
+| `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06, NEW-26 |
 | `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
 | `rust/smmu/src/types/config.rs` | NEW-18, NEW-24 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27 |
 | `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18 |
 | `rust/smmu/src/cache/` | M-03, M-04 |
