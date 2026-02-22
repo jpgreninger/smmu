@@ -6,8 +6,8 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~89% | Rust ~95% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157)_
+**Overall Conformance**: C++ ~91% | Rust ~96% (software model scope)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1220,6 +1220,139 @@ Neither `StreamTableEntry` (C++) nor `StreamConfig` (Rust) has an `s1dss` field.
 
 ---
 
+### FINDING-NEW-21 ✅ Fixed — ATC_INVALIDATE_COMPLETION Generated for All Invalidation Commands, Not Just CMD_ATC_INV (C++)
+**Spec**: §4.5.1 (CMD_ATC_INV), §7.3.21 (ATC_INVALIDATE_COMPLETION, IMPDEF)
+**Severity**: Medium
+**Affected**: C++ only
+
+ARM §4.5.1 defines `CMD_ATC_INV` as the command that invalidates Address Translation Cache entries in the device (PCIe ATC). The IMPDEF `ATC_INVALIDATE_COMPLETION` event (code 0xE1) is the SMMU's mechanism for notifying software that an ATC invalidation has completed. This event is only meaningful as a completion signal for `CMD_ATC_INV`.
+
+**Current behavior in C++**: `executeInvalidationCommand()` (`cpp/src/smmu/smmu.cpp`, line 1742) unconditionally calls `generateEvent(EventType::ATC_INVALIDATE_COMPLETION, ...)` at the end of the function, after the switch statement that dispatches all invalidation command types. This means every invocation of `executeInvalidationCommand()` — including `CMD_CFGI_STE`, `CMD_CFGI_ALL`, `CMD_CFGI_CD`, `CMD_CFGI_CD_ALL`, `CMD_TLBI_NH_ALL`, and all other TLB commands — emits a spurious `ATC_INVALIDATE_COMPLETION` event, even when no ATC invalidation occurred.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp:1735-1743
+        default:
+            generateEvent(EventType::C_BAD_STE, ...);
+            break;
+    }
+
+    // Generate completion event for invalidation commands  <-- BUG: always runs
+    generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
+                  command.startAddress, SecurityState::NonSecure);
+```
+
+**Impact**: Software monitoring the event queue will see `ATC_INVALIDATE_COMPLETION` (0xE1) events for every configuration invalidation (`CFGI_*`) and TLB invalidation (`TLBI_*`) command, not only after `CMD_ATC_INV`. This generates spurious events at a rate proportional to the invalidation command frequency and can confuse drivers that use `ATC_INVALIDATE_COMPLETION` to track ATC drain completion for PCIe DMA teardown.
+
+**Recommendation**: Move the `generateEvent(ATC_INVALIDATE_COMPLETION, ...)` call inside the `case CommandType::ATC_INV:` branch, after `executeATCInvalidationCommand()` returns. Remove it from after the switch statement. The Rust implementation already handles this correctly: in `process_single_command()`, `AtcInvalidateCompletion` is only generated within the `CommandType::AtcInv` arm (`rust/smmu/src/smmu/mod.rs:2344-2357`).
+
+---
+
+### FINDING-NEW-22 ✅ Fixed — Wrong Event Type Generated When Command Queue Is Full (C++)
+**Spec**: §3.5.1 (Circular queue full condition), §7.3.17 (F_TLB_CONFLICT, event code 0x20)
+**Severity**: Medium
+**Affected**: C++ only
+
+When the command queue is full, `SMMU::submitCommand()` (`cpp/src/smmu/smmu.cpp`, line 1535–1537) generates `EventType::F_TLB_CONFLICT` (code 0x20). This is the wrong event type. Per the ARM SMMU v3 specification:
+
+- `F_TLB_CONFLICT` (§7.3.17): *"A TLB conflict abort was detected — a TLB lookup performed during translation encountered multiple conflicting TLB entries."* This is a translation-path error, not a command queue management error.
+- When the command queue is full, the correct behavior per §3.5.1 is for the SMMU to raise `SMMU_GERROR.CMDQ_ABT_ERR` (bit 8) and optionally assert an interrupt. No `F_TLB_CONFLICT` event is defined for this condition.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp:1534-1538
+std::lock_guard<std::recursive_mutex> lock(queueMutex);
+if (commandQueue.size() >= maxCommandQueueSize) {
+    generateEvent(EventType::F_TLB_CONFLICT, command.streamID, command.pasid,
+                  command.startAddress, SecurityState::NonSecure);
+    return makeVoidError(SMMUError::CommandQueueFull);
+}
+```
+
+**Impact**: A software test monitoring the event queue after attempting to submit to a full command queue will see a spurious `F_TLB_CONFLICT` event. This is the event code that indicates a TLB lookup conflict during address translation — a completely different condition. Drivers implementing command queue backpressure may misinterpret the event as a translation failure and incorrectly invalidate their TLBs or abort DMA operations.
+
+**Recommendation**: Remove the `generateEvent(F_TLB_CONFLICT, ...)` call from `submitCommand()`. When the command queue is full, `submitCommand()` should set `gerrorStatus |= GERROR_CMDQ_ABT_ERR` (bit 8, per §6.3.17) and return `SMMUError::CommandQueueFull` with no event generated. The Rust implementation correctly returns `Err(SMMUError::CommandQueueFull)` without emitting any event (`rust/smmu/src/smmu/mod.rs:2106-2110`).
+
+---
+
+### FINDING-NEW-23 ✅ Fixed — F_PERMISSION Event Not Generated on TLB Cache-Hit Permission Fault — Non-Stall Path (C++)
+**Spec**: §7.3.16 (F_PERMISSION, event code 0x13)
+**Severity**: Medium
+**Affected**: C++ only
+
+ARM §7.3.16 states that `F_PERMISSION` (0x13) is recorded whenever a translation succeeds but the access type is not permitted by the translation's permission attributes. This applies regardless of how the permission check is performed (page table walk or TLB cache hit).
+
+**Current behavior in C++**: The TLB cache fast-path in `SMMU::translate()` (`cpp/src/smmu/smmu.cpp`, lines 174–188) detects a permission failure after a TLB cache hit and calls `recordFault()` to add a `FaultRecord` to the fault queue, then returns `makeTranslationError(SMMUError::PagePermissionViolation)` directly. It does **not** call `generateEvent()` to write an `F_PERMISSION` event to the event queue. The `handleTranslationFailure()` function is bypassed entirely on the TLB fast path, so no event is generated through that path either.
+
+**Evidence**:
+```cpp
+// cpp/src/smmu/smmu.cpp:174-188 — TLB cache hit, permission check:
+if (!validateAccessPermissions(entry.permissions, accessType)) {
+    FaultRecord fault;
+    fault.streamID = streamID;
+    fault.pasid = pasid;
+    fault.address = iova;
+    fault.faultType = FaultType::PermissionFault;
+    fault.accessType = accessType;
+    fault.securityState = securityState;
+    fault.timestamp = currentTime;
+    recordFault(fault);                                        // fault queue: OK
+    return makeTranslationError(SMMUError::PagePermissionViolation);
+    // MISSING: generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
+}
+```
+
+The stall path at lines 260–262 does correctly map `PagePermissionViolation → F_PERMISSION`, but that only applies when `FaultMode::Stall` is active and the error comes from `performTwoStageTranslation()`, not from the TLB fast path. The Rust implementation does not have this gap because its TLB cache lookup is used only for successful hits that flow through `record_translation_fault()`, which generates the event.
+
+**Impact**: A software driver monitoring the event queue will receive no `F_PERMISSION` event for permission faults that are caught on the TLB fast path. In a system with a populated TLB, this means many permission faults go unreported to the OS fault handler, making security-relevant access violations invisible to event-queue monitoring tools. Only the fault queue is updated; the event queue is silent.
+
+**Recommendation**: After `recordFault(fault)` at line 186, add `generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState)` to emit the event on the TLB fast-path permission fault. The existing stall path already demonstrates the correct pattern.
+
+---
+
+### FINDING-NEW-24 ✅ Fixed — StreamConfigBuilder Missing s1dss and s1cd_max Setter Methods (Rust)
+**Spec**: §5.2 (STE.S1DSS, STE.S1CDMax)
+**Severity**: Low
+**Affected**: Rust only
+
+FINDING-NEW-18 added `s1dss: u8` and `s1cd_max: u8` fields to `StreamConfig` (Rust) and to the `StreamConfigBuilder` struct. However, the `impl StreamConfigBuilder` block was not updated to expose setter methods for these two new fields. The builder provides setters for all other `StreamConfig` fields (`translation_enabled`, `stage1_enabled`, `stage2_enabled`, `pasid_enabled`, `max_pasid`, `fault_mode`, `security_enforced`, `vmid`, `ha`, `hd`) but has no `.s1dss(u8)` or `.s1cd_max(u8)` method.
+
+**Evidence**:
+```rust
+// rust/smmu/src/types/config.rs:271-396 — StreamConfigBuilder impl:
+impl StreamConfigBuilder {
+    pub fn new() -> Self { ... }
+    pub fn translation_enabled(mut self, enabled: bool) -> Self { ... }
+    pub fn stage1_enabled(mut self, enabled: bool) -> Self { ... }
+    // ... all other setters present ...
+    pub fn hd(mut self, hd: bool) -> Self { ... }
+    pub fn build(self) -> Result<StreamConfig, ValidationError> { ... }
+    // MISSING: pub fn s1dss(mut self, s1dss: u8) -> Self { ... }
+    // MISSING: pub fn s1cd_max(mut self, s1cd_max: u8) -> Self { ... }
+}
+```
+
+Callers who want to configure `s1dss` or `s1cd_max` using the builder pattern cannot do so. They must bypass the builder and construct `StreamConfig` via direct struct literal syntax (which bypasses the `validate()` call) or use one of the pre-defined factory methods (`bypass()`, `stage1_only()`, etc.) and then overwrite the fields directly. The `build()` method correctly propagates the internal `s1dss` and `s1cd_max` fields to the resulting `StreamConfig`, but since they cannot be set through the builder API, they will always retain the default values (2 and 0 respectively) for any builder-constructed config.
+
+**Impact**: Any consumer of the `StreamConfigBuilder` public API who wants to test substream-capable streams (`s1cd_max > 0`) or configure `s1dss` routing must work around the missing setters. The S1DSS behavior implemented by FINDING-NEW-18 is unreachable through the builder API, reducing the practical usefulness of that fix for callers using the idiomatic Rust builder pattern.
+
+**Recommendation**: Add two setter methods to `impl StreamConfigBuilder`:
+```rust
+pub fn s1dss(mut self, s1dss: u8) -> Self {
+    self.s1dss = s1dss;
+    self
+}
+
+pub fn s1cd_max(mut self, s1cd_max: u8) -> Self {
+    self.s1cd_max = s1cd_max;
+    self
+}
+```
+These follow the identical pattern of all other existing setters in the block.
+
+---
+
+
 ## Features Correctly Implemented
 
 ### C++ Implementation
@@ -1281,6 +1414,17 @@ added OAS checks for GBPA bypass and STE bypass, fixed `AddressSizeFault`
 NEW-17 and NEW-18 implemented in `rust/smmu/src/smmu/mod.rs`,
 `rust/smmu/src/stream_context/mod.rs`, `rust/smmu/src/types/command_entry.rs`,
 and `rust/smmu/src/types/config.rs`. All 157 Rust tests passing (100%).
+NEW-24 resolved 2026-02-22: Added `.s1dss()` and `.s1cd_max()` setter methods
+to `StreamConfigBuilder` in `rust/smmu/src/types/config.rs`. Tests: 6 new
+tests in `test_new24_spec.rs` — all passing. Clippy clean.
+
+**C++**: 57/57 tests passing (100%). NEW-21, NEW-22, NEW-23 resolved
+2026-02-22: (1) ATC_INVALIDATE_COMPLETION moved inside CMD_ATC_INV case only
+(`smmu.cpp`); (2) F_TLB_CONFLICT on queue-full replaced with
+GERROR_CMDQ_ABT_ERR; (3) F_PERMISSION event added to TLB cache-hit permission
+fault fast-path. Tests: 8 new tests in `test_new21_22_23_spec.cpp` — all
+passing. Pre-existing regression `EventHandling_ConfigurationError` corrected
+to expect 0 events (CFGI_STE is a no-op — correct per spec).
 
 ---
 
@@ -1351,19 +1495,28 @@ and `rust/smmu/src/types/config.rs`. All 157 Rust tests passing (100%).
 
 ---
 
+### New findings (2026-02-22 deep re-review)
+50. ~~FINDING-NEW-21 — ATC_INVALIDATE_COMPLETION generated for all invalidation commands, not just CMD_ATC_INV (C++)~~ ✅ Fixed (C++)
+51. ~~FINDING-NEW-22 — F_TLB_CONFLICT (wrong event) generated when command queue is full; should set CMDQ_ABT_ERR (C++)~~ ✅ Fixed (C++)
+52. ~~FINDING-NEW-23 — F_PERMISSION event not generated on TLB cache-hit permission fault in non-stall path (C++)~~ ✅ Fixed (C++)
+53. ~~FINDING-NEW-24 — StreamConfigBuilder missing s1dss and s1cd_max setter methods (Rust)~~ ✅ Fixed (Rust)
+
+
+---
+
 ## Key Files for Fixes
 
 | File | Relevant Findings |
 |------|------------------|
 | `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23 |
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
 | `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05, NEW-17 |
 | `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06 |
 | `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
-| `rust/smmu/src/types/config.rs` | NEW-18 |
+| `rust/smmu/src/types/config.rs` | NEW-18, NEW-24 |
 | `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16 |
 | `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18 |
 | `rust/smmu/src/cache/` | M-03, M-04 |

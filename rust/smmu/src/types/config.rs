@@ -373,6 +373,22 @@ impl StreamConfigBuilder {
         self
     }
 
+    /// Set STE.S1DSS — non-substream transaction routing (ARM §5.2):
+    /// 0b00 = abort with F_STREAM_DISABLED, 0b01 = stage-1 bypass, 0b10 = use CD[0]
+    #[must_use]
+    pub fn s1dss(mut self, s1dss: u8) -> Self {
+        self.s1dss = s1dss;
+        self
+    }
+
+    /// Set STE.S1CDMax — number of SubstreamID bits supported (ARM §5.2).
+    /// 0 means the stream is not substream-capable and S1DSS is ignored.
+    #[must_use]
+    pub fn s1cd_max(mut self, s1cd_max: u8) -> Self {
+        self.s1cd_max = s1cd_max;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {

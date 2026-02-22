@@ -184,6 +184,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                         fault.timestamp = currentTime;
 
                         recordFault(fault);
+                        // §7.3.16: F_PERMISSION must be generated regardless of whether
+                        // the fault is detected via TLB fast-path or page table walk.
+                        generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
                         return makeTranslationError(SMMUError::PagePermissionViolation);
                     }
 
@@ -1533,7 +1536,9 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
     // processPRIQueue -> submitCommand re-entrant calls).
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (commandQueue.size() >= maxCommandQueueSize) {
-        generateEvent(EventType::F_TLB_CONFLICT, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+        // §6.3.17: Command queue abort — set GERROR.CMDQ_ABT_ERR (bit 8).
+        // No event is generated; hardware signals the error via GERROR only.
+        gerrorStatus |= GERROR_CMDQ_ABT_ERR;
         return makeVoidError(SMMUError::CommandQueueFull);
     }
     CommandEntry timestampedCommand = command;
@@ -1727,19 +1732,17 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
             
         case CommandType::ATC_INV:
-            // Address Translation Cache invalidation
-            executeATCInvalidationCommand(command.streamID, command.pasid, 
+            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
+            executeATCInvalidationCommand(command.streamID, command.pasid,
                                         command.startAddress, command.endAddress);
+            generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
-            
+
         default:
             // Invalid invalidation command
             generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
     }
-    
-    // Generate completion event for invalidation commands
-    generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
 }
 
 void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid) {
