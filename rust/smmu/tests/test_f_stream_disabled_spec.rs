@@ -1,8 +1,10 @@
 //! Spec-compliance tests for `F_STREAM_DISABLED` event generation
 //!
-//! ARM IHI0070G.b §7.3.7: When `STE.Config` indicates a disabled/abort stream,
-//! a non-substream transaction must generate an `F_STREAM_DISABLED` event record
-//! (event code 0x06) in the event queue — NOT a generic `F_TRANSLATION` or `C_BAD_STE`.
+//! ARM IHI0070G.b §7.3.7 / §5.2 (Config table):
+//! When `STE.Config == 0b000` (stream disabled / abort), incoming traffic is terminated
+//! WITHOUT recording an event. `F_STREAM_DISABLED` (0x06) is only generated when a
+//! non-substream transaction arrives on a stream that has substreams required
+//! (`STE.S1DSS == 0b00`, `STE.S1CDMax > 0`) — a distinct configuration.
 
 use smmu::types::{AccessType, EventType, SecurityState, StreamConfig, StreamID, IOVA, PASID};
 use smmu::SMMU;
@@ -26,9 +28,10 @@ fn iova_1000() -> IOVA {
     IOVA::new(0x1000).unwrap()
 }
 
-// ─── Failing Tests (RED state) ────────────────────────────────────────────────
+// ─── Spec-corrected Tests ─────────────────────────────────────────────────────
 
-/// §7.3.7: Translation on a disabled stream must queue `F_STREAM_DISABLED` (0x06)
+/// §7.3.7 / §5.2: Translation on a disabled stream (STE.Config==0b000) must NOT
+/// enqueue any event — incoming traffic is terminated without recording an event.
 #[test]
 fn test_disabled_stream_generates_f_stream_disabled_event() {
     let smmu = make_smmu();
@@ -36,7 +39,7 @@ fn test_disabled_stream_generates_f_stream_disabled_event() {
 
     // Configure with stage-1 so it's a real translation stream
     smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
-    // Disable the stream
+    // Disable the stream (equivalent to STE.Config == 0b000)
     smmu.disable_stream(stream_id).unwrap();
 
     // Attempt translation — must fail with StreamDisabled
@@ -44,16 +47,18 @@ fn test_disabled_stream_generates_f_stream_disabled_event() {
         smmu.translate(stream_id, pasid_zero(), iova_1000(), AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err(), "expected error on disabled stream");
 
-    // Event queue must contain F_STREAM_DISABLED
-    let by_type = smmu.get_events_by_type(EventType::FStreamDisabled);
+    // §7.3.7 / §5.2: STE.Config==0b000 terminates without recording an event.
+    // No event of any kind must appear in the queue.
+    let all_events = smmu.get_events();
     assert!(
-        !by_type.is_empty(),
-        "expected FStreamDisabled event; got events: {:?}",
-        smmu.get_events().iter().map(|e| e.event_type).collect::<Vec<_>>()
+        all_events.is_empty(),
+        "STE.Config==0b000 must produce no event; got: {:?}",
+        all_events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }
 
-/// §7.3.7: `F_STREAM_DISABLED` event must record the correct `stream_id`
+/// §7.3.7 / §5.2: Disabled stream (`STE.Config==0b000`) must produce no event at all,
+/// so there is no event carrying the `stream_id` to inspect.
 #[test]
 fn test_disabled_stream_event_carries_stream_id() {
     let smmu = make_smmu();
@@ -64,12 +69,17 @@ fn test_disabled_stream_event_carries_stream_id() {
 
     let _ = smmu.translate(stream_id, pasid_zero(), iova_1000(), AccessType::Read, SecurityState::NonSecure);
 
-    let events = smmu.get_events_by_type(EventType::FStreamDisabled);
-    assert!(!events.is_empty(), "expected FStreamDisabled event");
-    assert_eq!(events[0].stream_id, 42, "stream_id must match");
+    // §7.3.7 / §5.2: no event is recorded for STE.Config==0b000.
+    let events = smmu.get_events();
+    assert!(
+        events.is_empty(),
+        "STE.Config==0b000 must produce no event; got: {:?}",
+        events.iter().map(|e| e.event_type).collect::<Vec<_>>()
+    );
 }
 
-/// §7.3.7: The event generated must be `F_STREAM_DISABLED` (0x06), not `F_TRANSLATION`
+/// §7.3.7 / §5.2: Disabled stream (STE.Config==0b000) must generate neither
+/// `F_STREAM_DISABLED` nor `F_TRANSLATION` — no event is recorded at all.
 #[test]
 fn test_disabled_stream_not_f_translation_event() {
     let smmu = make_smmu();
@@ -80,16 +90,17 @@ fn test_disabled_stream_not_f_translation_event() {
 
     let _ = smmu.translate(stream_id, pasid_zero(), iova_1000(), AccessType::Write, SecurityState::NonSecure);
 
-    // Must NOT have generated a generic F_TRANSLATION event for this case
+    // Must NOT have F_TRANSLATION event
     let translation_events = smmu.get_events_by_type(EventType::FTranslation);
-    let disabled_events = smmu.get_events_by_type(EventType::FStreamDisabled);
-    assert!(
-        !disabled_events.is_empty(),
-        "must have F_STREAM_DISABLED event"
-    );
     assert!(
         translation_events.is_empty(),
-        "must NOT have F_TRANSLATION event for stream-disabled fault; got F_TRANSLATION events: {translation_events:?}"
+        "must NOT have F_TRANSLATION event for stream-disabled fault; got: {translation_events:?}"
+    );
+    // Must NOT have F_STREAM_DISABLED event (STE.Config==0b000 records no event)
+    let disabled_events = smmu.get_events_by_type(EventType::FStreamDisabled);
+    assert!(
+        disabled_events.is_empty(),
+        "must NOT have F_STREAM_DISABLED event for STE.Config==0b000; got: {disabled_events:?}"
     );
 }
 

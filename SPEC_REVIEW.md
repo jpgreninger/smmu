@@ -7,7 +7,7 @@
 - Rust: `rust/smmu/`
 
 **Overall Conformance**: C++ ~85% | Rust ~91% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21)_
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1105,7 +1105,7 @@ When stall mode was active and any translation fault occurred, the C++ `translat
 
 ---
 
-### FINDING-NEW-15 ❌ — F_STREAM_DISABLED Triggered for Wrong Condition (Both)
+### FINDING-NEW-15 ✅ Fixed — F_STREAM_DISABLED Triggered for Wrong Condition (Both)
 **Spec**: §7.3.7 (F_STREAM_DISABLED, event code 0x06), §5.2 (STE.Config, STE.S1DSS)
 **Severity**: Medium
 **Affected**: Both
@@ -1133,7 +1133,7 @@ Separately, the spec is explicit that when `STE.Config == 0b000` (stream disable
 
 ---
 
-### FINDING-NEW-16 ❌ — OAS Check Missing on Bypass Mode (STE.Config == 0b100) (Both)
+### FINDING-NEW-16 ✅ Fixed — OAS Check Missing on Bypass Mode (STE.Config == 0b100) (Both)
 **Spec**: §3.4 (Address sizes), §3.4.1, §7.3.14 (F_ADDR_SIZE)
 **Severity**: Medium
 **Affected**: Both
@@ -1257,15 +1257,20 @@ event type, `C_BAD_SUBSTREAMID`) resolved by NEW-05 through NEW-13.
 NEW-19 and NEW-20 resolved by 2026-02-21 session: 9 new spec tests added in
 `cpp/tests/unit/test_asid_vmid_tlb_spec.cpp` covering VMID-targeted and
 ASID-targeted TLB invalidation (all 9/9 passing).
-New open gaps (NEW-15, NEW-16, NEW-17, NEW-18) do not yet have associated
-test cases; test coverage targets for those items are pending.
+NEW-15 resolved 2026-02-21: removed `generateEvent(F_STREAM_DISABLED)` for
+`STE.Config==0b000` path (C++: `smmu.cpp`; Rust: `smmu/mod.rs`). Tests:
+2 new tests in `test_smmuen_spec.cpp`; 3 existing Rust tests in
+`test_f_stream_disabled_spec.rs` updated to assert no event. 53/55 C++ pass.
+NEW-16 resolved 2026-02-21: OAS checks added for GBPA bypass (silent abort)
+and STE bypass (F_ADDR_SIZE) in both C++ and Rust. Tests: 4 new tests in
+`test_addr_size_fault_spec.cpp`; existing Rust bypass tests still pass.
+Open gaps (NEW-17, NEW-18) do not yet have associated test cases.
 
-**Rust**: All tests passing (100%). 10 new spec tests added for NEW-11
-(`tests/test_c_bad_substreamid_spec.rs`). Previously noted coverage gaps
-(`address_space` 20.86%, `stream_context` 50.00%) partially improved by the
-NEW-11 stage-context path coverage. Missing: binary STE/CD format tests.
-New open gaps (NEW-15, NEW-16, NEW-17, NEW-18) do not yet have associated
-test cases.
+**Rust**: All 157 tests passing (100%). NEW-15 and NEW-16 implemented in
+`rust/smmu/src/smmu/mod.rs`: suppressed StreamDisabled event recording,
+added OAS checks for GBPA bypass and STE bypass, fixed `AddressSizeFault`
+→ `FAddrSize` mapping in `map_fault_type_to_event_type()`.
+Open gaps (NEW-17, NEW-18) do not yet have associated test cases.
 
 ---
 
@@ -1327,8 +1332,8 @@ test cases.
 43. ~~FINDING-NEW-14 — PASIDSecurityStateContextSwitching test stale after FINDING-L-06 (C++ test debt)~~ ✅ Fixed (C++)
 
 ### New findings (2026-02-21 deep QA review — new open gaps)
-44. FINDING-NEW-15 ❌ — F_STREAM_DISABLED triggered for wrong condition; no-event rule for STE.Config==0b000 not enforced (Both)
-45. FINDING-NEW-16 ❌ — OAS check missing on bypass mode translations — F_ADDR_SIZE not generated for oversized addresses (Both)
+44. ~~FINDING-NEW-15 — F_STREAM_DISABLED triggered for wrong condition; no-event rule for STE.Config==0b000 not enforced (Both)~~ ✅ Fixed (Both)
+45. ~~FINDING-NEW-16 — OAS check missing on bypass mode translations — F_ADDR_SIZE not generated for oversized addresses (Both)~~ ✅ Fixed (Both)
 46. FINDING-NEW-17 ❌ — CMD_CFGI_STE and CMD_CFGI_CD Leaf bit not modeled in CommandEntry (Both) — Low priority
 47. FINDING-NEW-18 ❌ — STE.S1DSS field not modeled; non-substream fallback semantics absent (Both)
 48. ~~FINDING-NEW-19 — VMID field missing from C++ TLB entries and StreamTableEntry — re-states open FINDING-M-02 C++ gap (C++)~~ ✅ Fixed (C++)

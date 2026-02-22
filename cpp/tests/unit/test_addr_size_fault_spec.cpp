@@ -263,5 +263,98 @@ TEST_F(AddrSizeFaultTest, SetInputAddressSize_InvalidBits_ReturnsError) {
         << "inputAddressSize > 52 must be rejected";
 }
 
+// ── FINDING-NEW-16: OAS check on bypass mode (§3.4) ──────────────────────
+
+/// §3.4 / §7.3.14: STE bypass stream (Config==0b100) with IOVA >= OAS must
+/// abort with SMMUError::InvalidAddress and record F_ADDR_SIZE event.
+TEST_F(AddrSizeFaultTest, SteBypass_IOVAExceedsOAS_FaultsWithFAddrSize) {
+    // Default StreamConfig: translationEnabled=false, both stages off => bypass
+    StreamConfig bypassCfg;
+    bypassCfg.translationEnabled = false;
+    bypassCfg.stage1Enabled      = false;
+    bypassCfg.stage2Enabled      = false;
+    ASSERT_TRUE(smmu->configureStream(STREAM_A, bypassCfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(STREAM_A).isOk());
+
+    // OAS default is 52 bits; address (1ULL << 52) is exactly at the limit.
+    constexpr IOVA OVER_OAS = (1ULL << 52);  // first address beyond 52-bit OAS
+
+    TranslationResult r = smmu->translate(STREAM_A, PASID_0, OVER_OAS,
+                                          AccessType::Read, SecurityState::NonSecure);
+
+    EXPECT_TRUE(r.isError())
+        << "STE bypass IOVA >= OAS must abort (ARM §3.4)";
+    EXPECT_EQ(r.getError(), SMMUError::InvalidAddress)
+        << "Error must be InvalidAddress (F_ADDR_SIZE) for OAS overflow in bypass";
+
+    // §7.3.14: F_ADDR_SIZE event must be recorded.
+    auto events = smmu->getEventQueue();
+    ASSERT_FALSE(events.empty())
+        << "F_ADDR_SIZE event must be recorded for STE bypass OAS overflow";
+    EXPECT_EQ(events.front().type, EventType::F_ADDR_SIZE)
+        << "Event type must be F_ADDR_SIZE (§7.3.14)";
+}
+
+/// §3.4: STE bypass stream with IOVA just within OAS must succeed (no fault).
+TEST_F(AddrSizeFaultTest, SteBypass_IOVAWithinOAS_Succeeds) {
+    StreamConfig bypassCfg;
+    bypassCfg.translationEnabled = false;
+    bypassCfg.stage1Enabled      = false;
+    bypassCfg.stage2Enabled      = false;
+    ASSERT_TRUE(smmu->configureStream(STREAM_A, bypassCfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(STREAM_A).isOk());
+
+    // Last valid address within 52-bit OAS
+    constexpr IOVA WITHIN_OAS = (1ULL << 52) - 0x1000ULL;
+
+    TranslationResult r = smmu->translate(STREAM_A, PASID_0, WITHIN_OAS,
+                                          AccessType::Read, SecurityState::NonSecure);
+
+    EXPECT_TRUE(r.isOk())
+        << "STE bypass IOVA within OAS must succeed (ARM §3.4)";
+
+    auto events = smmu->getEventQueue();
+    EXPECT_TRUE(events.empty())
+        << "Successful bypass must not record any fault events";
+}
+
+/// §3.4 / §3.11: GBPA bypass (SMMUEN=0, GBPA.ABORT=0) with IOVA >= OAS must
+/// abort silently — no event recorded (global bypass path).
+TEST_F(AddrSizeFaultTest, GbpaBypass_IOVAExceedsOAS_SilentAbort) {
+    // Fixture enables SMMU; disable to enter GBPA bypass mode (SMMUEN=0, GBPA.ABORT=0).
+    smmu->disable();
+
+    constexpr IOVA OVER_OAS = (1ULL << 52);
+
+    TranslationResult r = smmu->translate(STREAM_A, PASID_0, OVER_OAS,
+                                          AccessType::Read, SecurityState::NonSecure);
+
+    EXPECT_TRUE(r.isError())
+        << "GBPA bypass IOVA >= OAS must abort (ARM §3.4)";
+
+    // §3.11 / §3.4: GBPA bypass OAS abort is silent — no event.
+    auto events = smmu->getEventQueue();
+    EXPECT_TRUE(events.empty())
+        << "GBPA bypass OAS abort must not record any event (ARM §3.11)";
+}
+
+/// §3.4 / §3.11: GBPA bypass with IOVA within OAS must succeed with PA == IOVA.
+TEST_F(AddrSizeFaultTest, GbpaBypass_IOVAWithinOAS_IdentityMapping) {
+    // Fixture enables SMMU; disable to enter GBPA bypass mode (SMMUEN=0, GBPA.ABORT=0).
+    smmu->disable();
+
+    constexpr IOVA WITHIN_OAS = 0x4000'0000ULL;
+
+    TranslationResult r = smmu->translate(STREAM_A, PASID_0, WITHIN_OAS,
+                                          AccessType::Read, SecurityState::NonSecure);
+
+    EXPECT_TRUE(r.isOk())
+        << "GBPA bypass IOVA within OAS must succeed with identity mapping";
+    if (r.isOk()) {
+        EXPECT_EQ(r.getValue().physicalAddress, WITHIN_OAS)
+            << "GBPA bypass must produce PA == IOVA (identity mapping)";
+    }
+}
+
 } // namespace test
 } // namespace smmu

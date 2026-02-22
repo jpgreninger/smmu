@@ -1508,6 +1508,14 @@ impl SMMU {
                 return Err(TranslationError::GbpaAbort);
             }
             // GBPA.ABORT=0: bypass — PA = IOVA (identity); full permissions; no fault.
+            // §3.4: OAS check for GBPA bypass. Silent abort (no event) if IOVA >= OAS.
+            {
+                let oas_bits = self.config.read().unwrap().address_config.max_pa_bits as u64;
+                if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(TranslationError::AddressSizeError);
+                }
+            }
             let pa = crate::types::PA::new(iova.as_u64())
                 .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
@@ -1527,14 +1535,15 @@ impl SMMU {
         // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), and stall mode
         // while holding the stream guard, so TLB entries can be tagged and stall
         // decisions made without re-locking the map.
-        let (result, entry_asid, entry_vmid, stall_mode) = if let Some(stream_ref) = stream_guard {
+        let (result, entry_asid, entry_vmid, stall_mode, is_bypass) = if let Some(stream_ref) = stream_guard {
             let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
             let vmid = stream_ref.value().get_vmid();
             let stall = stream_ref.value().is_stall_enabled();
+            let bypass = !stream_ref.value().is_stage1_enabled() && !stream_ref.value().is_stage2_enabled();
             // Delegate to StreamContext for actual translation
             // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
             let r = stream_ref.value().translate(pasid, iova, access, security_state);
-            (r, asid, vmid, stall)
+            (r, asid, vmid, stall, bypass)
         } else {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             // Record fault before returning error
@@ -1555,6 +1564,20 @@ impl SMMU {
                 0,
             );
             self.tlb_cache.insert(cache_key, entry);
+        }
+
+        // §3.4 OAS check for STE-level bypass (Config==0b100, both stages disabled).
+        // If IOVA >= OAS, abort with F_ADDR_SIZE; §7.3.14 mandates the event.
+        // Note: C_BAD_SUBSTREAMID (non-zero PASID) is already handled inside translate()
+        // and would have returned Err before reaching Ok here.
+        if is_bypass && result.is_ok() {
+            let oas_bits = self.config.read().unwrap().address_config.max_pa_bits as u64;
+            if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
+                let oas_error = TranslationError::AddressSizeError;
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false);
+                return Err(oas_error);
+            }
         }
 
         // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).
@@ -1698,10 +1721,11 @@ impl SMMU {
             FaultType::BadStreamID => EventType::CBadStreamid,
             // §7.3.9: non-zero PASID on stage-2-only or bypass stream → C_BAD_SUBSTREAMID (0x08).
             FaultType::BadSubstreamId => EventType::CBadSubstreamid,
+            // §7.3.14: address-size fault → F_ADDR_SIZE (0x11), not F_TRANSLATION.
+            FaultType::AddressSizeFault => EventType::FAddrSize,
             FaultType::TranslationFault
             | FaultType::BadSTE
             | FaultType::BadCD
-            | FaultType::AddressSizeFault
             | FaultType::AlignmentFault
             | FaultType::ExternalAbort
             | FaultType::TLBConflictAbort
@@ -1791,6 +1815,13 @@ impl SMMU {
             .build();
 
         self.record_fault(fault);
+
+        // §7.3.7 / §5.2: STE.Config==0b000 terminates traffic without recording an event.
+        // Internal fault tracking is preserved (record_fault above), but no EventEntry
+        // is enqueued.
+        if matches!(fault_type, FaultType::StreamDisabled) {
+            return;
+        }
 
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event_type = Self::map_fault_type_to_event_type(fault_type);

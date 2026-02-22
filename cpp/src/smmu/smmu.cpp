@@ -139,6 +139,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             return makeTranslationError(SMMUError::GbpaAbort);
         }
         // GBPA.ABORT=0: bypass — identity mapping (PA == IOVA), no fault.
+        // §3.4: OAS check for GBPA bypass. If IOVA >= OAS, abort silently (no event per spec).
+        {
+            uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+            if (oasBits < 64 && iova >= (static_cast<IOVA>(1) << oasBits)) {
+                return makeTranslationError(SMMUError::InvalidAddress);
+            }
+        }
         PagePermissions allPerms;
         allPerms.read = true;
         allPerms.write = true;
@@ -807,7 +814,25 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidPASID);
         }
-        // PASID=0: bypass — identity mapping (PA == IOVA), no fault.
+        // PASID=0: bypass (STE.Config==0b100) — identity mapping (PA == IOVA).
+        // §3.4: OAS check for STE-level bypass. If IOVA >= OAS, abort with F_ADDR_SIZE
+        // (stage-1 address size fault per ARM IHI0070G.b §7.3.14).
+        {
+            uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+            if (oasBits < 64 && iova >= (static_cast<IOVA>(1) << oasBits)) {
+                FaultRecord bypassOasFault;
+                bypassOasFault.streamID = streamID;
+                bypassOasFault.pasid = pasid;
+                bypassOasFault.address = iova;
+                bypassOasFault.faultType = FaultType::AddressSizeFault;
+                bypassOasFault.accessType = accessType;
+                bypassOasFault.securityState = securityState;
+                bypassOasFault.timestamp = currentTime;
+                recordFault(bypassOasFault);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                return makeTranslationError(SMMUError::InvalidAddress);
+            }
+        }
         PagePermissions bypassPerms(true, true, true); // Full permissions in bypass
         TranslationData data(iova, bypassPerms, securityState);
         return TranslationResult(data);
@@ -1192,9 +1217,9 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 faultType = FaultType::SecurityFault;
                 break;
             case SMMUError::StreamDisabled:
-                // §7.3.7: Generate F_STREAM_DISABLED (event code 0x06) for disabled/abort streams
+                // §7.3.7 last line / §5.2 Config table: STE.Config==0b000 terminates without
+                // recording an event. Abort is silent — no EventEntry is enqueued.
                 faultType = FaultType::StreamDisabled;
-                generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
                 break;
             default:
                 faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);

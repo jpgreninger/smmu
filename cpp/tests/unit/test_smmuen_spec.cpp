@@ -337,6 +337,68 @@ TEST(SMMUenSpec, IsGbpaAbortReflectsState) {
     EXPECT_FALSE(smmu->isGbpaAbort()) << "isGbpaAbort() must be false after setGbpaAbort(false)";
 }
 
+// ── FINDING-NEW-15: STE.Config==0b000 disabled stream generates no event ──
+
+/// §7.3.7 / §5.2: When STE.Config==0b000 (stream disabled), incoming traffic
+/// is terminated WITHOUT recording an event to the event queue.
+TEST(SMMUenSpec, StreamDisabled_TranslationSilentlyAborts_NoEvent) {
+    auto smmu = std::make_unique<SMMU>();
+    smmu->enable();
+
+    // Configure a stage-1 stream then immediately disable it — simulates
+    // STE.Config==0b000 (administratively disabled).
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    ASSERT_TRUE(smmu->configureStream(SMMUEN_STREAM_A, cfg).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(SMMUEN_STREAM_A, SMMUEN_PASID_0).isOk());
+    // Do NOT call enableStream — leaves the stream disabled (STE.Config==0b000).
+
+    auto result = smmu->translate(SMMUEN_STREAM_A, SMMUEN_PASID_0, SMMUEN_IOVA,
+                                   AccessType::Read, SecurityState::NonSecure);
+
+    // Translation must fail (stream is disabled)
+    EXPECT_TRUE(result.isError())
+        << "Disabled stream must not produce a successful translation";
+
+    // §7.3.7: NO event must be enqueued for STE.Config==0b000.
+    auto events = smmu->getEventQueue();
+    EXPECT_TRUE(events.empty())
+        << "STE.Config==0b000 (disabled stream) must not record an event (ARM §7.3.7)";
+}
+
+/// §7.3.7 contrast: Enabled stream DOES record a FaultRecord on fault —
+/// confirms the disabled-stream path (not the general fault path) is silent.
+TEST(SMMUenSpec, StreamEnabled_TranslationFault_RecordsFaultRecord) {
+    auto smmu = std::make_unique<SMMU>();
+    smmu->enable();
+
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    ASSERT_TRUE(smmu->configureStream(SMMUEN_STREAM_A, cfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(SMMUEN_STREAM_A).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(SMMUEN_STREAM_A, SMMUEN_PASID_0).isOk());
+    // No page mapped — causes a translation fault with the stream ENABLED.
+
+    smmu->translate(SMMUEN_STREAM_A, SMMUEN_PASID_0, SMMUEN_IOVA,
+                    AccessType::Read, SecurityState::NonSecure);
+
+    // For an enabled stream fault, getEvents() (FaultRecords) is populated;
+    // this contrasts with the disabled-stream case which is fully silent.
+    auto faults = smmu->getEvents();
+    EXPECT_FALSE(faults.isError())
+        << "getEvents() must not error";
+    if (faults.isOk()) {
+        EXPECT_FALSE(faults.getValue().empty())
+            << "Enabled stream fault must record a FaultRecord (ARM §7.3.7 contrast)";
+    }
+}
+
 // ── §6.3.9: bypass generates no fault events ──────────────────────────────
 
 /// §6.3.9: When SMMU is disabled (bypass), no fault events are generated.
