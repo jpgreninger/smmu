@@ -74,6 +74,8 @@ public:
     void invalidateTranslationCache();
     void invalidateStreamCache(StreamID streamID);
     void invalidatePASIDCache(StreamID streamID, PASID pasid);
+    void setStreamVMID(StreamID streamID, uint16_t vmid);  ///< Set STE.S2VMID for a stream (ARM §5.2)
+    void setStreamASID(StreamID streamID, uint16_t asid);  ///< Set CD.ASID for a stream (ARM §3.17)
     
     // Task 5.3: Event and Command Processing
     // Event queue management (Task 5.3.1)
@@ -116,7 +118,7 @@ public:
 
     // Cache invalidation command handling (Task 5.3.4)
     void executeInvalidationCommand(const CommandEntry& command);
-    void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid);
+    void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid);
     void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr);
     
     // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model (FINDING-M-06)
@@ -263,7 +265,8 @@ private:
                                                AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
     bool isTranslationCacheable(const TranslationResult& result) const;
     void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
-                               const TranslationResult& result, uint64_t currentTime);
+                               const TranslationResult& result, uint64_t currentTime,
+                               uint16_t asid, uint16_t vmid);
     TranslationResult lookupTranslationCache(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState);
     void generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const;
 

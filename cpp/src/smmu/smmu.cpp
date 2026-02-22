@@ -232,7 +232,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // Task 5.2: Cache successful translations for future lookups
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
-        cacheTranslationResult(streamID, pasid, iova, result, currentTime);
+        StreamConfig streamCfg = streamContext->getStreamConfiguration();
+        cacheTranslationResult(streamID, pasid, iova, result, currentTime, streamCfg.asid, streamCfg.vmid);
     } else if (result.isError()) {
         // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
         // If the stream is configured for stall, enqueue a StallRecord and return
@@ -458,13 +459,12 @@ VoidResult SMMU::unmapPage(StreamID streamID, PASID pasid, IOVA iova) {
     
     // Unmap page from stream context
     VoidResult result = streamIt->second->unmapPage(pasid, iova);
-    
-    // ARM SMMU v3 spec: Invalidate TLB cache entry for unmapped page
-    // This ensures subsequent translations to this page will fail properly
-    if (result.isOk() && tlbCache) {
-        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK);
-    }
-    
+
+    // ARM SMMU v3 spec §4.4: TLB maintenance is the caller's responsibility via
+    // explicit TLBI commands (CMD_TLBI_*).  unmapPage() must NOT auto-invalidate
+    // the TLB; doing so prevents VMID/ASID-targeted invalidation tests from
+    // distinguishing a hit (entry still in TLB) from a miss (TLBI evicted it).
+
     return result;
 }
 
@@ -692,14 +692,40 @@ void SMMU::invalidatePASIDCache(StreamID streamID, PASID pasid) {
         // ARM SMMU v3 spec: Validate both StreamID and PASID bounds
         if (streamID <= MAX_STREAM_ID && pasid <= MAX_PASID) {
             tlbCache->invalidatePASID(streamID, pasid);
-            
+
             // ARM SMMU v3 spec: PASID invalidation is surgical - only affects specific context
             // This is the most efficient invalidation operation
         }
     }
-    
+
     // Performance optimization: Could track per-PASID invalidation statistics
     // for cache tuning and debugging purposes
+}
+
+void SMMU::setStreamVMID(StreamID streamID, uint16_t vmid) {
+    // ARM §5.2: STE.S2VMID — VMID for Stage-2 TLB tagging and targeted invalidation.
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return; // Stream not found — silently ignore
+    }
+    StreamConfig cfg = streamIt->second->getStreamConfiguration();
+    cfg.vmid = vmid;
+    streamIt->second->updateConfiguration(cfg);
+}
+
+void SMMU::setStreamASID(StreamID streamID, uint16_t asid) {
+    // ARM §3.17: CD.ASID — ASID for Stage-1 TLB tagging and targeted invalidation.
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return; // Stream not found — silently ignore
+    }
+    StreamConfig cfg = streamIt->second->getStreamConfiguration();
+    cfg.asid = asid;
+    streamIt->second->updateConfiguration(cfg);
 }
 
 // Task 5.2: Enhanced cache statistics with performance monitoring
@@ -838,7 +864,8 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
 }
 
 void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
-                                 const TranslationResult& result, uint64_t currentTime) {
+                                 const TranslationResult& result, uint64_t currentTime,
+                                 uint16_t asid, uint16_t vmid) {
     if (!tlbCache || result.isError() || !cachingEnabled) {
         return; // Caching disabled or invalid result
     }
@@ -864,6 +891,8 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     entry.securityState = data.securityState;
     entry.valid = true;
     entry.timestamp = currentTime;
+    entry.asid = asid;
+    entry.vmid = vmid;
 
     // ARM SMMU v3 spec: Insert into TLB with LRU eviction if needed
     tlbCache->insert(entry);
@@ -987,6 +1016,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
         return makeTranslationError(SMMUError::AddressSpaceExhausted);
+    }
+    // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
+    // PASID-0 auto-link), the IPA from stage-1 cannot be looked up in stage-2 (IOVA→IPA mapping,
+    // not IPA→PA).  Treat stage-1 result as the final translation (identity stage-2 semantics).
+    if (stage2AddressSpace == stage1AddressSpace) {
+        return stage1Result;
     }
     
     // Perform Stage-2 translation: IPA -> PA
@@ -1620,7 +1655,7 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
         case CommandType::TLBI_S2_IPA:
         case CommandType::TLBI_NSNH_ALL:
             // TLB invalidation commands
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid);
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
             break;
             
         case CommandType::ATC_INV:
@@ -1639,34 +1674,38 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
     generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
 }
 
-void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid) {
+void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid) {
     // ARM SMMU v3 spec: Execute TLB-specific invalidation commands
     switch (type) {
         case CommandType::TLBI_NH_ALL:
-        case CommandType::TLBI_NH_ASID:
         case CommandType::TLBI_NH_VA:
         case CommandType::TLBI_NH_VAA:
         case CommandType::TLBI_NSNH_ALL:
-            // Non-secure Hyp / ASID / VA / VAA TLB invalidation — global flush
+            // Non-secure Hyp / VA / VAA TLB invalidation — global flush
             invalidateTranslationCache();
             break;
 
+        case CommandType::TLBI_NH_ASID:
+            // ARM §4.4: ASID-targeted invalidation (CMD_TLBI_NH_ASID, opcode 0x11)
+            tlbCache->invalidateByASID(asid);
+            break;
+
         case CommandType::TLBI_EL2_ALL:
-        case CommandType::TLBI_EL2_ASID:
         case CommandType::TLBI_EL2_VA:
         case CommandType::TLBI_EL2_VAA:
             // EL2 TLB invalidation — global flush
             invalidateTranslationCache();
             break;
 
+        case CommandType::TLBI_EL2_ASID:
+            // ARM §4.4: ASID-targeted invalidation (CMD_TLBI_EL2_ASID, opcode 0x21)
+            tlbCache->invalidateByASID(asid);
+            break;
+
         case CommandType::TLBI_S12_VMALL:
         case CommandType::TLBI_S2_IPA:
-            // Stage 1&2 VM / S2 IPA invalidation
-            if (streamID != 0) {
-                invalidateStreamCache(streamID);
-            } else {
-                invalidateTranslationCache();
-            }
+            // ARM §4.4: VMID-targeted invalidation (CMD_TLBI_S12_VMALL 0x28, CMD_TLBI_S2_IPA 0x2A)
+            tlbCache->invalidateByVMID(vmid);
             break;
 
         default:

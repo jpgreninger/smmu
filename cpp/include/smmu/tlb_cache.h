@@ -128,6 +128,8 @@ public:
     // Invalidation operations
     void invalidate(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
     void invalidateBySecurityState(SecurityState securityState);
+    void invalidateByASID(uint16_t asid);    ///< ARM §4.4: evict all TLB entries tagged with this ASID
+    void invalidateByVMID(uint16_t vmid);    ///< ARM §4.4: evict all TLB entries tagged with this VMID
     void invalidateByStream(StreamID streamID);
     void invalidateByPASID(StreamID streamID, PASID pasid);
     void invalidateAll();

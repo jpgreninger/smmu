@@ -692,7 +692,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_TLBI_NH_ALL) {
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute TLBI_NH_ALL (line 1489-1492)
-    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_NH_ALL, STREAM1, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_NH_ALL, STREAM1, PASID1, 0, 0);
 
     // Cache should be cleared
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -703,7 +703,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_TLBI_EL2_ALL) {
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute TLBI_EL2_ALL (line 1494-1497)
-    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_EL2_ALL, STREAM1, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_EL2_ALL, STREAM1, PASID1, 0, 0);
 
     // Cache should be cleared
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -714,7 +714,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_TLBI_S12_VMALL_WithStreamID) {
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute TLBI_S12_VMALL with specific stream (line 1501-1502)
-    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_S12_VMALL, STREAM1, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_S12_VMALL, STREAM1, PASID1, 0, 0);
 
     // Stream cache should be invalidated
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -725,7 +725,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_TLBI_S12_VMALL_GlobalInvalidat
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute TLBI_S12_VMALL with stream 0 (global invalidate - line 1503-1505)
-    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_S12_VMALL, 0, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_S12_VMALL, 0, PASID1, 0, 0);
 
     // All cache should be cleared
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -734,7 +734,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_TLBI_S12_VMALL_GlobalInvalidat
 // Target line 1508-1511: Invalid TLB command
 TEST_F(SMMUPriority2Phase2Test, CommandProcessing_InvalidTLBCommand) {
     // Execute invalid TLB command (line 1508-1511)
-    smmuController->executeTLBInvalidationCommand(CommandType::SYNC, STREAM1, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::SYNC, STREAM1, PASID1, 0, 0);
 
     // Should generate configuration error event
     EXPECT_GT(smmuController->getEventQueueSize(), 0);

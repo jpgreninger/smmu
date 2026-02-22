@@ -295,6 +295,73 @@ void TLBCache::invalidateBySecurityState(SecurityState securityState) {
     }
 }
 
+void TLBCache::invalidateByASID(uint16_t asid) {
+    // ARM §4.4: CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID — evict all TLB entries tagged with this ASID.
+    // O(N) scan is acceptable; targeted ASID invalidation is infrequent relative to translations.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVMID(uint16_t vmid) {
+    // ARM §4.4: CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA — evict all TLB entries tagged with this VMID.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.vmid == vmid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateStream(StreamID streamID) {
     // Per-stripe iteration: acquire only one stripe lock at a time
     // to allow concurrent operations on other stripes

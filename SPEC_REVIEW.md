@@ -6,8 +6,8 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~85% | Rust ~93% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session)_
+**Overall Conformance**: C++ ~85% | Rust ~91% (software model scope)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1105,6 +1105,121 @@ When stall mode was active and any translation fault occurred, the C++ `translat
 
 ---
 
+### FINDING-NEW-15 ❌ — F_STREAM_DISABLED Triggered for Wrong Condition (Both)
+**Spec**: §7.3.7 (F_STREAM_DISABLED, event code 0x06), §5.2 (STE.Config, STE.S1DSS)
+**Severity**: Medium
+**Affected**: Both
+
+The spec §7.3.7 defines exactly one condition that generates `F_STREAM_DISABLED` (event 0x06):
+
+> "The STE of a transaction marks non-substream transactions disabled (when `STE.Config == 0b1x1` and `STE.S1CDMax > 0` and `STE.S1DSS == 0b00`) and the transaction was presented without a SubstreamID."
+
+In other words, `F_STREAM_DISABLED` fires when a **non-substream** transaction arrives at a stream that has stage-1 enabled with substreams (`STE.S1CDMax > 0`) but requires all transactions to carry a SubstreamID (`STE.S1DSS == 0b00`).
+
+Separately, the spec is explicit that when `STE.Config == 0b000` (stream disabled / abort): **"incoming traffic is terminated without recording an event"** (§7.3.7 last line; also §5.2 Config table: "Report abort to device, no event recorded").
+
+**Current behavior in both implementations:**
+- Both implementations call `disable_stream()` / `disableStream()` to mark a stream administratively disabled. Subsequent translations then return `TranslationError::StreamDisabled` / `SMMUError::StreamDisabled`.
+- `handleTranslationFailure()` (C++) and `map_fault_type_to_event_type()` (Rust) map `StreamDisabled` → `F_STREAM_DISABLED` (0x06) event.
+- This means the implementations generate `F_STREAM_DISABLED` when `STE.Config == 0b000` — but the spec says **no event** in that case.
+- Neither implementation models the `STE.S1DSS` field at all, so the actual `F_STREAM_DISABLED` scenario (valid translation config + no SubstreamID required by STE.S1DSS) is never triggered.
+
+**Evidence:**
+- **C++** (`cpp/src/smmu/smmu.cpp:1159-1163`): `SMMUError::StreamDisabled` → `generateEvent(EventType::F_STREAM_DISABLED, ...)` unconditionally.
+- **Rust** (`rust/smmu/src/smmu/mod.rs:1696`, `mod.rs:1742`): `StreamDisabled` → `FaultType::StreamDisabled` → `EventType::FStreamDisabled`.
+- Neither `StreamConfig` (C++) nor `StreamConfig` (Rust) has an `STE.S1DSS` field.
+
+**Recommendation**: For a software model, the least-impact correction is: when a stream is disabled (equivalent to `STE.Config == 0b000`), return an abort with **no event** — do not generate `F_STREAM_DISABLED`. The `F_STREAM_DISABLED` event should only be generated when a non-substream transaction arrives on a stream that requires substreams (`STE.S1DSS == 0b00`, `STE.S1CDMax > 0`). Adding a `s1dss` field to `StreamConfig` and checking it in the translation path would fully model this. The fix is behavioural: disable event generation in the current `StreamDisabled` error path.
+
+---
+
+### FINDING-NEW-16 ❌ — OAS Check Missing on Bypass Mode (STE.Config == 0b100) (Both)
+**Spec**: §3.4 (Address sizes), §3.4.1, §7.3.14 (F_ADDR_SIZE)
+**Severity**: Medium
+**Affected**: Both
+
+The spec §3.4 explicitly states:
+
+> "When a stream selects an STE with `STE.Config == 0b100`, transactions bypass all stages of translation. If the input address of a transaction **exceeds the size of the OAS**, the transaction is terminated with an abort and a stage 1 Address Size fault (`F_ADDR_SIZE`) is recorded."
+
+Similarly, when `SMMUEN == 0` and `GBPA.ABORT == 0` (global bypass), the spec §3.4 states: "If the input address of a transaction exceeds the size of the OAS, the transaction is terminated with an abort and no event is recorded."
+
+Neither implementation checks whether the IOVA exceeds the OAS in bypass mode. The bypass path in both implementations returns identity PA = IOVA unconditionally for any 64-bit address.
+
+**Evidence:**
+- **C++** (`cpp/src/smmu/smmu.cpp:768-788`): the bypass branch (`!config.translationEnabled`) returns `TranslationData(iova, bypassPerms, securityState)` for any `iova` value without checking address bounds.
+- **Rust** (`rust/smmu/src/smmu/mod.rs:1510-1519`): GBPA bypass path returns identity PA for any IOVA without OAS check.
+- **Rust** (`rust/smmu/src/stream_context/mod.rs:875`): `translate_bypass()` returns identity PA for any IOVA.
+
+**Recommendation**: Add an OAS limit parameter to `StreamConfig` (or use a global `SMMUConfig.oas_bits` field). In the bypass translation path, check `iova >= (1u64 << oas_bits)`; if exceeded, return `F_ADDR_SIZE` fault (for STE-level bypass) or abort with no event (for SMMUEN=0 bypass). A reasonable default OAS is 48 bits (common hardware capability).
+
+---
+
+### FINDING-NEW-17 ❌ — CMD_CFGI_STE Leaf Bit Not Modeled (Both)
+**Spec**: §4.3.1 (CMD_CFGI_STE Leaf parameter)
+**Severity**: Low
+**Affected**: Both
+
+Spec §4.3.1: "When `Leaf == 0`, this command invalidates the STE for the specified StreamID, **and all caching of the intermediate L1ST descriptor structures** walked to locate the specified STE. When `Leaf == 1`, only the STE is invalidated and the intermediate L1ST descriptors are not required to be invalidated."
+
+Similarly, §4.3.3 `CMD_CFGI_CD` carries a `Leaf` bit: "When `Leaf == 0`, this command invalidates the CD for the given SubstreamID, **and any intermediate L1CD descriptor** structures...".
+
+Neither the C++ `CommandEntry` struct nor the Rust `CommandEntry` struct has a `leaf` field. The `CMD_CFGI_STE` and `CMD_CFGI_CD` handlers do not differentiate Leaf=0 vs Leaf=1 behaviour.
+
+**Evidence:**
+- **C++** (`cpp/include/smmu/types.h:1185-1211`): `CommandEntry` has no `leaf` field.
+- **Rust** (`rust/smmu/src/types/command_entry.rs:88-184`): `CommandEntry` has no `leaf` field.
+
+**Impact Assessment**: Because both implementations do not model multi-level stream tables (FINDING-C-04, documented as software model scope) or multi-level CD tables (FINDING-H-06, documented as software model scope), there are no L1ST or L1CD entries to invalidate. The `Leaf` bit distinction is therefore semantically inert in this software model — both Leaf=0 and Leaf=1 produce equivalent results. The gap is low-severity and consistent with the existing out-of-scope decisions for the binary table formats. Software callers that set `leaf` in a `CommandEntry` will have the bit silently ignored.
+
+**Recommendation**: Add a `leaf: bool` field (C++) / `pub leaf: bool` field (Rust) to `CommandEntry` for protocol completeness, even if the implementation treats it as a no-op. Document the limitation in the `CommandEntry` field comment. No behavioral change is required.
+
+---
+
+### FINDING-NEW-18 ❌ — STE.S1DSS Field Not Modeled; Non-Substream Fallback Absent (Both)
+**Spec**: §3.9 (SubstreamIDs), §5.2 (STE.S1DSS field)
+**Severity**: Medium
+**Affected**: Both
+
+Spec §3.9 defines three behaviors when a SubstreamID-capable stream receives a transaction **without** a SubstreamID (controlled by `STE.S1DSS`):
+
+- `STE.S1DSS == 0b00`: Traffic **without** SubstreamID is an error → abort, record `F_STREAM_DISABLED` (§7.3.7).
+- `STE.S1DSS == 0b01`: Traffic without SubstreamID bypasses stage-1 (treated as stage-1 bypass even when `STE.Config == 0b1x1`).
+- `STE.S1DSS == 0b10`: Traffic without SubstreamID is translated using CD[0]; but SubstreamID 0 is then **prohibited** for explicit substream transactions → abort, record `F_STREAM_DISABLED`.
+
+Neither `StreamTableEntry` (C++) nor `StreamConfig` (Rust) has an `s1dss` field. The implementations have no concept of a "non-substream" vs "substream" transaction distinction at the STE level. Every transaction that passes PASID=0 is treated uniformly as a stage-1 lookup on PASID 0, without any S1DSS-controlled routing. PASID=0 on a stage-1-enabled stream always succeeds if a mapping exists for PASID 0.
+
+**Evidence:**
+- **C++** (`cpp/include/smmu/types.h:1424-1461`): `StreamTableEntry` struct has no `s1dss` field.
+- **C++** (`cpp/include/smmu/types.h:1046-1058`): `StreamConfig` struct has no `s1dss` field.
+- **Rust** (`rust/smmu/src/types/config.rs:67-101`): `StreamConfig` struct has no `s1dss` or `s1cd_max` field.
+
+**Recommendation**: Add `s1dss: u8` (values 0b00, 0b01, 0b10) and `s1cd_max: u8` (STE.S1CDMax — number of SubstreamID bits supported) to `StreamConfig` in both implementations. Use these to gate PASID=0 bypass vs. error behavior in the stage-1 translation path. This is prerequisite to correctly generating `F_STREAM_DISABLED` (FINDING-NEW-15) and models a common hypervisor/virtualization scenario.
+
+---
+
+### ~~FINDING-NEW-19~~ ✅ Fixed (C++) — VMID Field Missing from C++ TLB Entries and Stream Config
+**Spec**: §3.8 (Virtualization), §5.2 (STE S2VMID field)
+**Severity**: Medium
+**Affected**: C++ only
+
+**Fix**: Added `uint16_t vmid` to `StreamConfig`, `TLBEntry`, `CommandEntry`, and `StreamTableEntry` in `cpp/include/smmu/types.h`. Added `TLBCache::invalidateByVMID(uint16_t vmid)` in `cpp/src/cache/tlb_cache.cpp`. VMID is propagated from `StreamConfig` into `TLBEntry` at cache-insertion time (`cacheTranslationResult()`). `CMD_TLBI_S12_VMALL` and `CMD_TLBI_S2_IPA` now route to `tlbCache->invalidateByVMID(vmid)` in `executeTLBInvalidationCommand()`. Also closes the C++ portion of FINDING-M-02.
+
+**Tests**: `cpp/tests/unit/test_asid_vmid_tlb_spec.cpp` — 9/9 passing (VMIDTargetedInvalidation_TLBI_S12_VMALL, VMIDTargetedInvalidation_TLBI_S2_IPA, field presence tests).
+
+---
+
+### ~~FINDING-NEW-20~~ ✅ Fixed (C++) — ASID Field Missing from C++ TLB Entries
+**Spec**: §3.17 (TLB tagging, VMIDs, ASIDs), §4.4 (TLB invalidation)
+**Severity**: Medium
+**Affected**: C++ only
+
+**Fix**: Added `uint16_t asid` to `StreamConfig`, `TLBEntry`, and `CommandEntry` in `cpp/include/smmu/types.h`. Added `TLBCache::invalidateByASID(uint16_t asid)` in `cpp/src/cache/tlb_cache.cpp`. ASID is propagated from `StreamConfig` into `TLBEntry` at cache-insertion time. `CMD_TLBI_NH_ASID` and `CMD_TLBI_EL2_ASID` now route to `tlbCache->invalidateByASID(asid)` in `executeTLBInvalidationCommand()`. Also closes the C++ portion of FINDING-M-03.
+
+**Tests**: `cpp/tests/unit/test_asid_vmid_tlb_spec.cpp` — 9/9 passing (ASIDTargetedInvalidation_TLBI_NH_ASID, ASIDTargetedInvalidation_TLBI_EL2_ASID, field presence tests).
+
+---
+
 ## Features Correctly Implemented
 
 ### C++ Implementation
@@ -1139,11 +1254,18 @@ When stall mode was active and any translation fault occurred, the C++ `translat
 **C++**: Functional test suite — 100% pass rate. All previously noted gaps
 (disabled-stream event type, `CFGI_CD`/`CFGI_CD_ALL` handling, stall mode
 event type, `C_BAD_SUBSTREAMID`) resolved by NEW-05 through NEW-13.
+NEW-19 and NEW-20 resolved by 2026-02-21 session: 9 new spec tests added in
+`cpp/tests/unit/test_asid_vmid_tlb_spec.cpp` covering VMID-targeted and
+ASID-targeted TLB invalidation (all 9/9 passing).
+New open gaps (NEW-15, NEW-16, NEW-17, NEW-18) do not yet have associated
+test cases; test coverage targets for those items are pending.
 
 **Rust**: All tests passing (100%). 10 new spec tests added for NEW-11
 (`tests/test_c_bad_substreamid_spec.rs`). Previously noted coverage gaps
 (`address_space` 20.86%, `stream_context` 50.00%) partially improved by the
 NEW-11 stage-context path coverage. Missing: binary STE/CD format tests.
+New open gaps (NEW-15, NEW-16, NEW-17, NEW-18) do not yet have associated
+test cases.
 
 ---
 
@@ -1204,20 +1326,29 @@ NEW-11 stage-context path coverage. Missing: binary STE/CD format tests.
 42. ~~FINDING-NEW-13 — Stall mode hard-codes F_TRANSLATION event regardless of actual fault type (C++)~~ ✅ Fixed (C++)
 43. ~~FINDING-NEW-14 — PASIDSecurityStateContextSwitching test stale after FINDING-L-06 (C++ test debt)~~ ✅ Fixed (C++)
 
+### New findings (2026-02-21 deep QA review — new open gaps)
+44. FINDING-NEW-15 ❌ — F_STREAM_DISABLED triggered for wrong condition; no-event rule for STE.Config==0b000 not enforced (Both)
+45. FINDING-NEW-16 ❌ — OAS check missing on bypass mode translations — F_ADDR_SIZE not generated for oversized addresses (Both)
+46. FINDING-NEW-17 ❌ — CMD_CFGI_STE and CMD_CFGI_CD Leaf bit not modeled in CommandEntry (Both) — Low priority
+47. FINDING-NEW-18 ❌ — STE.S1DSS field not modeled; non-substream fallback semantics absent (Both)
+48. ~~FINDING-NEW-19 — VMID field missing from C++ TLB entries and StreamTableEntry — re-states open FINDING-M-02 C++ gap (C++)~~ ✅ Fixed (C++)
+49. ~~FINDING-NEW-20 — ASID field missing from C++ TLBEntry — re-states open FINDING-M-03 C++ gap (C++)~~ ✅ Fixed (C++)
+
 ---
 
 ## Key Files for Fixes
 
 | File | Relevant Findings |
 |------|------------------|
-| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13 |
+| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16 |
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
-| `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05 |
+| `rust/smmu/src/types/command_entry.rs` | H-02, H-03, NEW-04, NEW-05, NEW-17 |
 | `rust/smmu/src/types/event_entry.rs` | H-01, M-05, NEW-06 |
 | `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11 |
-| `rust/smmu/src/stream_context/mod.rs` | NEW-11 |
+| `rust/smmu/src/types/config.rs` | NEW-18 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16 |
+| `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18 |
 | `rust/smmu/src/cache/` | M-03, M-04 |

@@ -1038,7 +1038,12 @@ TEST_F(SMMUTest, SparseAddressSpaceHandling) {
         IOVA iova = TEST_IOVA + (i * addressGap);
         EXPECT_TRUE(smmuController->unmapPage(TEST_STREAM_ID_1, TEST_PASID_1, iova));
     }
-    
+
+    // ARM SMMU v3 spec §4.4: TLB maintenance is the caller's responsibility.
+    // Explicitly invalidate the TLB so subsequent translations fall through to
+    // the page table (where unmapped entries now fail).
+    smmuController->invalidatePASIDCache(TEST_STREAM_ID_1, TEST_PASID_1);
+
     // Verify unmapped entries fail, mapped entries still work
     for (size_t i = 0; i < numMappings; ++i) {
         IOVA iova = TEST_IOVA + (i * addressGap);
@@ -1256,7 +1261,12 @@ TEST_F(SMMUTest, PageMappingOperations) {
     
     // Test unmapping
     EXPECT_TRUE(smmuController->unmapPage(TEST_STREAM_ID_1, TEST_PASID_1, baseIOVA));
-    
+
+    // ARM SMMU v3 spec §4.4: TLB maintenance is the caller's responsibility.
+    // Explicitly invalidate the TLB so the translate below falls through to
+    // the page table and receives PageNotMapped.
+    smmuController->invalidatePASIDCache(TEST_STREAM_ID_1, TEST_PASID_1);
+
     TranslationResult unmappedResult = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, baseIOVA, AccessType::Read);
     EXPECT_TRUE(unmappedResult.isError());
     EXPECT_EQ(unmappedResult.getError(), SMMUError::PageNotMapped);

@@ -40,6 +40,7 @@ set(UNIT_TEST_SOURCES
     test_c_bad_substreamid_spec.cpp
     test_stall_event_type_spec.cpp
     test_smmuen_spec.cpp
+    test_asid_vmid_tlb_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

@@ -472,7 +472,12 @@ TEST_F(SMMUPhase4BCoverageTest, Cache_InvalidationAfterUnmap) {
     // Unmap the page
     smmuController->unmapPage(STREAM1, PASID1, TEST_IOVA1);
 
-    // Try to translate again - should trigger cache invalidation paths (lines 102, 135)
+    // ARM SMMU v3 spec §4.4: TLB maintenance is the caller's responsibility.
+    // Explicitly invalidate the TLB so subsequent translation misses in the
+    // cache and falls through to the (now-absent) page-table entry.
+    smmuController->invalidatePASIDCache(STREAM1, PASID1);
+
+    // Try to translate again - TLB miss forces page-table walk which fails
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
 }
@@ -653,7 +658,7 @@ TEST_F(SMMUPhase4BCoverageTest, CommandProcessing_InvalidationCommands) {
     smmuController->executeInvalidationCommand(tlbiCmd);
 
     // Execute TLB invalidation via specific method
-    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_NH_ALL, STREAM1, PASID1);
+    smmuController->executeTLBInvalidationCommand(CommandType::TLBI_NH_ALL, STREAM1, PASID1, 0, 0);
 
     // Execute ATC invalidation
     smmuController->executeATCInvalidationCommand(STREAM1, PASID1, TEST_IOVA1, TEST_IOVA2);

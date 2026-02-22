@@ -1050,10 +1050,12 @@ struct StreamConfig {
     FaultMode faultMode;
     bool ha;  // Hardware Access Flag management enabled (CD.HA)
     bool hd;  // Hardware Dirty State management enabled (CD.HD)
+    uint16_t asid;  // CD.ASID (ARM §3.17): ASID tag for Stage-1 TLB entries (§4.4 targeted invalidation)
+    uint16_t vmid;  // STE.S2VMID (ARM §5.2): VMID tag for Stage-2 TLB entries (§4.4 targeted invalidation)
 
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), faultMode(FaultMode::Terminate),
-                    ha(false), hd(false) {
+                    ha(false), hd(false), asid(0), vmid(0) {
     }
 };
 
@@ -1097,13 +1099,17 @@ struct TLBEntry {
     SecurityState securityState;
     bool valid;
     uint64_t timestamp;
-    
-    TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0), 
-                 securityState(SecurityState::NonSecure), valid(false), timestamp(0) {
+    uint16_t asid;  // CD.ASID tag — used for CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID (ARM §4.4)
+    uint16_t vmid;  // STE.S2VMID tag — used for CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA (ARM §4.4)
+
+    TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0),
+                 securityState(SecurityState::NonSecure), valid(false), timestamp(0),
+                 asid(0), vmid(0) {
     }
-    
-    TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState) 
-        : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms), securityState(secState), valid(true), timestamp(0) {
+
+    TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState)
+        : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms),
+          securityState(secState), valid(true), timestamp(0), asid(0), vmid(0) {
     }
 };
 
@@ -1198,15 +1204,19 @@ struct CommandEntry {
     uint16_t stag;  ///< ARM §4.6: STAG field — identifies stalled transaction for RESUME/STALL_TERM
     bool action;    ///< ARM §4.6: Ac bit — true=retry, false=terminate or abort
     bool abort;     ///< ARM §4.6: Ab bit — true=abort with bus error, false=terminate successfully (only when action=false)
+    uint16_t asid;  ///< ARM §4.4: ASID operand for CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID
+    uint16_t vmid;  ///< ARM §4.4: VMID operand for CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
-                    prgIndex(0), range(31), stag(0), action(false), abort(false) {
+                    prgIndex(0), range(31), stag(0), action(false), abort(false),
+                    asid(0), vmid(0) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
-          flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false) {
+          flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
+          asid(0), vmid(0) {
     }
 };
 
@@ -1434,7 +1444,9 @@ struct StreamTableEntry {
     bool privilegedExecuteNever;            // Privileged execute never
     bool instructionFetchDisable;           // Instruction fetch disable
     uint32_t streamID;                      // Associated Stream ID
-    
+    uint16_t vmid;   // STE.S2VMID (ARM §5.2 Word 2 bits 63:48): VMID for Stage-2 TLB tagging
+    uint16_t asid;   // CD.ASID (ARM §5.4 Word 1 bits 31:16): ASID for Stage-1 TLB tagging
+
     StreamTableEntry()
         : stage1Enabled(false), stage2Enabled(false), translationEnabled(false),
           contextDescriptorTableBase(0), contextDescriptorTableSize(0),
@@ -1443,10 +1455,10 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(0) {
+          streamID(0), vmid(0), asid(0) {
     }
-    
-    StreamTableEntry(uint32_t sid, bool s1Enabled, bool s2Enabled, 
+
+    StreamTableEntry(uint32_t sid, bool s1Enabled, bool s2Enabled,
                     uint64_t cdTableBase, SecurityState secState)
         : stage1Enabled(s1Enabled), stage2Enabled(s2Enabled),
           translationEnabled(s1Enabled || s2Enabled),
@@ -1456,7 +1468,7 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(sid) {
+          streamID(sid), vmid(0), asid(0) {
     }
 };
 

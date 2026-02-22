@@ -255,16 +255,24 @@ TEST_F(FaultSyndromeSpecTest, Stage1Fault_S2BitClear) {
 // ── Test 8: Stage-2 fault — S2 bit [7] must be SET ───────────────────────
 
 /// §7.3: S2 (bit [7]) = 1 when the fault occurs in Stage-2 translation.
-/// When Stage-1 succeeds but Stage-2 address space is absent (nullptr),
-/// performBothStagesTranslation records FaultStage::Stage2Only.
+/// PASID=1 is used for Stage-1 so that the Stage-1 address space is a
+/// distinct object from the Stage-2 address space (which is aliased to
+/// PASID=0's AS per BUG-07 integration fix).  Stage-1 translates
+/// BASE_IOVA → BASE_PA (IPA).  Stage-2 looks up IPA=BASE_PA in PASID-0's
+/// AS, where it is not mapped, triggering a Stage2Only fault.
 TEST_F(FaultSyndromeSpecTest, Stage2Fault_S2BitSet) {
-    // Map stage-1 page so Stage-1 succeeds (produces an IPA).
-    // Stage-2 address space is never configured (nullptr), so the
-    // subsequent Stage-2 lookup triggers a Stage2Only fault.
-    PagePermissions rw(true, true, false);
-    ASSERT_TRUE(smmu->mapPage(TEST_STREAM, TEST_PASID, BASE_IOVA, BASE_PA, rw).isOk());
+    // Create a non-PASID-0 context so Stage-1 uses a separate address space
+    // from the Stage-2 AS (which BUG-07 aliases to PASID-0's AS).
+    static constexpr PASID STAGE1_PASID = 1;
+    ASSERT_TRUE(smmu->createStreamPASID(TEST_STREAM, STAGE1_PASID).isOk());
 
-    smmu->translate(TEST_STREAM, TEST_PASID, BASE_IOVA, AccessType::Read);
+    // Map stage-1 page in PASID=1 space so Stage-1 succeeds → IPA = BASE_PA.
+    // Stage-2 AS (PASID=0's AS) has no IPA→PA mapping for BASE_PA, so
+    // performBothStagesTranslation records FaultStage::Stage2Only.
+    PagePermissions rw(true, true, false);
+    ASSERT_TRUE(smmu->mapPage(TEST_STREAM, STAGE1_PASID, BASE_IOVA, BASE_PA, rw).isOk());
+
+    smmu->translate(TEST_STREAM, STAGE1_PASID, BASE_IOVA, AccessType::Read);
 
     FaultSyndrome syn = getSyndromeForAccessType(AccessType::Read);
     ASSERT_TRUE(syn.validSyndrome) << "No valid fault syndrome recorded";
