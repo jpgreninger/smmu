@@ -87,6 +87,7 @@ const fn resume_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     }
 }
 
@@ -107,6 +108,7 @@ const fn resume_cmd_retry(stag: u16, stream_id: u32) -> CommandEntry {
         action: true,
         abort: false,
         range: 31,
+        leaf: false,
     }
 }
 
@@ -127,6 +129,7 @@ const fn resume_cmd_abort(stag: u16, stream_id: u32) -> CommandEntry {
         action: false,
         abort: true,
         range: 31,
+        leaf: false,
     }
 }
 
@@ -147,6 +150,7 @@ const fn stall_term_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     }
 }
 

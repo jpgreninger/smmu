@@ -1052,10 +1052,20 @@ struct StreamConfig {
     bool hd;  // Hardware Dirty State management enabled (CD.HD)
     uint16_t asid;  // CD.ASID (ARM §3.17): ASID tag for Stage-1 TLB entries (§4.4 targeted invalidation)
     uint16_t vmid;  // STE.S2VMID (ARM §5.2): VMID tag for Stage-2 TLB entries (§4.4 targeted invalidation)
+    /// ARM §5.2 STE.S1DSS: controls behavior when a non-substream transaction
+    /// (PASID==0) arrives on a substream-capable stage-1 stream (s1cdMax > 0).
+    ///   0b00 = abort with F_STREAM_DISABLED (§7.3.7)
+    ///   0b01 = bypass stage-1 for this transaction (identity PA = IOVA)
+    ///   0b10 = use CD[0] for translation (default — preserves existing behavior)
+    uint8_t s1dss;  ///< defaults to 0b10 (use CD[0])
+    /// ARM §5.2 STE.S1CDMax: number of SubstreamID bits supported by this stream.
+    /// 0 = stream not substream-capable (s1dss ignored, PASID=0 always uses CD[0]).
+    /// >0 = stream supports substreams; s1dss governs non-substream PASID=0 handling.
+    uint8_t s1cdMax;  ///< defaults to 0 (not substream-capable)
 
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), faultMode(FaultMode::Terminate),
-                    ha(false), hd(false), asid(0), vmid(0) {
+                    ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0) {
     }
 };
 
@@ -1206,17 +1216,25 @@ struct CommandEntry {
     bool abort;     ///< ARM §4.6: Ab bit — true=abort with bus error, false=terminate successfully (only when action=false)
     uint16_t asid;  ///< ARM §4.4: ASID operand for CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID
     uint16_t vmid;  ///< ARM §4.4: VMID operand for CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA
+    /// ARM §4.3.1 / §4.3.3: Leaf bit for CMD_CFGI_STE and CMD_CFGI_CD.
+    /// When false (Leaf=0), both the target entry and any cached intermediate
+    /// L1ST/L1CD descriptor structures are invalidated.
+    /// When true (Leaf=1), only the target entry is invalidated; intermediate
+    /// structures need not be invalidated.
+    /// This software model does not cache intermediate table structures, so
+    /// both values produce equivalent results (semantically a no-op here).
+    bool leaf;  ///< defaults to false (Leaf=0 — full invalidation)
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
                     prgIndex(0), range(31), stag(0), action(false), abort(false),
-                    asid(0), vmid(0) {
+                    asid(0), vmid(0), leaf(false) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
           flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
-          asid(0), vmid(0) {
+          asid(0), vmid(0), leaf(false) {
     }
 };
 
@@ -1446,6 +1464,16 @@ struct StreamTableEntry {
     uint32_t streamID;                      // Associated Stream ID
     uint16_t vmid;   // STE.S2VMID (ARM §5.2 Word 2 bits 63:48): VMID for Stage-2 TLB tagging
     uint16_t asid;   // CD.ASID (ARM §5.4 Word 1 bits 31:16): ASID for Stage-1 TLB tagging
+    /// ARM §5.2 STE.S1DSS: controls behavior when a non-substream transaction
+    /// (PASID==0) arrives on a substream-capable stage-1 stream (s1cdMax > 0).
+    ///   0b00 = abort with F_STREAM_DISABLED (§7.3.7)
+    ///   0b01 = bypass stage-1 for this transaction (identity PA = IOVA)
+    ///   0b10 = use CD[0] for translation (default — preserves existing behavior)
+    uint8_t s1dss;  ///< defaults to 0b10 (use CD[0])
+    /// ARM §5.2 STE.S1CDMax: number of SubstreamID bits supported by this stream.
+    /// 0 = stream not substream-capable (s1dss ignored, PASID=0 always uses CD[0]).
+    /// >0 = stream supports substreams; s1dss governs non-substream PASID=0 handling.
+    uint8_t s1cdMax;  ///< defaults to 0 (not substream-capable)
 
     StreamTableEntry()
         : stage1Enabled(false), stage2Enabled(false), translationEnabled(false),
@@ -1455,7 +1483,7 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(0), vmid(0), asid(0) {
+          streamID(0), vmid(0), asid(0), s1dss(2), s1cdMax(0) {
     }
 
     StreamTableEntry(uint32_t sid, bool s1Enabled, bool s2Enabled,
@@ -1468,7 +1496,7 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(sid), vmid(0), asid(0) {
+          streamID(sid), vmid(0), asid(0), s1dss(2), s1cdMax(0) {
     }
 };
 

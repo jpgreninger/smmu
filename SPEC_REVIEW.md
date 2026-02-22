@@ -7,7 +7,7 @@
 - Rust: `rust/smmu/`
 
 **Overall Conformance**: C++ ~85% | Rust ~91% (software model scope)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21)_
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1155,7 +1155,7 @@ Neither implementation checks whether the IOVA exceeds the OAS in bypass mode. T
 
 ---
 
-### FINDING-NEW-17 ❌ — CMD_CFGI_STE Leaf Bit Not Modeled (Both)
+### FINDING-NEW-17 ✅ Fixed — CMD_CFGI_STE Leaf Bit Not Modeled (Both)
 **Spec**: §4.3.1 (CMD_CFGI_STE Leaf parameter)
 **Severity**: Low
 **Affected**: Both
@@ -1176,7 +1176,7 @@ Neither the C++ `CommandEntry` struct nor the Rust `CommandEntry` struct has a `
 
 ---
 
-### FINDING-NEW-18 ❌ — STE.S1DSS Field Not Modeled; Non-Substream Fallback Absent (Both)
+### FINDING-NEW-18 ✅ Fixed — STE.S1DSS Field Not Modeled; Non-Substream Fallback Absent (Both)
 **Spec**: §3.9 (SubstreamIDs), §5.2 (STE.S1DSS field)
 **Severity**: Medium
 **Affected**: Both
@@ -1334,8 +1334,8 @@ Open gaps (NEW-17, NEW-18) do not yet have associated test cases.
 ### New findings (2026-02-21 deep QA review — new open gaps)
 44. ~~FINDING-NEW-15 — F_STREAM_DISABLED triggered for wrong condition; no-event rule for STE.Config==0b000 not enforced (Both)~~ ✅ Fixed (Both)
 45. ~~FINDING-NEW-16 — OAS check missing on bypass mode translations — F_ADDR_SIZE not generated for oversized addresses (Both)~~ ✅ Fixed (Both)
-46. FINDING-NEW-17 ❌ — CMD_CFGI_STE and CMD_CFGI_CD Leaf bit not modeled in CommandEntry (Both) — Low priority
-47. FINDING-NEW-18 ❌ — STE.S1DSS field not modeled; non-substream fallback semantics absent (Both)
+46. ~~FINDING-NEW-17 — CMD_CFGI_STE and CMD_CFGI_CD Leaf bit not modeled in CommandEntry (Both)~~ ✅ Fixed (Both)
+47. ~~FINDING-NEW-18 — STE.S1DSS field not modeled; non-substream fallback semantics absent (Both)~~ ✅ Fixed (Both)
 48. ~~FINDING-NEW-19 — VMID field missing from C++ TLB entries and StreamTableEntry — re-states open FINDING-M-02 C++ gap (C++)~~ ✅ Fixed (C++)
 49. ~~FINDING-NEW-20 — ASID field missing from C++ TLBEntry — re-states open FINDING-M-03 C++ gap (C++)~~ ✅ Fixed (C++)
 

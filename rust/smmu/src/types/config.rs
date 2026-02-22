@@ -98,6 +98,24 @@ pub struct StreamConfig {
     /// Hardware Dirty State management enabled (CD.HD bit 42, ARM SMMU v3 §3.13).
     /// When true, the SMMU sets the dirty bit in the page table entry on first write.
     pub hd: bool,
+
+    /// ARM §5.2 STE.S1DSS: controls behavior when a non-substream transaction
+    /// (PASID==0) arrives on a substream-capable stage-1 stream (`s1cd_max > 0`).
+    ///
+    /// - `0b00` (0): abort with F_STREAM_DISABLED (§7.3.7)
+    /// - `0b01` (1): bypass stage-1 for this transaction (identity PA = IOVA)
+    /// - `0b10` (2): use CD\[0\] for translation (default — preserves existing behavior)
+    ///
+    /// Ignored when `s1cd_max == 0` (stream is not substream-capable).
+    pub s1dss: u8,
+
+    /// ARM §5.2 STE.S1CDMax: number of SubstreamID bits supported by this stream.
+    ///
+    /// When `0`, the stream is not substream-capable and `s1dss` is ignored;
+    /// PASID=0 always uses the normal CD\[0\] path.
+    /// When `> 0`, the stream supports up to `2^s1cd_max` substreams and `s1dss`
+    /// governs non-substream (PASID=0) handling.
+    pub s1cd_max: u8,
 }
 
 impl StreamConfig {
@@ -127,6 +145,8 @@ impl StreamConfig {
             vmid: 0,
             ha: false,
             hd: false,
+            s1dss: 2,
+            s1cd_max: 0,
         }
     }
 
@@ -144,6 +164,8 @@ impl StreamConfig {
             vmid: 0,
             ha: false,
             hd: false,
+            s1dss: 2,
+            s1cd_max: 0,
         }
     }
 
@@ -161,6 +183,8 @@ impl StreamConfig {
             vmid: 0,
             ha: false,
             hd: false,
+            s1dss: 2,
+            s1cd_max: 0,
         }
     }
 
@@ -178,6 +202,8 @@ impl StreamConfig {
             vmid: 0,
             ha: false,
             hd: false,
+            s1dss: 2,
+            s1cd_max: 0,
         }
     }
 
@@ -253,6 +279,8 @@ pub struct StreamConfigBuilder {
     vmid: u16,
     ha: bool,
     hd: bool,
+    s1dss: u8,
+    s1cd_max: u8,
 }
 
 impl StreamConfigBuilder {
@@ -270,6 +298,8 @@ impl StreamConfigBuilder {
             vmid: 0,
             ha: false,
             hd: false,
+            s1dss: 2,
+            s1cd_max: 0,
         }
     }
 
@@ -357,6 +387,8 @@ impl StreamConfigBuilder {
             vmid: self.vmid,
             ha: self.ha,
             hd: self.hd,
+            s1dss: self.s1dss,
+            s1cd_max: self.s1cd_max,
         };
 
         config.validate()?;

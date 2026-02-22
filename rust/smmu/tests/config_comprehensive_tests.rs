@@ -2996,6 +2996,8 @@ fn test_stream_config_validation_error_paths() {
         vmid: 0,
         ha: false,
         hd: false,
+        s1dss: 2,
+        s1cd_max: 0,
     };
     assert!(config1.validate().is_err());
 
@@ -3011,6 +3013,8 @@ fn test_stream_config_validation_error_paths() {
         vmid: 0,
         ha: false,
         hd: false,
+        s1dss: 2,
+        s1cd_max: 0,
     };
     assert!(config2.validate().is_err());
 
@@ -3026,6 +3030,8 @@ fn test_stream_config_validation_error_paths() {
         vmid: 0,
         ha: false,
         hd: false,
+        s1dss: 2,
+        s1cd_max: 0,
     };
     assert!(config3.validate().is_err());
 
@@ -3041,6 +3047,8 @@ fn test_stream_config_validation_error_paths() {
         vmid: 0,
         ha: false,
         hd: false,
+        s1dss: 2,
+        s1cd_max: 0,
     };
     assert!(config4.validate().is_err());
 
@@ -3056,6 +3064,8 @@ fn test_stream_config_validation_error_paths() {
         vmid: 0,
         ha: false,
         hd: false,
+        s1dss: 2,
+        s1cd_max: 0,
     };
     assert!(config5.validate().is_err());
 }

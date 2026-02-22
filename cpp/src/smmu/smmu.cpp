@@ -838,6 +838,49 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         return TranslationResult(data);
     }
 
+    // §3.9 / §5.2 STE.S1DSS: When stage-1 is enabled and the stream is
+    // substream-capable (S1CDMax > 0), non-substream transactions (PASID==0)
+    // are handled according to STE.S1DSS before the normal CD[0] lookup.
+    if (config.stage1Enabled && config.s1cdMax > 0 && pasid == 0) {
+        if (config.s1dss == 0x00u) {
+            // §7.3.7: S1DSS==0b00 — non-substream transaction on substream-capable
+            // stream aborts with F_STREAM_DISABLED (event 0x06).
+            FaultRecord s1dssFault;
+            s1dssFault.streamID = streamID;
+            s1dssFault.pasid = pasid;
+            s1dssFault.address = iova;
+            s1dssFault.faultType = FaultType::StreamDisabled;
+            s1dssFault.accessType = accessType;
+            s1dssFault.securityState = securityState;
+            s1dssFault.timestamp = currentTime;
+            recordFault(s1dssFault);
+            generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::StreamDisabled);
+        }
+        if (config.s1dss == 0x01u) {
+            // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
+            // OAS check applies per §3.4 (same as STE bypass).
+            uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+            if (oasBits < 64 && iova >= (static_cast<IOVA>(1) << oasBits)) {
+                FaultRecord oasFault;
+                oasFault.streamID = streamID;
+                oasFault.pasid = pasid;
+                oasFault.address = iova;
+                oasFault.faultType = FaultType::AddressSizeFault;
+                oasFault.accessType = accessType;
+                oasFault.securityState = securityState;
+                oasFault.timestamp = currentTime;
+                recordFault(oasFault);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                return makeTranslationError(SMMUError::InvalidAddress);
+            }
+            PagePermissions s1dssPerms(true, true, true);
+            TranslationData s1dssData(iova, s1dssPerms, securityState);
+            return TranslationResult(s1dssData);
+        }
+        // s1dss == 0b10: use CD[0] — fall through to normal stage-1 translation.
+    }
+
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
         result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext, config, currentTime);

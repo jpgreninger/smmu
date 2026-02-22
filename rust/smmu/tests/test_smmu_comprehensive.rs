@@ -154,6 +154,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -179,6 +180,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -204,6 +206,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -229,6 +232,7 @@ fn test_command_queue_submit_atc_inv() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -255,6 +259,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     let result = smmu.submit_command(command);
@@ -284,6 +289,7 @@ fn test_command_queue_submit_sync() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -309,6 +315,7 @@ fn test_command_queue_submit_prefetch_config() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -333,6 +340,7 @@ fn test_command_queue_submit_prefetch_addr() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -357,6 +365,7 @@ fn test_command_queue_submit_cfgi_ste() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -381,6 +390,7 @@ fn test_command_queue_submit_cfgi_all() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -405,6 +415,7 @@ fn test_command_queue_submit_pri_resp() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -429,6 +440,7 @@ fn test_command_queue_submit_resume() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -453,6 +465,7 @@ fn test_command_queue_process_single_tlbi() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -488,6 +501,7 @@ fn test_command_queue_process_multiple_commands() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -522,6 +536,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -553,6 +568,7 @@ fn test_command_queue_process_sync_generates_event() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     };
 
     smmu.submit_command(command).unwrap();
@@ -594,6 +610,7 @@ fn test_command_queue_clear() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -628,6 +645,7 @@ fn test_command_queue_is_full() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -1217,6 +1235,7 @@ fn test_queue_statistics() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     })
     .unwrap();
 
@@ -1261,6 +1280,7 @@ fn test_cache_statistics_invalidation_count() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
         })
         .unwrap();
     }
@@ -1303,6 +1323,7 @@ fn test_reset_queues_atomically() {
         action: false,
         abort: false,
         range: 31,
+        leaf: false,
     })
     .unwrap();
 

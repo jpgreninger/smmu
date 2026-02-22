@@ -30,7 +30,7 @@ use crate::types::{
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// StreamContext - Per-stream state and PASID management
@@ -131,6 +131,15 @@ pub struct StreamContext {
     /// Hardware Dirty State management enabled (CD.HD bit 42, ARM SMMU v3 §3.13).
     /// When true, the dirty bit in the page table entry is set on first write.
     hd: AtomicBool,
+
+    /// STE.S1DSS field (ARM §5.2): controls non-substream (PASID==0) behavior
+    /// when the stream is substream-capable (`s1cd_max > 0`).
+    /// 0=abort, 1=bypass stage-1 (identity), 2=use CD[0] (default).
+    s1dss: AtomicU8,
+
+    /// STE.S1CDMax field (ARM §5.2): number of SubstreamID bits supported.
+    /// 0 means not substream-capable; `s1dss` is ignored.
+    s1cd_max: AtomicU8,
 }
 
 impl StreamContext {
@@ -168,6 +177,8 @@ impl StreamContext {
             stall_enabled: AtomicBool::new(false),
             ha: AtomicBool::new(false),
             hd: AtomicBool::new(false),
+            s1dss: AtomicU8::new(2),
+            s1cd_max: AtomicU8::new(0),
         }
     }
 
@@ -328,6 +339,37 @@ impl StreamContext {
     #[inline]
     pub fn set_hd(&self, enabled: bool) {
         self.hd.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.S1DSS field value (0, 1, or 2) (ARM §5.2).
+    ///
+    /// Controls behavior when a non-substream (PASID==0) transaction arrives on
+    /// a substream-capable stage-1 stream (`s1cd_max > 0`).
+    /// Default is 2 (use CD\[0\]).
+    #[inline]
+    pub fn get_s1dss(&self) -> u8 {
+        self.s1dss.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.S1DSS field value (ARM §5.2).
+    #[inline]
+    pub fn set_s1dss(&self, value: u8) {
+        self.s1dss.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.S1CDMax field value (0 = not substream-capable) (ARM §5.2).
+    ///
+    /// When 0, the stream is not substream-capable and `s1dss` is ignored.
+    /// When > 0, the stream supports up to `2^s1cd_max` substreams.
+    #[inline]
+    pub fn get_s1cd_max(&self) -> u8 {
+        self.s1cd_max.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.S1CDMax field value (ARM §5.2).
+    #[inline]
+    pub fn set_s1cd_max(&self, value: u8) {
+        self.s1cd_max.store(value, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace

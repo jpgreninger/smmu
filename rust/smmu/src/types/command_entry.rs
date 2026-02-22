@@ -150,6 +150,17 @@ pub struct CommandEntry {
     /// Defaults to 31 (CMD_CFGI_ALL semantics).
     /// Ignored by all command types other than `CfgiAll`.
     pub range: u8,
+
+    /// ARM §4.3.1 / §4.3.3: Leaf bit for `CMD_CFGI_STE` and `CMD_CFGI_CD`.
+    ///
+    /// When `false` (Leaf=0), both the target entry and any cached intermediate
+    /// L1ST/L1CD descriptor structures are invalidated.
+    /// When `true` (Leaf=1), only the target entry is invalidated; intermediate
+    /// structures need not be invalidated.
+    ///
+    /// This software model does not cache intermediate table structures, so
+    /// both values produce equivalent results (semantically a no-op here).
+    pub leaf: bool,
 }
 
 impl CommandEntry {
@@ -180,6 +191,7 @@ impl CommandEntry {
             action: false,
             abort: false,
             range: 31,
+            leaf: false,
         }
     }
 }

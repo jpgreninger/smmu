@@ -715,6 +715,9 @@ impl SMMU {
         // Apply hardware Access Flag / Dirty State management (CD.HA/CD.HD, ARM §3.13)
         stream_context.set_ha(config.ha);
         stream_context.set_hd(config.hd);
+        // Apply STE.S1DSS and STE.S1CDMax (ARM §5.2, §3.9)
+        stream_context.set_s1dss(config.s1dss);
+        stream_context.set_s1cd_max(config.s1cd_max);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
@@ -1462,6 +1465,7 @@ impl SMMU {
     /// - Stage-1, Stage-2, Two-Stage, and Bypass modes
     /// - Permission checking per access type
     /// - PASID 0 support for legacy compatibility
+    #[allow(clippy::too_many_lines)]
     pub fn translate(
         &self,
         stream_id: StreamID,
@@ -1532,38 +1536,47 @@ impl SMMU {
         let stream_value = stream_id.as_u32();
         let stream_guard = self.streams.get(&stream_value);
 
-        // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), and stall mode
-        // while holding the stream guard, so TLB entries can be tagged and stall
-        // decisions made without re-locking the map.
-        let (result, entry_asid, entry_vmid, stall_mode, is_bypass) = if let Some(stream_ref) = stream_guard {
-            let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
-            let vmid = stream_ref.value().get_vmid();
-            let stall = stream_ref.value().is_stall_enabled();
-            let bypass = !stream_ref.value().is_stage1_enabled() && !stream_ref.value().is_stage2_enabled();
-            // Delegate to StreamContext for actual translation
-            // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
-            let r = stream_ref.value().translate(pasid, iova, access, security_state);
-            (r, asid, vmid, stall, bypass)
-        } else {
-            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            // Record fault before returning error
-            self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
-            return Err(TranslationError::StreamNotConfigured);
-        };
+        // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), stall mode,
+        // and S1DSS / S1CDMax while holding the stream guard, so TLB entries
+        // can be tagged and routing decisions made without re-locking the map.
+        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_s1dss, stream_s1cd_max) =
+            if let Some(stream_ref) = stream_guard {
+                let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
+                let vmid = stream_ref.value().get_vmid();
+                let stall = stream_ref.value().is_stall_enabled();
+                let bypass = !stream_ref.value().is_stage1_enabled() && !stream_ref.value().is_stage2_enabled();
+                let s1dss_val = stream_ref.value().get_s1dss();
+                let s1cd_max_val = stream_ref.value().get_s1cd_max();
+                // Delegate to StreamContext for actual translation
+                // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
+                let r = stream_ref.value().translate(pasid, iova, access, security_state);
+                (r, asid, vmid, stall, bypass, s1dss_val, s1cd_max_val)
+            } else {
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                // Record fault before returning error
+                self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
+                return Err(TranslationError::StreamNotConfigured);
+            };
 
         // On successful translation, populate TLB cache tagged with both CD.ASID
         // and STE.S2VMID so that ASID-targeted and VMID-targeted invalidation work.
+        // Skip caching when S1DSS routing will override the result (s1cd_max > 0,
+        // pasid == 0, and s1dss != 0b10) to avoid stale entries bypassing S1DSS.
+        let s1dss_will_override =
+            !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 && stream_s1dss != 2;
         if let Ok(ref data) = result {
-            let entry = CacheEntry::new_with_tags(
-                iova,
-                data.physical_address(),
-                data.permissions(),
-                data.security_state(),
-                entry_asid,
-                entry_vmid,
-                0,
-            );
-            self.tlb_cache.insert(cache_key, entry);
+            if !s1dss_will_override {
+                let entry = CacheEntry::new_with_tags(
+                    iova,
+                    data.physical_address(),
+                    data.permissions(),
+                    data.security_state(),
+                    entry_asid,
+                    entry_vmid,
+                    0,
+                );
+                self.tlb_cache.insert(cache_key, entry);
+            }
         }
 
         // §3.4 OAS check for STE-level bypass (Config==0b100, both stages disabled).
@@ -1577,6 +1590,87 @@ impl SMMU {
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                 self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false);
                 return Err(oas_error);
+            }
+        }
+
+        // §3.9 / §5.2 STE.S1DSS: Route non-substream (PASID==0) transactions on
+        // substream-capable stage-1 streams (s1cd_max > 0) according to STE.S1DSS.
+        // This is an STE-level decision that overrides (or replaces) the CD[0] result.
+        // Applies when:
+        //   - The stream has at least one CD-index bit (s1cd_max > 0)
+        //   - The transaction PASID is 0 (non-substream)
+        //   - The stream is not in pure bypass mode (bypass streams handled above)
+        //
+        // For s1dss == 0b00: always abort (override any Ok result).
+        // For s1dss == 0b01: always return identity mapping (override any result).
+        // For s1dss == 0b10: use CD[0] — the result already computed is correct.
+        if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 {
+            match stream_s1dss {
+                0x00 => {
+                    // §7.3.7: S1DSS==0b00 — non-substream transaction on a substream-capable
+                    // stream aborts with F_STREAM_DISABLED (event 0x06).
+                    // This overrides any Ok result from the inner translate() call.
+                    // If the inner call already returned Err, we still need to count and record
+                    // the failure as F_STREAM_DISABLED specifically.
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    // Directly enqueue the F_STREAM_DISABLED event — record_translation_fault
+                    // suppresses EventEntry for StreamDisabled (from the STE.Config==0b000 path).
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let fault = crate::types::FaultRecord::builder()
+                        .stream_id(stream_id)
+                        .pasid(pasid)
+                        .address(iova)
+                        .fault_type(crate::types::FaultType::StreamDisabled)
+                        .access_type(access)
+                        .security_state(security_state)
+                        .timestamp(timestamp)
+                        .build();
+                    self.record_fault(fault);
+                    let event = EventEntry {
+                        event_type: EventType::FStreamDisabled,
+                        stream_id: stream_id.as_u32(),
+                        pasid: pasid.as_u32(),
+                        address: iova.as_u64(),
+                        security_state,
+                        error_code: 0,
+                        timestamp,
+                        stall: false,
+                    };
+                    if let Ok(mut queue) = self.event_queue.write() {
+                        if queue.len() < self.event_queue_capacity {
+                            queue.push_back(event);
+                            self.event_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    return Err(TranslationError::StreamDisabled);
+                }
+                0x01 => {
+                    // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
+                    // Identity mapping: PA = IOVA, regardless of what the inner translate
+                    // returned (it may have failed with PageNotMapped — that is overridden).
+                    // OAS check applies per §3.4.
+                    let oas_bits = self.config.read().unwrap().address_config.max_pa_bits as u64;
+                    if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
+                        let oas_error = TranslationError::AddressSizeError;
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        self.record_translation_fault(
+                            stream_id, pasid, iova, access, security_state, &oas_error, false,
+                        );
+                        return Err(oas_error);
+                    }
+                    let pa = crate::types::PA::new(iova.as_u64())
+                        .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
+                    self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Ok(crate::types::TranslationData::new(
+                        pa,
+                        crate::types::PagePermissions::read_write(),
+                        security_state,
+                    ));
+                }
+                _ => {
+                    // s1dss == 0b10 (or any reserved value): use CD[0] — result already
+                    // computed, fall through to the normal success/fault handling below.
+                }
             }
         }
 
