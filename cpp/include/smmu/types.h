@@ -1224,17 +1224,21 @@ struct CommandEntry {
     /// This software model does not cache intermediate table structures, so
     /// both values produce equivalent results (semantically a no-op here).
     bool leaf;  ///< defaults to false (Leaf=0 — full invalidation)
+    /// ARM §4.8: CS (Completion Signalling) field for CMD_SYNC.
+    /// 0b00 (SIG_NONE) — no completion signal; 0b01 (SIG_IRQ) — MSI/IRQ;
+    /// 0b10 (SIG_MSI) — MSI write.  Ignored by other command types.
+    uint8_t cs;  ///< defaults to 0 (SIG_NONE)
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
                     prgIndex(0), range(31), stag(0), action(false), abort(false),
-                    asid(0), vmid(0), leaf(false) {
+                    asid(0), vmid(0), leaf(false), cs(0) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
           flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
-          asid(0), vmid(0), leaf(false) {
+          asid(0), vmid(0), leaf(false), cs(0) {
     }
 };
 
@@ -1296,22 +1300,23 @@ struct EventEntry {
     uint32_t errorCode;
     uint64_t timestamp;
     bool stall;   ///< §7.3: true when this event corresponds to a stalled transaction (§3.5.3)
+    uint16_t stag; ///< §3.12.2: Stall Tag — identifies the stalled transaction group; 0 when stall==false
 
     EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
                   address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
-                  stall(false) {
+                  stall(false), stag(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr)
         : type(eventType), streamID(sid), pasid(p), address(addr),
           securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
-          stall(false) {
+          stall(false), stag(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState)
         : type(eventType), streamID(sid), pasid(p), address(addr),
           securityState(secState), errorCode(0), timestamp(0),
-          stall(false) {
+          stall(false), stag(0) {
     }
 };
 

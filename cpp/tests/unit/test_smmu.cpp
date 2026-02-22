@@ -3245,13 +3245,15 @@ TEST(SMMUQueueIndexTest, CmdqConsAdvancesOnProcess) {
 TEST(SMMUQueueIndexTest, EventqProdAdvancesOnGenerate) {
     smmu::SMMU s;
     // Configure a minimal stream so generateEvent is reachable indirectly.
-    // We use submitCommand with SYNC which internally calls generateEvent.
+    // We use submitCommand with SYNC+CS=1 (SIG_IRQ) which internally calls generateEvent.
+    // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
     smmu::CommandEntry cmd;
     cmd.type = smmu::CommandType::SYNC;
+    cmd.cs = 1; // SIG_IRQ — generate completion event
     s.submitCommand(cmd);
     s.processCommandQueue();
 
-    // SYNC generates a COMMAND_SYNC_COMPLETION event via generateEvent
+    // SYNC with CS=1 generates a COMMAND_SYNC_COMPLETION event via generateEvent
     EXPECT_GE(s.getEventqProdIndex(), 1u);
     EXPECT_EQ(s.getEventqConsIndex(), 0u);
     EXPECT_FALSE(s.isEventqEmptyByIndex());
@@ -3272,9 +3274,11 @@ TEST(SMMUQueueIndexTest, CmdqIndicesResetOnClear) {
 
 TEST(SMMUQueueIndexTest, EventqIndicesResetOnClear) {
     smmu::SMMU s;
-    // Generate an event via SYNC command processing
+    // Generate an event via SYNC command processing with CS=1 (SIG_IRQ).
+    // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
     smmu::CommandEntry cmd;
     cmd.type = smmu::CommandType::SYNC;
+    cmd.cs = 1; // SIG_IRQ — generate completion event
     s.submitCommand(cmd);
     s.processCommandQueue();
 
@@ -3312,14 +3316,17 @@ TEST(SMMUQueueIndexTest, MultipleCommandsProdAdvancesByCount) {
 
 TEST(SMMUQueueIndexTest, EventqConsAdvancesOnProcess) {
     smmu::SMMU s;
-    // Produce two events via two SYNC commands
+    // Produce two events via two SYNC commands with CS=1 (SIG_IRQ).
+    // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
     smmu::CommandEntry cmd1;
     cmd1.type = smmu::CommandType::SYNC;
+    cmd1.cs = 1; // SIG_IRQ — generate completion event
     s.submitCommand(cmd1);
     s.processCommandQueue(); // processes cmd1 and generates 1 event
 
     smmu::CommandEntry cmd2;
     cmd2.type = smmu::CommandType::SYNC;
+    cmd2.cs = 1; // SIG_IRQ — generate completion event
     s.submitCommand(cmd2);
     s.processCommandQueue(); // processes cmd2 and generates 1 more event
 

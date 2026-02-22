@@ -90,6 +90,7 @@ const fn cfgi_all_cmd() -> CommandEntry {
         abort: false,
         range: 31, // CMD_CFGI_ALL: Range == 31 → global invalidation per ARM §4.3.2
         leaf: false,
+        cs: 0,
     }
 }
 
@@ -111,6 +112,7 @@ const fn cfgi_ste_range_cmd(stream_id: u32, range: u8) -> CommandEntry {
         abort: false,
         range, // CMD_CFGI_STE_RANGE: Range < 31 selects streams by prefix
         leaf: false,
+        cs: 0,
     }
 }
 

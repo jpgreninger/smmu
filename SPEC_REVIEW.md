@@ -6,8 +6,8 @@
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~89% | Rust ~94% (software model scope — 4 new open gaps)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28 — all open)_
+**Overall Conformance**: C++ ~93% | Rust ~97% (software model scope — all known gaps resolved)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -1352,7 +1352,7 @@ These follow the identical pattern of all other existing setters in the block.
 
 ---
 
-### FINDING-NEW-25 ❌ — TLB Fast-Path Permission Fault Bypasses Stall Mode Check (C++)
+### FINDING-NEW-25 ✅ — TLB Fast-Path Permission Fault Bypasses Stall Mode Check (C++)
 **Spec**: §3.12.2 (Stall model), §7.3.16 (F_PERMISSION)
 **Severity**: High
 **Affected**: C++ only
@@ -1400,9 +1400,16 @@ the same stall enqueue logic used in the slow path (lines 248-276). Alternativel
 permission failure, skip the fast path and fall through to the full translation path (mirroring
 the Rust approach) so that the existing stall logic handles the fault uniformly.
 
+**Resolution (2026-02-22)**: The TLB fast-path permission failure branch was restructured to
+fall through to the slow path (`performTwoStageTranslation`) rather than returning early. The
+successful-permission fast path is now conditionally entered only when
+`validateAccessPermissions()` returns true; on failure the code falls through so that the existing
+stall-mode logic at lines 248-276 applies correctly. Test coverage: `New25Spec` (3 tests) in
+`test_new25_28_spec.cpp`. C++ 58/58 tests pass.
+
 ---
 
-### FINDING-NEW-26 ❌ — Stall Event Record Missing STAG Field (Both)
+### FINDING-NEW-26 ✅ — Stall Event Record Missing STAG Field (Both)
 **Spec**: §3.12.2 (Stall model), §7.3.13 F_TRANSLATION record layout (bits [94:80] = STAG)
 **Severity**: High
 **Affected**: Both
@@ -1464,9 +1471,16 @@ event-queue-driven fault handlers cannot issue `CMD_RESUME` correctly.
 2. In the stall path of both implementations, pass the allocated STAG to the event
    generation function and set `event.stag = stag` when `isStall == true`.
 
+**Resolution (2026-02-22)**: Added `uint16_t stag` to C++ `EventEntry` and `pub stag: u16` to
+Rust `EventEntry`. In C++, `generateEvent()` gained a `uint16_t stag = 0` parameter; the stall
+path passes the allocated stag. In Rust, `record_translation_fault()` gained a `stag: u16`
+parameter; the stall path allocates the STAG before calling it. All non-stall event literals
+default to `stag = 0`. Test coverage: `New26Spec` (3 tests in C++ `test_new25_28_spec.cpp`) and
+8 tests in `rust/smmu/tests/test_new26_27_spec.rs`. C++ 58/58 | Rust 157/157 tests pass.
+
 ---
 
-### FINDING-NEW-27 ❌ — CMD_SYNC CS Field Not Modeled; SIG_NONE Generates Spurious Event (Both)
+### FINDING-NEW-27 ✅ — CMD_SYNC CS Field Not Modeled; SIG_NONE Generates Spurious Event (Both)
 **Spec**: §4.8 CMD_SYNC (ComplSignal parameter CS, bits [14:13] of the command word)
 **Severity**: Medium
 **Affected**: Both
@@ -1527,9 +1541,16 @@ hardware signalling mechanism.
    `COMMAND_SYNC_COMPLETION` event on `cs != 0b00`.
 3. When `cs == 0b11`, set `GERROR_CMDQ_ERR` and do not generate a completion event.
 
+**Resolution (2026-02-22)**: Added `uint8_t cs` to C++ `CommandEntry` and `pub cs: u8` to Rust
+`CommandEntry`, both defaulting to 0 (SIG_NONE). `processCommandQueue()` (C++) and
+`process_single_command()` (Rust) now gate `COMMAND_SYNC_COMPLETION` on `command.cs != 0`. Note:
+CS=0b11 CERROR_ILL is not yet modeled (accepted limitation — GERROR register map is out of scope
+per FINDING-C-01). Test coverage: `New27Spec` (4 tests in C++ `test_new25_28_spec.cpp`) and 4
+tests in `rust/smmu/tests/test_new26_27_spec.rs`. C++ 58/58 | Rust 157/157 tests pass.
+
 ---
 
-### FINDING-NEW-28 ❌ — generateEvent() Sets errorCode to Wrong Values (C++)
+### FINDING-NEW-28 ✅ — generateEvent() Sets errorCode to Wrong Values (C++)
 **Spec**: §7.3 (Event records — TYPE field bits [7:0])
 **Severity**: Low
 **Affected**: C++ only
@@ -1583,6 +1604,10 @@ classifier, remains correct. No behavioral execution path depends on `errorCode`
    has no spec counterpart and its current values add confusion), or
 2. Set `event.errorCode = static_cast<uint32_t>(type)` so that `errorCode` always equals the
    spec-defined TYPE value already held in `type`, removing any inconsistency.
+
+**Resolution (2026-02-22)**: Replaced the switch-case with `event.errorCode = 0`. The event
+type (`EventEntry.type`) remains the authoritative fault identifier per §7.3. Test coverage:
+`New28Spec` (3 tests in `test_new25_28_spec.cpp`). C++ 58/58 tests pass.
 
 ---
 
@@ -1734,11 +1759,11 @@ to expect 0 events (CFGI_STE is a no-op — correct per spec).
 52. ~~FINDING-NEW-23 — F_PERMISSION event not generated on TLB cache-hit permission fault in non-stall path (C++)~~ ✅ Fixed (C++)
 53. ~~FINDING-NEW-24 — StreamConfigBuilder missing s1dss and s1cd_max setter methods (Rust)~~ ✅ Fixed (Rust)
 
-### New findings (2026-02-22 third-pass review — open gaps)
-54. FINDING-NEW-25 — TLB fast-path permission fault bypasses stall mode check (C++) ❌ Open
-55. FINDING-NEW-26 — Stall event record missing STAG field (Both) ❌ Open
-56. FINDING-NEW-27 — CMD_SYNC CS field not modeled; SIG_NONE generates spurious event (Both) ❌ Open
-57. FINDING-NEW-28 — generateEvent() sets errorCode to wrong values (C++) ❌ Open
+### New findings (2026-02-22 third-pass review)
+54. ~~FINDING-NEW-25 — TLB fast-path permission fault bypasses stall mode check (C++)~~ ✅ Fixed (C++)
+55. ~~FINDING-NEW-26 — Stall event record missing STAG field (Both)~~ ✅ Fixed (Both)
+56. ~~FINDING-NEW-27 — CMD_SYNC CS field not modeled; SIG_NONE generates spurious event (Both)~~ ✅ Fixed (Both)
+57. ~~FINDING-NEW-28 — generateEvent() sets errorCode to wrong values (C++)~~ ✅ Fixed (C++)
 
 ---
 

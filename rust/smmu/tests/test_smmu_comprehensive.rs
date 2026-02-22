@@ -155,6 +155,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -181,6 +182,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -207,6 +209,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -233,6 +236,7 @@ fn test_command_queue_submit_atc_inv() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -260,6 +264,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     let result = smmu.submit_command(command);
@@ -290,6 +295,7 @@ fn test_command_queue_submit_sync() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -316,6 +322,7 @@ fn test_command_queue_submit_prefetch_config() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -341,6 +348,7 @@ fn test_command_queue_submit_prefetch_addr() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -366,6 +374,7 @@ fn test_command_queue_submit_cfgi_ste() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -391,6 +400,7 @@ fn test_command_queue_submit_cfgi_all() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -416,6 +426,7 @@ fn test_command_queue_submit_pri_resp() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -441,6 +452,7 @@ fn test_command_queue_submit_resume() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -466,6 +478,7 @@ fn test_command_queue_process_single_tlbi() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     smmu.submit_command(command).unwrap();
@@ -502,6 +515,7 @@ fn test_command_queue_process_multiple_commands() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -537,6 +551,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     };
 
     smmu.submit_command(command).unwrap();
@@ -553,6 +568,8 @@ fn test_command_queue_process_atc_inv_generates_event() {
 fn test_command_queue_process_sync_generates_event() {
     let smmu = SMMU::new();
 
+    // §4.8 / FINDING-NEW-27: CS must be non-zero (SIG_IRQ=0x01) to trigger a
+    // completion event; CS=0 (SIG_NONE) produces no event.
     let command = CommandEntry {
         cmd_type: CommandType::Sync,
         stream_id: 0,
@@ -569,6 +586,7 @@ fn test_command_queue_process_sync_generates_event() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 1, // SIG_IRQ — generate completion event
     };
 
     smmu.submit_command(command).unwrap();
@@ -611,6 +629,7 @@ fn test_command_queue_clear() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -646,6 +665,7 @@ fn test_command_queue_is_full() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -670,6 +690,7 @@ fn test_event_queue_submit_translation_fault() {
         error_code: 0,
         timestamp: 12_345,
         stall: false,
+        stag: 0,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -689,6 +710,7 @@ fn test_event_queue_submit_permission_fault() {
         error_code: 0,
         timestamp: 12_346,
         stall: false,
+        stag: 0,
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -708,6 +730,7 @@ fn test_event_queue_submit_access_fault() {
         error_code: 0,
         timestamp: 12_347,
         stall: false,
+        stag: 0,
     };
 
     smmu.submit_event(event).unwrap();
@@ -732,6 +755,7 @@ fn test_event_queue_overflow_with_small_queue() {
             error_code: 0,
             timestamp: u64::from(i),
             stall: false,
+            stag: 0,
         };
         smmu.submit_event(event).unwrap();
     }
@@ -748,6 +772,7 @@ fn test_event_queue_overflow_with_small_queue() {
         error_code: 0,
         timestamp: 9999,
         stall: false,
+        stag: 0,
     };
 
     let result = smmu.submit_event(overflow_event);
@@ -774,6 +799,7 @@ fn test_event_queue_large_queue_no_overflow() {
             error_code: 0,
             timestamp: u64::from(i),
             stall: false,
+            stag: 0,
         };
         assert!(smmu.submit_event(event).is_ok());
     }
@@ -796,6 +822,7 @@ fn test_event_queue_get_all_events() {
             error_code: 0,
             timestamp: u64::from(i),
             stall: false,
+            stag: 0,
         };
         smmu.submit_event(event).unwrap();
     }
@@ -818,6 +845,7 @@ fn test_event_queue_filter_by_type() {
         error_code: 0,
         timestamp: 1,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -830,6 +858,7 @@ fn test_event_queue_filter_by_type() {
         error_code: 0,
         timestamp: 2,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -842,6 +871,7 @@ fn test_event_queue_filter_by_type() {
         error_code: 0,
         timestamp: 3,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -867,6 +897,7 @@ fn test_event_queue_filter_by_stream() {
             error_code: 0,
             timestamp: i as u64,
             stall: false,
+            stag: 0,
         })
         .unwrap();
     }
@@ -880,6 +911,7 @@ fn test_event_queue_filter_by_stream() {
         error_code: 0,
         timestamp: 999,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -905,6 +937,7 @@ fn test_event_queue_clear() {
             error_code: 0,
             timestamp: u64::from(i),
             stall: false,
+            stag: 0,
         })
         .unwrap();
     }
@@ -1217,6 +1250,7 @@ fn test_queue_statistics() {
         error_code: 0,
         timestamp: 1,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -1236,6 +1270,7 @@ fn test_queue_statistics() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     })
     .unwrap();
 
@@ -1281,6 +1316,7 @@ fn test_cache_statistics_invalidation_count() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
         })
         .unwrap();
     }
@@ -1305,6 +1341,7 @@ fn test_reset_queues_atomically() {
         error_code: 0,
         timestamp: 1,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -1324,6 +1361,7 @@ fn test_reset_queues_atomically() {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     })
     .unwrap();
 
@@ -1753,6 +1791,7 @@ fn test_multiple_event_types() {
         error_code: 0,
         timestamp: 1,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -1765,6 +1804,7 @@ fn test_multiple_event_types() {
         error_code: 0,
         timestamp: 2,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -1777,6 +1817,7 @@ fn test_multiple_event_types() {
         error_code: 0,
         timestamp: 3,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 
@@ -1789,6 +1830,7 @@ fn test_multiple_event_types() {
         error_code: 0,
         timestamp: 4,
         stall: false,
+        stag: 0,
     })
     .unwrap();
 

@@ -91,6 +91,7 @@ const fn cfgi_cd_cmd(stream_id: u32, pasid_val: u32) -> CommandEntry {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     }
 }
 
@@ -111,6 +112,7 @@ const fn cfgi_cd_all_cmd(stream_id: u32) -> CommandEntry {
         abort: false,
         range: 31,
         leaf: false,
+        cs: 0,
     }
 }
 

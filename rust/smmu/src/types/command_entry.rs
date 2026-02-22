@@ -161,6 +161,18 @@ pub struct CommandEntry {
     /// This software model does not cache intermediate table structures, so
     /// both values produce equivalent results (semantically a no-op here).
     pub leaf: bool,
+
+    /// ARM §4.8: CS (Completion Signalling) field for `CMD_SYNC`.
+    ///
+    /// Controls whether and how a completion signal is generated after the SYNC
+    /// barrier completes:
+    /// - `0b00` (`SIG_NONE`): no completion signal (ignored by SMMU)
+    /// - `0b01` (`SIG_IRQ`): MSI write / IRQ completion signal
+    /// - `0b10` (`SIG_MSI`): MSI write at `SMMU_GERROR_IRQ_CFG0`
+    ///
+    /// Ignored by all command types other than `Sync`.
+    /// Defaults to 0 (SIG_NONE — no completion signal).
+    pub cs: u8,
 }
 
 impl CommandEntry {
@@ -192,6 +204,7 @@ impl CommandEntry {
             abort: false,
             range: 31,
             leaf: false,
+            cs: 0,
         }
     }
 }

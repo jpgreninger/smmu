@@ -172,30 +172,19 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
                 } else {
                     // Cache hit - validate access permissions against requested access type
-                    if (!validateAccessPermissions(entry.permissions, accessType)) {
-                        // Permission fault - record fault and return error
-                        FaultRecord fault;
-                        fault.streamID = streamID;
-                        fault.pasid = pasid;
-                        fault.address = iova;
-                        fault.faultType = FaultType::PermissionFault;
-                        fault.accessType = accessType;
-                        fault.securityState = securityState;
-                        fault.timestamp = currentTime;
+                    // §3.12.2 / FINDING-NEW-25: On permission failure, fall through to the
+                    // slow path so that FaultMode::Stall is correctly applied.  The slow
+                    // path (performTwoStageTranslation) re-checks permissions via the page
+                    // table and applies the stall-mode queue if required.
+                    if (validateAccessPermissions(entry.permissions, accessType)) {
+                        // TLBCache already recorded hit statistics
+                        // No need for additional recordCacheHit() here
 
-                        recordFault(fault);
-                        // §7.3.16: F_PERMISSION must be generated regardless of whether
-                        // the fault is detected via TLB fast-path or page table walk.
-                        generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
-                        return makeTranslationError(SMMUError::PagePermissionViolation);
+                        PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
+                        TranslationData data(finalPA, entry.permissions, entry.securityState);
+                        return TranslationResult(data);
                     }
-
-                    // TLBCache already recorded hit statistics
-                    // No need for additional recordCacheHit() here
-
-                    PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
-                    TranslationData data(finalPA, entry.permissions, entry.securityState);
-                    return TranslationResult(data);
+                    // Permission failure: fall through to slow path for stall-mode handling.
                 }
             }
         }
@@ -250,7 +239,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // Stalled instead of the original error — software must issue CMD_RESUME.
         bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall);
         if (inStallMode) {
+            // §3.12.2 / FINDING-NEW-26: STAG=0 is reserved; skip it so that
+            // EventEntry.stag is always non-zero for genuine stall events.
             uint16_t stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+            if (stag == 0) {
+                stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+            }
             StallRecord record(stag, streamID, pasid, iova, accessType, securityState, currentTime);
             {
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
@@ -272,7 +266,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     stallEventType = EventType::F_TRANSLATION;
                     break;
             }
-            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true);
+            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
             return makeTranslationError(SMMUError::Stalled);
         }
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
@@ -1283,11 +1277,17 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
     // ARM SMMU v3 spec: Implement fault recovery mechanisms based on fault type
     switch (faultType) {
         case FaultType::TranslationFault:
+            // §7.3.13: F_TRANSLATION (0x10) must be generated for terminate-mode streams.
+            // Stall-mode faults already generate the event in the stall path above.
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
             // Could implement page fault handling or demand paging here
             handleTranslationFaultRecovery(streamID, pasid, iova, securityState);
             break;
 
         case FaultType::PermissionFault:
+            // §7.3.16: F_PERMISSION (0x13) must be generated for terminate-mode streams.
+            // Stall-mode faults already generate the event in the stall path above.
+            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
             // Could implement permission escalation or security logging
             handlePermissionFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
@@ -1566,7 +1566,11 @@ void SMMU::processCommandQueue() {
 
         // ARM SMMU v3 spec: Handle synchronization commands
         if (command.type == CommandType::SYNC) {
-            generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
+            if (command.cs != 0) {
+                generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
+                              command.startAddress, SecurityState::NonSecure);
+            }
             break;
         }
     }
@@ -1986,7 +1990,7 @@ size_t SMMU::getStalledTransactionCount() const {
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
-                         SecurityState securityState, bool isStall) {
+                         SecurityState securityState, bool isStall, uint16_t stag) {
     // ARM SMMU v3 spec: Generate event for event queue processing.
     // BUG-03 fix: protect eventQueue with queueMutex. Uses recursive_mutex so
     // that callers already holding queueMutex (e.g. processCommandQueue) can
@@ -2011,35 +2015,13 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     event.securityState = securityState;
     event.timestamp = getCurrentTimestamp();
     event.stall = isStall;
+    // §3.12.2 / FINDING-NEW-26: Carry the stall tag so software can correlate
+    // the EventEntry to the matching CMD_RESUME command.  Zero when stall==false.
+    event.stag = stag;
 
-    // ARM SMMU v3 spec: Set appropriate error codes
-    switch (type) {
-        case EventType::F_TRANSLATION:
-            event.errorCode = 0x01;
-            break;
-        case EventType::F_PERMISSION:
-            event.errorCode = 0x02;
-            break;
-        case EventType::F_ACCESS:
-            event.errorCode = 0x03;
-            break;
-        case EventType::F_ADDR_SIZE:
-            event.errorCode = 0x04;
-            break;
-        case EventType::C_BAD_STE:
-        case EventType::C_BAD_CD:
-        case EventType::C_BAD_STREAMID:
-        case EventType::C_BAD_SUBSTREAMID:
-            event.errorCode = 0x10;
-            break;
-        case EventType::F_TLB_CONFLICT:
-        case EventType::F_CFG_CONFLICT:
-            event.errorCode = 0xFF;
-            break;
-        default:
-            event.errorCode = 0x00;
-            break;
-    }
+    // §7.3 / FINDING-NEW-28: errorCode has no spec-defined meaning; set to 0.
+    // The event type (EventEntry.type) is the authoritative fault identifier.
+    event.errorCode = 0;
     
     // Add to event queue
     eventQueue.push_back(event);

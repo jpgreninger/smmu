@@ -216,9 +216,11 @@ TEST_F(SMMUPriority2Phase2Test, EventHandling_HasEventsCheck) {
 
 // Target line 1308: clearEventQueue test
 TEST_F(SMMUPriority2Phase2Test, EventHandling_ClearEventQueue) {
-    // Generate events
+    // Generate events via SYNC with CS=1 (SIG_IRQ).
+    // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
     CommandEntry cmd;
     cmd.type = CommandType::SYNC;
+    cmd.cs = 1; // SIG_IRQ — generate completion event
     cmd.streamID = STREAM1;
     cmd.pasid = PASID1;
     cmd.startAddress = 0;

@@ -43,6 +43,7 @@ set(UNIT_TEST_SOURCES
     test_asid_vmid_tlb_spec.cpp
     test_s1dss_spec.cpp
     test_new21_22_23_spec.cpp
+    test_new25_28_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

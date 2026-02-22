@@ -814,15 +814,13 @@ TEST_F(SMMUPhase4CoverageTest, EventQueue_FaultErrorCodes) {
     std::vector<EventEntry> events = smmuController->getEventQueue();
     EXPECT_GE(events.size(), 0); // Events may or may not be generated depending on fault handling
 
-    // If events exist, verify error codes are set
-    bool hasValidErrorCode = true;
+    // §7.3 / FINDING-NEW-28: errorCode must always be 0 — the event type itself
+    // is the authoritative fault identifier. Verify all present events comply.
     for (const auto& event : events) {
-        if (event.errorCode == 0) {
-            hasValidErrorCode = false;
-        }
+        EXPECT_EQ(event.errorCode, 0u)
+            << "§7.3/FINDING-NEW-28: EventEntry.errorCode must be 0; event type="
+            << static_cast<int>(event.type);
     }
-    // At least exercise the error code path
-    EXPECT_TRUE(hasValidErrorCode || events.size() == 0);
 }
 
 // ========== PRIORITY 7: SECURITY STATE TRANSITIONS (Lines 1672-1698) ==========

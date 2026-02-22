@@ -1588,7 +1588,7 @@ impl SMMU {
             if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
                 let oas_error = TranslationError::AddressSizeError;
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false);
+                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0);
                 return Err(oas_error);
             }
         }
@@ -1635,6 +1635,7 @@ impl SMMU {
                         error_code: 0,
                         timestamp,
                         stall: false,
+                        stag: 0,
                     };
                     if let Ok(mut queue) = self.event_queue.write() {
                         if queue.len() < self.event_queue_capacity {
@@ -1654,7 +1655,7 @@ impl SMMU {
                         let oas_error = TranslationError::AddressSizeError;
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                         self.record_translation_fault(
-                            stream_id, pasid, iova, access, security_state, &oas_error, false,
+                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0,
                         );
                         return Err(oas_error);
                     }
@@ -1681,13 +1682,20 @@ impl SMMU {
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let bad_substreamid = matches!(error, TranslationError::BadSubstreamId);
-            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error,
-                                          stall_mode && !bad_substreamid);
+            let is_stall = stall_mode && !bad_substreamid;
 
-            if stall_mode && !bad_substreamid {
-                // Generate a unique STAG (wrapping counter, starting at 1).
-                let stag = self.stag_counter.fetch_add(1, Ordering::Relaxed);
-                let stag = if stag == 0 { self.stag_counter.fetch_add(1, Ordering::Relaxed) } else { stag };
+            // §3.12.2 / FINDING-NEW-26: Allocate STAG before recording fault so the
+            // EventEntry carries the correct STAG value when is_stall==true.
+            let stag = if is_stall {
+                let s = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                if s == 0 { self.stag_counter.fetch_add(1, Ordering::Relaxed) } else { s }
+            } else {
+                0
+            };
+
+            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error, is_stall, stag);
+
+            if is_stall {
                 let record = StallRecord {
                     stag,
                     stream_id: stream_id.as_u32(),
@@ -1891,6 +1899,7 @@ impl SMMU {
         security_state: SecurityState,
         error: &TranslationError,
         is_stall: bool,
+        stag: u16,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -1928,6 +1937,9 @@ impl SMMU {
             error_code: 0,
             timestamp,
             stall: is_stall,
+            // §3.12.2 / FINDING-NEW-26: Carry the stall tag so software can correlate
+            // the EventEntry to the matching CMD_RESUME command.  Zero when stall==false.
+            stag,
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
@@ -1974,6 +1986,7 @@ impl SMMU {
             error_code: 0,
             timestamp,
             stall: false,
+            stag: 0,
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
@@ -2352,26 +2365,30 @@ impl SMMU {
                     error_code: 0,
                     timestamp,
                     stall: false,
+                    stag: 0,
                 };
 
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
-                // Synchronization barrier - generate completion event with monotonic timestamp
-                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
+                if command.cs != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
-                let event = EventEntry {
-                    event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
-                    stream_id: command.stream_id,
-                    pasid: command.pasid,
-                    address: 0,
-                    security_state: SecurityState::NonSecure,
-                    error_code: 0,
-                    timestamp,
-                    stall: false,
-                };
+                    let event = EventEntry {
+                        event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
+                        stream_id: command.stream_id,
+                        pasid: command.pasid,
+                        address: 0,
+                        security_state: SecurityState::NonSecure,
+                        error_code: 0,
+                        timestamp,
+                        stall: false,
+                        stag: 0,
+                    };
 
-                let _ = self.submit_event(event);
+                    let _ = self.submit_event(event);
+                }
             },
             CommandType::Resume => {
                 // CMD_RESUME (§4.6, §3.12.2): resolve the stalled transaction.
@@ -2449,6 +2466,7 @@ impl SMMU {
                         error_code: 0x03,  // C_BAD_STREAMID opcode per §7.3.3
                         timestamp,
                         stall: false,
+                        stag: 0,
                     };
                     let _ = self.submit_event(event);
                     return Err(SMMUError::InvalidCommandParameters(format!(
@@ -2563,6 +2581,7 @@ impl SMMU {
                         error_code: u32::from(req.prg_index),
                         timestamp,
                         stall: false,
+                        stag: 0,
                     };
 
                     let _ = self.submit_event(event);
