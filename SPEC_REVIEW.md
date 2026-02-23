@@ -1,13 +1,13 @@
 # ARM SMMU v3 Conformance Review
 
 **Specification**: ARM IHI 0070 G.b (April 30, 2025)
-**Review Date**: 2026-02-23 (fifth pass — CT conformance findings)
+**Review Date**: 2026-02-23 (seventh pass — NEW-44 through NEW-46 Rust security state, output-attribute, STRW gaps)
 **Implementations**:
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~97% | Rust ~99% (software model scope — all known gaps resolved)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188)_
+**Overall Conformance**: C++ ~97% | Rust ~99% (2 new open gaps in Rust: NEW-45, NEW-46)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 sixth-pass deep review found 10 new gaps NEW-34 through NEW-43; all 10 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 seventh-pass review found 3 new gaps NEW-44 through NEW-46: Rust security-state propagation, output-attribute override propagation (Both), STRW behavioral effect (Both) — C++ ~97% 74/74 | Rust ~98% 188/188)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -2190,6 +2190,13 @@ New test file: `test_new36_spec.rs` (13 tests). Clippy clean.
 
 ---
 
+### New findings (2026-02-23 seventh-pass review)
+81. FINDING-NEW-44 ✅ Fixed — FINDING-NEW-39 incomplete: Rust ATC_INV and SYNC completion events still hardcode NonSecure (Rust)
+82. FINDING-NEW-45 ❌ — STE output-attribute override fields not applied to translation output (Both) [software model scope]
+83. FINDING-NEW-46 ❌ — STE.STRW has no behavioral effect on translation (Both) [software model scope]
+
+---
+
 ### FINDING-NEW-34 ✅ Fixed — Root Security State Rejected in C++ ASID/STE Validation (C++ Only)
 **Spec**: §3.10 (RME security states), §3.17 (ASID allocation)
 **Severity**: Medium
@@ -2441,11 +2448,95 @@ This function is only reached via the `default:` branch of `handleTranslationFai
 
 ---
 
+
+### FINDING-NEW-44 ✅ Fixed — FINDING-NEW-39 Incomplete: Rust Completion Events Still Hardcode NonSecure Security State (Rust Only)
+**Spec**: §4.5.1 (CMD_ATC_INV completion), §4.8 (CMD_SYNC completion), §3.10 (Security states)
+**Severity**: Medium
+**Affected**: Rust only
+
+FINDING-NEW-39 was marked fixed for C++ and listed as fixed for both implementations, but the Rust fix was never applied. The C++ implementation (`cpp/src/smmu/smmu.cpp` lines 1792–1804 and 1603–1616) correctly looks up the stream's `securityState` from `StreamConfig` when generating `ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION` events. The Rust implementation still hardcodes `SecurityState::NonSecure` in both locations.
+
+**Evidence**:
+
+Rust `rust/smmu/src/smmu/mod.rs` line 2521:
+```rust
+let event = EventEntry {
+    event_type: EventType::AtcInvalidateCompletion,
+    ...
+    security_state: SecurityState::NonSecure,  // HARDCODED -- should use stream's security state
+};
+```
+
+Rust `rust/smmu/src/smmu/mod.rs` line 2545:
+```rust
+let event = EventEntry {
+    event_type: EventType::CommandSyncCompletion,
+    ...
+    security_state: SecurityState::NonSecure,  // HARDCODED -- should use stream's security state
+};
+```
+
+The root cause is that the Rust `StreamConfig` struct (`rust/smmu/src/types/config.rs`) has no `security_state` field. The C++ `StreamConfig` gained a `SecurityState securityState` field (line 1113 of `cpp/include/smmu/types.h`) as part of the FINDING-NEW-39 fix, but the equivalent was never added to the Rust `StreamConfig`.
+
+**Impact**: Secure, Realm, and Root stream security states are misreported as NonSecure in ATC invalidation and CMD_SYNC completion events. Software consuming the event queue for security-state-sensitive auditing receives incorrect security state for these event types.
+
+**Recommendation**:
+1. Add `pub security_state: SecurityState` to `StreamConfig` in `rust/smmu/src/types/config.rs` with default `SecurityState::NonSecure`.
+2. Expose a `security_state()` setter in `StreamConfigBuilder`.
+3. In `configure_stream()` (`rust/smmu/src/smmu/mod.rs` lines 793–808), propagate `config.security_state` to a new `StreamContext::set_security_state()` setter (or store it directly in the stream map alongside the context).
+4. Look up the stream's security state when generating the `AtcInvalidateCompletion` and `CommandSyncCompletion` events, falling back to `SecurityState::NonSecure` if the stream is not found (matching the C++ fallback pattern).
+
+**Resolution (2026-02-23)**: Added `security_state: SecurityState` field to Rust `StreamConfig` (`rust/smmu/src/types/config.rs`) with default `SecurityState::NonSecure`; added `security_state()` builder method; propagated through `configure_stream()` via `StreamContext::set_security_state()` (new `AtomicU8`-backed field in `StreamContext`); `AtcInvalidateCompletion` and `CommandSyncCompletion` now look up the stream's security state from the stream map instead of hardcoding `NonSecure`. 4 TDD tests in `rust/smmu/tests/test_new44_spec.rs` (all pass). All Rust tests pass; zero clippy warnings.
+
+---
+
+### FINDING-NEW-45 ❌ — STE Output-Attribute Override Fields Not Applied to Translation Output (Both)
+**Spec**: §5.2 (STE output-attribute override fields), §13.5 (Attribute/permission configuration fields)
+**Severity**: Low
+**Affected**: Both
+
+ARM §5.2 and §13.5 define seven STE output-attribute override fields that modify the memory attributes of translated transactions:
+- `NSCFG[2]`: Non-Secure attribute override (0b00=use incoming, 0b01=force Secure, 0b10=force NonSecure)
+- `SHCFG[2]`: Shareability override (0b00=use incoming, 0b01=Inner-Shareable, 0b10=Outer-Shareable, 0b11=Non-Shareable)
+- `ALLOCCFG[4]`: Allocation hint override
+- `MEMATTR[4]`: Device memory type attribute (used when MTCFG=1)
+- `MTCFG`: Memory type override enable -- when 1, `MemAttr` replaces the translation-table-derived memory type
+- `INSTCFG[2]`: Instruction/Data attribute override
+- `PRIVCFG[2]`: Privilege attribute override
+
+Both implementations store these fields in `StreamConfig` (C++: `nsCfg`, `shCfg`, `allocCfg`, `memAttr`, `instCfg`, `privCfg`, `mtCfg` in `cpp/include/smmu/types.h`; Rust: `ns_cfg`, `sh_cfg`, `alloc_cfg`, `mem_attr`, `inst_cfg`, `priv_cfg`, `mt_cfg` in `rust/smmu/src/types/config.rs`) but neither implementation reads or applies these fields during translation. No code path in `cpp/src/smmu/smmu.cpp`, `cpp/src/stream_context/stream_context.cpp`, `rust/smmu/src/smmu/mod.rs`, or `rust/smmu/src/stream_context/mod.rs` references these fields.
+
+FINDING-CT-19 verified only that the fields exist in `StreamConfig` and can be set via the builder API. It did not verify that they have any behavioral effect on translated transaction outputs.
+
+**Impact**: Callers that configure `INSTCFG`, `PRIVCFG`, or `NSCFG` to override incoming transaction attributes will find those overrides silently ignored. For SMMU-embedded device simulations where input attributes cannot be guaranteed correct (per §3.3.4 note), this leaves the model unable to correctly model per-stream attribute overriding.
+
+**Resolution (Software Model Scope)**: The attribute override fields affect the output memory attributes of the transaction as it enters the downstream memory system (cache lookup behavior, Secure/NonSecure attribute on the system bus). A behavioral software model has no downstream memory system to apply these attributes to -- there is no cache controller, no Secure/NonSecure system bus, and no allocation hint consumer. The `TranslationData` struct carries only `physicalAddress`, `permissions`, and `securityState`; it does not model memory type, shareability, or allocation hints. Therefore, the seven STE output-attribute override fields cannot be applied without extending the translation result type, which is out-of-scope for this behavioral model level. This finding documents the gap so integrators building full-system simulations that do require per-transaction memory attribute modeling are aware that an adapter layer is needed. No code change is required; the gap is accepted as out-of-scope and the `StreamConfig` fields are retained as configuration metadata for future extension.
+
+---
+
+### FINDING-NEW-46 ❌ — STE.STRW (StreamWorld) Has No Behavioral Effect on Translation (Both)
+**Spec**: §5.2 (STE.STRW), §3.3.4 (Input attributes and output attributes), §13.5
+**Severity**: Low
+**Affected**: Both
+
+ARM §5.2 defines `STE.STRW` as a 2-bit field selecting the effective exception level for stream transactions: `0b00`=NS-EL1/EL0, `0b01`=NS-EL2, `0b10`=NS-EL2+VHE (E2H), `0b11`=EL3/Secure. Per §3.3.4 and §13.5, `STRW` affects how stage-1 translation table permission bits are interpreted:
+- For `STRW=NS-EL1/EL0`: AP[1] (unprivileged/privileged) is enforced normally.
+- For `STRW=NS-EL2` or `STRW=EL3`: AP[1] is ignored and treated as 1 (privilege checks suppressed), consistent with AArch64 EL2/EL3 translation behavior.
+- For `STRW=NS-EL2+VHE (E2H)`: AP[1] privilege checks are maintained as for EL1.
+
+Both implementations define the `StreamWorld` enum and store `strw: StreamWorld` in `StreamConfig`, but the field is never propagated to `StreamContext` and is never consulted during translation. No code path in either implementation's translation engine (`cpp/src/smmu/smmu.cpp`, `cpp/src/stream_context/stream_context.cpp`, `rust/smmu/src/smmu/mod.rs`, `rust/smmu/src/stream_context/mod.rs`) references `strw` or `StreamWorld` at runtime.
+
+**Impact**: All streams behave as `STRW=NS-EL1/EL0` regardless of the configured value. Streams configured for EL2 or EL3 should suppress AP[1] privilege checks (allowing privileged and unprivileged translations equally), but currently receive the same permission evaluation as EL1 streams. This gap is only observable when simulating hypervisor (EL2) or monitor (EL3) device streams.
+
+**Resolution (Software Model Scope)**: The behavioral effect of `STRW` is confined to how stage-1 page table AP[2:1] permission bits are interpreted. The current implementations use a simplified RWX permission model that does not separately model the Armv8 AP[2:1] field encoding, `PXN`, `UXN`, or the privileged/unprivileged distinction. Implementing `STRW`-based permission differentiation would require extending the translation result to carry per-EL permission bits, which is out-of-scope for a behavioral software model targeting device driver and IOMMU simulation use cases. The `strw` field is retained in `StreamConfig` as configuration metadata. This finding documents the gap for integrators who need hypervisor-level (EL2/EL3) privilege-check accuracy. No code change is required; the gap is accepted as out-of-scope.
+
+---
+
 ## Key Files for Fixes
 
 | File | Relevant Findings |
 |------|------------------|
-| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20, NEW-26, NEW-27, NEW-28, CT-20 |
+| `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20, NEW-26, NEW-27, NEW-28, CT-20, NEW-45, NEW-46 |
 | `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28, CT-09, CT-13, CT-14, CT-33, NEW-37, NEW-38 (partial), NEW-39, NEW-40, NEW-43 |
 | `cpp/src/stream_context/stream_context.cpp` | NEW-34, NEW-38, NEW-41 |
 | `cpp/include/smmu/smmu.h` | NEW-35 |
@@ -2457,10 +2548,10 @@ This function is only reached via the `default:` branch of `handleTranslationFai
 | `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
-| `rust/smmu/src/types/config.rs` | NEW-18, NEW-24, CT-09, NEW-36 |
+| `rust/smmu/src/types/config.rs` | NEW-18, NEW-24, CT-09, NEW-36, NEW-44, NEW-45, NEW-46 |
 | `rust/smmu/src/types/pri_entry.rs` | CT-30 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33, NEW-39 |
-| `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18, CT-09, CT-13, CT-14 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33, NEW-39, NEW-44 |
+| `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18, CT-09, CT-13, CT-14, NEW-46 |
 | `rust/smmu/src/types/mod.rs` | CT-20 |
 | `rust/smmu/tests/test_ct_findings_spec.rs` | CT-04, CT-09, CT-13, CT-14, CT-19, CT-20, CT-23, CT-30, CT-33 |
 | `rust/smmu/src/cache/` | M-03, M-04 |

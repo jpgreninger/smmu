@@ -160,6 +160,14 @@ pub struct StreamContext {
     /// event queue.  Distinct from the runtime `enabled` flag which is toggled
     /// by `disable_stream()` / `enable_stream()`.
     abort_mode: AtomicBool,
+
+    /// Stream security state (FINDING-NEW-44).
+    ///
+    /// Stored as the `u8` discriminant of `SecurityState` for atomic access.
+    /// Used when generating `AtcInvalidateCompletion` and `CommandSyncCompletion`
+    /// events so those events carry the stream's actual security state rather
+    /// than a hardcoded `NonSecure`.  Default: `SecurityState::NonSecure` (0).
+    security_state: AtomicU8,
 }
 
 impl StreamContext {
@@ -203,6 +211,7 @@ impl StreamContext {
             t1sz: AtomicU8::new(16),
             aa64: AtomicBool::new(true),
             abort_mode: AtomicBool::new(false),
+            security_state: AtomicU8::new(SecurityState::NonSecure as u8),
         }
     }
 
@@ -449,6 +458,30 @@ impl StreamContext {
     #[inline]
     pub fn set_abort_mode(&self, value: bool) {
         self.abort_mode.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the configured security state for this stream (FINDING-NEW-44).
+    ///
+    /// Used when generating `AtcInvalidateCompletion` and `CommandSyncCompletion`
+    /// events so those events carry the stream's actual security state.
+    #[inline]
+    #[must_use]
+    pub fn security_state(&self) -> SecurityState {
+        // SAFETY: the stored value is always written via `set_security_state` which
+        // validates the value before storing, and initialized to a valid discriminant.
+        // All valid `SecurityState` discriminants are 0–3.  If somehow an invalid byte
+        // is stored (which cannot happen through the safe API) we fall back to NonSecure.
+        SecurityState::from_bits(self.security_state.load(Ordering::Relaxed))
+            .unwrap_or(SecurityState::NonSecure)
+    }
+
+    /// Sets the security state for this stream (FINDING-NEW-44).
+    ///
+    /// Controls the `security_state` field in `AtcInvalidateCompletion` and
+    /// `CommandSyncCompletion` events generated for this stream.
+    #[inline]
+    pub fn set_security_state(&self, state: SecurityState) {
+        self.security_state.store(state as u8, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace

@@ -9,6 +9,7 @@
 //! All configuration structures follow the ARM SMMU v3 specification requirements
 //! for queue sizes, cache configurations, and address space limits.
 
+use super::security_state::SecurityState;
 use crate::types::ValidationError;
 use core::fmt;
 
@@ -132,6 +133,15 @@ pub struct StreamConfig {
 
     /// Security state enforcement enabled
     pub security_enforced: bool,
+
+    /// Security state for this stream (FINDING-NEW-44).
+    ///
+    /// The security state carried in `AtcInvalidateCompletion` and
+    /// `CommandSyncCompletion` events must reflect the stream's configured
+    /// security state rather than always using `NonSecure`.
+    ///
+    /// Default: `SecurityState::NonSecure` (backward compatible).
+    pub security_state: SecurityState,
 
     /// VMID (Virtual Machine ID) — STE Word 2 bits 63:48 per ARM §5.2.
     /// Tags Stage-2 TLB entries; used by `CMD_TLBI_S12_VMALL` and
@@ -288,6 +298,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
+            security_state: SecurityState::NonSecure,
             vmid: 0,
             ha: false,
             hd: false,
@@ -325,6 +336,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            security_state: SecurityState::NonSecure,
             vmid: 0,
             ha: false,
             hd: false,
@@ -362,6 +374,7 @@ impl StreamConfig {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            security_state: SecurityState::NonSecure,
             vmid: 0,
             ha: false,
             hd: false,
@@ -399,6 +412,7 @@ impl StreamConfig {
             max_pasid: Self::MAX_PASID,
             fault_mode: FaultMode::Terminate,
             security_enforced: true,
+            security_state: SecurityState::NonSecure,
             vmid: 0,
             ha: false,
             hd: false,
@@ -555,6 +569,7 @@ pub struct StreamConfigBuilder {
     max_pasid: u32,
     fault_mode: FaultMode,
     security_enforced: bool,
+    security_state: SecurityState,
     vmid: u16,
     ha: bool,
     hd: bool,
@@ -597,6 +612,7 @@ impl StreamConfigBuilder {
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
             security_enforced: false,
+            security_state: SecurityState::NonSecure,
             vmid: 0,
             ha: false,
             hd: false,
@@ -676,6 +692,17 @@ impl StreamConfigBuilder {
     #[must_use]
     pub fn security_enforced(mut self, enforced: bool) -> Self {
         self.security_enforced = enforced;
+        self
+    }
+
+    /// Set the security state for this stream (FINDING-NEW-44).
+    ///
+    /// Controls the `security_state` field recorded in `AtcInvalidateCompletion`
+    /// and `CommandSyncCompletion` events generated for this stream.
+    /// Default: `SecurityState::NonSecure`.
+    #[must_use]
+    pub fn security_state(mut self, state: SecurityState) -> Self {
+        self.security_state = state;
         self
     }
 
@@ -859,6 +886,7 @@ impl StreamConfigBuilder {
             max_pasid: self.max_pasid,
             fault_mode: self.fault_mode,
             security_enforced: self.security_enforced,
+            security_state: self.security_state,
             vmid: self.vmid,
             ha: self.ha,
             hd: self.hd,

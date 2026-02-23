@@ -806,6 +806,9 @@ impl SMMU {
         stream_context.set_aa64(config.aa64);
         // §5.2 / CT-09: STE.Config==0b000 — abort mode (no event, silent abort).
         stream_context.set_abort_mode(config.disabled);
+        // FINDING-NEW-44: propagate the stream's security state so completion
+        // events (AtcInvalidateCompletion, CommandSyncCompletion) use it.
+        stream_context.set_security_state(config.security_state);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
@@ -2510,15 +2513,21 @@ impl SMMU {
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
 
-                // Generate completion event with monotonic timestamp
+                // Generate completion event with monotonic timestamp.
+                // FINDING-NEW-44: use the stream's configured security state
+                // instead of hardcoding NonSecure.
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let stream_sec_state = self
+                    .streams
+                    .get(&command.stream_id)
+                    .map_or(SecurityState::NonSecure, |ctx| ctx.security_state());
 
                 let event = EventEntry {
                     event_type: EventType::AtcInvalidateCompletion, // IMPDEF §7.3.21
                     stream_id: command.stream_id,
                     pasid: command.pasid,
                     address: command.start_address,
-                    security_state: SecurityState::NonSecure,
+                    security_state: stream_sec_state,
                     error_code: 0,
                     timestamp,
                     stall: false,
@@ -2536,13 +2545,19 @@ impl SMMU {
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    // FINDING-NEW-44: use the stream's configured security state
+                    // instead of hardcoding NonSecure.
+                    let stream_sec_state = self
+                        .streams
+                        .get(&command.stream_id)
+                        .map_or(SecurityState::NonSecure, |ctx| ctx.security_state());
 
                     let event = EventEntry {
                         event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
                         stream_id: command.stream_id,
                         pasid: command.pasid,
                         address: 0,
-                        security_state: SecurityState::NonSecure,
+                        security_state: stream_sec_state,
                         error_code: 0,
                         timestamp,
                         stall: false,
