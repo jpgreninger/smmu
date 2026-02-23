@@ -2064,6 +2064,22 @@ validation in `translate()` → CBadCd (CT-13/14); (4) `cr0: AtomicU32` with
 `with_address()`. New test file: `test_ct_findings_spec.rs` (30 tests).
 Clippy clean.
 
+**C++**: 62/62 tests passing (100%). NEW-34 through NEW-43 resolved 2026-02-23:
+(1) Root security state accepted in `validateASIDConfigurationUnlocked()` and `validateStreamTableEntry()`;
+(2) `AccessType::ReadWrite` mapped to `read && write` in `validateAccessPermissions()`;
+(3) `MAX_CACHE_AGE_US` time-based TLB eviction removed from `translate()` and `lookupTranslationCache()`;
+(4) Two-stage permission intersection (S1 ∩ S2) added to `translateUnlocked()`;
+(5) `StreamConfig::securityState` field added; `ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION`
+    events use stream security state (fallback NonSecure);
+(6) `CMD_CFGI_STE` with unknown StreamID generates `C_BAD_STREAMID` + `GERROR_CMDQ_ERR`;
+(7) Early bypass path in `translateUnlocked()` returns full RWX `PagePermissions`;
+(8) `classifyTranslationFault()` arbitrary 48-bit threshold and zero-IOVA heuristics removed.
+New test file: `test_new34_43_spec.cpp` (17 tests). Commit 95aaf57.
+
+**Rust**: 2418/2418 tests passing (100%). NEW-36 resolved 2026-02-23:
+`is_bypass()` fixed to `!translation_enabled && !disabled`; `is_abort_mode()` added.
+New test file: `test_new36_spec.rs` (13 tests). Clippy clean.
+
 ---
 
 ## Prioritised Fix Order
@@ -2161,6 +2177,268 @@ Clippy clean.
 70. ~~FINDING-CT-30 — Missing command opcode coverage (Both)~~ ✅ Fixed (Both)
 71. ~~FINDING-CT-33 — CR0.CMDQEN/EVENTQEN/PRIQEN queue enable gates not enforced (Both)~~ ✅ Fixed (Both)
 
+### New findings (2026-02-23 sixth-pass deep review)
+72. ~~FINDING-NEW-34 — Root security state rejected in C++ ASID/STE validation (C++)~~ ✅ Fixed (C++)
+73. ~~FINDING-NEW-35 — AccessType::ReadWrite denied by validateAccessPermissions (C++)~~ ✅ Fixed (C++)
+74. ~~FINDING-NEW-36 — StreamConfig::is_bypass() conflates bypass and abort mode (Rust)~~ ✅ Fixed (Rust)
+75. ~~FINDING-NEW-37 — TLB cache time-based eviction is not spec-defined behavior (C++)~~ ✅ Fixed (C++)
+76. ~~FINDING-NEW-38 — Two-stage permission intersection missing in StreamContext::translateUnlocked (C++)~~ ✅ Fixed (C++)
+77. ~~FINDING-NEW-39 — ATC_INV and SYNC completion events hardcode NonSecure security state (Both)~~ ✅ Fixed (C++)
+78. ~~FINDING-NEW-40 — CMD_CFGI_STE with unknown StreamID does not generate C_BAD_STREAMID (C++)~~ ✅ Fixed (C++)
+79. ~~FINDING-NEW-41 — StreamContext::translateUnlocked early bypass returns zero PagePermissions (C++)~~ ✅ Fixed (C++)
+80. ~~FINDING-NEW-43 — classifyTranslationFault() applies arbitrary IOVA-range heuristics (C++)~~ ✅ Fixed (C++)
+
+---
+
+### FINDING-NEW-34 ✅ Fixed — Root Security State Rejected in C++ ASID/STE Validation (C++ Only)
+**Spec**: §3.10 (RME security states), §3.17 (ASID allocation)
+**Severity**: Medium
+**Affected**: C++ only
+
+ARM §3.10 defines four valid security states: NonSecure (0x00), Secure (0x01), Realm (0x02), and Root (0x03). Root is a fully valid security state introduced in SMMUv3.3 for Realm Management Extensions, with its own ASID namespace independent of the other states.
+
+The C++ `validateASIDConfigurationUnlocked()` in `stream_context.cpp` lines 879-886 explicitly rejects Root:
+
+```cpp
+if (securityState != SecurityState::NonSecure &&
+    securityState != SecurityState::Secure &&
+    securityState != SecurityState::Realm) {
+    return makeSuccess(false);  // Root falls here → invalid
+}
+```
+
+The same restriction appears in `validateStreamTableEntry()` at lines 923-928. Any Root-security-state CD validation fails with "ASID configuration conflict detected", causing `validateContextDescriptor()` to return false. Root-state streams are therefore unusable through the C++ StreamContext API.
+
+**Correct behavior**: All four security states (0x00–0x03) must be accepted as valid per §3.10. Reject only unknown values outside this range.
+
+**Recommendation**: Change both checks to `if (static_cast<uint8_t>(securityState) > 0x03) { return makeSuccess(false); }` to accept Root.
+
+**Resolution (2026-02-23)**: Replaced three-state allowlist with `static_cast<uint8_t>(securityState) > 0x03` guard in both `validateASIDConfigurationUnlocked()` and `validateStreamTableEntry()` in `cpp/src/stream_context/stream_context.cpp`. 3 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-35 ✅ Fixed — AccessType::ReadWrite Denied by validateAccessPermissions (C++ Only)
+**Spec**: §3.24 (permission model), §7.3.16 (F_PERMISSION)
+**Severity**: Low
+**Affected**: C++ only
+
+The C++ `AccessType` enum includes `ReadWrite` for atomic read-modify-write operations. However, `validateAccessPermissions()` in `smmu.h` lines 310-322 only handles `Read`, `Write`, and `Execute`, returning `false` for all other values:
+
+```cpp
+switch (accessType) {
+    case AccessType::Read:    return permissions.read;
+    case AccessType::Write:   return permissions.write;
+    case AccessType::Execute: return permissions.execute;
+    default: return false;  // ReadWrite falls here → spurious F_PERMISSION
+}
+```
+
+A fully read-write-execute page accessed with `AccessType::ReadWrite` is incorrectly denied permission, generating a spurious `F_PERMISSION` event. ARM §3.24 classifies atomic operations as `Write` for permission purposes.
+
+**Correct behavior**: `ReadWrite` access should be permitted when `permissions.read && permissions.write` are both true, matching the ARM §3.24 treatment of atomics as write-class operations.
+
+**Recommendation**: Add `case AccessType::ReadWrite: return permissions.read && permissions.write;` to `validateAccessPermissions()`.
+
+**Resolution (2026-02-23)**: Added `case AccessType::ReadWrite: return permissions.read && permissions.write;` to `validateAccessPermissions()` in `cpp/include/smmu/smmu.h`. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-36 ✅ Fixed — StreamConfig::is_bypass() Conflates Bypass and Abort Mode (Rust Only)
+**Spec**: §5.2, Table 5-5 (STE.Config values)
+**Severity**: Low
+**Affected**: Rust only
+
+ARM §5.2 Table 5-5 defines distinct STE.Config values:
+- `0b000`: Abort — transactions terminated silently, no event
+- `0b100`: Bypass — transactions passed through with full permissions (PA = IOVA)
+
+The Rust `StreamConfig::is_bypass()` in `config.rs` returns `!self.translation_enabled`, which is `true` for both bypass (`disabled=false, translation_enabled=false`) and abort (`disabled=true, translation_enabled=false`) configurations:
+
+```rust
+pub const fn is_bypass(&self) -> bool {
+    !self.translation_enabled  // true for BOTH bypass AND abort mode
+}
+```
+
+API consumers using `is_bypass()` directly cannot distinguish whether a stream is in passthrough mode or abort mode. This will mislead callers that use the method to select the bypass identity-mapping path.
+
+**Correct behavior**: `is_bypass()` must return `true` only for STE.Config==0b100 (translation disabled, stream not aborted).
+
+**Recommendation**: Change to `!self.translation_enabled && !self.disabled`. Add a complementary `pub const fn is_abort_mode(&self) -> bool { self.disabled && !self.translation_enabled }`.
+
+**Resolution (2026-02-23)**: Fixed `is_bypass()` to `!self.translation_enabled && !self.disabled` and added `is_abort_mode()` returning `self.disabled && !self.translation_enabled` in `rust/smmu/src/types/config.rs`. 13 new TDD tests in `rust/smmu/tests/test_new36_spec.rs`. Rust 2418/2418 pass, clippy clean.
+
+---
+
+### FINDING-NEW-37 ✅ Fixed — TLB Cache Time-Based Eviction Is Not Spec-Defined (C++ Only)
+**Spec**: §3.16 (TLB maintenance), §4.3 (configuration invalidation commands)
+**Severity**: Low
+**Affected**: C++ only
+
+The C++ `lookupTranslationCache()` in `smmu.cpp` implements a 1-second time-based cache entry expiry:
+
+```cpp
+const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
+if (currentTime - entry.timestamp > MAX_CACHE_AGE_US) {
+    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
+    return makeTranslationError(SMMUError::CacheEntryNotFound);
+}
+```
+
+ARM §3.16 and §4.3 define no time-based TLB eviction. TLB entries remain valid until explicitly invalidated by `CMD_TLBI_*` or `CMD_CFGI_*` commands or global reset. This automatic expiry:
+1. Causes non-deterministic behavior: translations silently fail after 1 second with no event
+2. May cause test flakiness if a test takes longer than 1 second between TLB population and lookup
+3. Masks missing invalidation commands in tests
+4. Is architecturally incorrect — hardware SMMUs do not age TLB entries by wall-clock time
+
+The Rust implementation has no equivalent time-based eviction.
+
+**Correct behavior**: TLB entries valid until explicitly invalidated.
+
+**Recommendation**: Remove the `MAX_CACHE_AGE_US` check and associated `invalidate()` call from `lookupTranslationCache()` and the fast-path `translate()` method.
+
+**Resolution (2026-02-23)**: Removed `MAX_CACHE_AGE_US` constant and all time-based eviction logic from both the fast-path `translate()` and `lookupTranslationCache()` in `cpp/src/smmu/smmu.cpp`. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-38 ✅ Fixed — Two-Stage Permission Intersection Missing in C++ StreamContext::translateUnlocked (C++ Only)
+**Spec**: §3.3.1 (permission intersection), §7.3.16 (F_PERMISSION)
+**Severity**: Medium
+**Affected**: C++ only
+
+ARM §3.3.1 mandates that in two-stage translation, effective permissions are the intersection of Stage-1 and Stage-2 permissions. While `performBothStagesTranslation()` in `smmu.cpp` implements this correctly for the SMMU-level translate path, `StreamContext::translateUnlocked()` in `stream_context.cpp` lines 1080-1093 does not:
+
+```cpp
+TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
+// ...
+return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
+                            stage2Result.getValue().permissions,   // Stage-2 only!
+                            stage2Result.getValue().securityState);
+// Stage-1 permissions (stage1Result.getValue().permissions) are silently discarded
+```
+
+Stage-1 permissions are discarded; only Stage-2 permissions are returned. Direct callers of `StreamContext::translate()` (e.g., unit tests that bypass `performBothStagesTranslation()`) receive Stage-2 permissions alone, allowing Stage-1-restricted pages to be accessed by callers that check the returned permissions.
+
+**Correct behavior**: Must intersect `stage1Result.getValue().permissions` ∩ `stage2Result.getValue().permissions` and check the intersection against `accessType` per §3.3.1.
+
+**Recommendation**: After Stage-2 success, compute `PagePermissions intersected = intersectPermissions(stage1Result.getValue().permissions, stage2Result.getValue().permissions)`. Validate against `accessType`; return `PagePermissionViolation` if denied. Return `makeTranslationSuccess(pa, intersected, secState)`.
+
+**Resolution (2026-02-23)**: Added Stage-1 ∩ Stage-2 permission intersection after Stage-2 success in `translateUnlocked()` in `cpp/src/stream_context/stream_context.cpp`. Permission intersection validates against `accessType` and returns `PagePermissionViolation` if denied. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-39 ✅ Fixed — ATC_INV and SYNC Completion Events Hardcode NonSecure Security State (Both)
+**Spec**: §4.5.1 (CMD_ATC_INV), §4.8 (CMD_SYNC), §7.3.21 (ATC_INVALIDATE_COMPLETION)
+**Severity**: Low
+**Affected**: Both
+
+`ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION` events in both implementations hardcode `SecurityState::NonSecure` regardless of the stream's or SMMU instance's security context:
+
+**C++** (`smmu.cpp`):
+```cpp
+generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
+              command.startAddress, SecurityState::NonSecure);  // Hardcoded
+generateEvent(EventType::COMMAND_SYNC_COMPLETION, ..., SecurityState::NonSecure);  // Hardcoded
+```
+
+**Rust** (`smmu/mod.rs`):
+```rust
+security_state: SecurityState::NonSecure,  // Hardcoded in AtcInvalidateCompletion
+security_state: SecurityState::NonSecure,  // Hardcoded in CommandSyncCompletion
+```
+
+For Secure or Realm SMMU instances, completion events should reflect the SMMU instance's security context. A Secure-world SMMU's ATC_INV and SYNC completions are Secure events, not NonSecure.
+
+**Correct behavior**: The security state for completion events should reflect the security state of the stream being operated on (from stream configuration) or the SMMU instance's configured security context.
+
+**Recommendation**: Look up the stream's `securityState` from `streamMap` for the given `command.streamID` and use it in the completion event. Fallback to `NonSecure` if the stream is not found.
+
+**Resolution (2026-02-23)**: Added `securityState` field to `StreamConfig` in `cpp/include/smmu/types.h`. In `cpp/src/smmu/smmu.cpp`, `executeInvalidationCommand()` and `processCommandQueue()` now look up the stream's `StreamConfig::securityState` for `ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION` events respectively, falling back to `NonSecure` if not found. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-40 ✅ Fixed — CMD_CFGI_STE with Unknown StreamID Does Not Generate C_BAD_STREAMID (C++ Only)
+**Spec**: §4.3.1 (CMD_CFGI_STE), §6.3.17 (GERROR.CMDQ_ERR), §7.3.3 (C_BAD_STREAMID)
+**Severity**: Low
+**Affected**: C++ only
+
+ARM §4.3.1 requires that `CMD_CFGI_STE` with a StreamID not present in the stream table generates `C_BAD_STREAMID` and sets `GERROR.CMDQ_ERR`. The C++ `processCommand()` at `smmu.cpp` line 1749 calls `invalidateStreamCache(command.streamID)` without first checking whether the stream is configured:
+
+```cpp
+case CommandType::CFGI_STE:
+    invalidateStreamCache(command.streamID);  // Silently succeeds for unknown streams
+    break;
+```
+
+`invalidateStreamCache()` validates `streamID <= MAX_STREAM_ID` but does not check whether the stream exists in `streamMap`. There is no `C_BAD_STREAMID` event and no `GERROR.CMDQ_ERR` for unknown streams. The Rust implementation correctly checks `!self.streams.contains_key(&command.stream_id)` and generates `CBadStreamid`.
+
+**Correct behavior**: If `command.streamID` is not found in `streamMap`, set `gerrorStatus |= GERROR_CMDQ_ERR` and generate `C_BAD_STREAMID` before returning.
+
+**Recommendation**: Before calling `invalidateStreamCache()`, check `streamMap.count(command.streamID) == 0`. If absent, call `generateEvent(EventType::C_BAD_STREAMID, ...)`, set `gerrorStatus |= GERROR_CMDQ_ERR`, and `break`. Match the Rust behavior.
+
+**Resolution (2026-02-23)**: Separated `CFGI_STE` into its own `case` in `processCommand()` in `cpp/src/smmu/smmu.cpp`. Checks `streamMap.find(command.streamID) == streamMap.end()`; if not found, generates `C_BAD_STREAMID` and sets `GERROR_CMDQ_ERR`. Updated one pre-existing test that had incorrect expectations. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-41 ✅ Fixed — StreamContext::translateUnlocked Early Bypass Returns Zero PagePermissions (C++ Only)
+**Spec**: §5.2 (STE.Config==0b100 bypass semantics)
+**Severity**: Low
+**Affected**: C++ only
+
+The C++ `StreamContext::translateUnlocked()` at `stream_context.cpp` lines 1005-1008 handles the no-translation case:
+
+```cpp
+if (!stage1Enabled && !stage2Enabled) {
+    return makeTranslationSuccess(iova, PagePermissions(), securityState);
+}
+```
+
+`PagePermissions()` default-constructs with all permission bits false (`read=false, write=false, execute=false`). ARM §5.2 STE.Config==0b100 bypass grants full read/write/execute permissions by passing the transaction through without restriction. Direct callers of `StreamContext::translate()` on a bypass-configured stream receive zero permissions, causing all subsequent permission checks to fail.
+
+Note: the SMMU-level code (`performTwoStageTranslation()`) handles bypass independently before invoking `streamContext->translate()`, so production translation paths are not affected. However, unit tests calling `StreamContext::translate()` directly on bypass streams will receive incorrect zero-permission results.
+
+**Correct behavior**: Bypass identity mapping must return full RWX permissions per §5.2 STE.Config==0b100.
+
+**Recommendation**: Replace `PagePermissions()` with a fully-permissive instance:
+```cpp
+PagePermissions bypassPerms;
+bypassPerms.read = true; bypassPerms.write = true; bypassPerms.execute = true;
+return makeTranslationSuccess(iova, bypassPerms, securityState);
+```
+
+**Resolution (2026-02-23)**: Replaced `PagePermissions()` (all-false) with explicit RWX-permissive `PagePermissions` in the early bypass path of `translateUnlocked()` in `cpp/src/stream_context/stream_context.cpp`. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
+---
+
+### FINDING-NEW-43 ✅ Fixed — classifyTranslationFault() Applies Arbitrary IOVA Heuristics (C++ Only)
+**Spec**: §7.3.13–7.3.16 (fault classification), §3.4 (address sizes)
+**Severity**: Low
+**Affected**: C++ only
+
+The C++ `classifyTranslationFault()` in `smmu.cpp` lines 1406-1418 applies hardcoded thresholds not defined by the ARM specification:
+
+```cpp
+const uint64_t MAX_REASONABLE_IOVA = 0x0001000000000000ULL; // 48-bit threshold
+if (iova > MAX_REASONABLE_IOVA) {
+    return FaultType::AddressSizeFault;  // Applied even for 52-bit address spaces
+}
+if (iova == 0) {
+    return FaultType::AccessFault;  // Zero IOVA is valid if page is mapped
+}
+```
+
+These heuristics are spec-incorrect:
+1. ARM §7.3.14: `F_ADDR_SIZE` is generated only when IOVA exceeds the T0SZ/T1SZ-derived input address size — not a fixed 48-bit threshold. A 52-bit address space (T0SZ=12) accepts IOVAs above `0x0001000000000000` without fault.
+2. IOVA=0 is valid when a page is mapped at address 0; classifying it as `AccessFault` is incorrect.
+
+This function is only reached via the `default:` branch of `handleTranslationFailure()` for errors not otherwise mapped (e.g., `SMMUError::InternalError`), so impact on normal translation paths is limited. However, the function can misclassify faults in the default path.
+
+**Correct behavior**: Fault classification must be based on the actual error cause. The catch-all default should return `FaultType::TranslationFault`.
+
+**Recommendation**: Remove the `MAX_REASONABLE_IOVA` check and the zero-IOVA heuristic from `classifyTranslationFault()`. Return `FaultType::TranslationFault` as the catch-all default. Let the specific `SMMUError` in `handleTranslationFailure()` determine the fault type.
+
+**Resolution (2026-02-23)**: Removed `MAX_REASONABLE_IOVA` 48-bit threshold and IOVA==0 `AccessFault` heuristics from `classifyTranslationFault()` in `cpp/src/smmu/smmu.cpp`. Default catch-all now returns `FaultType::TranslationFault`. 2 new TDD tests in `test_new34_43_spec.cpp`. C++ 62/62 pass.
+
 ---
 
 ## Key Files for Fixes
@@ -2168,7 +2446,9 @@ Clippy clean.
 | File | Relevant Findings |
 |------|------------------|
 | `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20, NEW-26, NEW-27, NEW-28, CT-20 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28, CT-09, CT-13, CT-14, CT-33 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28, CT-09, CT-13, CT-14, CT-33, NEW-37, NEW-38 (partial), NEW-39, NEW-40, NEW-43 |
+| `cpp/src/stream_context/stream_context.cpp` | NEW-34, NEW-38, NEW-41 |
+| `cpp/include/smmu/smmu.h` | NEW-35 |
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
 | `cpp/tests/unit/test_ct04_09_13_14_19_20_23_spec.cpp` | CT-04, CT-09, CT-13, CT-14, CT-19, CT-20, CT-23 |
 | `cpp/tests/unit/test_ct30_ct33_spec.cpp` | CT-30, CT-33 |
@@ -2177,9 +2457,9 @@ Clippy clean.
 | `rust/smmu/src/types/fault_type.rs` | NEW-11 |
 | `rust/smmu/src/types/security_state.rs` | H-07, L-05 |
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
-| `rust/smmu/src/types/config.rs` | NEW-18, NEW-24, CT-09 |
+| `rust/smmu/src/types/config.rs` | NEW-18, NEW-24, CT-09, NEW-36 |
 | `rust/smmu/src/types/pri_entry.rs` | CT-30 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33, NEW-39 |
 | `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18, CT-09, CT-13, CT-14 |
 | `rust/smmu/src/types/mod.rs` | CT-20 |
 | `rust/smmu/tests/test_ct_findings_spec.rs` | CT-04, CT-09, CT-13, CT-14, CT-19, CT-20, CT-23, CT-30, CT-33 |

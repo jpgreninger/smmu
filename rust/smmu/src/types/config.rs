@@ -462,11 +462,70 @@ impl StreamConfig {
         Ok(())
     }
 
-    /// Check if configuration is in bypass mode
+    /// Check if configuration is in bypass mode (STE.Config==0b100).
+    ///
+    /// Returns `true` only when the stream passes transactions through with a
+    /// full RWX identity mapping (PA == IOVA) per ARM IHI0070G.b §5.2 Table 5-5.
+    ///
+    /// This is distinct from abort mode (`is_abort_mode()`), where transactions
+    /// are silently terminated with no event recorded (STE.Config==0b000).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::config::StreamConfig;
+    ///
+    /// // Bypass factory (STE.Config==0b100): is_bypass() == true
+    /// let bypass = StreamConfig::bypass();
+    /// assert!(bypass.is_bypass());
+    /// assert!(!bypass.is_abort_mode());
+    ///
+    /// // Builder default (no explicit translation_enabled call) is also bypass
+    /// let default_config = StreamConfig::builder().build().unwrap();
+    /// assert!(default_config.is_bypass());
+    ///
+    /// // Abort mode (STE.Config==0b000): is_bypass() == false
+    /// let abort = StreamConfig::builder().translation_enabled(false).build().unwrap();
+    /// assert!(!abort.is_bypass());
+    /// assert!(abort.is_abort_mode());
+    /// ```
     #[inline]
     #[must_use]
     pub const fn is_bypass(&self) -> bool {
-        !self.translation_enabled
+        !self.translation_enabled && !self.disabled
+    }
+
+    /// Check if configuration is in abort mode (STE.Config==0b000).
+    ///
+    /// Returns `true` when all transactions on this stream are silently aborted
+    /// with no event recorded, per ARM IHI0070G.b §5.2 Table 5-5 and §7.3.7.
+    ///
+    /// This mode is activated by calling `translation_enabled(false)` explicitly
+    /// on the builder, which sets the `disabled` flag.  The builder default
+    /// (without calling `translation_enabled`) remains in bypass mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::config::StreamConfig;
+    ///
+    /// // Abort mode (STE.Config==0b000): is_abort_mode() == true
+    /// let abort = StreamConfig::builder().translation_enabled(false).build().unwrap();
+    /// assert!(abort.is_abort_mode());
+    /// assert!(!abort.is_bypass());
+    ///
+    /// // Bypass mode (STE.Config==0b100): is_abort_mode() == false
+    /// let bypass = StreamConfig::bypass();
+    /// assert!(!bypass.is_abort_mode());
+    ///
+    /// // Translation-enabled mode: is_abort_mode() == false
+    /// let stage1 = StreamConfig::stage1_only();
+    /// assert!(!stage1.is_abort_mode());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn is_abort_mode(&self) -> bool {
+        self.disabled && !self.translation_enabled
     }
 
     /// Check if two-stage translation is configured
