@@ -316,6 +316,10 @@ private:
                 return permissions.write;
             case AccessType::Execute:
                 return permissions.execute;
+            case AccessType::ReadWrite:
+                // ARM §3.24: atomic read-modify-write is write-class; requires both
+                // read and write permissions.
+                return permissions.read && permissions.write;
             default:
                 return false; // Unknown access type
         }

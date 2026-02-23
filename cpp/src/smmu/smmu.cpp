@@ -179,27 +179,22 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         if (entryResult.isOk()) {
             const TLBEntry& entry = entryResult.getValue();
             if (entry.valid) {
-                // Fast path: Validate cache entry age inline for speed
-                const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-                if (entry.timestamp > currentTime || (currentTime - entry.timestamp) > MAX_CACHE_AGE_US) {
-                    // Entry expired or from the future - invalidate and continue to full translation
-                    tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
-                } else {
-                    // Cache hit - validate access permissions against requested access type
-                    // §3.12.2 / FINDING-NEW-25: On permission failure, fall through to the
-                    // slow path so that FaultMode::Stall is correctly applied.  The slow
-                    // path (performTwoStageTranslation) re-checks permissions via the page
-                    // table and applies the stall-mode queue if required.
-                    if (validateAccessPermissions(entry.permissions, accessType)) {
-                        // TLBCache already recorded hit statistics
-                        // No need for additional recordCacheHit() here
+                // ARM §3.16 / FINDING-NEW-37: TLB entries are valid until an explicit
+                // TLBI command.  No time-based eviction is performed here.
+                // Cache hit - validate access permissions against requested access type
+                // §3.12.2 / FINDING-NEW-25: On permission failure, fall through to the
+                // slow path so that FaultMode::Stall is correctly applied.  The slow
+                // path (performTwoStageTranslation) re-checks permissions via the page
+                // table and applies the stall-mode queue if required.
+                if (validateAccessPermissions(entry.permissions, accessType)) {
+                    // TLBCache already recorded hit statistics
+                    // No need for additional recordCacheHit() here
 
-                        PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
-                        TranslationData data(finalPA, entry.permissions, entry.securityState);
-                        return TranslationResult(data);
-                    }
-                    // Permission failure: fall through to slow path for stall-mode handling.
+                    PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
+                    TranslationData data(finalPA, entry.permissions, entry.securityState);
+                    return TranslationResult(data);
                 }
+                // Permission failure: fall through to slow path for stall-mode handling.
             }
         }
         // Cache miss - TLBCache already recorded miss statistics
@@ -1024,17 +1019,8 @@ TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, I
         return makeTranslationError(FaultType::SecurityFault);
     }
 
-    // ARM SMMU v3 spec: Validate cache entry freshness and coherency
-    uint64_t currentTime = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-
-    // Check if the cache entry is still valid (simple aging mechanism)
-    const uint64_t MAX_CACHE_AGE_US = 1000000; // 1 second max age
-    if (currentTime - entry.timestamp > MAX_CACHE_AGE_US) {
-        // Entry is too old, invalidate and return cache miss
-        tlbCache->invalidate(streamID, pasid, pageAlignedIOVA, securityState);
-        return makeTranslationError(SMMUError::CacheEntryNotFound); // Cache miss due to age
-    }
+    // ARM §3.16 / FINDING-NEW-37: TLB entries are valid until an explicit TLBI.
+    // No time-based eviction is performed; the entry is unconditionally valid.
 
     // Convert TLBEntry back to TranslationResult with page offset preservation
     PA finalPhysicalAddress = entry.physicalAddress + (iova & PAGE_MASK); // Add back page offset
@@ -1393,28 +1379,19 @@ FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA io
     (void)accessType; // Suppress unused parameter warning - reserved for future access-aware fault classification  
     (void)securityState; // Suppress unused parameter warning - reserved for future security-aware fault classification
     
-    // ARM SMMU v3 spec: Intelligent fault classification based on context
+    // ARM §7.3.13–7.3.16 / FINDING-NEW-43: Fault classification must be based on
+    // actual error cause, not on arbitrary IOVA value heuristics.
+    // IOVA=0 is a valid mapped address (not an "access fault").
+    // High IOVAs are only an address-size fault when they exceed the configured
+    // input address size — that is handled in handleTranslationFailure() via the
+    // SMMUError::InvalidAddress case.  Here we return the generic default.
 
     // BUG-06 fix: streamMap must be accessed under the appropriate stripe lock.
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
-    auto streamIt = streamMap.find(streamID);
-    if (streamIt == streamMap.end()) {
-        return FaultType::TranslationFault; // Stream not configured
-    }
-    
-    // Check if IOVA is within reasonable bounds (basic address size check)
-    const uint64_t MAX_REASONABLE_IOVA = 0x0001000000000000ULL; // 48-bit address space
-    if (iova > MAX_REASONABLE_IOVA) {
-        return FaultType::AddressSizeFault;
-    }
-    
-    // Check for null pointer dereference
-    if (iova == 0) {
-        return FaultType::AccessFault; // Null pointer access
-    }
-    
-    // Default classification based on the failure context
+    (void)streamMap.find(streamID);  // access under lock for BUG-06 correctness
+
+    // Default: TranslationFault — callers supply the real error code via result.getError().
     return FaultType::TranslationFault;
 }
 
@@ -1624,8 +1601,19 @@ void SMMU::processCommandQueue() {
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
             if (command.cs != 0) {
+                // FINDING-NEW-39: derive security state from the stream config rather than
+                // hardcoding NonSecure, per ARM §4.8.
+                SecurityState syncEventSecState = SecurityState::NonSecure;
+                {
+                    size_t syncStripe = getStreamStripe(command.streamID);
+                    std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
+                    auto syncIt = streamMap.find(command.streamID);
+                    if (syncIt != streamMap.end()) {
+                        syncEventSecState = syncIt->second->getStreamConfiguration().securityState;
+                    }
+                }
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
-                              command.startAddress, SecurityState::NonSecure);
+                              command.startAddress, syncEventSecState);
             }
             break;
         }
@@ -1797,12 +1785,25 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
             break;
             
-        case CommandType::ATC_INV:
+        case CommandType::ATC_INV: {
             // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
             executeATCInvalidationCommand(command.streamID, command.pasid,
                                         command.startAddress, command.endAddress);
-            generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            // FINDING-NEW-39: derive security state from the stream config rather than
+            // hardcoding NonSecure, per ARM §4.5.1 / §4.8.
+            SecurityState atcEventSecState = SecurityState::NonSecure;
+            {
+                size_t atcStripe = getStreamStripe(command.streamID);
+                std::lock_guard<std::mutex> atcLock(streamLockStripes[atcStripe]);
+                auto atcIt = streamMap.find(command.streamID);
+                if (atcIt != streamMap.end()) {
+                    atcEventSecState = atcIt->second->getStreamConfiguration().securityState;
+                }
+            }
+            generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
+                          command.startAddress, atcEventSecState);
             break;
+        }
 
         // §4.1.1 / CT-30: Additional TLB invalidation commands
         case CommandType::TLBI_EL3_ALL:
@@ -1945,7 +1946,25 @@ void SMMU::processCommand(const CommandEntry& command) {
             // Could implement translation prefetching for specific addresses
             break;
             
-        case CommandType::CFGI_STE:
+        case CommandType::CFGI_STE: {
+            // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE with an unknown StreamID
+            // (not present in the stream table) must generate C_BAD_STREAMID and
+            // set GERROR.CMDQ_ERR, per §4.3.1.
+            size_t cfgiStripe = getStreamStripe(command.streamID);
+            {
+                std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
+                if (streamMap.find(command.streamID) == streamMap.end()) {
+                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
+                                  command.startAddress, SecurityState::NonSecure);
+                    gerrorStatus |= GERROR_CMDQ_ERR;
+                    break;
+                }
+            }
+            // Known StreamID — proceed with normal STE cache invalidation
+            executeInvalidationCommand(command);
+            break;
+        }
+
         case CommandType::CFGI_ALL:
         case CommandType::CFGI_CD:
         case CommandType::CFGI_CD_ALL:

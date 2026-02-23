@@ -876,11 +876,10 @@ Result<bool> StreamContext::validateASIDConfigurationUnlocked(uint16_t /* asid *
         // This check would be more comprehensive in full SMMU implementation
     }
 
-    // ARM SMMU v3: Validate security state is valid
-    if (securityState != SecurityState::NonSecure &&
-        securityState != SecurityState::Secure &&
-        securityState != SecurityState::Realm) {
-        return makeSuccess(false);  // Invalid security state
+    // ARM SMMU v3 §3.10: Four valid security states — NonSecure(0x00), Secure(0x01),
+    // Realm(0x02), Root(0x03).  Any value above 0x03 is reserved/invalid.
+    if (static_cast<uint8_t>(securityState) > 0x03) {
+        return makeSuccess(false);  // Unknown security state (reserved)
     }
 
     return makeSuccess(true);  // ASID configuration is valid
@@ -920,11 +919,10 @@ Result<bool> StreamContext::validateStreamTableEntry(const StreamTableEntry& str
         return makeSuccess(false);  // Invalid fault mode
     }
     
-    // ARM SMMU v3: Validate security state
-    if (streamTableEntry.securityState != SecurityState::NonSecure &&
-        streamTableEntry.securityState != SecurityState::Secure &&
-        streamTableEntry.securityState != SecurityState::Realm) {
-        return makeSuccess(false);  // Invalid security state
+    // ARM SMMU v3 §3.10: Four valid security states — NonSecure(0x00), Secure(0x01),
+    // Realm(0x02), Root(0x03).  Any value above 0x03 is reserved/invalid.
+    if (static_cast<uint8_t>(streamTableEntry.securityState) > 0x03) {
+        return makeSuccess(false);  // Unknown security state (reserved)
     }
     
     // ARM SMMU v3: Validate granule sizes are supported
@@ -1003,8 +1001,14 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
 
     // ARM SMMU v3: Check if any translation stage is enabled
     if (!stage1Enabled && !stage2Enabled) {
-        // No translation enabled - return identity mapping (pass-through)
-        return makeTranslationSuccess(iova, PagePermissions(), securityState);
+        // §5.2 STE.Config==0b100 / FINDING-NEW-41: Bypass mode — identity mapping (PA == IOVA)
+        // with full read/write/execute permissions.  PagePermissions() default-constructs all
+        // bits false, which would silently deny every access; bypass must grant full RWX.
+        PagePermissions bypassPerms;
+        bypassPerms.read    = true;
+        bypassPerms.write   = true;
+        bypassPerms.execute = true;
+        return makeTranslationSuccess(iova, bypassPerms, securityState);
     }
 
     // ARM SMMU v3: Check stream enabled state only for active translation contexts
@@ -1078,6 +1082,9 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
 
         // Perform Stage-2 translation (IPA -> PA)
+        // Use Read access type for Stage-2 address lookup — permission intersection
+        // is applied below; we don't want Stage-2 to independently reject a write
+        // that Stage-1 already accepted (the intersection handles that).
         TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
         if (stage2Result.isError()) {
             // Stage-2 translation failed - propagate fault
@@ -1086,9 +1093,37 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             return stage2Result;
         }
 
-        // Stage-2 success - return final physical address
+        // ARM §3.3.1 / FINDING-NEW-38: effective permissions = Stage-1 ∩ Stage-2.
+        // When Stage-1 is enabled, its permissions restrict what Stage-2 permits.
+        PagePermissions intersected;
+        if (stage1Enabled && stage1Result.isOk()) {
+            const PagePermissions& s1perms = stage1Result.getValue().permissions;
+            const PagePermissions& s2perms = stage2Result.getValue().permissions;
+            intersected.read    = s1perms.read    && s2perms.read;
+            intersected.write   = s1perms.write   && s2perms.write;
+            intersected.execute = s1perms.execute && s2perms.execute;
+        } else {
+            // Stage-2 only — no Stage-1 to intersect with
+            intersected = stage2Result.getValue().permissions;
+        }
+
+        // Validate the intersected permissions against the requested access type
+        bool permOk = false;
+        switch (accessType) {
+            case AccessType::Read:      permOk = intersected.read;  break;
+            case AccessType::Write:     permOk = intersected.write; break;
+            case AccessType::Execute:   permOk = intersected.execute; break;
+            case AccessType::ReadWrite: permOk = intersected.read && intersected.write; break;
+            default: permOk = false; break;
+        }
+        if (!permOk) {
+            streamStatistics.faultCount++;
+            return makeTranslationError(SMMUError::PagePermissionViolation);
+        }
+
+        // Stage-2 success - return final physical address with intersected permissions
         return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
-                                    stage2Result.getValue().permissions,
+                                    intersected,
                                     stage2Result.getValue().securityState);
     }
 

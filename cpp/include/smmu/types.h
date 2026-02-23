@@ -1106,13 +1106,20 @@ struct StreamConfig {
     uint8_t  s2ps;    ///< 3-bit Stage-2 physical address size (5=48-bit); default 5
     uint64_t s2ttb;   ///< Physical address of stage-2 root table; default 0
 
+    // §3.10 / FINDING-NEW-39: Security state of this stream's STE.
+    // Used to carry the correct security state into completion events
+    // (ATC_INVALIDATE_COMPLETION, COMMAND_SYNC_COMPLETION) per ARM §4.5.1, §4.8.
+    // Default: NonSecure (0x00).
+    SecurityState securityState;  ///< Stream security state; defaults to NonSecure
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
                     strw(StreamWorld::EL1_EL0),
                     nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
                     t0sz(16), t1sz(16), aa64(true),
-                    s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0) {
+                    s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
+                    securityState(SecurityState::NonSecure) {
     }
 };
 

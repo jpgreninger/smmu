@@ -144,9 +144,9 @@ TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_PermissionFault) {
 
 // Target line 1272: CONFIGURATION_ERROR event type
 TEST_F(SMMUPriority2Phase2Test, EventHandling_ConfigurationError) {
-    // ARM §4.3.1: CMD_CFGI_STE on an unconfigured stream is a no-op invalidation —
-    // no event is generated (this is correct spec behaviour; the test previously passed
-    // accidentally due to the spurious ATC_INVALIDATE_COMPLETION bug fixed by NEW-21).
+    // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE on an unknown (unconfigured) StreamID
+    // must generate a C_BAD_STREAMID event and set GERROR.CMDQ_ERR.
+    // STREAM1 is not configured in this test's SetUp(), so it is unknown.
     CommandEntry cmd;
     cmd.type = CommandType::CFGI_STE;
     cmd.streamID = STREAM1;
@@ -158,9 +158,17 @@ TEST_F(SMMUPriority2Phase2Test, EventHandling_ConfigurationError) {
     ASSERT_TRUE(smmuController->submitCommand(cmd).isOk());
     smmuController->processCommandQueue();
 
-    // No event is expected: CFGI_STE invalidation is a no-op when the stream
-    // is not in the cache — it completes silently per the spec.
-    EXPECT_EQ(smmuController->getEventQueueSize(), 0u);
+    // C_BAD_STREAMID event must be generated for CMD_CFGI_STE with unknown StreamID.
+    bool foundCBadStreamid = false;
+    for (const auto& ev : smmuController->getEventQueue()) {
+        if (ev.type == EventType::C_BAD_STREAMID && ev.streamID == STREAM1) {
+            foundCBadStreamid = true;
+        }
+    }
+    EXPECT_TRUE(foundCBadStreamid)
+        << "CMD_CFGI_STE with unknown StreamID must generate C_BAD_STREAMID per ARM §4.3.1";
+    EXPECT_NE(smmuController->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "GERROR.CMDQ_ERR must be set for C_BAD_STREAMID per ARM §4.3.1";
 }
 
 // Target line 1275: INTERNAL_ERROR event type
