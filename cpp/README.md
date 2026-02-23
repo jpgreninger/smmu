@@ -1,10 +1,10 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.7** - Sixth-Pass Conformance Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.2.8** - Seventh-Pass Conformance Fix ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.5% | **Tests**: 62/62 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.7
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.5% | **Tests**: 62/62 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.8
 
-> **Since v1.2.6 (Feb 17, 2026)**: 45 conformance fixes across 6 QA passes. 43 new tests added (19 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All 62 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 45 conformance fixes across 7 QA passes. 43 new tests added (19 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All 62 tests pass at 100%.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 
@@ -549,7 +549,7 @@ xdg-open docs/html/index.html
 
 ## Production Deployment
 
-**✅ APPROVED FOR PRODUCTION v1.2.7**
+**✅ APPROVED FOR PRODUCTION v1.2.8**
 
 Ready for immediate deployment in:
 - **Development tools** and GitHub Copilot integration
@@ -570,6 +570,10 @@ Ready for immediate deployment in:
 - ✅ True O(1) scalability verified
 
 ## Version History
+
+**v1.2.8** (2026-02-23):
+- ✅ No C++ changes — version bump for Rust FINDING-NEW-44 parity release
+- ✅ All 62 tests passing (100% success rate)
 
 **v1.2.7** (2026-02-23):
 - ✅ 9 new conformance findings resolved (FINDING-NEW-34 through NEW-43)

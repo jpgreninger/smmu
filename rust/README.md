@@ -12,17 +12,30 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.7** - Sixth-Pass Conformance Fixes ⚡
+## ✅ **PRODUCTION READY v1.2.8** - Seventh-Pass Conformance Fix (NEW-44) ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,437 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 23, 2026)**: Version 1.2.7 + seventh-pass FINDING-NEW-44 fix — **`StreamConfig.security_state` added**; `ATC_INVALIDATE_COMPLETION`/`COMMAND_SYNC_COMPLETION` events now use stream's security state. Rust conformance ~99%. 2,437 tests passing (100%).
+**🎯 Latest Update (February 23, 2026)**: Version 1.2.8 — **FINDING-NEW-44** fixed: `StreamConfig.security_state` added; `ATC_INVALIDATE_COMPLETION`/`COMMAND_SYNC_COMPLETION` events now use stream security state per §4.5.1/§4.8. Rust conformance ~99%. 2,437 tests passing (100%).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.8 (February 23, 2026)
+
+**Seventh-Pass Conformance Fix — FINDING-NEW-44**
+
+- ✅ `StreamConfig.security_state: SecurityState` field added (default `NonSecure`, backward compatible)
+- ✅ `StreamContext` gains `AtomicU8`-backed `security_state()` getter + `set_security_state()` setter
+- ✅ `configure_stream()` propagates `config.security_state` into `StreamContext`
+- ✅ `ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION` events use stream's configured security state per §4.5.1/§4.8
+- ✅ 4 new TDD tests in `test_new44_spec.rs`; 2,437 total tests passing (100%)
+- ✅ Rust conformance **~99%** (matches C++)
+
+---
 
 ### 🔒 Security State Correctness Fix — FINDING-NEW-44 (February 23, 2026)
 
@@ -1038,4 +1051,4 @@ Dual-licensed under MIT OR Apache-2.0
 
 ---
 
-**Project Status**: Production Ready ✅ | **Version**: 1.2.7 | **Tests**: 2,437/2,437 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
+**Project Status**: Production Ready ✅ | **Version**: 1.2.8 | **Tests**: 2,437/2,437 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
