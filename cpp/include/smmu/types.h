@@ -1042,11 +1042,27 @@ struct FaultRecord {
     }
 };
 
+/**
+ * @enum StreamWorld
+ * @brief ARM SMMU v3 STE.STRW stream world field (§5.2)
+ * @details 2-bit field that selects the exception level associated with the stream.
+ */
+enum class StreamWorld : uint8_t {
+    EL1_EL0 = 0x00, // §5.2 STRW=0b00: NS-EL1/EL0
+    EL2     = 0x01, // §5.2 STRW=0b01: NS-EL2
+    EL2_E2H = 0x02, // §5.2 STRW=0b10: NS-EL2 with VHE
+    EL3     = 0x03  // §5.2 STRW=0b11: EL3/Secure
+};
+
 // Stream configuration structure
 struct StreamConfig {
     bool translationEnabled;
     bool stage1Enabled;
     bool stage2Enabled;
+    /// §5.2 STE.Config bypass mode: when true this stream uses STE.Config==0b100
+    /// (bypass — identity PA==IOVA). When false and all translation stages are
+    /// disabled, this stream uses STE.Config==0b000 (disabled — silent abort, no event).
+    bool bypassEnabled;  ///< defaults to false (STE.Config==0b000 = disabled/abort)
     FaultMode faultMode;
     bool ha;  // Hardware Access Flag management enabled (CD.HA)
     bool hd;  // Hardware Dirty State management enabled (CD.HD)
@@ -1063,9 +1079,40 @@ struct StreamConfig {
     /// >0 = stream supports substreams; s1dss governs non-substream PASID=0 handling.
     uint8_t s1cdMax;  ///< defaults to 0 (not substream-capable)
 
+    // §5.2 STE.STRW: stream world / exception level selection (CT-20)
+    StreamWorld strw;  ///< defaults to EL1_EL0 (0b00)
+
+    // §5.2 STE output attribute override fields (CT-19)
+    uint8_t nsCfg;    ///< 2-bit NSCFG non-secure attribute override; default 0
+    uint8_t shCfg;    ///< 2-bit SHCFG shareability override; default 0
+    uint8_t allocCfg; ///< 4-bit ALLOCCFG allocation hint override; default 0
+    uint8_t memAttr;  ///< 4-bit MemAttr memory type attribute; default 0
+    uint8_t instCfg;  ///< 2-bit INSTCFG instruction/data override; default 0
+    uint8_t privCfg;  ///< 2-bit PRIVCFG privilege attribute override; default 0
+    bool    mtCfg;    ///< MTCFG memory type override enable flag; default false
+
+    // §5.4 CD.T0SZ / CD.T1SZ (CT-13): valid range 0-39 for SMMUv3.0
+    uint8_t t0sz;     ///< CD.T0SZ — bits to exclude from top of TTBR0 range; default 16
+    uint8_t t1sz;     ///< CD.T1SZ — bits to exclude from top of TTBR1 range; default 16
+
+    // §5.4 CD.AA64 (CT-14): 1=AArch64 stage-1 tables, 0=AArch32 LPAE (unsupported)
+    bool aa64;        ///< CD.AA64 — true=AArch64 (default); false=AArch32 LPAE
+
+    // §5.2 Stage-2 STE translation parameters (CT-23)
+    uint8_t  s2t0sz;  ///< 6-bit Stage-2 T0SZ; default 16
+    uint8_t  s2tg;    ///< 2-bit Stage-2 granule (0=4KB, 1=64KB, 2=16KB); default 0
+    uint8_t  s2sl0;   ///< 2-bit Stage-2 starting level (0=L2, 1=L1, 2=L0); default 1
+    bool     s2aa64;  ///< 1-bit AArch64 stage-2 tables; default true
+    uint8_t  s2ps;    ///< 3-bit Stage-2 physical address size (5=48-bit); default 5
+    uint64_t s2ttb;   ///< Physical address of stage-2 root table; default 0
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
-                    stage2Enabled(false), faultMode(FaultMode::Terminate),
-                    ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0) {
+                    stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
+                    ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
+                    strw(StreamWorld::EL1_EL0),
+                    nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
+                    t0sz(16), t1sz(16), aa64(true),
+                    s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0) {
     }
 };
 
@@ -1194,7 +1241,20 @@ enum class CommandType {
     PRI_RESP        = 0x41, // CMD_PRI_RESP — Page Request Interface response
     RESUME          = 0x44, // CMD_RESUME — Resume stalled transaction
     STALL_TERM      = 0x45, // CMD_STALL_TERM — Terminate stalled transaction
-    SYNC            = 0x46  // CMD_SYNC — Synchronization barrier
+    SYNC            = 0x46, // CMD_SYNC — Synchronization barrier
+    // §4.1.1: Additional spec-defined command opcodes
+    CFGI_VMS_PIDM   = 0x07, // §4.1.1: Secure substream PIDM cache invalidation
+    TLBI_EL3_ALL    = 0x18, // §4.1.1: Invalidate all EL3 TLB entries
+    TLBI_EL3_VA     = 0x1A, // §4.1.1: Invalidate EL3 TLB entries by VA
+    TLBI_S_EL2_ALL  = 0x50, // §4.1.1: Invalidate all Secure EL2 TLB entries
+    TLBI_S_EL2_ASID = 0x51, // §4.1.1: Invalidate Secure EL2 TLB by ASID
+    TLBI_S_EL2_VA   = 0x52, // §4.1.1: Invalidate Secure EL2 TLB by VA
+    TLBI_S_EL2_VAA  = 0x53, // §4.1.1: Invalidate Secure EL2 TLB by VA, all ASID
+    TLBI_S_S12_VMALL = 0x58, // §4.1.1: Invalidate all Secure S12 TLB by VMID
+    TLBI_S_S2_IPA   = 0x5A, // §4.1.1: Invalidate Secure S2 TLB by IPA
+    TLBI_SNH_ALL    = 0x60, // §4.1.1: Invalidate all Secure NH TLB entries
+    DPTI_ALL        = 0x70, // §4.1.1: Dirty page tracking invalidation, all
+    DPTI_PA         = 0x73  // §4.1.1: Dirty page tracking invalidation by PA
 };
 
 // Task 5.3: Command queue entry
@@ -1485,6 +1545,33 @@ struct StreamTableEntry {
     /// >0 = stream supports substreams; s1dss governs non-substream PASID=0 handling.
     uint8_t s1cdMax;  ///< defaults to 0 (not substream-capable)
 
+    // §5.2 STE.STRW: stream world / exception level selection (CT-20)
+    StreamWorld strw;  ///< defaults to EL1_EL0 (0b00)
+
+    // §5.2 STE output attribute override fields (CT-19)
+    uint8_t nsCfg;    ///< 2-bit NSCFG non-secure attribute override; default 0
+    uint8_t shCfg;    ///< 2-bit SHCFG shareability override; default 0
+    uint8_t allocCfg; ///< 4-bit ALLOCCFG allocation hint override; default 0
+    uint8_t memAttr;  ///< 4-bit MemAttr memory type attribute; default 0
+    uint8_t instCfg;  ///< 2-bit INSTCFG instruction/data override; default 0
+    uint8_t privCfg;  ///< 2-bit PRIVCFG privilege attribute override; default 0
+    bool    mtCfg;    ///< MTCFG memory type override enable flag; default false
+
+    // §5.4 CD.T0SZ / CD.T1SZ (CT-13): valid range 0-39 for SMMUv3.0
+    uint8_t t0sz;     ///< CD.T0SZ; default 16
+    uint8_t t1sz;     ///< CD.T1SZ; default 16
+
+    // §5.4 CD.AA64 (CT-14)
+    bool aa64;        ///< CD.AA64; default true (AArch64)
+
+    // §5.2 Stage-2 STE translation parameters (CT-23)
+    uint8_t  s2t0sz;  ///< Stage-2 T0SZ; default 16
+    uint8_t  s2tg;    ///< Stage-2 granule (0=4KB, 1=64KB, 2=16KB); default 0
+    uint8_t  s2sl0;   ///< Stage-2 starting level; default 1
+    bool     s2aa64;  ///< AArch64 stage-2 tables; default true
+    uint8_t  s2ps;    ///< Stage-2 physical address size (5=48-bit); default 5
+    uint64_t s2ttb;   ///< Physical address of stage-2 root table; default 0
+
     StreamTableEntry()
         : stage1Enabled(false), stage2Enabled(false), translationEnabled(false),
           contextDescriptorTableBase(0), contextDescriptorTableSize(0),
@@ -1493,7 +1580,11 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(0), vmid(0), asid(0), s1dss(2), s1cdMax(0) {
+          streamID(0), vmid(0), asid(0), s1dss(2), s1cdMax(0),
+          strw(StreamWorld::EL1_EL0),
+          nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
+          t0sz(16), t1sz(16), aa64(true),
+          s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0) {
     }
 
     StreamTableEntry(uint32_t sid, bool s1Enabled, bool s2Enabled,
@@ -1506,7 +1597,11 @@ struct StreamTableEntry {
           stage2Granule(TranslationGranule::Size4KB),
           faultMode(FaultMode::Terminate),
           privilegedExecuteNever(false), instructionFetchDisable(false),
-          streamID(sid), vmid(0), asid(0), s1dss(2), s1cdMax(0) {
+          streamID(sid), vmid(0), asid(0), s1dss(2), s1cdMax(0),
+          strw(StreamWorld::EL1_EL0),
+          nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
+          t0sz(16), t1sz(16), aa64(true),
+          s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0) {
     }
 };
 

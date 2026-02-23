@@ -140,6 +140,26 @@ pub struct StreamContext {
     /// STE.S1CDMax field (ARM §5.2): number of SubstreamID bits supported.
     /// 0 means not substream-capable; `s1dss` is ignored.
     s1cd_max: AtomicU8,
+
+    /// CD.T0SZ (ARM §5.4): number of address bits excluded from TTBR0 range.
+    /// Valid range for SMMUv3.0: 0-39.  Out-of-range generates C_BAD_CD.
+    t0sz: AtomicU8,
+
+    /// CD.T1SZ (ARM §5.4): number of address bits excluded from TTBR1 range.
+    /// Valid range for SMMUv3.0: 0-39.  Out-of-range generates C_BAD_CD.
+    t1sz: AtomicU8,
+
+    /// CD.AA64 (ARM §5.4): AArch64 translation table format selector.
+    /// `true` = VMSAv8-64 (AArch64); `false` = VMSAv8-32 LPAE (unsupported).
+    aa64: AtomicBool,
+
+    /// STE.Config==0b000 abort mode (ARM §5.2, CT-09).
+    ///
+    /// When `true`, all translations on this stream are silently aborted
+    /// (`TranslationError::StreamDisabled`) without recording any event to the
+    /// event queue.  Distinct from the runtime `enabled` flag which is toggled
+    /// by `disable_stream()` / `enable_stream()`.
+    abort_mode: AtomicBool,
 }
 
 impl StreamContext {
@@ -179,6 +199,10 @@ impl StreamContext {
             hd: AtomicBool::new(false),
             s1dss: AtomicU8::new(2),
             s1cd_max: AtomicU8::new(0),
+            t0sz: AtomicU8::new(16),
+            t1sz: AtomicU8::new(16),
+            aa64: AtomicBool::new(true),
+            abort_mode: AtomicBool::new(false),
         }
     }
 
@@ -370,6 +394,61 @@ impl StreamContext {
     #[inline]
     pub fn set_s1cd_max(&self, value: u8) {
         self.s1cd_max.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the CD.T0SZ value (ARM §5.4).
+    #[inline]
+    #[must_use]
+    pub fn get_t0sz(&self) -> u8 {
+        self.t0sz.load(Ordering::Relaxed)
+    }
+
+    /// Sets the CD.T0SZ value (ARM §5.4).
+    #[inline]
+    pub fn set_t0sz(&self, value: u8) {
+        self.t0sz.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the CD.T1SZ value (ARM §5.4).
+    #[inline]
+    #[must_use]
+    pub fn get_t1sz(&self) -> u8 {
+        self.t1sz.load(Ordering::Relaxed)
+    }
+
+    /// Sets the CD.T1SZ value (ARM §5.4).
+    #[inline]
+    pub fn set_t1sz(&self, value: u8) {
+        self.t1sz.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns true when CD.AA64=1 (AArch64 translation tables, ARM §5.4).
+    #[inline]
+    #[must_use]
+    pub fn get_aa64(&self) -> bool {
+        self.aa64.load(Ordering::Relaxed)
+    }
+
+    /// Sets the CD.AA64 flag (ARM §5.4).
+    #[inline]
+    pub fn set_aa64(&self, value: bool) {
+        self.aa64.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns true when STE.Config==0b000 abort mode is active (ARM §5.2, CT-09).
+    #[inline]
+    #[must_use]
+    pub fn is_abort_mode(&self) -> bool {
+        self.abort_mode.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.Config==0b000 abort mode flag (ARM §5.2, CT-09).
+    ///
+    /// When `true`, all translations on this stream return `StreamDisabled`
+    /// without recording any event to the event queue.
+    #[inline]
+    pub fn set_abort_mode(&self, value: bool) {
+        self.abort_mode.store(value, Ordering::Relaxed);
     }
 
     /// Removes a PASID and its associated AddressSpace
@@ -889,6 +968,11 @@ impl StreamContext {
         access_type: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
+        // §5.2 / CT-09: STE.Config==0b000 — abort silently, no event.
+        if self.abort_mode.load(Ordering::Relaxed) {
+            return Err(TranslationError::StreamDisabled);
+        }
+
         // Check if stream is enabled
         if !self.is_enabled() {
             return Err(TranslationError::StreamDisabled);

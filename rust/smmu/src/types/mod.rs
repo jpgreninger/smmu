@@ -59,5 +59,5 @@ pub use validation_error::ValidationError;
 pub use config::{
     AddressConfig, AddressConfigBuilder, CacheConfig, CacheConfigBuilder, ConfigConstants, ConfigurationError,
     ConfigurationErrorType, FaultMode, QueueConfig, QueueConfigBuilder, ResourceLimits, ResourceLimitsBuilder,
-    SMMUConfig, SMMUConfigBuilder, StreamConfig, StreamConfigBuilder, ValidationResult,
+    SMMUConfig, SMMUConfigBuilder, StreamConfig, StreamConfigBuilder, StreamWorld, ValidationResult,
 };

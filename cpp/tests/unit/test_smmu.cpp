@@ -98,10 +98,11 @@ TEST_F(SMMUTest, DisabledStreamTranslation) {
     config.translationEnabled = false;  // Translation disabled
     config.stage1Enabled = false;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     config.faultMode = FaultMode::Terminate;
-    
+
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config).isOk());
-    
+
     // Translation should bypass SMMU (pass-through mode)
     TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
@@ -589,6 +590,7 @@ TEST_F(SMMUTest, StreamConfigurationUpdates) {
     config2.translationEnabled = false; // Disable translation
     config2.stage1Enabled = false;
     config2.stage2Enabled = false;
+    config2.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     config2.faultMode = FaultMode::Stall;
 
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config2).isOk());
@@ -596,7 +598,7 @@ TEST_F(SMMUTest, StreamConfigurationUpdates) {
     (void)configResult2; // Used for testing - suppress unused warning
     EXPECT_TRUE(configResult.isOk());
     EXPECT_TRUE(configResult.getValue());
-    
+
     // Verify pass-through behavior after configuration update
     TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
@@ -1176,10 +1178,11 @@ TEST_F(SMMUTest, ARMSMMUv3SpecificationCompliance) {
     bypassConfig.translationEnabled = false;
     bypassConfig.stage1Enabled = false;
     bypassConfig.stage2Enabled = false;
+    bypassConfig.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     bypassConfig.faultMode = FaultMode::Terminate;
-    
+
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_2, bypassConfig).isOk());
-    
+
     TranslationResult bypassResult = smmuController->translate(TEST_STREAM_ID_2, 0, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(bypassResult.isOk());
     EXPECT_EQ(bypassResult.getValue().physicalAddress, TEST_IOVA); // Should pass through unchanged
@@ -1578,6 +1581,7 @@ TEST_F(SMMUTest, Task52_TranslationBypassMode) {
     config.translationEnabled = false;  // Bypass mode
     config.stage1Enabled = false;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     config.faultMode = FaultMode::Terminate;
     
     EXPECT_TRUE(smmuController->configureStream(TEST_STREAM_ID_1, config).isOk());
@@ -2436,11 +2440,12 @@ TEST_F(SMMUTest, Task81_ComprehensiveTwoStageTranslationPipeline) {
     bypassConfig.translationEnabled = false;
     bypassConfig.stage1Enabled = false;
     bypassConfig.stage2Enabled = false;
+    bypassConfig.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     bypassConfig.faultMode = FaultMode::Terminate;
-    
+
     const StreamID bypassStream = 0x2001;
     EXPECT_TRUE(smmuController->configureStream(bypassStream, bypassConfig).isOk());
-    
+
     TranslationResult bypassResult = smmuController->translate(bypassStream, 0, iova, AccessType::Read);
     EXPECT_TRUE(bypassResult.isOk());
     EXPECT_EQ(bypassResult.getValue().physicalAddress, iova);  // Identity mapping in bypass
@@ -3230,6 +3235,7 @@ TEST(SMMUQueueIndexTest, CmdqProdAdvancesOnSubmit) {
 
 TEST(SMMUQueueIndexTest, CmdqConsAdvancesOnProcess) {
     smmu::SMMU s;
+    s.enable(); // CT-33: CMDQEN requires enable() to process commands
     smmu::CommandEntry cmd;
     cmd.type = smmu::CommandType::TLBI_NH_ALL;
     s.submitCommand(cmd);
@@ -3244,6 +3250,7 @@ TEST(SMMUQueueIndexTest, CmdqConsAdvancesOnProcess) {
 
 TEST(SMMUQueueIndexTest, EventqProdAdvancesOnGenerate) {
     smmu::SMMU s;
+    s.enable(); // CT-33: EVENTQEN requires enable() to record events
     // Configure a minimal stream so generateEvent is reachable indirectly.
     // We use submitCommand with SYNC+CS=1 (SIG_IRQ) which internally calls generateEvent.
     // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
@@ -3299,6 +3306,7 @@ TEST(SMMUQueueIndexTest, CmdqLog2SizeForDefaultCapacity) {
 
 TEST(SMMUQueueIndexTest, MultipleCommandsProdAdvancesByCount) {
     smmu::SMMU s;
+    s.enable(); // CT-33: CMDQEN requires enable() to process commands
     for (int i = 0; i < 5; ++i) {
         smmu::CommandEntry cmd;
         cmd.type = smmu::CommandType::TLBI_NH_ALL;
@@ -3316,6 +3324,7 @@ TEST(SMMUQueueIndexTest, MultipleCommandsProdAdvancesByCount) {
 
 TEST(SMMUQueueIndexTest, EventqConsAdvancesOnProcess) {
     smmu::SMMU s;
+    s.enable(); // CT-33: CMDQEN/EVENTQEN requires enable() to process commands and record events
     // Produce two events via two SYNC commands with CS=1 (SIG_IRQ).
     // §4.8 / FINDING-NEW-27: CS must be non-zero to trigger a completion event.
     smmu::CommandEntry cmd1;
@@ -3362,6 +3371,7 @@ TEST(SMMUPRGIndexTest, CommandEntryHasPRGIndexField) {
 
 TEST(SMMUPRGIndexTest, PRIRespMatchingRemovesPRIEntry) {
     smmu::SMMU s;
+    s.enable(); // CT-33: CMDQEN/PRIQEN requires enable() to process commands and PRI queue
 
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     req.prgIndex = 7;
@@ -3400,6 +3410,7 @@ TEST(SMMUPRGIndexTest, PRIRespNonMatchingIndexDoesNotClear) {
 
 TEST(SMMUPRGIndexTest, ProcessPRIQueueEchesPRGIndexInResponse) {
     smmu::SMMU s;
+    s.enable(); // CT-33: PRIQEN requires enable() to process PRI queue
 
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     req.prgIndex = 5;
@@ -3430,6 +3441,7 @@ TEST(SMMUPRGIndexTest, PRIQProdAdvancesOnSubmit) {
 
 TEST(SMMUPRGIndexTest, PRIQConsAdvancesOnPRIResp) {
     smmu::SMMU s;
+    s.enable(); // CT-33: CMDQEN requires enable() to process PRI_RESP commands
 
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     req.prgIndex = 3;

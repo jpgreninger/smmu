@@ -2998,6 +2998,7 @@ fn test_stream_config_validation_error_paths() {
         hd: false,
         s1dss: 2,
         s1cd_max: 0,
+        ..StreamConfig::bypass()
     };
     assert!(config1.validate().is_err());
 
@@ -3015,6 +3016,7 @@ fn test_stream_config_validation_error_paths() {
         hd: false,
         s1dss: 2,
         s1cd_max: 0,
+        ..StreamConfig::bypass()
     };
     assert!(config2.validate().is_err());
 
@@ -3032,6 +3034,7 @@ fn test_stream_config_validation_error_paths() {
         hd: false,
         s1dss: 2,
         s1cd_max: 0,
+        ..StreamConfig::bypass()
     };
     assert!(config3.validate().is_err());
 
@@ -3049,6 +3052,7 @@ fn test_stream_config_validation_error_paths() {
         hd: false,
         s1dss: 2,
         s1cd_max: 0,
+        ..StreamConfig::bypass()
     };
     assert!(config4.validate().is_err());
 
@@ -3066,6 +3070,7 @@ fn test_stream_config_validation_error_paths() {
         hd: false,
         s1dss: 2,
         s1cd_max: 0,
+        ..StreamConfig::bypass()
     };
     assert!(config5.validate().is_err());
 }

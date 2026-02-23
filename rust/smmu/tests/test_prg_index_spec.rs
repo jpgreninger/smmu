@@ -53,7 +53,7 @@ fn test_priq_prod_advances_on_submit() {
     let smmu = make_smmu();
     assert_eq!(smmu.priq_prod_index(), 0);
 
-    let req = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     smmu.submit_page_request(req).unwrap();
 
     assert_eq!(smmu.priq_prod_index(), 1);
@@ -62,8 +62,8 @@ fn test_priq_prod_advances_on_submit() {
 #[test]
 fn test_priq_prod_advances_twice_on_two_submits() {
     let smmu = make_smmu();
-    smmu.submit_page_request(PRIEntry::new(1, 0, 0x1000, AccessType::Read)).unwrap();
-    smmu.submit_page_request(PRIEntry::new(1, 0, 0x2000, AccessType::Write)).unwrap();
+    smmu.submit_page_request(PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)).unwrap();
+    smmu.submit_page_request(PRIEntry::with_address(1, 0, 0x2000, AccessType::Write)).unwrap();
     assert_eq!(smmu.priq_prod_index(), 2);
 }
 
@@ -77,7 +77,7 @@ fn test_pri_resp_matching_removes_pri_entry() {
     // remove the corresponding PRIEntry from the PRI queue.
     let smmu = make_smmu();
 
-    let mut req = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let mut req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req.prg_index = 7;
     smmu.submit_page_request(req).unwrap();
     assert_eq!(smmu.get_pri_queue().len(), 1);
@@ -96,7 +96,7 @@ fn test_pri_resp_non_matching_prg_index_does_not_clear() {
     // error; the SMMU must leave the mismatched PRIEntry untouched.
     let smmu = make_smmu();
 
-    let mut req = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let mut req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req.prg_index = 7;
     smmu.submit_page_request(req).unwrap();
 
@@ -115,7 +115,7 @@ fn test_pri_resp_non_matching_stream_id_does_not_clear() {
     // A CMD_PRI_RESP for a different stream_id must not remove our PRIEntry.
     let smmu = make_smmu();
 
-    let mut req = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let mut req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req.prg_index = 5;
     smmu.submit_page_request(req).unwrap();
 
@@ -133,11 +133,11 @@ fn test_pri_resp_removes_only_matching_entry() {
     // whose prg_index matches; the other must remain.
     let smmu = make_smmu();
 
-    let mut req_a = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let mut req_a = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req_a.prg_index = 3;
     smmu.submit_page_request(req_a).unwrap();
 
-    let mut req_b = PRIEntry::new(1, 0, 0x2000, AccessType::Write);
+    let mut req_b = PRIEntry::with_address(1, 0, 0x2000, AccessType::Write);
     req_b.prg_index = 9;
     smmu.submit_page_request(req_b).unwrap();
 
@@ -164,7 +164,7 @@ fn test_process_pri_queue_echoes_prg_index_in_event() {
     // entry when one PRIEntry with prg_index=5 is pending.
     let smmu = make_smmu();
 
-    let mut req = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let mut req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req.prg_index = 5;
     smmu.submit_page_request(req).unwrap();
 
@@ -177,8 +177,8 @@ fn test_process_pri_queue_drains_queue() {
     // After process_pri_queue(), the PRI queue must be empty.
     let smmu = make_smmu();
 
-    smmu.submit_page_request(PRIEntry::new(1, 0, 0x1000, AccessType::Read)).unwrap();
-    smmu.submit_page_request(PRIEntry::new(2, 0, 0x2000, AccessType::Write)).unwrap();
+    smmu.submit_page_request(PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)).unwrap();
+    smmu.submit_page_request(PRIEntry::with_address(2, 0, 0x2000, AccessType::Write)).unwrap();
 
     let processed = smmu.process_pri_queue().unwrap();
     assert_eq!(processed, 2);

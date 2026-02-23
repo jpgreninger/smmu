@@ -29,6 +29,41 @@ fn parse_numeric<T: std::str::FromStr>(value: &str, field_name: &str) -> Result<
     })
 }
 
+/// §5.2 STE.STRW: Stream World — exception level selection
+///
+/// Selects the exception level for the stream per ARM SMMU v3 §5.2.
+#[repr(u8)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StreamWorld {
+    /// §5.2 STRW=0b00: NS-EL1/EL0 — Non-Secure EL1 and EL0
+    #[allow(clippy::upper_case_acronyms)]
+    El1El0 = 0x00,
+    /// §5.2 STRW=0b01: NS-EL2 — Non-Secure EL2
+    El2 = 0x01,
+    /// §5.2 STRW=0b10: NS-EL2 with VHE (E2H=1) — Non-Secure EL2 Virtualization Host Extension
+    El2E2h = 0x02,
+    /// §5.2 STRW=0b11: EL3/Secure state
+    El3 = 0x03,
+}
+
+impl Default for StreamWorld {
+    fn default() -> Self {
+        Self::El1El0
+    }
+}
+
+impl fmt::Display for StreamWorld {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::El1El0 => write!(f, "El1El0"),
+            Self::El2 => write!(f, "El2"),
+            Self::El2E2h => write!(f, "El2E2h"),
+            Self::El3 => write!(f, "El3"),
+        }
+    }
+}
+
 /// Fault handling mode for stream configuration
 ///
 /// Defines how the SMMU handles translation faults for a stream.
@@ -74,6 +109,18 @@ pub struct StreamConfig {
     /// Enable Stage 2 translation (IPA → PA)
     pub stage2_enabled: bool,
 
+    /// STE.Config==0b000: stream is in abort/disabled mode (§5.2 §7.3.7, CT-09).
+    ///
+    /// When `true`, all transactions on this stream are silently aborted (no event
+    /// is recorded). This represents the ARM SMMU v3 STE.Config==0b000 state.
+    /// Distinct from bypass mode (STE.Config==0b100) where PA==IOVA identity mapping
+    /// is returned.
+    ///
+    /// This field is set implicitly by the builder when `translation_enabled(false)` is
+    /// called explicitly. The builder default (without calling `translation_enabled`)
+    /// remains in bypass mode (disabled=false).
+    pub disabled: bool,
+
     /// PASID support enabled for this stream
     pub pasid_enabled: bool,
 
@@ -116,6 +163,104 @@ pub struct StreamConfig {
     /// When `> 0`, the stream supports up to `2^s1cd_max` substreams and `s1dss`
     /// governs non-substream (PASID=0) handling.
     pub s1cd_max: u8,
+
+    // ---- CT-20: STE.STRW (§5.2) ----
+
+    /// §5.2 STE.STRW: Stream World — exception level selection (2 bits).
+    ///
+    /// Selects the effective privilege level for stream transactions.
+    pub strw: StreamWorld,
+
+    // ---- CT-19: STE Output-Attribute Override Fields (§5.2) ----
+
+    /// §5.2 STE.NSCFG: Non-Secure attribute override (2 bits).
+    ///
+    /// - `0b00` = use incoming NS attribute
+    /// - `0b01` = force Secure
+    /// - `0b10` = force NonSecure
+    /// - `0b11` = implementation-defined
+    pub ns_cfg: u8,
+
+    /// §5.2 STE.SHCFG: Shareability override (2 bits).
+    ///
+    /// - `0b00` = use incoming shareability
+    /// - `0b01` = Inner-Shareable
+    /// - `0b10` = Outer-Shareable
+    /// - `0b11` = Non-Shareable
+    pub sh_cfg: u8,
+
+    /// §5.2 STE.ALLOCCFG: Allocation hint override (4 bits).
+    pub alloc_cfg: u8,
+
+    /// §5.2 STE.MemAttr: Device memory type attribute (4 bits).
+    pub mem_attr: u8,
+
+    /// §5.2 STE.INSTCFG: Instruction/Data attribute override (2 bits).
+    pub inst_cfg: u8,
+
+    /// §5.2 STE.PRIVCFG: Privilege attribute override (2 bits).
+    pub priv_cfg: u8,
+
+    /// §5.2 STE.MTCFG: Memory type override enable.
+    ///
+    /// When `true`, the `mem_attr` field overrides the memory type of translated outputs.
+    pub mt_cfg: bool,
+
+    // ---- CT-23: Stage-2 STE Translation Parameters (§5.2) ----
+
+    /// §5.2 STE.S2T0SZ: Stage-2 T0SZ — input address range (6 bits, 0-63).
+    pub s2_t0sz: u8,
+
+    /// §5.2 STE.S2TG: Stage-2 translation granule (2 bits).
+    ///
+    /// - `0` = 4KB granule
+    /// - `1` = 64KB granule
+    /// - `2` = 16KB granule
+    pub s2_tg: u8,
+
+    /// §5.2 STE.S2SL0: Stage-2 starting level (2 bits).
+    ///
+    /// - `0` = Level 2
+    /// - `1` = Level 1
+    /// - `2` = Level 0
+    pub s2_sl0: u8,
+
+    /// §5.2 STE.S2AA64: Stage-2 AArch64 translation tables.
+    pub s2_aa64: bool,
+
+    /// §5.2 STE.S2PS: Stage-2 output physical address size (3 bits).
+    ///
+    /// - `0` = 32-bit
+    /// - `1` = 36-bit
+    /// - `2` = 40-bit
+    /// - `3` = 42-bit
+    /// - `4` = 44-bit
+    /// - `5` = 48-bit
+    /// - `6` = 52-bit
+    pub s2_ps: u8,
+
+    /// §5.2 STE.S2TTB: Physical address of Stage-2 root translation table.
+    pub s2_ttb: u64,
+
+    // ---- CT-14: CD.AA64 Field (§5.4) ----
+
+    /// §5.4 CD.AA64: AArch64 translation table format selector.
+    ///
+    /// - `true` = VMSAv8-64 (AArch64) translation tables
+    /// - `false` = VMSAv8-32 LPAE translation tables
+    pub aa64: bool,
+
+    // ---- CT-13: CD.T0SZ / CD.T1SZ Fields (§5.4) ----
+
+    /// §5.4 CD.T0SZ: Number of address bits excluded from top of TTBR0 range (0-63).
+    ///
+    /// Valid range for SMMUv3.0: 0-39. Out-of-range generates `C_BAD_CD`.
+    pub t0sz: u8,
+
+    /// §5.4 CD.T1SZ: Number of address bits excluded from top of TTBR1 range (0-63).
+    ///
+    /// Valid range for SMMUv3.0: 0-39. Out-of-range generates `C_BAD_CD`.
+    pub t1sz: u8,
 }
 
 impl StreamConfig {
@@ -138,6 +283,7 @@ impl StreamConfig {
             translation_enabled: false,
             stage1_enabled: false,
             stage2_enabled: false,
+            disabled: false,
             pasid_enabled: false,
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
@@ -147,6 +293,23 @@ impl StreamConfig {
             hd: false,
             s1dss: 2,
             s1cd_max: 0,
+            strw: StreamWorld::El1El0,
+            ns_cfg: 0,
+            sh_cfg: 0,
+            alloc_cfg: 0,
+            mem_attr: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            mt_cfg: false,
+            s2_t0sz: 16,
+            s2_tg: 0,
+            s2_sl0: 1,
+            s2_aa64: true,
+            s2_ps: 5,
+            s2_ttb: 0,
+            aa64: true,
+            t0sz: 16,
+            t1sz: 16,
         }
     }
 
@@ -157,6 +320,7 @@ impl StreamConfig {
             translation_enabled: true,
             stage1_enabled: true,
             stage2_enabled: false,
+            disabled: false,
             pasid_enabled: false,
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
@@ -166,6 +330,23 @@ impl StreamConfig {
             hd: false,
             s1dss: 2,
             s1cd_max: 0,
+            strw: StreamWorld::El1El0,
+            ns_cfg: 0,
+            sh_cfg: 0,
+            alloc_cfg: 0,
+            mem_attr: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            mt_cfg: false,
+            s2_t0sz: 16,
+            s2_tg: 0,
+            s2_sl0: 1,
+            s2_aa64: true,
+            s2_ps: 5,
+            s2_ttb: 0,
+            aa64: true,
+            t0sz: 16,
+            t1sz: 16,
         }
     }
 
@@ -176,6 +357,7 @@ impl StreamConfig {
             translation_enabled: true,
             stage1_enabled: false,
             stage2_enabled: true,
+            disabled: false,
             pasid_enabled: false,
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
@@ -185,6 +367,23 @@ impl StreamConfig {
             hd: false,
             s1dss: 2,
             s1cd_max: 0,
+            strw: StreamWorld::El1El0,
+            ns_cfg: 0,
+            sh_cfg: 0,
+            alloc_cfg: 0,
+            mem_attr: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            mt_cfg: false,
+            s2_t0sz: 16,
+            s2_tg: 0,
+            s2_sl0: 1,
+            s2_aa64: true,
+            s2_ps: 5,
+            s2_ttb: 0,
+            aa64: true,
+            t0sz: 16,
+            t1sz: 16,
         }
     }
 
@@ -195,6 +394,7 @@ impl StreamConfig {
             translation_enabled: true,
             stage1_enabled: true,
             stage2_enabled: true,
+            disabled: false,
             pasid_enabled: true,
             max_pasid: Self::MAX_PASID,
             fault_mode: FaultMode::Terminate,
@@ -204,6 +404,23 @@ impl StreamConfig {
             hd: false,
             s1dss: 2,
             s1cd_max: 0,
+            strw: StreamWorld::El1El0,
+            ns_cfg: 0,
+            sh_cfg: 0,
+            alloc_cfg: 0,
+            mem_attr: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            mt_cfg: false,
+            s2_t0sz: 16,
+            s2_tg: 0,
+            s2_sl0: 1,
+            s2_aa64: true,
+            s2_ps: 5,
+            s2_ttb: 0,
+            aa64: true,
+            t0sz: 16,
+            t1sz: 16,
         }
     }
 
@@ -272,6 +489,9 @@ pub struct StreamConfigBuilder {
     translation_enabled: bool,
     stage1_enabled: bool,
     stage2_enabled: bool,
+    /// Tracks whether `translation_enabled(false)` was explicitly called, which
+    /// signals STE.Config==0b000 (abort/disabled) rather than bypass (0b100).
+    disabled: bool,
     pasid_enabled: bool,
     max_pasid: u32,
     fault_mode: FaultMode,
@@ -281,6 +501,28 @@ pub struct StreamConfigBuilder {
     hd: bool,
     s1dss: u8,
     s1cd_max: u8,
+    // CT-20
+    strw: StreamWorld,
+    // CT-19
+    ns_cfg: u8,
+    sh_cfg: u8,
+    alloc_cfg: u8,
+    mem_attr: u8,
+    inst_cfg: u8,
+    priv_cfg: u8,
+    mt_cfg: bool,
+    // CT-23
+    s2_t0sz: u8,
+    s2_tg: u8,
+    s2_sl0: u8,
+    s2_aa64: bool,
+    s2_ps: u8,
+    s2_ttb: u64,
+    // CT-14
+    aa64: bool,
+    // CT-13
+    t0sz: u8,
+    t1sz: u8,
 }
 
 impl StreamConfigBuilder {
@@ -291,6 +533,7 @@ impl StreamConfigBuilder {
             translation_enabled: false,
             stage1_enabled: false,
             stage2_enabled: false,
+            disabled: false,
             pasid_enabled: false,
             max_pasid: 0,
             fault_mode: FaultMode::Terminate,
@@ -300,13 +543,38 @@ impl StreamConfigBuilder {
             hd: false,
             s1dss: 2,
             s1cd_max: 0,
+            strw: StreamWorld::El1El0,
+            ns_cfg: 0,
+            sh_cfg: 0,
+            alloc_cfg: 0,
+            mem_attr: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            mt_cfg: false,
+            s2_t0sz: 16,
+            s2_tg: 0,
+            s2_sl0: 1,
+            s2_aa64: true,
+            s2_ps: 5,
+            s2_ttb: 0,
+            aa64: true,
+            t0sz: 16,
+            t1sz: 16,
         }
     }
 
-    /// Enable or disable translation
+    /// Enable or disable translation.
+    ///
+    /// When called with `false`, also marks the stream as disabled/abort
+    /// (STE.Config==0b000) per ARM §5.2.  The builder default (without calling
+    /// this method) remains in bypass mode (STE.Config==0b100).
     #[must_use]
     pub fn translation_enabled(mut self, enabled: bool) -> Self {
         self.translation_enabled = enabled;
+        // Explicit false → STE.Config==0b000 (disabled/abort), not bypass.
+        if !enabled {
+            self.disabled = true;
+        }
         self
     }
 
@@ -389,6 +657,137 @@ impl StreamConfigBuilder {
         self
     }
 
+    // ---- CT-20: STE.STRW builder method ----
+
+    /// Set STE.STRW — Stream World exception level selection (ARM §5.2).
+    #[must_use]
+    pub fn strw(mut self, strw: StreamWorld) -> Self {
+        self.strw = strw;
+        self
+    }
+
+    // ---- CT-19: STE output attribute override builder methods ----
+
+    /// Set STE.NSCFG — Non-Secure attribute override (ARM §5.2).
+    #[must_use]
+    pub fn ns_cfg(mut self, ns_cfg: u8) -> Self {
+        self.ns_cfg = ns_cfg;
+        self
+    }
+
+    /// Set STE.SHCFG — Shareability override (ARM §5.2).
+    #[must_use]
+    pub fn sh_cfg(mut self, sh_cfg: u8) -> Self {
+        self.sh_cfg = sh_cfg;
+        self
+    }
+
+    /// Set STE.ALLOCCFG — Allocation hint override (ARM §5.2).
+    #[must_use]
+    pub fn alloc_cfg(mut self, alloc_cfg: u8) -> Self {
+        self.alloc_cfg = alloc_cfg;
+        self
+    }
+
+    /// Set STE.MemAttr — Device memory type attribute (ARM §5.2).
+    #[must_use]
+    pub fn mem_attr(mut self, mem_attr: u8) -> Self {
+        self.mem_attr = mem_attr;
+        self
+    }
+
+    /// Set STE.INSTCFG — Instruction/Data attribute override (ARM §5.2).
+    #[must_use]
+    pub fn inst_cfg(mut self, inst_cfg: u8) -> Self {
+        self.inst_cfg = inst_cfg;
+        self
+    }
+
+    /// Set STE.PRIVCFG — Privilege attribute override (ARM §5.2).
+    #[must_use]
+    pub fn priv_cfg(mut self, priv_cfg: u8) -> Self {
+        self.priv_cfg = priv_cfg;
+        self
+    }
+
+    /// Set STE.MTCFG — Memory type override enable (ARM §5.2).
+    #[must_use]
+    pub fn mt_cfg(mut self, mt_cfg: bool) -> Self {
+        self.mt_cfg = mt_cfg;
+        self
+    }
+
+    // ---- CT-23: Stage-2 STE parameter builder methods ----
+
+    /// Set STE.S2T0SZ — Stage-2 input address range (ARM §5.2).
+    #[must_use]
+    pub fn s2_t0sz(mut self, s2_t0sz: u8) -> Self {
+        self.s2_t0sz = s2_t0sz;
+        self
+    }
+
+    /// Set STE.S2TG — Stage-2 translation granule (ARM §5.2).
+    #[must_use]
+    pub fn s2_tg(mut self, s2_tg: u8) -> Self {
+        self.s2_tg = s2_tg;
+        self
+    }
+
+    /// Set STE.S2SL0 — Stage-2 starting level (ARM §5.2).
+    #[must_use]
+    pub fn s2_sl0(mut self, s2_sl0: u8) -> Self {
+        self.s2_sl0 = s2_sl0;
+        self
+    }
+
+    /// Set STE.S2AA64 — Stage-2 AArch64 translation tables flag (ARM §5.2).
+    #[must_use]
+    pub fn s2_aa64(mut self, s2_aa64: bool) -> Self {
+        self.s2_aa64 = s2_aa64;
+        self
+    }
+
+    /// Set STE.S2PS — Stage-2 output physical address size (ARM §5.2).
+    #[must_use]
+    pub fn s2_ps(mut self, s2_ps: u8) -> Self {
+        self.s2_ps = s2_ps;
+        self
+    }
+
+    /// Set STE.S2TTB — Physical address of Stage-2 root translation table (ARM §5.2).
+    #[must_use]
+    pub fn s2_ttb(mut self, s2_ttb: u64) -> Self {
+        self.s2_ttb = s2_ttb;
+        self
+    }
+
+    // ---- CT-14: CD.AA64 builder method ----
+
+    /// Set CD.AA64 — AArch64 translation table format selector (ARM §5.4).
+    #[must_use]
+    pub fn aa64(mut self, aa64: bool) -> Self {
+        self.aa64 = aa64;
+        self
+    }
+
+    // ---- CT-13: CD.T0SZ / CD.T1SZ builder methods ----
+
+    /// Set CD.T0SZ — TTBR0 address range bits excluded from top (ARM §5.4).
+    /// Valid range: 0-39 for SMMUv3.0. Out-of-range generates C_BAD_CD.
+    #[must_use]
+    pub fn t0sz(mut self, t0sz: u8) -> Self {
+        self.t0sz = t0sz;
+        self
+    }
+
+    /// Set CD.T1SZ — TTBR1 address range bits excluded from top (ARM §5.4).
+    /// Valid range: 0-39 for SMMUv3.0. Out-of-range generates C_BAD_CD.
+    #[must_use]
+    pub fn t1sz(mut self, t1sz: u8) -> Self {
+        self.t1sz = t1sz;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -396,6 +795,7 @@ impl StreamConfigBuilder {
             translation_enabled: self.translation_enabled,
             stage1_enabled: self.stage1_enabled,
             stage2_enabled: self.stage2_enabled,
+            disabled: self.disabled,
             pasid_enabled: self.pasid_enabled,
             max_pasid: self.max_pasid,
             fault_mode: self.fault_mode,
@@ -405,6 +805,23 @@ impl StreamConfigBuilder {
             hd: self.hd,
             s1dss: self.s1dss,
             s1cd_max: self.s1cd_max,
+            strw: self.strw,
+            ns_cfg: self.ns_cfg,
+            sh_cfg: self.sh_cfg,
+            alloc_cfg: self.alloc_cfg,
+            mem_attr: self.mem_attr,
+            inst_cfg: self.inst_cfg,
+            priv_cfg: self.priv_cfg,
+            mt_cfg: self.mt_cfg,
+            s2_t0sz: self.s2_t0sz,
+            s2_tg: self.s2_tg,
+            s2_sl0: self.s2_sl0,
+            s2_aa64: self.s2_aa64,
+            s2_ps: self.s2_ps,
+            s2_ttb: self.s2_ttb,
+            aa64: self.aa64,
+            t0sz: self.t0sz,
+            t1sz: self.t1sz,
         };
 
         config.validate()?;

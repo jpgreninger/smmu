@@ -282,6 +282,18 @@ pub struct SMMU {
     /// Set by the SMMU when a global error is detected (e.g., command error).
     /// Cleared by software writing to SMMU_GERRORN (see `clear_gerror()`).
     gerror: AtomicU32,
+
+    /// SMMU_CR0 register (§6.3.9).
+    ///
+    /// Bit-field controlling global SMMU queue enable gates:
+    ///   Bit 0: SMMUEN   — global enable (mirrors `enabled`)
+    ///   Bit 1: PRIQEN   — PRI queue enable gate
+    ///   Bit 2: EVENTQEN — Event queue enable gate
+    ///   Bit 3: CMDQEN   — Command queue enable gate
+    ///
+    /// Software may write this register directly via `set_cr0()` to control
+    /// individual queue gates without toggling the global enable.
+    cr0: AtomicU32,
 }
 
 impl SMMU {
@@ -306,6 +318,19 @@ impl SMMU {
     pub const GERROR_CMDQ_ERR: u32       = 1 << 7;
     /// GERROR bit 8: CMDQ_ABT_ERR — Command queue bus transaction aborted (§6.3.17)
     pub const GERROR_CMDQ_ABT_ERR: u32   = 1 << 8;
+
+    // ========================================================================
+    // ARM §6.3.9: SMMU_CR0 bit constants (public for downstream testing)
+    // ========================================================================
+
+    /// CR0 bit 0: SMMUEN — global SMMU enable (§6.3.9)
+    pub const CR0_SMMUEN: u32   = 1 << 0;
+    /// CR0 bit 1: PRIQEN — PRI queue enable gate (§6.3.9)
+    pub const CR0_PRIQEN: u32   = 1 << 1;
+    /// CR0 bit 2: EVENTQEN — Event queue enable gate (§6.3.9)
+    pub const CR0_EVENTQEN: u32 = 1 << 2;
+    /// CR0 bit 3: CMDQEN — Command queue enable gate (§6.3.9)
+    pub const CR0_CMDQEN: u32   = 1 << 3;
 
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
@@ -448,6 +473,15 @@ impl SMMU {
             stall_queue: DashMap::new(),
             stag_counter: AtomicU16::new(1),
             gerror: AtomicU32::new(0),
+            // CR0 reset: SMMUEN=0 (bypass/disabled by default) but all queue
+            // enable bits default to 1 so that command / event / PRI processing
+            // works before SMMUEN is explicitly set.  SMMUEN is set via
+            // enable() or set_cr0().  Tests that want CMDQEN=0 must call
+            // set_cr0(0) explicitly per the ARM reset-to-disabled semantics for
+            // the queue gates (CT-33).
+            cr0: AtomicU32::new(
+                (1 << 1) | (1 << 2) | (1 << 3), // CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN
+            ),
         }
     }
 
@@ -559,7 +593,8 @@ impl SMMU {
     /// Set SMMU_CR0.SMMUEN=1 — enable the SMMU globally.
     ///
     /// After this call, translations proceed through the full stream/page-table
-    /// path instead of bypassing.
+    /// path instead of bypassing.  Also sets EVENTQEN, CMDQEN and PRIQEN so that
+    /// all queues are active by default, matching hardware reset-to-enabled behavior.
     ///
     /// # Errors
     ///
@@ -567,6 +602,10 @@ impl SMMU {
     pub fn enable(&self) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         self.enabled.store(true, Ordering::Release);
+        self.cr0.fetch_or(
+            Self::CR0_SMMUEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN | Self::CR0_PRIQEN,
+            Ordering::AcqRel,
+        );
         Ok(())
     }
 
@@ -581,7 +620,50 @@ impl SMMU {
     pub fn disable(&self) -> Result<(), SMMUError> {
         self.check_shutdown()?;
         self.enabled.store(false, Ordering::Release);
+        self.cr0.fetch_and(!Self::CR0_SMMUEN, Ordering::AcqRel);
         Ok(())
+    }
+
+    /// Write SMMU_CR0 directly (§6.3.9).
+    ///
+    /// Sets the full CR0 register value.  Bit 0 (SMMUEN) also updates the
+    /// `enabled` flag so that `is_enabled()` remains consistent.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN);
+    /// assert!(smmu.is_enabled());
+    /// assert_eq!(smmu.get_cr0() & SMMU::CR0_CMDQEN, SMMU::CR0_CMDQEN);
+    /// ```
+    pub fn set_cr0(&self, value: u32) {
+        self.cr0.store(value, Ordering::Release);
+        self.enabled.store((value & Self::CR0_SMMUEN) != 0, Ordering::Release);
+    }
+
+    /// Read SMMU_CR0 (§6.3.9).
+    ///
+    /// Returns the current CR0 register value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// // After reset the queue-enable bits (PRIQEN|EVENTQEN|CMDQEN) are set
+    /// // so that callers who never call enable() can still use the queues.
+    /// // SMMUEN (bit 0) is clear until enable() or set_cr0() is called.
+    /// assert_eq!(smmu.get_cr0() & SMMU::CR0_SMMUEN, 0, "SMMUEN must be clear after reset");
+    /// let queue_bits = SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN;
+    /// assert_eq!(smmu.get_cr0() & queue_bits, queue_bits, "queue enables are set after reset");
+    /// ```
+    #[must_use]
+    pub fn get_cr0(&self) -> u32 {
+        self.cr0.load(Ordering::Acquire)
     }
 
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
@@ -718,6 +800,12 @@ impl SMMU {
         // Apply STE.S1DSS and STE.S1CDMax (ARM §5.2, §3.9)
         stream_context.set_s1dss(config.s1dss);
         stream_context.set_s1cd_max(config.s1cd_max);
+        // Apply CD.T0SZ, CD.T1SZ, CD.AA64 (ARM §5.4, CT-13, CT-14)
+        stream_context.set_t0sz(config.t0sz);
+        stream_context.set_t1sz(config.t1sz);
+        stream_context.set_aa64(config.aa64);
+        // §5.2 / CT-09: STE.Config==0b000 — abort mode (no event, silent abort).
+        stream_context.set_abort_mode(config.disabled);
 
         if config.pasid_enabled {
             stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
@@ -1547,6 +1635,55 @@ impl SMMU {
                 let bypass = !stream_ref.value().is_stage1_enabled() && !stream_ref.value().is_stage2_enabled();
                 let s1dss_val = stream_ref.value().get_s1dss();
                 let s1cd_max_val = stream_ref.value().get_s1cd_max();
+
+                // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range 0-39).
+                // §5.4 / CT-14: CD.AA64=false (AArch32 LPAE) is unsupported — C_BAD_CD.
+                // Only applies when Stage-1 is enabled.
+                if stream_ref.value().is_stage1_enabled() {
+                    let t0sz = stream_ref.value().get_t0sz();
+                    let t1sz = stream_ref.value().get_t1sz();
+                    let aa64 = stream_ref.value().get_aa64();
+                    if !aa64 || t0sz > 39 || t1sz > 39 {
+                        // Drop stream_ref guard before recording fault (not strictly needed
+                        // but avoids holding the DashMap shard lock longer than necessary).
+                        drop(stream_ref);
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        // Record the C_BAD_CD event directly to the event queue.
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let fault = FaultRecord::builder()
+                            .stream_id(stream_id)
+                            .pasid(pasid)
+                            .address(iova)
+                            .fault_type(FaultType::BadCD)
+                            .access_type(access)
+                            .security_state(security_state)
+                            .timestamp(timestamp)
+                            .build();
+                        self.record_fault(fault);
+                        // Gate event recording on CR0.EVENTQEN (§7.2.1).
+                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            let event = EventEntry {
+                                event_type: EventType::CBadCd,
+                                stream_id: stream_id.as_u32(),
+                                pasid: pasid.as_u32(),
+                                address: iova.as_u64(),
+                                security_state,
+                                error_code: 0,
+                                timestamp,
+                                stall: false,
+                                stag: 0,
+                            };
+                            if let Ok(mut queue) = self.event_queue.write() {
+                                if queue.len() < self.event_queue_capacity {
+                                    queue.push_back(event);
+                                    self.event_count.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                        return Err(TranslationError::InvalidPASID);
+                    }
+                }
+
                 // Delegate to StreamContext for actual translation
                 // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
                 let r = stream_ref.value().translate(pasid, iova, access, security_state);
@@ -1827,9 +1964,10 @@ impl SMMU {
             FaultType::AddressSizeFault => EventType::FAddrSize,
             // §7.3.15 / FINDING-NEW-31: AccessFlagFault → F_ACCESS (0x12), not F_TRANSLATION.
             FaultType::AccessFlagFault => EventType::FAccess,
+            // §7.3.11: C_BAD_CD — Fetched CD invalid (0x0A)
+            FaultType::BadCD => EventType::CBadCd,
             FaultType::TranslationFault
             | FaultType::BadSTE
-            | FaultType::BadCD
             | FaultType::AlignmentFault
             | FaultType::ExternalAbort
             | FaultType::TLBConflictAbort
@@ -1927,6 +2065,13 @@ impl SMMU {
             return;
         }
 
+        // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
+        // Stall events are exempt because the stalled transaction can never complete
+        // without an event — software needs the event to issue CMD_RESUME.
+        if !is_stall && (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event_type = Self::map_fault_type_to_event_type(fault_type);
         let event = EventEntry {
@@ -1976,6 +2121,11 @@ impl SMMU {
             .build();
 
         self.record_fault(fault);
+
+        // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
 
         // §7.3.3: stream-not-found → C_BAD_STREAMID (0x02), not F_TRANSLATION (0x10).
         let event = EventEntry {
@@ -2138,6 +2288,12 @@ impl SMMU {
     ///
     /// Commands are processed in submission order per Section 6.4.
     pub fn process_command_queue(&self) -> Result<usize, SMMUError> {
+        // §4.1.2 / CT-33: Command queue is gated by CR0.CMDQEN.
+        // When CMDQEN=0, command processing is a no-op (queue untouched).
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_CMDQEN) == 0 {
+            return Ok(0);
+        }
+
         let mut processed = 0;
 
         loop {
@@ -2507,6 +2663,33 @@ impl SMMU {
             // no side-effect processing required in the software model.
             CommandType::PrefetchConfig
             | CommandType::PrefetchAddr => {},
+            // §4.1.1: EL3 TLB invalidation commands — invalidate all entries globally.
+            CommandType::TlbiEl3All | CommandType::TlbiEl3Va => {
+                self.tlb_cache.invalidate_all();
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // §4.1.1: Secure EL2 TLB invalidation commands — invalidate all entries.
+            CommandType::TlbiSEl2All
+            | CommandType::TlbiSEl2Va
+            | CommandType::TlbiSEl2Vaa
+            | CommandType::TlbiSnhAll => {
+                self.tlb_cache.invalidate_all();
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // §4.1.1: Secure EL2 ASID-targeted TLB invalidation.
+            CommandType::TlbiSEl2Asid => {
+                self.tlb_cache.invalidate_by_asid(command.asid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // §4.1.1: Secure S12 / S2 VMID-targeted TLB invalidation.
+            CommandType::TlbiSS12Vmall | CommandType::TlbiSS2Ipa => {
+                self.tlb_cache.invalidate_by_vmid(command.vmid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // §4.1.1: CMD_CFGI_VMS_PIDM — no TLB state to flush in this model.
+            CommandType::CfgiVmsPidm => {},
+            // §4.1.1: DPTI commands — no dirty-tracking state in this model.
+            CommandType::DptiAll | CommandType::DptiPa => {},
         }
 
         Ok(())
@@ -2525,6 +2708,14 @@ impl SMMU {
     ///
     /// Implements Page Request Interface per Section 7.
     pub fn submit_page_request(&self, request: PRIEntry) -> Result<(), SMMUError> {
+        // §4.1.2 / CT-33: PRI queue submissions are gated by CR0.PRIQEN.
+        // When PRIQEN=0, page requests must be rejected.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_PRIQEN) == 0 {
+            return Err(SMMUError::InvalidConfiguration(
+                "CR0.PRIQEN=0: PRI queue is not enabled".to_string(),
+            ));
+        }
+
         let mut queue = self.pri_queue.write().unwrap();
         // Only enforce capacity for small queues (testing overflow behavior)
         if self.pri_queue_capacity < 200 && queue.len() >= self.pri_queue_capacity {

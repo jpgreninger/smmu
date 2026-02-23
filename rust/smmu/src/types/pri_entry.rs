@@ -48,18 +48,48 @@ pub struct PRIEntry {
 }
 
 impl PRIEntry {
-    /// Create a new PRI entry
+    /// Create a new PRI entry with stream ID and PASID only.
+    ///
+    /// Defaults `requested_address` to 0 and `access_type` to `AccessType::Read`.
+    /// Use [`PRIEntry::with_address`] when you need to specify the full set of fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::PRIEntry;
+    ///
+    /// let entry = PRIEntry::new(1, 0);
+    /// assert_eq!(entry.stream_id, 1);
+    /// assert_eq!(entry.pasid, 0);
+    /// assert_eq!(entry.prg_index, 0);
+    /// ```
+    #[must_use]
+    pub const fn new(stream_id: u32, pasid: u32) -> Self {
+        Self {
+            stream_id,
+            pasid,
+            requested_address: 0,
+            access_type: AccessType::Read,
+            is_last_request: false,
+            timestamp: 0,
+            prg_index: 0,
+            security_state: SecurityState::NonSecure,
+        }
+    }
+
+    /// Create a new PRI entry with a full set of fields.
     ///
     /// # Examples
     ///
     /// ```
     /// use smmu::types::{AccessType, PRIEntry};
     ///
-    /// let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    /// let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
+    /// assert_eq!(entry.requested_address, 0x1000);
     /// assert_eq!(entry.prg_index, 0);
     /// ```
     #[must_use]
-    pub const fn new(stream_id: u32, pasid: u32, requested_address: u64, access_type: AccessType) -> Self {
+    pub const fn with_address(stream_id: u32, pasid: u32, requested_address: u64, access_type: AccessType) -> Self {
         Self {
             stream_id,
             pasid,
@@ -82,7 +112,7 @@ impl PRIEntry {
     /// ```
     /// use smmu::types::{AccessType, PRIEntry};
     ///
-    /// let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+    /// let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
     ///     .with_prg_index(42);
     /// assert_eq!(entry.prg_index, 42);
     /// ```
@@ -103,7 +133,7 @@ impl PRIEntry {
     /// ```
     /// use smmu::types::{AccessType, PRIEntry, SecurityState};
     ///
-    /// let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+    /// let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
     ///     .with_security_state(SecurityState::Secure);
     /// assert_eq!(entry.security_state, SecurityState::Secure);
     /// ```

@@ -29,7 +29,7 @@ use smmu::types::{AccessType, PRIEntry};
 
 #[test]
 fn test_pri_entry_new() {
-    let entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
 
     assert_eq!(entry.stream_id, 10);
     assert_eq!(entry.pasid, 20);
@@ -41,7 +41,7 @@ fn test_pri_entry_new() {
 
 #[test]
 fn test_pri_entry_new_with_write() {
-    let entry = PRIEntry::new(5, 10, 0x2000, AccessType::Write);
+    let entry = PRIEntry::with_address(5, 10, 0x2000, AccessType::Write);
 
     assert_eq!(entry.stream_id, 5);
     assert_eq!(entry.pasid, 10);
@@ -53,42 +53,42 @@ fn test_pri_entry_new_with_write() {
 
 #[test]
 fn test_pri_entry_new_with_execute() {
-    let entry = PRIEntry::new(15, 25, 0x3000, AccessType::Execute);
+    let entry = PRIEntry::with_address(15, 25, 0x3000, AccessType::Execute);
 
     assert_eq!(entry.access_type, AccessType::Execute);
 }
 
 #[test]
 fn test_pri_entry_new_with_read_write() {
-    let entry = PRIEntry::new(1, 2, 0x4000, AccessType::ReadWrite);
+    let entry = PRIEntry::with_address(1, 2, 0x4000, AccessType::ReadWrite);
 
     assert_eq!(entry.access_type, AccessType::ReadWrite);
 }
 
 #[test]
 fn test_pri_entry_new_with_read_execute() {
-    let entry = PRIEntry::new(1, 2, 0x5000, AccessType::ReadExecute);
+    let entry = PRIEntry::with_address(1, 2, 0x5000, AccessType::ReadExecute);
 
     assert_eq!(entry.access_type, AccessType::ReadExecute);
 }
 
 #[test]
 fn test_pri_entry_new_with_write_execute() {
-    let entry = PRIEntry::new(1, 2, 0x6000, AccessType::WriteExecute);
+    let entry = PRIEntry::with_address(1, 2, 0x6000, AccessType::WriteExecute);
 
     assert_eq!(entry.access_type, AccessType::WriteExecute);
 }
 
 #[test]
 fn test_pri_entry_new_with_read_write_execute() {
-    let entry = PRIEntry::new(1, 2, 0x7000, AccessType::ReadWriteExecute);
+    let entry = PRIEntry::with_address(1, 2, 0x7000, AccessType::ReadWriteExecute);
 
     assert_eq!(entry.access_type, AccessType::ReadWriteExecute);
 }
 
 #[test]
 fn test_pri_entry_new_zero_values() {
-    let entry = PRIEntry::new(0, 0, 0, AccessType::Read);
+    let entry = PRIEntry::with_address(0, 0, 0, AccessType::Read);
 
     assert_eq!(entry.stream_id, 0);
     assert_eq!(entry.pasid, 0);
@@ -97,7 +97,7 @@ fn test_pri_entry_new_zero_values() {
 
 #[test]
 fn test_pri_entry_new_maximum_values() {
-    let entry = PRIEntry::new(u32::MAX, u32::MAX, u64::MAX, AccessType::ReadWriteExecute);
+    let entry = PRIEntry::with_address(u32::MAX, u32::MAX, u64::MAX, AccessType::ReadWriteExecute);
 
     assert_eq!(entry.stream_id, u32::MAX);
     assert_eq!(entry.pasid, u32::MAX);
@@ -107,7 +107,7 @@ fn test_pri_entry_new_maximum_values() {
 #[test]
 fn test_pri_entry_default_fields() {
     // Verify constructor sets default values for optional fields
-    let entry = PRIEntry::new(1, 2, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(1, 2, 0x1000, AccessType::Read);
 
     assert!(!entry.is_last_request);
     assert_eq!(entry.timestamp, 0);
@@ -119,7 +119,7 @@ fn test_pri_entry_default_fields() {
 
 #[test]
 fn test_pri_entry_modify_stream_id() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.stream_id = 100;
 
     assert_eq!(entry.stream_id, 100);
@@ -127,7 +127,7 @@ fn test_pri_entry_modify_stream_id() {
 
 #[test]
 fn test_pri_entry_modify_pasid() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.pasid = 200;
 
     assert_eq!(entry.pasid, 200);
@@ -135,7 +135,7 @@ fn test_pri_entry_modify_pasid() {
 
 #[test]
 fn test_pri_entry_modify_requested_address() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.requested_address = 0x5000;
 
     assert_eq!(entry.requested_address, 0x5000);
@@ -143,7 +143,7 @@ fn test_pri_entry_modify_requested_address() {
 
 #[test]
 fn test_pri_entry_modify_access_type() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.access_type = AccessType::Write;
 
     assert_eq!(entry.access_type, AccessType::Write);
@@ -151,7 +151,7 @@ fn test_pri_entry_modify_access_type() {
 
 #[test]
 fn test_pri_entry_modify_is_last_request() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.is_last_request = true;
 
     assert!(entry.is_last_request);
@@ -159,7 +159,7 @@ fn test_pri_entry_modify_is_last_request() {
 
 #[test]
 fn test_pri_entry_modify_timestamp() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.timestamp = 12_345;
 
     assert_eq!(entry.timestamp, 12_345);
@@ -167,7 +167,7 @@ fn test_pri_entry_modify_timestamp() {
 
 #[test]
 fn test_pri_entry_modify_all_fields() {
-    let mut entry = PRIEntry::new(1, 2, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(1, 2, 0x1000, AccessType::Read);
 
     entry.stream_id = 42;
     entry.pasid = 57;
@@ -190,7 +190,7 @@ fn test_pri_entry_modify_all_fields() {
 
 #[test]
 fn test_pri_entry_copy() {
-    let entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     let entry2 = entry1; // Copy
 
     assert_eq!(entry1.stream_id, entry2.stream_id);
@@ -201,7 +201,7 @@ fn test_pri_entry_copy() {
 
 #[test]
 fn test_pri_entry_clone() {
-    let mut entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::ReadWrite);
+    let mut entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::ReadWrite);
     entry1.is_last_request = true;
     entry1.timestamp = 5555;
 
@@ -221,7 +221,7 @@ fn test_pri_entry_clone() {
 
 #[test]
 fn test_pri_entry_debug() {
-    let entry = PRIEntry::new(42, 57, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(42, 57, 0x1000, AccessType::Read);
     let debug_string = format!("{entry:?}");
 
     assert!(debug_string.contains("PRIEntry"));
@@ -233,7 +233,7 @@ fn test_pri_entry_debug() {
 
 #[test]
 fn test_pri_entry_debug_with_all_fields() {
-    let mut entry = PRIEntry::new(1, 2, 0x1000, AccessType::Write);
+    let mut entry = PRIEntry::with_address(1, 2, 0x1000, AccessType::Write);
     entry.is_last_request = true;
     entry.timestamp = 12_345;
 
@@ -247,9 +247,9 @@ fn test_pri_entry_debug_with_all_fields() {
 
 #[test]
 fn test_pri_entry_equality() {
-    let entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    let entry2 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    let entry3 = PRIEntry::new(10, 20, 0x1000, AccessType::Write);
+    let entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
+    let entry2 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
+    let entry3 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Write);
 
     assert_eq!(entry1, entry2);
     assert_ne!(entry1, entry3);
@@ -257,11 +257,11 @@ fn test_pri_entry_equality() {
 
 #[test]
 fn test_pri_entry_equality_all_fields() {
-    let mut entry1 = PRIEntry::new(100, 200, 0x1000, AccessType::ReadWrite);
+    let mut entry1 = PRIEntry::with_address(100, 200, 0x1000, AccessType::ReadWrite);
     entry1.is_last_request = true;
     entry1.timestamp = 999;
 
-    let mut entry2 = PRIEntry::new(100, 200, 0x1000, AccessType::ReadWrite);
+    let mut entry2 = PRIEntry::with_address(100, 200, 0x1000, AccessType::ReadWrite);
     entry2.is_last_request = true;
     entry2.timestamp = 999;
 
@@ -274,24 +274,24 @@ fn test_pri_entry_equality_all_fields() {
 
 #[test]
 fn test_pri_entry_equality_different_stream_id() {
-    let entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    let entry2 = PRIEntry::new(11, 20, 0x1000, AccessType::Read);
+    let entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
+    let entry2 = PRIEntry::with_address(11, 20, 0x1000, AccessType::Read);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_pri_entry_equality_different_pasid() {
-    let entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    let entry2 = PRIEntry::new(10, 21, 0x1000, AccessType::Read);
+    let entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
+    let entry2 = PRIEntry::with_address(10, 21, 0x1000, AccessType::Read);
 
     assert_ne!(entry1, entry2);
 }
 
 #[test]
 fn test_pri_entry_equality_different_address() {
-    let entry1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
-    let entry2 = PRIEntry::new(10, 20, 0x2000, AccessType::Read);
+    let entry1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
+    let entry2 = PRIEntry::with_address(10, 20, 0x2000, AccessType::Read);
 
     assert_ne!(entry1, entry2);
 }
@@ -302,7 +302,7 @@ fn test_pri_entry_equality_different_address() {
 
 #[test]
 fn test_pri_entry_const_constructor() {
-    const ENTRY: PRIEntry = PRIEntry::new(42, 57, 0x1000, AccessType::Read);
+    const ENTRY: PRIEntry = PRIEntry::with_address(42, 57, 0x1000, AccessType::Read);
 
     assert_eq!(ENTRY.stream_id, 42);
     assert_eq!(ENTRY.pasid, 57);
@@ -319,7 +319,7 @@ fn test_pri_entry_const_constructor() {
 #[test]
 fn test_arm_spec_page_fault_read_request() {
     // ARM SMMU v3 Section 7: Page fault with read access
-    let entry = PRIEntry::new(10, 5, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 5, 0x1000, AccessType::Read);
 
     assert_eq!(entry.stream_id, 10);
     assert_eq!(entry.pasid, 5);
@@ -330,7 +330,7 @@ fn test_arm_spec_page_fault_read_request() {
 #[test]
 fn test_arm_spec_page_fault_write_request() {
     // ARM SMMU v3 Section 7: Page fault with write access
-    let entry = PRIEntry::new(15, 8, 0x2000, AccessType::Write);
+    let entry = PRIEntry::with_address(15, 8, 0x2000, AccessType::Write);
 
     assert_eq!(entry.access_type, AccessType::Write);
 }
@@ -338,7 +338,7 @@ fn test_arm_spec_page_fault_write_request() {
 #[test]
 fn test_arm_spec_page_fault_execute_request() {
     // ARM SMMU v3 Section 7: Page fault with execute access
-    let entry = PRIEntry::new(20, 12, 0x3000, AccessType::Execute);
+    let entry = PRIEntry::with_address(20, 12, 0x3000, AccessType::Execute);
 
     assert_eq!(entry.access_type, AccessType::Execute);
 }
@@ -346,7 +346,7 @@ fn test_arm_spec_page_fault_execute_request() {
 #[test]
 fn test_arm_spec_last_request_in_group() {
     // ARM SMMU v3 Section 7: Last request in a group
-    let mut entry = PRIEntry::new(10, 5, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 5, 0x1000, AccessType::Read);
     entry.is_last_request = true;
 
     assert!(entry.is_last_request);
@@ -355,7 +355,7 @@ fn test_arm_spec_last_request_in_group() {
 #[test]
 fn test_arm_spec_request_with_timestamp() {
     // ARM SMMU v3 Section 7: Request ordering via timestamp
-    let mut entry = PRIEntry::new(10, 5, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 5, 0x1000, AccessType::Read);
     entry.timestamp = 1_234_567_890;
 
     assert_eq!(entry.timestamp, 1_234_567_890);
@@ -368,7 +368,7 @@ fn test_arm_spec_request_with_timestamp() {
 #[test]
 fn test_realistic_single_page_request() {
     // Single page fault request
-    let entry = PRIEntry::new(10, 20, 0x1_0000, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 20, 0x1_0000, AccessType::Read);
 
     assert_eq!(entry.stream_id, 10);
     assert_eq!(entry.pasid, 20);
@@ -380,15 +380,15 @@ fn test_realistic_single_page_request() {
 #[test]
 fn test_realistic_multi_request_group() {
     // Multiple requests in a group
-    let mut req1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut req1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     req1.is_last_request = false;
     req1.timestamp = 100;
 
-    let mut req2 = PRIEntry::new(10, 20, 0x2000, AccessType::Read);
+    let mut req2 = PRIEntry::with_address(10, 20, 0x2000, AccessType::Read);
     req2.is_last_request = false;
     req2.timestamp = 101;
 
-    let mut req3 = PRIEntry::new(10, 20, 0x3000, AccessType::Read);
+    let mut req3 = PRIEntry::with_address(10, 20, 0x3000, AccessType::Read);
     req3.is_last_request = true; // Last in group
     req3.timestamp = 102;
 
@@ -400,7 +400,7 @@ fn test_realistic_multi_request_group() {
 #[test]
 fn test_realistic_write_fault_request() {
     // Write fault requiring page allocation
-    let entry = PRIEntry::new(5, 10, 0x5000, AccessType::Write);
+    let entry = PRIEntry::with_address(5, 10, 0x5000, AccessType::Write);
 
     assert_eq!(entry.access_type, AccessType::Write);
 }
@@ -408,7 +408,7 @@ fn test_realistic_write_fault_request() {
 #[test]
 fn test_realistic_code_page_fault() {
     // Code page fault (execute permission)
-    let entry = PRIEntry::new(8, 15, 0x8000, AccessType::Execute);
+    let entry = PRIEntry::with_address(8, 15, 0x8000, AccessType::Execute);
 
     assert_eq!(entry.access_type, AccessType::Execute);
 }
@@ -416,7 +416,7 @@ fn test_realistic_code_page_fault() {
 #[test]
 fn test_realistic_data_and_code_page() {
     // Page requiring both read and execute (code page)
-    let entry = PRIEntry::new(12, 25, 0xC000, AccessType::ReadExecute);
+    let entry = PRIEntry::with_address(12, 25, 0xC000, AccessType::ReadExecute);
 
     assert_eq!(entry.access_type, AccessType::ReadExecute);
 }
@@ -424,7 +424,7 @@ fn test_realistic_data_and_code_page() {
 #[test]
 fn test_realistic_stack_page_fault() {
     // Stack page requiring read/write access
-    let entry = PRIEntry::new(3, 7, 0x7FFF_F000, AccessType::ReadWrite);
+    let entry = PRIEntry::with_address(3, 7, 0x7FFF_F000, AccessType::ReadWrite);
 
     assert_eq!(entry.access_type, AccessType::ReadWrite);
     assert_eq!(entry.requested_address, 0x7FFF_F000);
@@ -438,9 +438,9 @@ fn test_realistic_stack_page_fault() {
 #[allow(clippy::useless_vec)]
 fn test_pri_queue_vec_operations() {
     let queue = vec![
-        PRIEntry::new(10, 20, 0x1000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x2000, AccessType::Write),
-        PRIEntry::new(10, 20, 0x3000, AccessType::Execute),
+        PRIEntry::with_address(10, 20, 0x1000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x2000, AccessType::Write),
+        PRIEntry::with_address(10, 20, 0x3000, AccessType::Execute),
     ];
 
     assert_eq!(queue.len(), 3);
@@ -451,13 +451,13 @@ fn test_pri_queue_vec_operations() {
 
 #[test]
 fn test_pri_queue_timestamp_ordering() {
-    let mut req1 = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut req1 = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     req1.timestamp = 300;
 
-    let mut req2 = PRIEntry::new(10, 20, 0x2000, AccessType::Read);
+    let mut req2 = PRIEntry::with_address(10, 20, 0x2000, AccessType::Read);
     req2.timestamp = 100;
 
-    let mut req3 = PRIEntry::new(10, 20, 0x3000, AccessType::Read);
+    let mut req3 = PRIEntry::with_address(10, 20, 0x3000, AccessType::Read);
     req3.timestamp = 200;
 
     let mut queue = [req1, req2, req3];
@@ -470,10 +470,10 @@ fn test_pri_queue_timestamp_ordering() {
 
 #[test]
 fn test_pri_queue_filtering_by_pasid() {
-    let queue = [PRIEntry::new(10, 1, 0x1000, AccessType::Read),
-        PRIEntry::new(10, 2, 0x2000, AccessType::Read),
-        PRIEntry::new(10, 1, 0x3000, AccessType::Read),
-        PRIEntry::new(10, 3, 0x4000, AccessType::Read)];
+    let queue = [PRIEntry::with_address(10, 1, 0x1000, AccessType::Read),
+        PRIEntry::with_address(10, 2, 0x2000, AccessType::Read),
+        PRIEntry::with_address(10, 1, 0x3000, AccessType::Read),
+        PRIEntry::with_address(10, 3, 0x4000, AccessType::Read)];
 
     let pasid_1_requests: Vec<_> = queue.iter().filter(|e| e.pasid == 1).collect();
 
@@ -484,10 +484,10 @@ fn test_pri_queue_filtering_by_pasid() {
 
 #[test]
 fn test_pri_queue_filtering_by_access_type() {
-    let queue = [PRIEntry::new(10, 20, 0x1000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x2000, AccessType::Write),
-        PRIEntry::new(10, 20, 0x3000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x4000, AccessType::Execute)];
+    let queue = [PRIEntry::with_address(10, 20, 0x1000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x2000, AccessType::Write),
+        PRIEntry::with_address(10, 20, 0x3000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x4000, AccessType::Execute)];
 
     assert_eq!(
         queue.iter().filter(|e| e.access_type == AccessType::Read).count(),
@@ -501,9 +501,9 @@ fn test_pri_queue_filtering_by_access_type() {
 
 #[test]
 fn test_request_group_identification() {
-    let mut requests = [PRIEntry::new(10, 20, 0x1000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x2000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x3000, AccessType::Read)];
+    let mut requests = [PRIEntry::with_address(10, 20, 0x1000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x2000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x3000, AccessType::Read)];
 
     // Mark last request in group
     requests[2].is_last_request = true;
@@ -518,10 +518,10 @@ fn test_request_group_identification() {
 #[allow(clippy::useless_vec)]
 fn test_multiple_request_groups() {
     let mut requests = vec![
-        PRIEntry::new(10, 20, 0x1000, AccessType::Read),
-        PRIEntry::new(10, 20, 0x2000, AccessType::Read), // Last of group 1
-        PRIEntry::new(10, 20, 0x3000, AccessType::Write),
-        PRIEntry::new(10, 20, 0x4000, AccessType::Write), // Last of group 2
+        PRIEntry::with_address(10, 20, 0x1000, AccessType::Read),
+        PRIEntry::with_address(10, 20, 0x2000, AccessType::Read), // Last of group 1
+        PRIEntry::with_address(10, 20, 0x3000, AccessType::Write),
+        PRIEntry::with_address(10, 20, 0x4000, AccessType::Write), // Last of group 2
     ];
 
     requests[1].is_last_request = true;
@@ -537,7 +537,7 @@ fn test_multiple_request_groups() {
 #[test]
 fn test_edge_case_page_boundary() {
     // Request at page boundary (4KB aligned)
-    let entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
 
     assert_eq!(entry.requested_address % 0x1000, 0);
 }
@@ -545,7 +545,7 @@ fn test_edge_case_page_boundary() {
 #[test]
 fn test_edge_case_maximum_address() {
     // Maximum possible address
-    let entry = PRIEntry::new(10, 20, u64::MAX, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 20, u64::MAX, AccessType::Read);
 
     assert_eq!(entry.requested_address, u64::MAX);
 }
@@ -553,7 +553,7 @@ fn test_edge_case_maximum_address() {
 #[test]
 fn test_edge_case_zero_address() {
     // Null pointer dereference fault
-    let entry = PRIEntry::new(10, 20, 0, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 20, 0, AccessType::Read);
 
     assert_eq!(entry.requested_address, 0);
 }
@@ -561,14 +561,14 @@ fn test_edge_case_zero_address() {
 #[test]
 fn test_edge_case_all_access_permissions() {
     // Page requiring all permissions
-    let entry = PRIEntry::new(10, 20, 0x1000, AccessType::ReadWriteExecute);
+    let entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::ReadWriteExecute);
 
     assert_eq!(entry.access_type, AccessType::ReadWriteExecute);
 }
 
 #[test]
 fn test_edge_case_maximum_timestamp() {
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
     entry.timestamp = u64::MAX;
 
     assert_eq!(entry.timestamp, u64::MAX);
@@ -591,7 +591,7 @@ fn test_all_access_types_coverage() {
     ];
 
     for access_type in access_types {
-        let entry = PRIEntry::new(10, 20, 0x1000, access_type);
+        let entry = PRIEntry::with_address(10, 20, 0x1000, access_type);
         assert_eq!(entry.access_type, access_type);
     }
 }
@@ -603,7 +603,7 @@ fn test_all_access_types_coverage() {
 #[test]
 fn test_spec_compliance_pri_entry_structure() {
     // Verify PRIEntry has all required fields per ARM SMMU v3 Section 7
-    let entry = PRIEntry::new(42, 57, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(42, 57, 0x1000, AccessType::Read);
 
     // Required fields
     let _ = entry.stream_id;
@@ -617,7 +617,7 @@ fn test_spec_compliance_pri_entry_structure() {
 #[test]
 fn test_spec_compliance_pasid_0() {
     // ARM SMMU v3: PASID 0 is valid for non-PASID contexts
-    let entry = PRIEntry::new(10, 0, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(10, 0, 0x1000, AccessType::Read);
 
     assert_eq!(entry.pasid, 0);
 }
@@ -625,7 +625,7 @@ fn test_spec_compliance_pasid_0() {
 #[test]
 fn test_spec_compliance_request_grouping() {
     // ARM SMMU v3 Section 7: Request grouping with is_last_request flag
-    let mut entry = PRIEntry::new(10, 20, 0x1000, AccessType::Read);
+    let mut entry = PRIEntry::with_address(10, 20, 0x1000, AccessType::Read);
 
     // First request in group
     assert!(!entry.is_last_request);
@@ -643,14 +643,14 @@ fn test_spec_compliance_request_grouping() {
 fn test_pri_entry_has_prg_index_field() {
     // ARM §8.2: Every PRIEntry must carry a PRGIndex (Page Request Group Index).
     // Default value must be 0.
-    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read);
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     assert_eq!(entry.prg_index, 0);
 }
 
 #[test]
 fn test_pri_entry_with_prg_index_builder() {
     // ARM §8.2: Builder method `with_prg_index` sets a non-zero PRGIndex.
-    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
         .with_prg_index(42);
     assert_eq!(entry.prg_index, 42);
 }
@@ -658,7 +658,7 @@ fn test_pri_entry_with_prg_index_builder() {
 #[test]
 fn test_pri_entry_with_prg_index_max() {
     // Boundary: u16::MAX is a valid PRGIndex value.
-    let entry = PRIEntry::new(1, 0, 0x1000, AccessType::Read)
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
         .with_prg_index(u16::MAX);
     assert_eq!(entry.prg_index, u16::MAX);
 }
@@ -666,7 +666,7 @@ fn test_pri_entry_with_prg_index_max() {
 #[test]
 fn test_pri_entry_with_prg_index_preserves_other_fields() {
     // Builder must not disturb any other field.
-    let entry = PRIEntry::new(7, 3, 0x4000, AccessType::Write)
+    let entry = PRIEntry::with_address(7, 3, 0x4000, AccessType::Write)
         .with_prg_index(10);
     assert_eq!(entry.stream_id, 7);
     assert_eq!(entry.pasid, 3);

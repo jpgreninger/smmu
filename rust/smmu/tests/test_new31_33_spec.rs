@@ -145,7 +145,7 @@ fn pri_request_secure_generates_secure_event() {
     smmu.create_pasid(sid(0x70), pasid(0)).unwrap();
 
     // Submit a Secure page request (security_state field added by FINDING-NEW-32 fix)
-    let req = PRIEntry::new(0x70, 0, 0x8000, AccessType::Read)
+    let req = PRIEntry::with_address(0x70, 0, 0x8000, AccessType::Read)
         .with_security_state(SecurityState::Secure);
     smmu.submit_page_request(req).unwrap();
     smmu.process_pri_queue().unwrap();
@@ -178,7 +178,7 @@ fn pri_request_nonsecure_generates_nonsecure_event() {
     smmu.configure_stream(sid(0x71), cfg).unwrap();
     smmu.create_pasid(sid(0x71), pasid(0)).unwrap();
 
-    let req = PRIEntry::new(0x71, 0, 0x9000, AccessType::Read)
+    let req = PRIEntry::with_address(0x71, 0, 0x9000, AccessType::Read)
         .with_security_state(SecurityState::NonSecure);
     smmu.submit_page_request(req).unwrap();
     smmu.process_pri_queue().unwrap();

@@ -45,6 +45,8 @@ set(UNIT_TEST_SOURCES
     test_new21_22_23_spec.cpp
     test_new25_28_spec.cpp
     test_new31_33_spec.cpp
+    test_ct30_ct33_spec.cpp
+    test_ct04_09_13_14_19_20_23_spec.cpp
     test_configuration.cpp
     test_configuration_coverage.cpp
     test_configuration_validation.cpp

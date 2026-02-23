@@ -60,8 +60,10 @@ SMMU::SMMU()
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
+      cr0_(0),
       smmuen_(false),
       gbpaAbort_(false),
+      strtabLog2Size_(32),
       stagCounter_(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
@@ -97,8 +99,10 @@ SMMU::SMMU(const SMMUConfiguration& config)
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
+      cr0_(0),
       smmuen_(false),
       gbpaAbort_(false),
+      strtabLog2Size_(32),
       stagCounter_(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
@@ -155,6 +159,16 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // BUG-15: StreamID is uint32_t and MAX_STREAM_ID is 0xFFFFFFFF, so
     // streamID > MAX_STREAM_ID is always false — check removed.
+
+    // §6.3.4 / CT-04: SMMU_STRTAB_BASE_CFG.LOG2SIZE StreamID range check.
+    // When strtabLog2Size_ < 32, reject StreamIDs >= 2^strtabLog2Size_.
+    if (strtabLog2Size_ < 32u) {
+        uint32_t limit = 1u << strtabLog2Size_;
+        if (streamID >= limit) {
+            generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidStreamID);
+        }
+    }
 
     // Task 5.2: Optimized fast path - Check TLB cache first for maximum performance
     if (cachingEnabled && tlbCache) {
@@ -796,8 +810,9 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
     // ARM SMMU v3 spec: Handle different stage combinations
     if (!config.translationEnabled) {
-        // ARM §3.9: Bypass stream — stage 1 is absent. A non-zero PASID/SubstreamID
-        // has no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
+        // §5.2 STE.Config==0b000 (disabled): PASID check first — a non-zero PASID on
+        // a stream with no stage-1 translation aborts with C_BAD_SUBSTREAMID (§3.9 / §7.3.9),
+        // regardless of whether the stream is disabled or bypass.
         if (pasid != 0) {
             FaultRecord fault;
             fault.streamID = streamID;
@@ -811,7 +826,14 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidPASID);
         }
-        // PASID=0: bypass (STE.Config==0b100) — identity mapping (PA == IOVA).
+
+        // §5.2 STE.Config==0b000 (disabled): all translation stages absent and bypassEnabled
+        // is false — transaction aborts silently with no event recorded (§7.3.7 last line).
+        if (!config.bypassEnabled) {
+            return makeTranslationError(SMMUError::StreamDisabled);
+        }
+
+        // §5.2 STE.Config==0b100 (bypass): PASID=0 — identity mapping (PA == IOVA).
         // §3.4: OAS check for STE-level bypass. If IOVA >= OAS, abort with F_ADDR_SIZE
         // (stage-1 address size fault per ARM IHI0070G.b §7.3.14).
         {
@@ -876,6 +898,21 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             return TranslationResult(s1dssData);
         }
         // s1dss == 0b10: use CD[0] — fall through to normal stage-1 translation.
+    }
+
+    // §5.4 / CT-14: CD.AA64 validation — AArch32 LPAE mode is unsupported.
+    // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range 0-39 for SMMUv3.0.
+    if (config.stage1Enabled) {
+        if (!config.aa64) {
+            // AA64=0 (VMSAv8-32 LPAE) is unsupported — C_BAD_CD (event 0x0A).
+            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
+        if (config.t0sz > 39u || config.t1sz > 39u) {
+            // T0SZ or T1SZ out of range — C_BAD_CD (event 0x0A).
+            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
     }
 
     if (config.stage1Enabled && config.stage2Enabled) {
@@ -1554,6 +1591,11 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
 }
 
 void SMMU::processCommandQueue() {
+    // §4.1.2 / CT-33: When CR0.CMDQEN=0, command queue processing is disabled.
+    if ((cr0_ & CR0_CMDQEN) == 0u) {
+        return;
+    }
+
     // ARM SMMU v3 spec: Process command queue with proper ordering.
     // BUG-03 fix: protect commandQueue with queueMutex.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
@@ -1639,6 +1681,11 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
 }
 
 void SMMU::processPRIQueue() {
+    // §CT-33: When CR0.PRIQEN=0, PRI queue processing is disabled.
+    if ((cr0_ & CR0_PRIQEN) == 0u) {
+        return;
+    }
+
     // ARM SMMU v3 spec: Process Page Request Interface queue.
     // BUG-03 fix: protect priQueue with queueMutex. Uses recursive_mutex so
     // that the nested submitCommand() call can re-acquire the same lock.
@@ -1757,6 +1804,19 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
 
+        // §4.1.1 / CT-30: Additional TLB invalidation commands
+        case CommandType::TLBI_EL3_ALL:
+        case CommandType::TLBI_EL3_VA:
+        case CommandType::TLBI_S_EL2_ALL:
+        case CommandType::TLBI_S_EL2_ASID:
+        case CommandType::TLBI_S_EL2_VA:
+        case CommandType::TLBI_S_EL2_VAA:
+        case CommandType::TLBI_S_S12_VMALL:
+        case CommandType::TLBI_S_S2_IPA:
+        case CommandType::TLBI_SNH_ALL:
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            break;
+
         default:
             // Invalid invalidation command
             generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
@@ -1795,6 +1855,32 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
         case CommandType::TLBI_S12_VMALL:
         case CommandType::TLBI_S2_IPA:
             // ARM §4.4: VMID-targeted invalidation (CMD_TLBI_S12_VMALL 0x28, CMD_TLBI_S2_IPA 0x2A)
+            tlbCache->invalidateByVMID(vmid);
+            break;
+
+        // §4.1.1 / CT-30: EL3 and Secure EL2 TLB invalidation
+        case CommandType::TLBI_EL3_ALL:
+        case CommandType::TLBI_EL3_VA:
+        case CommandType::TLBI_SNH_ALL:
+            // EL3 / Secure NH TLB invalidation — global flush in SW model
+            invalidateTranslationCache();
+            break;
+
+        case CommandType::TLBI_S_EL2_ALL:
+        case CommandType::TLBI_S_EL2_VA:
+        case CommandType::TLBI_S_EL2_VAA:
+            // Secure EL2 TLB invalidation — global flush in SW model
+            invalidateTranslationCache();
+            break;
+
+        case CommandType::TLBI_S_EL2_ASID:
+            // Secure EL2 ASID-targeted invalidation
+            tlbCache->invalidateByASID(asid);
+            break;
+
+        case CommandType::TLBI_S_S12_VMALL:
+        case CommandType::TLBI_S_S2_IPA:
+            // Secure Stage-1+2 / Stage-2 IPA VMID-targeted invalidation
             tlbCache->invalidateByVMID(vmid);
             break;
 
@@ -1935,7 +2021,31 @@ void SMMU::processCommand(const CommandEntry& command) {
             // ARM SMMU v3 spec: Ensure command ordering and completion
             // Handled in processCommandQueue()
             break;
-            
+
+        // §4.1.1 / CT-30: Additional spec-defined command opcodes
+        case CommandType::CFGI_VMS_PIDM:
+            // Secure substream PIDM cache invalidation: invalidate CD cache for (SID, SSID).
+            invalidatePASIDCache(command.streamID, command.pasid);
+            break;
+
+        case CommandType::TLBI_EL3_ALL:
+        case CommandType::TLBI_EL3_VA:
+        case CommandType::TLBI_S_EL2_ALL:
+        case CommandType::TLBI_S_EL2_ASID:
+        case CommandType::TLBI_S_EL2_VA:
+        case CommandType::TLBI_S_EL2_VAA:
+        case CommandType::TLBI_S_S12_VMALL:
+        case CommandType::TLBI_S_S2_IPA:
+        case CommandType::TLBI_SNH_ALL:
+            // TLB invalidation commands: delegate to TLB invalidation handler.
+            executeInvalidationCommand(command);
+            break;
+
+        case CommandType::DPTI_ALL:
+        case CommandType::DPTI_PA:
+            // Dirty page tracking invalidation — software model: no-op (log only).
+            break;
+
         default:
             // Unknown command type — ARM §6.3.17: set CMDQ_ERR (FINDING-M-06)
             gerrorStatus |= GERROR_CMDQ_ERR;
@@ -1957,12 +2067,37 @@ void SMMU::clearGerror(uint32_t bits) {
 }
 
 // ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
+// §6.3.9 SMMU_CR0 register (CT-33)
+void SMMU::setCR0(uint32_t value) {
+    cr0_ = value;
+    // Mirror SMMUEN bit to smmuen_ for backward compatibility
+    smmuen_ = ((cr0_ & CR0_SMMUEN) != 0u);
+}
+
+uint32_t SMMU::getCR0() const {
+    return cr0_;
+}
+
+// §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
+void SMMU::setStrtabLog2Size(uint8_t log2size) {
+    strtabLog2Size_ = log2size;
+}
+
+uint8_t SMMU::getStrtabLog2Size() const {
+    return strtabLog2Size_;
+}
+
 void SMMU::enable() {
     smmuen_ = true;
+    cr0_ |= CR0_SMMUEN;
+    // Also enable event and command queues by default when enable() is called
+    // (for backward compatibility — callers of enable() expect all queues active)
+    cr0_ |= CR0_EVENTQEN | CR0_CMDQEN | CR0_PRIQEN;
 }
 
 void SMMU::disable() {
     smmuen_ = false;
+    cr0_ &= ~CR0_SMMUEN;
 }
 
 bool SMMU::isEnabled() const {
@@ -2006,6 +2141,12 @@ size_t SMMU::getStalledTransactionCount() const {
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                          SecurityState securityState, bool isStall, uint16_t stag) {
+    // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
+    // Exception: stall events must always be recorded (§3.5.3 stall semantics).
+    if (!isStall && (cr0_ & CR0_EVENTQEN) == 0u) {
+        return;
+    }
+
     // ARM SMMU v3 spec: Generate event for event queue processing.
     // BUG-03 fix: protect eventQueue with queueMutex. Uses recursive_mutex so
     // that callers already holding queueMutex (e.g. processCommandQueue) can
