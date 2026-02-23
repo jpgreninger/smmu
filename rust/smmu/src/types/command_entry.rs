@@ -33,6 +33,11 @@ pub enum CommandType {
     /// Invalidates all information cached from every CD of the specified
     /// stream (ARM §4.3.4).
     CfgiCdAll = 0x06,
+    /// Secure substream PIDM cache invalidation — CMD_CFGI_VMS_PIDM (opcode 0x07)
+    ///
+    /// Invalidates PIDM-cached configuration for the specified secure substream
+    /// per ARM IHI0070G.b §4.1.1.
+    CfgiVmsPidm = 0x07,
     // ---- TLB invalidation — Non-secure Hyp (§4.4) ----
     /// CMD_TLBI_NH_ALL (opcode 0x10)
     TlbiNhAll = 0x10,
@@ -56,9 +61,34 @@ pub enum CommandType {
     TlbiS12Vmall = 0x28,
     /// CMD_TLBI_S2_IPA (opcode 0x2A)
     TlbiS2Ipa = 0x2A,
+    // ---- TLB invalidation — EL3 (§4.1.1) ----
+    /// CMD_TLBI_EL3_ALL (opcode 0x18) — Invalidate all EL3 TLB entries
+    TlbiEl3All = 0x18,
+    /// CMD_TLBI_EL3_VA (opcode 0x1A) — Invalidate EL3 TLB entries by VA
+    TlbiEl3Va = 0x1A,
     // ---- TLB invalidation — Non-secure Non-Hyp (§4.4) ----
     /// CMD_TLBI_NSNH_ALL (opcode 0x30)
     TlbiNsnhAll = 0x30,
+    // ---- TLB invalidation — Secure EL2 (§4.1.1) ----
+    /// CMD_TLBI_S_EL2_ALL (opcode 0x50) — Invalidate all Secure EL2 TLB entries
+    TlbiSEl2All = 0x50,
+    /// CMD_TLBI_S_EL2_ASID (opcode 0x51) — Invalidate Secure EL2 TLB by ASID
+    TlbiSEl2Asid = 0x51,
+    /// CMD_TLBI_S_EL2_VA (opcode 0x52) — Invalidate Secure EL2 TLB by VA
+    TlbiSEl2Va = 0x52,
+    /// CMD_TLBI_S_EL2_VAA (opcode 0x53) — Invalidate Secure EL2 TLB by VA, all ASID
+    TlbiSEl2Vaa = 0x53,
+    /// CMD_TLBI_S_S12_VMALL (opcode 0x58) — Invalidate all Secure S12 TLB by VMID
+    TlbiSS12Vmall = 0x58,
+    /// CMD_TLBI_S_S2_IPA (opcode 0x5A) — Invalidate Secure S2 TLB by IPA
+    TlbiSS2Ipa = 0x5A,
+    /// CMD_TLBI_S_NH_ALL (opcode 0x60) — Invalidate all Secure NH TLB entries
+    TlbiSnhAll = 0x60,
+    // ---- Dirty Page Tracking Invalidation (§4.1.1) ----
+    /// CMD_DPTI_ALL (opcode 0x70) — Dirty page tracking invalidation, all
+    DptiAll = 0x70,
+    /// CMD_DPTI_PA (opcode 0x73) — Dirty page tracking invalidation by PA
+    DptiPa = 0x73,
     // ---- ATC / PRI commands (§4.5–§4.6) ----
     /// Address Translation Cache invalidation — CMD_ATC_INV (opcode 0x40)
     AtcInv = 0x40,

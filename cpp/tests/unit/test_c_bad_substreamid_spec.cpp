@@ -55,11 +55,12 @@ protected:
         PagePermissions perms(true, true, false);
         smmu->mapPage(S2_ONLY_SID, PASID_ZERO, TEST_IOVA, TEST_PA, perms);
 
-        // Bypass stream: translationEnabled = false
+        // Bypass stream: STE.Config==0b100 — identity mapping (PA==IOVA)
         StreamConfig bypassCfg;
         bypassCfg.translationEnabled = false;
         bypassCfg.stage1Enabled      = false;
         bypassCfg.stage2Enabled      = false;
+        bypassCfg.bypassEnabled      = true;  // STE.Config==0b100: bypass
         bypassCfg.faultMode          = FaultMode::Terminate;
         smmu->configureStream(BYPASS_SID, bypassCfg);
         smmu->enableStream(BYPASS_SID);

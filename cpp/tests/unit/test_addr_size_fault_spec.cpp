@@ -268,11 +268,12 @@ TEST_F(AddrSizeFaultTest, SetInputAddressSize_InvalidBits_ReturnsError) {
 /// §3.4 / §7.3.14: STE bypass stream (Config==0b100) with IOVA >= OAS must
 /// abort with SMMUError::InvalidAddress and record F_ADDR_SIZE event.
 TEST_F(AddrSizeFaultTest, SteBypass_IOVAExceedsOAS_FaultsWithFAddrSize) {
-    // Default StreamConfig: translationEnabled=false, both stages off => bypass
+    // STE.Config==0b100: bypass — identity mapping (PA==IOVA)
     StreamConfig bypassCfg;
     bypassCfg.translationEnabled = false;
     bypassCfg.stage1Enabled      = false;
     bypassCfg.stage2Enabled      = false;
+    bypassCfg.bypassEnabled      = true;  // STE.Config==0b100: bypass
     ASSERT_TRUE(smmu->configureStream(STREAM_A, bypassCfg).isOk());
     ASSERT_TRUE(smmu->enableStream(STREAM_A).isOk());
 
@@ -301,6 +302,7 @@ TEST_F(AddrSizeFaultTest, SteBypass_IOVAWithinOAS_Succeeds) {
     bypassCfg.translationEnabled = false;
     bypassCfg.stage1Enabled      = false;
     bypassCfg.stage2Enabled      = false;
+    bypassCfg.bypassEnabled      = true;  // STE.Config==0b100: bypass
     ASSERT_TRUE(smmu->configureStream(STREAM_A, bypassCfg).isOk());
     ASSERT_TRUE(smmu->enableStream(STREAM_A).isOk());
 

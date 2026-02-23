@@ -134,6 +134,7 @@ TEST_F(SMMUTwoStageComprehensiveTest, TwoStage_TranslationDisabled_BypassMode) {
     config.translationEnabled = false;  // Bypass mode
     config.stage1Enabled = true;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
 
     ASSERT_TRUE(smmu->configureStream(STREAM_1, config).isOk());
     ASSERT_TRUE(smmu->createStreamPASID(STREAM_1, PASID_1).isOk());

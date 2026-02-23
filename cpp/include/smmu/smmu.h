@@ -140,6 +140,20 @@ public:
     /// Returns the current value of SMMU_GBPA.ABORT.
     bool isGbpaAbort() const;
 
+    // §6.3.9 SMMU_CR0 register (CT-33)
+    /// Set the SMMU_CR0 register value.  Bit 0 = SMMUEN, bit 2 = EVENTQEN, bit 3 = CMDQEN.
+    void setCR0(uint32_t value);
+    /// Get the current SMMU_CR0 register value.
+    uint32_t getCR0() const;
+
+    // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
+    /// Set the number of stream table entries as 2^log2size.
+    /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
+    /// Default: 32 (accept all 32-bit StreamIDs).
+    void setStrtabLog2Size(uint8_t log2size);
+    /// Get the current LOG2SIZE value.
+    uint8_t getStrtabLog2Size() const;
+
     // ARM §3.12.2: Stall queue management (FINDING-NEW-08)
     /// Returns a snapshot of all currently stalled transactions.
     std::vector<StallRecord> getStalledTransactions() const;
@@ -208,9 +222,23 @@ private:
     // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
     uint32_t gerrorStatus;     // global error flags; cleared by clearGerror()
 
+    // §6.3.9 SMMU_CR0 register (CT-33)
+    // bit 0: SMMUEN, bit 1: PRIQEN, bit 2: EVENTQEN, bit 3: CMDQEN
+    static constexpr uint32_t CR0_SMMUEN   = (1u << 0); // SMMU enable
+    static constexpr uint32_t CR0_PRIQEN   = (1u << 1); // PRI queue enable
+    static constexpr uint32_t CR0_EVENTQEN = (1u << 2); // Event queue enable
+    static constexpr uint32_t CR0_CMDQEN   = (1u << 3); // Command queue enable
+    uint32_t cr0_;             // SMMU_CR0 register value; bit0=SMMUEN, bit2=EVENTQEN, bit3=CMDQEN
+
     // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
+    // Note: smmuen_ is now derived from cr0_ bit 0, kept for backward compatibility
     bool smmuen_;              // SMMUEN bit — false (disabled) at reset
     bool gbpaAbort_;           // GBPA.ABORT bit — false (bypass) at reset
+
+    // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
+    // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
+    // Default 32 (all 32-bit StreamIDs accepted).
+    uint8_t strtabLog2Size_;   // 0-32; default 32
 
     // ARM §3.12.2: Stall queue for stalled transactions (FINDING-NEW-08)
     std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map

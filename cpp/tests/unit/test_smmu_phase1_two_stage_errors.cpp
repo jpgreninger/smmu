@@ -94,6 +94,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, TranslationDisabled_BypassMode_IOVAEqualsPA
     config.translationEnabled = false;  // Bypass mode
     config.stage1Enabled = true;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
 
     ASSERT_TRUE(smmu->configureStream(STREAM_1, config).isOk());
     ASSERT_TRUE(smmu->enableStream(STREAM_1).isOk());
@@ -587,6 +588,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, MinAddressSize_ZeroIOVA_TranslatesToZeroInB
     config.translationEnabled = false;  // Bypass mode
     config.stage1Enabled = true;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
 
     ASSERT_TRUE(smmu->configureStream(STREAM_1, config).isOk());
     ASSERT_TRUE(smmu->enableStream(STREAM_1).isOk());

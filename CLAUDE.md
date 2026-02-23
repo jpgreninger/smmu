@@ -121,6 +121,12 @@ When the user says 'implement X' where X is a section or task number, always che
 
 **ABSOLUTE REQUIREMENT**: Test-Driven Development (TDD) or Test-Driven Debug (TDD) MUST ALWAYS be used when implementing any fix or feature. No code changes may be made without first writing a failing test that demonstrates the problem or missing behavior.
 
+Always write a high-quality, general-purpose solution using the standard tools available. Do not create helper scripts or workarounds to accomplish the task more efficiently. Implement a solution that works correctly for all valid inputs, not just the test cases. Do not hard-code values or create solutions that only work for specific test inputs. Instead, implement the actual logic that solves the problem generally.
+
+Focus on understanding the problem requirements and implementing the correct algorithm. Tests are there to verify correctness, not to define the solution. Provide a principled implementation that follows best practices and software design principles.
+
+If the task is unreasonable or infeasible, or if any of the tests are incorrect, inform me rather than working around them. The solution should be robust, maintainable, and extendable.
+
 #### Test-Driven Development (TDD) — for new features
 1. Write a failing test that asserts the desired behavior (test MUST fail before any implementation)
 2. Verify the test fails (build and run to confirm red state)

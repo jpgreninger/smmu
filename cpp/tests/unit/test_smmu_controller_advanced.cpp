@@ -72,6 +72,7 @@ TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisable
     config.translationEnabled = false;
     config.stage1Enabled = false;
     config.stage2Enabled = false;
+    config.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
 
     smmu->configureStream(TEST_STREAM_ID, config);
 

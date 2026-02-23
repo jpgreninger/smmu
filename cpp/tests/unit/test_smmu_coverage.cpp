@@ -361,6 +361,7 @@ TEST_F(SMMUCoverageTest, TwoStageTranslation_BypassMode) {
     bypassConfig.translationEnabled = false;
     bypassConfig.stage1Enabled = false;
     bypassConfig.stage2Enabled = false;
+    bypassConfig.bypassEnabled = true;  // STE.Config==0b100: bypass (identity PA==IOVA)
     bypassConfig.faultMode = FaultMode::Terminate;
 
     ASSERT_TRUE(smmuController->configureStream(TEST_STREAM_ID, bypassConfig).isOk());
