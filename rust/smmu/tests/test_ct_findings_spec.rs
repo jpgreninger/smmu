@@ -8,17 +8,17 @@
 //!
 //! Tests for findings from QA review:
 //! - CT-30: Missing Command Opcodes (§4.1.1)
-//! - CT-20: STE.STRW (StreamWorld) field (§5.2)
+//! - CT-20: `STE.STRW` (`StreamWorld`) field (§5.2)
 //! - CT-19: STE Output-Attribute Override Fields (§5.2)
 //! - CT-23: Stage-2 STE Translation Parameters (§5.2)
-//! - CT-14: CD.AA64 Field (§5.4)
-//! - CT-13: CD.T0SZ / CD.T1SZ Fields + C_BAD_CD Validation (§5.4)
-//! - CT-33: CR0.CMDQEN / CR0.EVENTQEN / CR0.PRIQEN Queue Enable Gates (§4.1.2, §7.2.1)
-//! - CT-09: STE.Config==0b000 must abort silently without event (§5.2)
+//! - CT-14: `CD.AA64` Field (§5.4)
+//! - CT-13: `CD.T0SZ` / `CD.T1SZ` Fields + `C_BAD_CD` Validation (§5.4)
+//! - CT-33: `CR0.CMDQEN` / `CR0.EVENTQEN` / `CR0.PRIQEN` Queue Enable Gates (§4.1.2, §7.2.1)
+//! - CT-09: `STE.Config==0b000` must abort silently without event (§5.2)
 
 use smmu::types::{
     AccessType, CommandEntry, CommandType, EventType, SecurityState, StreamConfig, StreamID, IOVA,
-    PASID, SMMUConfig,
+    PASID,
 };
 use smmu::SMMU;
 
@@ -63,7 +63,7 @@ fn test_all_spec_command_opcodes_present() {
     assert_eq!(CommandType::DptiPa as u8, 0x73);
 }
 
-/// New opcodes should be usable in CommandEntry
+/// New opcodes should be usable in `CommandEntry`
 #[test]
 fn test_new_opcodes_usable_in_command_entry() {
     let cmd = CommandEntry::new(CommandType::CfgiVmsPidm, 0, 0);
@@ -127,7 +127,7 @@ fn test_strw_field_present_in_stream_config() {
     assert_eq!(default_config.strw, StreamWorld::El1El0);
 }
 
-/// All StreamWorld variants must have correct repr values
+/// All `StreamWorld` variants must have correct repr values
 #[test]
 fn test_stream_world_repr_values() {
     assert_eq!(StreamWorld::El1El0 as u8, 0x00);
@@ -136,7 +136,7 @@ fn test_stream_world_repr_values() {
     assert_eq!(StreamWorld::El3 as u8, 0x03);
 }
 
-/// StreamWorld can be stored and retrieved round-trip
+/// `StreamWorld` can be stored and retrieved round-trip
 #[test]
 fn test_stream_world_round_trip_all_variants() {
     for variant in [
@@ -154,7 +154,7 @@ fn test_stream_world_round_trip_all_variants() {
 // CT-19: STE Output-Attribute Override Fields (§5.2)
 // ============================================================================
 
-/// §5.2 STE output attribute override fields present in StreamConfig
+/// §5.2 STE output attribute override fields present in `StreamConfig`
 #[test]
 fn test_ste_output_attribute_override_fields_present() {
     let config = StreamConfig::builder()
@@ -173,7 +173,7 @@ fn test_ste_output_attribute_override_fields_present() {
     assert!(config.mt_cfg);
 }
 
-/// §5.2 inst_cfg and priv_cfg fields present
+/// §5.2 `inst_cfg` and `priv_cfg` fields present
 #[test]
 fn test_ste_inst_cfg_priv_cfg_fields_present() {
     let config = StreamConfig::builder()
@@ -204,7 +204,7 @@ fn test_ste_output_attribute_fields_default_to_zero() {
 // CT-23: Stage-2 STE Translation Parameters (§5.2)
 // ============================================================================
 
-/// §5.2 Stage-2 STE translation parameters present in StreamConfig
+/// §5.2 Stage-2 STE translation parameters present in `StreamConfig`
 #[test]
 fn test_stage2_ste_parameters_present_in_stream_config() {
     let config = StreamConfig::builder()
@@ -263,7 +263,7 @@ fn test_stage2_ste_parameters_round_trip() {
 // CT-14: CD.AA64 Field (§5.4)
 // ============================================================================
 
-/// §5.4 CD.AA64 field present in StreamConfig
+/// §5.4 `CD.AA64` field present in `StreamConfig`
 #[test]
 fn test_aa64_field_present_in_stream_config() {
     let config = StreamConfig::builder().aa64(true).build().unwrap();
@@ -284,7 +284,7 @@ fn test_aa64_field_defaults_to_true() {
 // CT-13: CD.T0SZ / CD.T1SZ Fields + C_BAD_CD Validation (§5.4)
 // ============================================================================
 
-/// §5.4 T0SZ and T1SZ fields present in StreamConfig
+/// §5.4 `T0SZ` and `T1SZ` fields present in `StreamConfig`
 #[test]
 fn test_t0sz_t1sz_fields_present_in_stream_config() {
     let config = StreamConfig::builder()
@@ -307,7 +307,7 @@ fn test_t0sz_t1sz_default_values() {
     assert_eq!(config.t1sz, 16, "T1SZ must default to 16 (48-bit)");
 }
 
-/// §5.4 Out-of-range T0SZ (> 39) generates C_BAD_CD event
+/// §5.4 Out-of-range `T0SZ` (> 39) generates `C_BAD_CD` event
 #[test]
 fn test_out_of_range_t0sz_generates_c_bad_cd() {
     let smmu = make_smmu();
@@ -332,7 +332,7 @@ fn test_out_of_range_t0sz_generates_c_bad_cd() {
     );
 }
 
-/// §5.4 Out-of-range T1SZ (> 39) generates C_BAD_CD event
+/// §5.4 Out-of-range `T1SZ` (> 39) generates `C_BAD_CD` event
 #[test]
 fn test_out_of_range_t1sz_generates_c_bad_cd() {
     let smmu = make_smmu();
@@ -356,7 +356,7 @@ fn test_out_of_range_t1sz_generates_c_bad_cd() {
     );
 }
 
-/// §5.4 Valid T0SZ=39 (boundary) must NOT generate C_BAD_CD
+/// §5.4 Valid `T0SZ=39` (boundary) must NOT generate `C_BAD_CD`
 #[test]
 fn test_valid_t0sz_boundary_no_event() {
     let smmu = make_smmu();
@@ -390,7 +390,7 @@ fn test_command_queue_disabled_when_cmdqen_not_set() {
     // Submit a CFGI_ALL command
     let cmd = CommandEntry::new(CommandType::CfgiAll, 0, 0);
     smmu.submit_command(cmd).unwrap();
-    smmu.process_command_queue(); // should be no-op
+    let _ = smmu.process_command_queue(); // should be no-op
 
     // Verify command was not processed (queue should still have the entry)
     assert_eq!(
