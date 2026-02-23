@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-2418%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-2433%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-%3E95%25-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -16,13 +16,74 @@
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,418 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,433 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 17, 2026)**: Version 1.2.6 Released - **9 High-Severity Bug Fixes** resolving thread safety, security state correctness, and performance issues
+**🎯 Latest Update (February 23, 2026)**: Version 1.2.7 Released — **Sixth-Pass ARM IHI0070G.b Conformance Review** — 30+ additional findings resolved across both implementations. 2,433 tests passing (100%).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🏛️ ARM IHI0070G.b Conformance Fixes v1.2.7 (February 23, 2026)
+
+**30+ Conformance Findings Resolved — Sixth QA Pass**
+
+Comprehensive sixth-pass review of the ARM SMMU v3 IHI0070G.b specification covering security states, translation correctness, command queue semantics, event queue, TLB, and configuration. All findings applied to both Rust and C++ implementations.
+
+#### Security State & Permissions
+- ✅ **NEW-34**: Root (0x03) security state accepted in ASID/STE validation per §3.10
+- ✅ **NEW-35**: `AccessType::ReadWrite` (atomics) correctly maps to `read && write` per §3.24
+- ✅ **NEW-38**: Stage-1 ∩ Stage-2 permission intersection in `translate_two_stage()` per §3.3.1
+- ✅ **NEW-41**: Bypass path grants full RWX `PagePermissions` per §5.2 STE.Config==0b100
+- ✅ **FINDING-H-07**: `SecurityState` bit encoding corrected (NonSecure=0x00/Secure=0x01/Realm=0x02) per §3.10
+
+#### Translation Correctness
+- ✅ **NEW-15/16**: `STE.Config==0b000` aborts silently (no event); OAS check on bypass per §3.4/§7.3.7
+- ✅ **NEW-18**: `STE.S1DSS` field modeled; non-substream fallback routing (abort/bypass/CD[0]) per §3.9
+- ✅ **NEW-11**: `C_BAD_SUBSTREAMID` generated for stage-2-only/bypass with non-zero PASID per §7.3.5
+- ✅ **NEW-43**: Removed arbitrary IOVA heuristics from fault classifier per §7.3
+- ✅ **CT-13/14**: `CD.T0SZ`/`T1SZ` > 39 and `CD.AA64=false` generate `C_BAD_CD` per §5.4
+
+#### Command Queue
+- ✅ **FINDING-H-03/NEW-12**: `CMD_CFGI_CD` (0x05) and `CMD_CFGI_CD_ALL` (0x06) added per §4.3
+- ✅ **FINDING-H-05/NEW-08**: Full stall queue with STAG tracking; `CMD_RESUME`/`CMD_STALL_TERM` per §4.6
+- ✅ **NEW-04/10**: `CMD_RESUME` Ac/Ab parameters; STAG/StreamID match verification per §4.6
+- ✅ **NEW-05**: `CMD_CFGI_STE_RANGE` prefix-mask semantics per §4.3.2
+- ✅ **NEW-17**: `CommandEntry.leaf` field for `CMD_CFGI_STE`/`CMD_CFGI_CD` per §4.3.1
+- ✅ **NEW-22**: Queue-full sets `GERROR_CMDQ_ABT_ERR` instead of wrong event type per §3.5.1
+- ✅ **NEW-27**: `CMD_SYNC CS==0b00` (SIG_NONE) suppresses completion event per §4.8
+- ✅ **NEW-33**: `CMD_SYNC CS==0b11` (Reserved) generates `CERROR_ILL` per §4.8 Table 4-11
+- ✅ **CT-33**: `CR0.CMDQEN`/`EVENTQEN`/`PRIQEN` queue enable/disable gates per §4.1.2
+
+#### Event Queue & Faults
+- ✅ **FINDING-H-01**: All 15+ ARM §7.3 event type codes added
+- ✅ **FINDING-M-05**: `F_STREAM_DISABLED` (0x06) generated for disabled streams per §7.3.7
+- ✅ **FINDING-M-06**: `GERROR` register with `CMDQ_ERR`, `CMDQ_ABT_ERR`, `EVENTQ_ABT_ERR` per §6.3.17
+- ✅ **NEW-03/06**: Stall events survive event queue overflow; `EventEntry.stall` bit per §7.3
+- ✅ **NEW-02/07**: `C_BAD_STREAMID` event for unknown StreamID (both translation and command) per §7.3.3
+- ✅ **NEW-24**: `E_PAGE_REQUEST` uses stream security state, not hardcoded NonSecure per §7.3.20
+- ✅ **NEW-25/26**: TLB fast-path permission fault checks stall mode; stall event includes `STAG` per §7.3
+
+#### TLB Cache
+- ✅ **FINDING-M-04**: Access Flag (AF) and Dirty State (HD/HA) simulation per §3.24
+- ✅ **FINDING-M-02/03**: VMID and ASID added to TLB entries; targeted `CMD_TLBI_*` routing per §3.8/§3.17
+- ✅ **FINDING-M-09**: Range-based ATC invalidation for `CMD_ATC_INV` per §4.5.1
+- ✅ **NEW-37**: Non-spec time-based TLB eviction removed; entries valid until explicit TLBI per §3.16
+
+#### Queue Semantics & Config
+- ✅ **FINDING-H-08**: `SMMU_CR0.SMMUEN` global enable/disable; bypass path when disabled per §3.11
+- ✅ **NEW-01**: `GBPA.ABORT` path modeled for `SMMUEN=0` with `abort=true` per §3.11
+- ✅ **FINDING-M-01**: Circular queue PROD/CONS index semantics per §3.5.1
+- ✅ **FINDING-M-08**: PRG index tracking in `PRIEntry` for PRI/PRI_RESP matching per §3.13
+- ✅ **CT-04**: StreamID range validation per §6.3.4
+- ✅ **CT-19/20/23**: STE output-attribute override fields; `STE.STRW`; stage-2 parameters per §5.2
+
+**Test Results**:
+- ✅ **2,433 tests passing** (100% success rate — up from 2,239 at v1.2.1)
+- ✅ **Zero clippy warnings**
+- ✅ **Zero build warnings**
+
+---
 
 ### 🔒 Security & Correctness Fixes v1.2.6 (February 17, 2026)
 
@@ -476,19 +537,20 @@ This Rust implementation provides a complete, memory-safe, and performant SMMU v
 
 ### Latest Achievements
 
-**Documentation & Quality (February 2026)**:
-- Fixed 124 failing doctests (100% documentation quality)
-- Eliminated 15 compiler warnings (zero warnings achieved)
-- Configured loom concurrency testing support
-- Generated comprehensive test report (2,067 total tests)
-- Achieved 100% test success rate
+**ARM IHI0070G.b Conformance (February 2026)**:
+- Resolved 30+ conformance findings (NEW-01 through NEW-43, CT-04/09/13/14/19/20/23/30/33)
+- Sixth-pass QA review covering all ARM SMMU v3 specification sections
+- Stall model with STAG tracking, CMD_RESUME/CMD_STALL_TERM, CMD_CFGI_CD/CD_ALL
+- VMID/ASID TLB tagging and targeted CMD_TLBI_* invalidation
+- Access Flag / Dirty State simulation; circular queue PROD/CONS semantics
+- SMMU_CR0.SMMUEN global enable/disable with GBPA.ABORT bypass
+- 2,433 tests passing (100% success rate)
 
-**Compilation & Quality (January 2026)**:
-- Fixed 80 compilation errors (30 in examples, 50 in tests)
-- Auto-fixed 421 clippy warnings (79% reduction)
-- Achieved 0 warnings in library code
-- All 8 examples running successfully
-- 2,039 tests passing with 0 failures
+**Documentation & Quality (v1.2.1, February 2026)**:
+- Fixed 124 failing doctests (100% documentation quality)
+- Eliminated all compiler warnings (zero warnings)
+- Configured loom concurrency testing support
+- Achieved 100% test success rate
 
 **Feature System**:
 - Implemented flexible feature flag system (7 flags)
@@ -500,7 +562,7 @@ This Rust implementation provides a complete, memory-safe, and performant SMMU v
 - Library warnings: 0 (perfect!)
 - Compiler warnings: 0 (perfect!)
 - Build: Clean compilation
-- Tests: 2,039 passing, 0 failing
+- Tests: 2,433 passing, 0 failing
 - Doctests: 142 passing, 0 failing
 - Quality rating: ⭐⭐⭐⭐⭐ (5/5 stars)
 
@@ -744,7 +806,7 @@ The project follows strict coding standards:
 
 ## Production Quality Metrics
 
-### Quality Assurance Results (Updated February 1, 2026)
+### Quality Assurance Results (Updated February 23, 2026 — v1.2.7)
 
 **Static Analysis**:
 - ✅ Clippy (library): 0 warnings (pedantic mode, perfect!)
@@ -758,11 +820,10 @@ The project follows strict coding standards:
 - ✅ Licenses: 0 conflicts (MIT, Apache-2.0, Unicode-3.0 approved)
 - ✅ Dependencies: All from crates.io, no unmaintained crates
 
-**Testing** (Updated February 8, 2026):
-- ✅ Unit & Integration Tests: 1,897 passing, 0 failed, 5 ignored
-- ✅ Doctests: 142 passing, 0 failed, 23 ignored (compile-only)
+**Testing** (Updated February 23, 2026):
+- ✅ Total: 2,433 passing, 0 failed, 32 ignored
+- ✅ Doctests: 163 passing, 0 failed, 25 ignored (compile-only)
 - ✅ Advanced Tests: 63 passing (34 property + 29 concurrency), 0 failed
-- ✅ Total: 2,102 passing, 0 failed, 28 ignored
 - ✅ Test Scenarios: >170,000 (142,000+ property-based + exhaustive concurrency)
 - ✅ Success Rate: 100.00%
 - ✅ Examples: 8/8 running successfully
@@ -771,7 +832,7 @@ The project follows strict coding standards:
 - ✅ Execution Time: ~15-20 seconds total (including advanced tests)
 
 **Documentation Quality**:
-- ✅ Documentation examples: 142 tests, all passing
+- ✅ Documentation examples: 163 tests, all passing
 - ✅ API documentation: 100% public API documented
 - ✅ Example code: All examples compile and run
 - ✅ Copy-paste ready: All code examples verified working
@@ -785,7 +846,7 @@ The project follows strict coding standards:
 - ✅ Serde support: 34 types with optional serialization
 
 **Performance**:
-- ✅ Translation latency: 135ns average (500x better than 1μs target!)
+- ✅ Translation latency: 31ns single-thread, 74ns concurrent (hardware-exceeding)
 - ✅ Cache hit rate: >95% (typical workloads)
 - ✅ Scalability: 1000+ streams, 10,000+ PASIDs per stream
 - ✅ Memory efficiency: Sparse representation for large address spaces
@@ -839,7 +900,7 @@ See [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) for complete te
 
 ## Implementation Status
 
-**Current Status**: ✅ **VERSION 1.0.3 - 100% COMPLETE (Production-Ready)**
+**Current Status**: ✅ **VERSION 1.2.7 - 100% COMPLETE (Production-Ready)**
 
 **Implementation Phases (10 of 10 Complete)**:
 1. ✅ Project Setup and Infrastructure - 100%
@@ -960,4 +1021,4 @@ Dual-licensed under MIT OR Apache-2.0
 
 ---
 
-**Project Status**: Production Ready ✅ | **Version**: 1.2.5 | **Tests**: 2,239/2,239 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
+**Project Status**: Production Ready ✅ | **Version**: 1.2.7 | **Tests**: 2,433/2,433 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐

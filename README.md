@@ -4,7 +4,7 @@
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.5% (62 tests), Rust >95% (2,418 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.5% (62 tests), Rust >95% (2,433 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
 ## Production Features
 
@@ -29,8 +29,8 @@ A comprehensive, production-ready software model of the ARM System Memory Manage
 ### ✅ Production Quality
 - **C++11 strict compliance** with zero C++14/17/20 features and no external dependencies
 - **88.5% test coverage** (2,166/2,446 lines) with 5 of 6 components exceeding 93% coverage
-- **100% test success rate** (43/43 tests passing) with unit, integration, performance, and thread safety validation
-- **ARM SMMU v3 specification compliance** with complete functional requirements adherence
+- **100% test success rate** (62/62 tests passing) with unit, integration, performance, and thread safety validation
+- **Full ARM SMMU v3 IHI0070G.b compliance** — 80 conformance findings resolved across 6 QA passes
 - **Zero build warnings** with production-grade code quality (5/5 star rating)
 
 ## Quick Start
@@ -57,27 +57,27 @@ make -j$(nproc)
 ```bash
 cd cpp/build
 
-# Run all tests (43/43 tests, 100% success rate)
+# Run all tests (62/62 tests, 100% success rate)
 make test
 # or with detailed output
 ctest --output-on-failure
 
 # Run specific test suites
-make run_unit_tests           # Unit tests (35 tests)
+make run_unit_tests           # Unit tests (54 tests)
 make run_integration_tests    # Integration tests (5 tests)
 make run_performance_tests    # Performance benchmarks (3 tests)
 ```
 
 ### Performance Results
 
-**Hardware-Exceeding Performance** (v1.2.1):
+**Hardware-Exceeding Performance** (v1.2.7):
 - **Translation Latency**: 86-101ns (5x better than 500ns target, faster than hardware SMMU)
 - **TLB Cache Lookups**: 240-307ns (3x better than target)
 - **Mapping Operations**: 126-144ns (7x better than target)
 - **Throughput**: 10M+ translations/second per core
 - **Scalability**: True O(1) performance maintained (1.17x ratio from 100→10K pages)
 - **Cache Hit Rate**: 100% for typical access patterns
-- **Test Success**: 100% (43/43 tests passing)
+- **Test Success**: 100% (62/62 tests passing)
 
 ### Test Coverage
 
@@ -98,7 +98,7 @@ make run_performance_tests    # Performance benchmarks (3 tests)
 - ✅ 5 of 6 core components exceed 94% coverage
 - ✅ All critical paths and fault handlers thoroughly tested
 - ✅ Zero build warnings across entire codebase
-- ✅ 100% test success rate (51/51 tests passing)
+- ✅ 100% test success rate (62/62 tests passing)
 - ✅ Comprehensive edge case and boundary condition coverage
 - 🎉 **Phase 3: StreamContext improved from 27% to 95%** with 154 new test cases
   - PASID management error paths (15 tests)
@@ -230,15 +230,15 @@ if (result.success) {
 
 ---
 
-## 🦀 Rust Implementation - Production Ready v1.2.1
+## 🦀 Rust Implementation - Production Ready v1.2.7
 
 A high-performance, memory-safe Rust reimplementation of the ARM SMMU v3 with comprehensive testing, quality assurance, and world-class performance optimizations. Located in `rust/smmu/`.
 
-### ✅ **PRODUCTION READY v1.2.1** - Hardware-Exceeding Performance Achieved
+### ✅ **PRODUCTION READY v1.2.7** - Sixth-Pass Conformance Fixes
 
-**Quality Status**: ⭐⭐⭐⭐⭐ 5/5 Stars | **Clippy**: 0 warnings | **Tests**: 2,239/2,239 passing (100%) | **Performance**: 18.5ns concurrent, 37.7ns fastest | **Mutation Score**: 99.2%
+**Quality Status**: ⭐⭐⭐⭐⭐ 5/5 Stars | **Clippy**: 0 warnings | **Tests**: 2,433/2,433 passing (100%) | **Performance**: 18.5ns concurrent, 31ns single-thread | **Mutation Score**: 99.2%
 
-**Latest Update (February 13, 2026)**: Version 1.2.1 released with comprehensive clippy lint fixes and code quality improvements on top of v1.2.0's **sub-50ns translation latencies** - exceeding hardware SMMU performance targets
+**Latest Update (February 23, 2026)**: Version 1.2.7 released — sixth-pass ARM IHI0070G.b conformance review. 30+ additional findings resolved across both implementations (NEW-11/15–43, CT-04/09/13/14/19/20/23/30/33, M-01–10, H-01–08). 2,433 tests passing (100%).
 
 ### Production Achievements
 
@@ -264,14 +264,14 @@ A high-performance, memory-safe Rust reimplementation of the ARM SMMU v3 with co
 - **Thread-Safe**: Arc/RwLock for shared state, atomic statistics
 - **Memory Safety**: No buffer overflows, no use-after-free, no memory leaks
 
-#### 📊 Comprehensive Test Coverage (v1.0.2)
+#### 📊 Comprehensive Test Coverage (v1.2.7)
 
-**Overall Statistics (v1.1.0)**:
-- **Total Tests**: 2,239 tests (2,239 passing, 3 ignored - platform-specific)
+**Overall Statistics (v1.2.7)**:
+- **Total Tests**: 2,433 tests (2,433 passing, 32 ignored - platform-specific)
 - **Test Scenarios**: >170,000 test scenarios
 - **Pass Rate**: 100% (all runnable tests passing)
 - **Test Suites**: 55 suites (unit, integration, property-based, mutation, optimization, doc tests)
-- **Test Categories**: Unit (224), Integration (1,700+), Advanced (63), Optimization (23), Doc Tests (142)
+- **Test Categories**: Unit (224), Integration (1,700+), Advanced (63), Optimization (23), Doc Tests (163)
 - **Lines of Code**: ~10,000 source, ~16,000 tests
 - **Test Execution**: ~6-12 seconds (full suite with optimizations)
 - **Estimated Coverage**: >95%
@@ -286,9 +286,9 @@ Advanced Tests:           63 tests  ✅ 100% passing (property-based, stress, mu
   - QuickCheck:           20 tests  ✅ 2,000+ scenarios
   - Concurrency Stress:    9 tests  ✅ Multi-threaded workloads
   - Mutation Testing:     20 tests  ✅ 99.2% mutation score (151 mutants)
-Doc Tests:               142 tests  ✅ 100% passing (API examples)
+Doc Tests:               163 tests  ✅ 100% passing (API examples)
 Serde Tests:              15 tests  ✅ 100% passing (serialization)
-Ignored Tests:            28 tests  ⏸️  (platform/feature-gated)
+Ignored Tests:            32 tests  ⏸️  (platform/feature-gated)
 Examples:                  8 examples ✅ All compiling and running
 Benchmarks:                5 benchmarks ✅ All verified
 ```
@@ -343,7 +343,7 @@ cd rust/smmu
 # Production build
 cargo build --release
 
-# Run all tests (227 tests)
+# Run all tests (2,433 tests)
 cargo test --all-features
 
 # Run with specific test categories
@@ -460,15 +460,15 @@ match result {
 
 ### Rust vs C++ Comparison
 
-| Metric | Rust v1.2.0 | C++ v1.2.5 | Comparison |
+| Metric | Rust v1.2.7 | C++ v1.2.7 | Comparison |
 |--------|-------------|------------|------------|
-| **Translation Latency** | 37-41ns | 34-73ns | ✅ Rust (similar/better) |
+| **Translation Latency** | 31-74ns | 86-101ns | ✅ Rust (faster) |
 | **Memory Safety** | Guaranteed | Manual | ✅ Rust |
 | **Concurrency Safety** | Guaranteed | Manual | ✅ Rust |
-| **Test Count** | 2,102 | 43 | ✅ Rust (49x) |
+| **Test Count** | 2,433 | 62 | ✅ Rust (39x) |
 | **Test Scenarios** | >170,000 | ~500 | ✅ Rust (340x) |
-| **Test Suites** | 52 | 4 | ✅ Rust (13x) |
-| **Test Coverage** | >95% | 88.51% | ✅ Rust |
+| **Test Suites** | 55 | 4 | ✅ Rust (14x) |
+| **Test Coverage** | >95% | 88.5% | ✅ Rust |
 | **Mutation Testing** | 99.2% | N/A | ✅ Rust |
 | **CI/CD Automation** | Full | Manual | ✅ Rust |
 | **Cross-Platform** | 3 OS | 1 OS | ✅ Rust |
@@ -479,14 +479,14 @@ match result {
 | **Production Readiness** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⚖️ Equal |
 | **ARM SMMU v3 Compliance** | 100% | 100% | ⚖️ Equal |
 
-**Rust v1.2.0 Advantages**:
-- **Hardware-exceeding performance**: 37-41ns translation latency (comparable/better than C++)
+**Rust v1.2.7 Advantages**:
+- **Faster translation**: 31ns single-thread, 74ns concurrent (vs C++ 86-101ns)
 - **Outstanding concurrency**: 18.5ns per translation at 8 threads (4x speedup)
 - Memory safety guaranteed by compiler (no use-after-free, no buffer overflows)
 - Thread safety enforced at compile time (no data races possible)
 - Zero unsafe code throughout entire implementation (100% safe Rust)
 - Comprehensive error handling (Result-based, no exceptions)
-- 44x more tests (2,239 vs 51) with 100% success rate
+- 39x more tests (2,433 vs 62) with 100% success rate
 - 340x more test scenarios (>170,000 vs ~500) with property-based testing
 - Mutation testing with 99.2% score (catches 99.2% of bugs)
 - Full CI/CD automation (3 workflows, 20 jobs, zero manual testing)
@@ -508,20 +508,20 @@ match result {
 
 ### Rust Production Certification
 
-**✅ APPROVED FOR PRODUCTION v1.2.1** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
+**✅ APPROVED FOR PRODUCTION v1.2.7** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
 
 1. **Zero Clippy Warnings**: Pedantic mode with -D warnings passed ✅
 2. **Zero Security Vulnerabilities**: cargo-deny audit passed ✅
 3. **Zero License Conflicts**: All dependencies approved ✅
 4. **Zero Compiler Warnings**: Clean builds on stable Rust ✅
-5. **2,102 Tests Passing**: 100% success rate (2,102/2,102 runnable) ✅
+5. **2,433 Tests Passing**: 100% success rate (2,433/2,433 runnable) ✅
 6. **99.2% Mutation Score**: 129/130 mutants caught (industry-leading) ✅
 7. **>170,000 Test Scenarios**: Property-based testing with PropTest + QuickCheck ✅
 8. **Full CI/CD Pipeline**: 3 workflows, 20 jobs, automated testing ✅
 9. **Cross-Platform Verified**: Linux, Windows, macOS (5 targets) ✅
-10. **100% ARM SMMU v3 Compliance**: Full specification adherence ✅
+10. **100% ARM SMMU v3 Compliance**: Full specification adherence (30+ conformance findings resolved) ✅
 11. **Zero Unsafe Code**: 100% memory-safe implementation ✅
-12. **Comprehensive Documentation**: 100% public API + 142 doctests + 4 architecture diagrams ✅
+12. **Comprehensive Documentation**: 100% public API + 163 doctests + 4 architecture diagrams ✅
 
 **Quality Rating**: ⭐⭐⭐⭐⭐ (5/5 stars)
 
@@ -541,7 +541,7 @@ The repository is organized with separate directories for C++ and Rust implement
 
 ```
 ARM-SMMU-v3/
-├── cpp/                          # C++ Implementation (v1.2.5)
+├── cpp/                          # C++ Implementation (v1.2.7)
 │   ├── include/smmu/            # Public C++ headers
 │   ├── src/                     # C++ source files
 │   │   ├── address_space/
@@ -552,7 +552,7 @@ ARM-SMMU-v3/
 │   │   ├── stream_context/
 │   │   └── types/
 │   ├── tests/                   # C++ test suites
-│   │   ├── unit/               # Unit tests (35 tests)
+│   │   ├── unit/               # Unit tests (54 tests)
 │   │   ├── integration/        # Integration tests (5 tests)
 │   │   └── performance/        # Performance benchmarks (3 tests)
 │   ├── examples/               # C++ usage examples
@@ -567,7 +567,7 @@ ARM-SMMU-v3/
 │   ├── RELEASE_NOTES.md        # C++ release documentation
 │   └── COVERAGE_*.md           # C++ coverage reports
 │
-├── rust/                        # Rust Implementation (v1.0.2)
+├── rust/                        # Rust Implementation (v1.2.7)
 │   ├── smmu/                   # Rust crate
 │   │   ├── src/                # Rust source files
 │   │   │   ├── address_space/
@@ -578,7 +578,7 @@ ARM-SMMU-v3/
 │   │   │   ├── types/
 │   │   │   ├── prelude.rs
 │   │   │   └── lib.rs
-│   │   ├── tests/              # Rust test suites (52 suites, 2,102 tests)
+│   │   ├── tests/              # Rust test suites (55 suites, 2,433 tests)
 │   │   ├── benches/            # Rust benchmarks (6 categories)
 │   │   ├── examples/           # Rust examples (8 comprehensive)
 │   │   └── Cargo.toml          # Rust build configuration
@@ -613,16 +613,17 @@ Total: ~150K lines of code (C++ + Rust + tests + documentation)
 ### Key Directories
 
 **C++ Implementation (`cpp/`)**
-- Production-ready C++11 implementation v1.2.5
-- 88.5% test coverage, 43 tests, 100% passing
+- Production-ready C++11 implementation v1.2.7
+- 88.5% test coverage, 62 tests, 100% passing
 - Hardware-exceeding performance (86-101ns translation latency)
 - True O(1) scalability with optimized sparse data structures
+- Full ARM SMMU v3 IHI0070G.b compliance (80 conformance findings resolved)
 - Build: `./build.sh` or `cd cpp && cmake`
 - Zero external dependencies (STL only)
 
 **Rust Implementation (`rust/`)**
-- Production-ready Rust implementation v1.0.2
-- 2,102 tests passing (100% success rate)
+- Production-ready Rust implementation v1.2.7
+- 2,433 tests passing (100% success rate)
 - >170,000 test scenarios with property-based testing
 - 99.2% mutation testing score (industry-leading)
 - Full CI/CD automation with GitHub Actions
