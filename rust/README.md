@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-2433%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-2437%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-%3E95%25-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -16,13 +16,30 @@
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,433 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,437 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 23, 2026)**: Version 1.2.7 Released — **Sixth-Pass ARM IHI0070G.b Conformance Review** — 30+ additional findings resolved across both implementations. 2,433 tests passing (100%).
+**🎯 Latest Update (February 23, 2026)**: Version 1.2.7 + seventh-pass FINDING-NEW-44 fix — **`StreamConfig.security_state` added**; `ATC_INVALIDATE_COMPLETION`/`COMMAND_SYNC_COMPLETION` events now use stream's security state. Rust conformance ~99%. 2,437 tests passing (100%).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🔒 Security State Correctness Fix — FINDING-NEW-44 (February 23, 2026)
+
+**Seventh-pass conformance finding resolved**
+
+`ATC_INVALIDATE_COMPLETION` and `COMMAND_SYNC_COMPLETION` events were hardcoding `SecurityState::NonSecure` regardless of the stream's configured security state. This was a missed port of the C++ FINDING-NEW-39 fix.
+
+**Changes**:
+- ✅ Added `pub security_state: SecurityState` field to `StreamConfig` (default `NonSecure`, backward compatible)
+- ✅ Added `AtomicU8`-backed `security_state` getter/setter to `StreamContext`
+- ✅ `configure_stream()` now propagates `config.security_state` into the stream context
+- ✅ Both completion event handlers look up the stream's actual security state instead of hardcoding `NonSecure`
+- ✅ 4 new TDD tests in `test_new44_spec.rs` — Secure/Realm/NonSecure stream coverage
+
+**Result**: Rust conformance **~99%** (matching C++). 2,437 tests passing (100%), zero clippy warnings.
+
+---
 
 ### 🏛️ ARM IHI0070G.b Conformance Fixes v1.2.7 (February 23, 2026)
 
@@ -79,7 +96,7 @@ Comprehensive sixth-pass review of the ARM SMMU v3 IHI0070G.b specification cove
 - ✅ **CT-19/20/23**: STE output-attribute override fields; `STE.STRW`; stage-2 parameters per §5.2
 
 **Test Results**:
-- ✅ **2,433 tests passing** (100% success rate — up from 2,239 at v1.2.1)
+- ✅ **2,437 tests passing** (100% success rate — up from 2,239 at v1.2.1)
 - ✅ **Zero clippy warnings**
 - ✅ **Zero build warnings**
 
@@ -544,7 +561,7 @@ This Rust implementation provides a complete, memory-safe, and performant SMMU v
 - VMID/ASID TLB tagging and targeted CMD_TLBI_* invalidation
 - Access Flag / Dirty State simulation; circular queue PROD/CONS semantics
 - SMMU_CR0.SMMUEN global enable/disable with GBPA.ABORT bypass
-- 2,433 tests passing (100% success rate)
+- 2,437 tests passing (100% success rate)
 
 **Documentation & Quality (v1.2.1, February 2026)**:
 - Fixed 124 failing doctests (100% documentation quality)
@@ -562,7 +579,7 @@ This Rust implementation provides a complete, memory-safe, and performant SMMU v
 - Library warnings: 0 (perfect!)
 - Compiler warnings: 0 (perfect!)
 - Build: Clean compilation
-- Tests: 2,433 passing, 0 failing
+- Tests: 2,437 passing, 0 failing
 - Doctests: 142 passing, 0 failing
 - Quality rating: ⭐⭐⭐⭐⭐ (5/5 stars)
 
@@ -792,21 +809,21 @@ The project follows strict coding standards:
 - **No Memory Leaks**: RAII-based resource management
 - **Loom Verification**: Concurrency correctness verified
 
-### ARM SMMU v3 Compliance - 100%
+### ARM SMMU v3 Compliance - ~99%
 
 - ✅ Stream ID management (0 to 2^32-1)
 - ✅ PASID support (0 to 1,048,575, including PASID 0)
 - ✅ Two-stage translation (IPA → PA)
-- ✅ Security states (Secure, NonSecure, Realm/CCA)
+- ✅ Security states (Secure, NonSecure, Realm/Root per §3.10); per-stream state propagated to all event types (NEW-44)
 - ✅ Access types (Read, Write, Execute and combinations)
 - ✅ Comprehensive fault handling (all 15 fault types)
-- ✅ Event queue (recording and filtering)
+- ✅ Event queue (recording and filtering); completion events carry correct stream security state
 - ✅ Page Request Interface (PRI)
-- ✅ TLB caching (with invalidation)
+- ✅ TLB caching (with VMID/ASID-targeted invalidation)
 
 ## Production Quality Metrics
 
-### Quality Assurance Results (Updated February 23, 2026 — v1.2.7)
+### Quality Assurance Results (Updated February 23, 2026 — v1.2.7 + NEW-44)
 
 **Static Analysis**:
 - ✅ Clippy (library): 0 warnings (pedantic mode, perfect!)
@@ -821,7 +838,7 @@ The project follows strict coding standards:
 - ✅ Dependencies: All from crates.io, no unmaintained crates
 
 **Testing** (Updated February 23, 2026):
-- ✅ Total: 2,433 passing, 0 failed, 32 ignored
+- ✅ Total: 2,437 passing, 0 failed, 32 ignored
 - ✅ Doctests: 163 passing, 0 failed, 25 ignored (compile-only)
 - ✅ Advanced Tests: 63 passing (34 property + 29 concurrency), 0 failed
 - ✅ Test Scenarios: >170,000 (142,000+ property-based + exhaustive concurrency)
@@ -1021,4 +1038,4 @@ Dual-licensed under MIT OR Apache-2.0
 
 ---
 
-**Project Status**: Production Ready ✅ | **Version**: 1.2.7 | **Tests**: 2,433/2,433 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
+**Project Status**: Production Ready ✅ | **Version**: 1.2.7 | **Tests**: 2,437/2,437 passing (>170,000 scenarios) | **Warnings**: 0 | **Quality**: ⭐⭐⭐⭐⭐
