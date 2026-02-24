@@ -580,7 +580,9 @@ impl SMMU {
     #[inline]
     #[must_use]
     pub fn is_shutdown(&self) -> bool {
-        self.shutdown.load(Ordering::Relaxed)
+        // Pair with the AcqRel swap in shutdown() to ensure the write is visible.
+        // Relaxed is insufficient on weakly-ordered architectures (BUG-RUST-07).
+        self.shutdown.load(Ordering::Acquire)
     }
 
     /// Returns true when SMMU_CR0.SMMUEN is set (§6.3.9).
@@ -2211,6 +2213,9 @@ impl SMMU {
         }
         queue.push_back(event);
         self.event_count.fetch_add(1, Ordering::Relaxed);
+        // Safety (BUG-RUST-08): the write lock on `event_queue` is held for the entire
+        // method body, so no two callers can execute this load+store concurrently.
+        // A plain read-modify-write is therefore race-free and correct here.
         let prod = self.eventq_prod.load(Ordering::Relaxed);
         self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
         Ok(())
@@ -2652,8 +2657,10 @@ impl SMMU {
             // ARM §4.3.1: if the SID is unknown, this is a C_BAD_STREAMID error
             // that sets CMDQ_ERR and halts command queue processing (FINDING-M-06).
             CommandType::CfgiSte => {
-                if !self.streams.contains_key(&command.stream_id) && command.stream_id != 0 {
+                if !self.streams.contains_key(&command.stream_id) {
                     // Generate C_BAD_STREAMID event and set CMDQ_ERR
+                    // ARM §4.3.1: any unknown StreamID, including 0, must generate
+                    // C_BAD_STREAMID + GERROR_CMDQ_ERR (BUG-RUST-04).
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     let event = EventEntry {
                         event_type: EventType::CBadStreamid,
@@ -2671,7 +2678,7 @@ impl SMMU {
                         "CMD_CFGI_STE: unknown stream_id {}", command.stream_id
                     )));
                 }
-                // Known stream (or stream_id==0): no TLB state to flush in this model.
+                // Known stream: no TLB state to flush in this model.
             },
             // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (ARM §4.3.2):
             // Both use opcode 0x04 (CfgiAll); the `range` field distinguishes them.

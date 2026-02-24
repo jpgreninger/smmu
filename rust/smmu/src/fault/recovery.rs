@@ -214,7 +214,9 @@ impl FaultRecovery {
         match strategy {
             RecoveryStrategy::Retry { max_attempts } => {
                 state.retry_count += 1;
-                if state.retry_count >= max_attempts {
+                // BUG-RUST-05: use `>` so that Unrecoverable is returned only after
+                // max_attempts retries have been exhausted, not after max_attempts - 1.
+                if state.retry_count > max_attempts {
                     RecoveryResult::Unrecoverable
                 } else {
                     RecoveryResult::Retry
@@ -336,12 +338,16 @@ impl FaultRecovery {
     }
 
     /// Generates a unique key for a fault
+    ///
+    /// Includes fault_type so that two different fault types at the same address
+    /// do not share recovery state (BUG-RUST-09).
     fn fault_key(fault: &FaultRecord) -> String {
         format!(
-            "{:x}:{:x}:{:x}",
+            "{:x}:{:x}:{:x}:{:?}",
             fault.stream_id().as_u32(),
             fault.pasid().as_u32(),
-            fault.address().as_u64()
+            fault.address().as_u64(),
+            fault.fault_type()
         )
     }
 
@@ -397,11 +403,13 @@ mod tests {
 
         let strategy = RecoveryStrategy::Retry { max_attempts: 3 };
 
-        // First two attempts should retry
+        // First three attempts should all retry (retry_count 1, 2, 3 — all <= max_attempts).
+        // BUG-RUST-05 fix: Unrecoverable is returned only after max_attempts retries exhausted.
+        assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Retry);
         assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Retry);
         assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Retry);
 
-        // Third attempt should be unrecoverable
+        // Fourth attempt: retry_count (4) > max_attempts (3) → Unrecoverable.
         assert_eq!(recovery.attempt_recovery(&fault, strategy), RecoveryResult::Unrecoverable);
     }
 

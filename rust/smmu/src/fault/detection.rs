@@ -134,15 +134,18 @@ impl TranslationFaultDetector {
         stage: TranslationStage,
         fault_level: u8,
     ) -> FaultRecord {
-        // Include stage information in syndrome
+        // Include stage information in syndrome.
+        // BUG-RUST-06: Stage-2 indicator is bit 7 (0x80), matching the C++ reference
+        // implementation (smmu.cpp ~line 2328).  The previous value of 0x0100_0000 was
+        // the same as the base fault-class bits, making Stage-1 and Stage-2 syndromes
+        // identical.
         let stage_bits = match stage {
-            TranslationStage::Stage1 => 0x0000_0000,
-            TranslationStage::Stage2 => 0x0100_0000,
-            _ => 0x0000_0000,
+            TranslationStage::Stage2 => 0x0000_0080u32,  // bit 7 = Stage-2 indicator
+            _ => 0x0000_0000u32,                          // Stage-1 / other: no extra bits
         };
 
         let syndrome = FaultSyndrome::builder()
-            .syndrome_register(0x0100_0000 | stage_bits | (u32::from(fault_level) << 16))
+            .syndrome_register(0x0100_0000u32 | stage_bits | (u32::from(fault_level) << 16))
             .fault_level(fault_level)
             .write_not_read(access_type == AccessType::Write)
             .valid_syndrome(true)

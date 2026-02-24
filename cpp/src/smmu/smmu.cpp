@@ -162,9 +162,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // §6.3.4 / CT-04: SMMU_STRTAB_BASE_CFG.LOG2SIZE StreamID range check.
     // When strtabLog2Size_ < 32, reject StreamIDs >= 2^strtabLog2Size_.
+    // BUG-CPP-01 fix: use 64-bit shift to avoid UB when log2size approaches 32;
+    // compare against uint64_t to safely accommodate all uint32_t StreamID values.
     if (strtabLog2Size_ < 32u) {
-        uint32_t limit = 1u << strtabLog2Size_;
-        if (streamID >= limit) {
+        uint64_t limit = (uint64_t)1u << strtabLog2Size_;
+        if (static_cast<uint64_t>(streamID) >= limit) {
             generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidStreamID);
         }
@@ -1048,18 +1050,22 @@ TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, I
 }
 
 void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const {
-    // Generate a unique cache key combining StreamID, PASID, IOVA, and SecurityState
-    // This is used internally by TLBCache, but provided for completeness
-    // BUG-16 fix: previous layout had securityState<<20 overlapping with
-    // pasid<<12 in bits [21:20].  Collision-free layout:
-    //   bits [63:32] = streamID      (32 bits)
-    //   bits [31:12] = pasid         (20 bits, max 0xFFFFF)
-    //   bits [11:10] = securityState (2 bits; values 0, 1, 2)
-    //   bits [9:0]   = iova low      (10 bits)
-    cacheKey = (static_cast<uint64_t>(streamID) << 32) |
-               (static_cast<uint64_t>(pasid) << 12) |
-               (static_cast<uint64_t>(securityState) << 10) |
-               (iova & 0x3FFULL);
+    // Generate a unique cache key combining StreamID, PASID, IOVA, and SecurityState.
+    // BUG-CPP-06 fix: the previous layout captured only the low 10 bits of the IOVA,
+    // causing false cache hits for addresses that share the same low 10 bits but differ
+    // in page number.  Use XOR with the page-aligned IOVA (iova >> 12) so that every
+    // distinct page number produces a distinct contribution to the key.
+    //
+    // Layout (XOR composition — no strict bit-field constraints needed for a hash key):
+    //   base : bits [63:32] = streamID (32 bits)
+    //          bits [31:12] = pasid & 0xFFFFF (20 bits)
+    //          bits [11: 0] = 0
+    //   XOR  : securityState (2-bit enum value, sits in low bits)
+    //   XOR  : iova >> 12   (page-frame number, up to 52 bits for a 64-bit address)
+    cacheKey = (static_cast<uint64_t>(streamID) << 32) ^
+               (static_cast<uint64_t>(pasid & 0xFFFFFu) << 12) ^
+               static_cast<uint64_t>(securityState) ^
+               (iova >> 12);
 }
 
 // Task 5.2: Enhanced stage-specific translation methods
@@ -2130,6 +2136,11 @@ uint32_t SMMU::getCR0() const {
 
 // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
 void SMMU::setStrtabLog2Size(uint8_t log2size) {
+    // BUG-CPP-01 fix: clamp to 32 — values > 32 would produce UB shifts and
+    // have no valid meaning (StreamID is 32 bits, so 2^32 covers the full range).
+    if (log2size > 32u) {
+        log2size = 32u;
+    }
     strtabLog2Size_ = log2size;
 }
 
@@ -2264,23 +2275,25 @@ void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, Access
 }
 
 bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState contextState) const {
-    // ARM SMMU v3 spec: Security state validation logic
-    // NonSecure can only access NonSecure resources
-    // Secure can access both Secure and NonSecure resources
-    // Realm has its own isolated context
-    
+    // ARM SMMU v3 spec §3.10: Security state validation logic.
+    // Each security domain is strictly isolated; a requestor may only access
+    // resources mapped in its own security domain.
+    // BUG-CPP-08 fix: Secure requestors must NOT access NonSecure mappings —
+    // allowing it violates TrustZone isolation.  Only Root may cross boundaries.
+
     switch (requestedState) {
         case SecurityState::NonSecure:
             return contextState == SecurityState::NonSecure;
 
         case SecurityState::Secure:
-            return (contextState == SecurityState::Secure || contextState == SecurityState::NonSecure);
+            // §3.10: Secure transactions may only target Secure PA space.
+            return (contextState == SecurityState::Secure);
 
         case SecurityState::Realm:
             return contextState == SecurityState::Realm;
 
         case SecurityState::Root:
-            // Root (SMMUv3.3 RME §3.10) can access all PA spaces
+            // Root (SMMUv3.3 RME §3.10) can access all PA spaces.
             return true;
 
         default:
@@ -2410,18 +2423,28 @@ FaultStage SMMU::determineFaultStage(const StreamConfig& config, FaultType fault
 }
 
 PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityState securityState) const {
-    // Determine privilege level based on security state and access pattern
-    if (securityState == SecurityState::Secure) {
-        return PrivilegeLevel::EL3;  // Secure monitor level
-    } else if (securityState == SecurityState::Realm) {
-        return PrivilegeLevel::EL2;  // Realm management level
-    } else {
-        // NonSecure state - determine based on access type
-        if (accessType == AccessType::Execute) {
-            return PrivilegeLevel::EL0;  // User level execution
-        } else {
-            return PrivilegeLevel::EL1;  // Kernel level access
-        }
+    // TODO(BUG-CPP-09): Privilege level should be a transaction attribute supplied
+    // by the initiating master (ARM SMMU v3 §3.6 STREAM_WORLD / AxPROT[1]).
+    // This is a heuristic approximation only; accurate privilege level requires the
+    // initiating master to supply it as part of the transaction descriptor.
+    //
+    // Previous behaviour mapped Secure→EL3 unconditionally, which is wrong for
+    // Secure EL1/EL2 software (OS drivers, hypervisors running in the Secure world).
+    // Root is the only state that genuinely implies EL3 (monitor/firmware).
+    // Realm management extensions use EL2; all other worlds default to EL1 for data
+    // and EL0 for instruction fetches (most DMA originates from OS/driver level).
+    switch (securityState) {
+        case SecurityState::Root:
+            return PrivilegeLevel::EL3;
+        case SecurityState::Realm:
+            return PrivilegeLevel::EL2;
+        case SecurityState::Secure:
+        case SecurityState::NonSecure:
+        default:
+            // DMA typically originates from EL1 (OS drivers) or EL0 (userspace).
+            // Return EL1 as the safest general-purpose default.
+            return (accessType == AccessType::Execute) ? PrivilegeLevel::EL0
+                                                       : PrivilegeLevel::EL1;
     }
 }
 
