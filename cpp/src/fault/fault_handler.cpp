@@ -77,6 +77,11 @@ void FaultHandler::clearEvents() {
     eventQueue.clear();
     faultTypeCounters.clear();
     accessTypeCounters.clear();
+    // BUG-NEW-12 fix: reset atomic counters so getTotalFaultCount() agrees
+    // with getEventCount() (both zero) after clearEvents().
+    totalFaults.store(0u, std::memory_order_relaxed);
+    translationFaults.store(0u, std::memory_order_relaxed);
+    permissionFaults.store(0u, std::memory_order_relaxed);
 }
 
 void FaultHandler::clearFaults() {

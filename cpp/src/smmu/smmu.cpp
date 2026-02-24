@@ -167,6 +167,17 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if (strtabLog2Size_ < 32u) {
         uint64_t limit = (uint64_t)1u << strtabLog2Size_;
         if (static_cast<uint64_t>(streamID) >= limit) {
+            // BUG-NEW-01 fix: record fault so getTotalFaultCount() stays consistent
+            // with the C_BAD_STREAMID event, mirroring the streamMap-miss path below.
+            FaultRecord fault;
+            fault.streamID = streamID;
+            fault.pasid = pasid;
+            fault.address = iova;
+            fault.faultType = FaultType::BadStreamID;
+            fault.accessType = accessType;
+            fault.securityState = securityState;
+            fault.timestamp = currentTime;
+            recordFault(fault);
             generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidStreamID);
         }
@@ -253,7 +264,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // If the stream is configured for stall, enqueue a StallRecord and return
         // Stalled instead of the original error — software must issue CMD_RESUME.
         bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall);
-        if (inStallMode) {
+        // BUG-NEW-02 fix: ARM §3.12.2 — configuration-class faults must always
+        // abort immediately and must never be stalled.  Only F_TRANSLATION,
+        // F_PERMISSION, and F_ADDR_SIZE are eligible for stall mode.
+        bool isConfigFault = (result.getError() == SMMUError::InvalidPASID         ||
+                              result.getError() == SMMUError::StreamDisabled        ||
+                              result.getError() == SMMUError::ConfigurationError    ||
+                              result.getError() == SMMUError::InvalidConfiguration  ||
+                              result.getError() == SMMUError::StreamNotConfigured);
+        if (inStallMode && !isConfigFault) {
             // §3.12.2 / FINDING-NEW-26: STAG=0 is reserved; skip it so that
             // EventEntry.stag is always non-zero for genuine stall events.
             // BUG-CPP-03 fix: Allocate STAG under stallQueueMutex_ and check for
@@ -1626,7 +1645,7 @@ void SMMU::processCommandQueue() {
         cmdqCons = advanceQueueIndex(cmdqCons, cmdqLog2Size);
 
         // Process the command based on type
-        processCommand(command);
+        processCommand(command, lock);
 
         // ARM SMMU v3 spec: Handle synchronization commands
         if (command.type == CommandType::SYNC) {
@@ -1638,6 +1657,9 @@ void SMMU::processCommandQueue() {
                 illFault.pasid = command.pasid;
                 illFault.faultType = FaultType::ConfigurationCacheFault;
                 recordFault(illFault);
+                // BUG-NEW-04 fix: set GERROR.CMDQ_ERR so software can detect
+                // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
+                gerrorStatus |= GERROR_CMDQ_ERR;
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
@@ -1754,6 +1776,8 @@ void SMMU::processPRIQueue() {
         if (submitCommand(response)) {
             // Successfully submitted response
             priQueue.pop_front();
+            // BUG-NEW-03 fix: advance consumer index to match the dequeue.
+            priqCons = advanceQueueIndex(priqCons, priqLog2Size);
         } else {
             // Command queue full - retry later
             break;
@@ -1997,36 +2021,162 @@ void SMMU::executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA st
     }
 }
 
+// BUG-NEW-09 fix: executeInvalidationCommandLocked is the internal version of
+// executeInvalidationCommand used when queueMutex is already held by
+// processCommandQueue.  For code paths that acquire stripe locks (CFGI_STE_RANGE,
+// ATC_INV), it releases queueMutex first to maintain the lock ordering invariant:
+// stripe_lock must never be acquired while queueMutex is held.
+void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock) {
+    // ARM SMMU v3 spec: Execute cache invalidation commands (called with queueMutex held)
+    switch (command.type) {
+        case CommandType::CFGI_STE:
+            // Stream Table Entry invalidation - invalidate specific stream
+            invalidateStreamCache(command.streamID);
+            break;
+
+        case CommandType::CFGI_ALL:
+            // ARM §4.3.2: CMD_CFGI_ALL (range==31) or CMD_CFGI_STE_RANGE (range<31).
+            // NOTE: shifting uint32_t by 32 bits is UB, so range==31 is handled separately.
+            if (command.range == 31) {
+                // CMD_CFGI_ALL — full global STE-cache / TLB invalidation
+                invalidateTranslationCache();
+            } else {
+                // CMD_CFGI_STE_RANGE — invalidate only streams matching the upper-bit prefix.
+                uint32_t prefixBits = static_cast<uint32_t>(command.range) + 1u;
+                StreamID cmdPrefix = command.streamID >> prefixBits;
+
+                // BUG-NEW-09 fix: release queueMutex before acquiring all stripe locks.
+                // Lock ordering invariant: stripe locks must never be acquired while
+                // queueMutex is held (ABBA deadlock with translate()).
+                queueLock.unlock();
+                {
+                    std::vector<std::unique_lock<std::mutex>> rangeLocks;
+                    rangeLocks.reserve(NUM_STREAM_STRIPES);
+                    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+                        rangeLocks.emplace_back(streamLockStripes[i]);
+                    }
+                    for (const auto& pair : streamMap) {
+                        if ((pair.first >> prefixBits) == cmdPrefix) {
+                            invalidateStreamCache(pair.first);
+                        }
+                    }
+                } // rangeLocks released here (RAII)
+                queueLock.lock();
+            }
+            break;
+
+        case CommandType::CFGI_CD:
+            // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
+            invalidatePASIDCache(command.streamID, command.pasid);
+            break;
+
+        case CommandType::CFGI_CD_ALL:
+            // ARM §4.3.4: Invalidate all cached CDs for StreamID.
+            invalidateStreamCache(command.streamID);
+            break;
+
+        case CommandType::TLBI_NH_ALL:
+        case CommandType::TLBI_NH_ASID:
+        case CommandType::TLBI_NH_VA:
+        case CommandType::TLBI_NH_VAA:
+        case CommandType::TLBI_EL2_ALL:
+        case CommandType::TLBI_EL2_ASID:
+        case CommandType::TLBI_EL2_VA:
+        case CommandType::TLBI_EL2_VAA:
+        case CommandType::TLBI_S12_VMALL:
+        case CommandType::TLBI_S2_IPA:
+        case CommandType::TLBI_NSNH_ALL:
+            // TLB invalidation commands
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            break;
+
+        case CommandType::ATC_INV: {
+            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
+            executeATCInvalidationCommand(command.streamID, command.pasid,
+                                        command.startAddress, command.endAddress);
+            // FINDING-NEW-39: derive security state from the stream config.
+            // Release queueMutex before acquiring the stripe lock (same ABBA concern).
+            SecurityState atcEventSecState = SecurityState::NonSecure;
+            {
+                size_t atcStripe = getStreamStripe(command.streamID);
+                queueLock.unlock();
+                {
+                    std::lock_guard<std::mutex> atcLock(streamLockStripes[atcStripe]);
+                    auto atcIt = streamMap.find(command.streamID);
+                    if (atcIt != streamMap.end()) {
+                        atcEventSecState = atcIt->second->getStreamConfiguration().securityState;
+                    }
+                }
+                queueLock.lock();
+            }
+            generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
+                          command.startAddress, atcEventSecState);
+            break;
+        }
+
+        // §4.1.1 / CT-30: Additional TLB invalidation commands
+        case CommandType::TLBI_EL3_ALL:
+        case CommandType::TLBI_EL3_VA:
+        case CommandType::TLBI_S_EL2_ALL:
+        case CommandType::TLBI_S_EL2_ASID:
+        case CommandType::TLBI_S_EL2_VA:
+        case CommandType::TLBI_S_EL2_VAA:
+        case CommandType::TLBI_S_S12_VMALL:
+        case CommandType::TLBI_S_S2_IPA:
+        case CommandType::TLBI_SNH_ALL:
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            break;
+
+        default:
+            // Invalid invalidation command
+            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            break;
+    }
+}
+
 // Task 5.3: Helper Methods
-void SMMU::processCommand(const CommandEntry& command) {
+// BUG-NEW-08 fix: processCommand accepts queueLock so it can temporarily release
+// queueMutex before acquiring stripe locks (CFGI_STE case), preventing the ABBA
+// deadlock with translate() which holds stripe_lock -> queueMutex.
+void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock) {
     // ARM SMMU v3 spec: Process individual command based on type
     switch (command.type) {
         case CommandType::PREFETCH_CONFIG:
             // Configuration prefetch - ARM SMMU v3 optimization
             // Could implement stream table entry prefetching
             break;
-            
+
         case CommandType::PREFETCH_ADDR:
             // Address prefetch - ARM SMMU v3 optimization
             // Could implement translation prefetching for specific addresses
             break;
-            
+
         case CommandType::CFGI_STE: {
             // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE with an unknown StreamID
             // (not present in the stream table) must generate C_BAD_STREAMID and
             // set GERROR.CMDQ_ERR, per §4.3.1.
-            size_t cfgiStripe = getStreamStripe(command.streamID);
+            // BUG-NEW-08 fix: release queueMutex before acquiring the stripe lock.
+            // Lock ordering invariant: stripe_lock must never be acquired while
+            // queueMutex is held (translate() holds stripe_lock and then acquires
+            // queueMutex via generateEvent(), creating an ABBA deadlock otherwise).
+            bool streamFound = false;
             {
-                std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
-                if (streamMap.find(command.streamID) == streamMap.end()) {
-                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                                  command.startAddress, SecurityState::NonSecure);
-                    gerrorStatus |= GERROR_CMDQ_ERR;
-                    break;
+                size_t cfgiStripe = getStreamStripe(command.streamID);
+                queueLock.unlock();
+                {
+                    std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
+                    streamFound = (streamMap.find(command.streamID) != streamMap.end());
                 }
+                queueLock.lock();
             }
-            // Known StreamID — proceed with normal STE cache invalidation
-            executeInvalidationCommand(command);
+            if (!streamFound) {
+                generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
+                              command.startAddress, SecurityState::NonSecure);
+                gerrorStatus |= GERROR_CMDQ_ERR;
+                break;
+            }
+            // Known StreamID — proceed with normal STE cache invalidation.
+            executeInvalidationCommandLocked(command, queueLock);
             break;
         }
 
@@ -2046,7 +2196,7 @@ void SMMU::processCommand(const CommandEntry& command) {
         case CommandType::TLBI_NSNH_ALL:
         case CommandType::ATC_INV:
             // Cache invalidation commands
-            executeInvalidationCommand(command);
+            executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::PRI_RESP: {
@@ -2099,7 +2249,7 @@ void SMMU::processCommand(const CommandEntry& command) {
             }
             break;
         }
-            
+
         case CommandType::SYNC:
             // Synchronization barrier
             // ARM SMMU v3 spec: Ensure command ordering and completion
@@ -2122,7 +2272,7 @@ void SMMU::processCommand(const CommandEntry& command) {
         case CommandType::TLBI_S_S2_IPA:
         case CommandType::TLBI_SNH_ALL:
             // TLB invalidation commands: delegate to TLB invalidation handler.
-            executeInvalidationCommand(command);
+            executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::DPTI_ALL:
@@ -2132,8 +2282,10 @@ void SMMU::processCommand(const CommandEntry& command) {
 
         default:
             // Unknown command type — ARM §6.3.17: set CMDQ_ERR (FINDING-M-06)
+            // BUG-NEW-05 fix: do not generate C_BAD_STE — the spec defines no
+            // event type for "unknown command opcode".  GERROR.CMDQ_ERR is the
+            // correct signal to software.
             gerrorStatus |= GERROR_CMDQ_ERR;
-            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
             break;
     }
 }
@@ -2343,11 +2495,10 @@ SecurityState SMMU::determineContextSecurityState(StreamID streamID, PASID pasid
     if (streamIt == streamMap.end()) {
         return SecurityState::NonSecure;  // Default for unconfigured streams
     }
-    
-    // For now, return NonSecure as default
-    // In a complete implementation, this would check stream table entries
-    // and PASID configuration to determine the appropriate security state
-    return SecurityState::NonSecure;
+
+    // BUG-NEW-07 fix: return the stream's actual configured security state
+    // rather than always returning NonSecure.
+    return streamIt->second->getStreamConfiguration().securityState;
 }
 
 // ARM SMMU v3 Comprehensive Fault Syndrome Generation Methods

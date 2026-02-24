@@ -1573,24 +1573,7 @@ impl SMMU {
         // Update statistics
         self.total_translations.0.fetch_add(1, Ordering::Relaxed);
 
-        // Fast path: TLB cache lookup (check cache BEFORE shutdown to save 1-2ns)
-        // Functionally safe: cached translations from before shutdown are still valid
-        let cache_key = CacheKey::new(stream_id, pasid, iova, security_state);
-        if let Some(cached) = self.tlb_cache.lookup(&cache_key) {
-            // Verify cached entry allows the requested access type
-            if cached.permissions.allows(access) {
-                self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
-                // Return translation data from cache
-                return Ok(crate::types::TranslationData::new(
-                    cached.physical_address,
-                    cached.permissions,
-                    cached.security_state,
-                ));
-            }
-            // Cache hit but insufficient permissions - fall through to full translation
-        }
-
-        // Check shutdown state (after cache check for better performance).
+        // Check shutdown state first.
         // Return early without recording a fault — a shutdown is not a translation
         // fault. StreamNotConfigured is used because TranslationError has no
         // shutdown-specific variant; callers can distinguish it via SMMU::is_shutdown().
@@ -1624,6 +1607,24 @@ impl SMMU {
                 crate::types::PagePermissions::all(),
                 security_state,
             ));
+        }
+
+        // BUG-NEW-10 fix: TLB cache must only be consulted when SMMUEN=1; per ARM §6.3.9
+        // when SMMUEN=0 all translations must bypass/abort regardless of cached state.
+        // Fast path: TLB cache lookup (only reached when SMMU is enabled and not shut down).
+        let cache_key = CacheKey::new(stream_id, pasid, iova, security_state);
+        if let Some(cached) = self.tlb_cache.lookup(&cache_key) {
+            // Verify cached entry allows the requested access type
+            if cached.permissions.allows(access) {
+                self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+                // Return translation data from cache
+                return Ok(crate::types::TranslationData::new(
+                    cached.physical_address,
+                    cached.permissions,
+                    cached.security_state,
+                ));
+            }
+            // Cache hit but insufficient permissions - fall through to full translation
         }
 
         // Slow path: TLB cache miss - perform full page table walk
@@ -1688,7 +1689,10 @@ impl SMMU {
                                 }
                             }
                         }
-                        return Err(TranslationError::InvalidPASID);
+                        // BUG-NEW-11 fix: C_BAD_CD is a configuration fault (ARM §3.12.2);
+                        // must always abort — never stalled. Use BadSubstreamId so the
+                        // stall-mode filter correctly excludes it.
+                        return Err(TranslationError::BadSubstreamId);
                     }
                 }
 

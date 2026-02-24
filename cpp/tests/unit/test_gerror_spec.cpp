@@ -90,7 +90,9 @@ TEST_F(GErrorTest, CmdqErrSetOnUnknownCommandType) {
         << "GERROR.CMDQ_ERR must be set after processing an unknown command type";
 }
 
-/// §7.3.x: C_BAD_STE event must be generated alongside CMDQ_ERR.
+/// BUG-NEW-05 fix: ARM §6.3.17 defines no event for "unknown command opcode".
+/// Only GERROR.CMDQ_ERR is set; no C_BAD_STE event is generated.
+/// The event queue must be empty after processing an unknown command type.
 TEST_F(GErrorTest, CBadSteEventGeneratedWithCmdqErr) {
     CommandEntry badCmd;
     badCmd.type = static_cast<CommandType>(0xFE);
@@ -104,6 +106,13 @@ TEST_F(GErrorTest, CBadSteEventGeneratedWithCmdqErr) {
     smmu->submitCommand(badCmd);
     smmu->processCommandQueue();
 
+    // ARM §6.3.17: GERROR.CMDQ_ERR must be set for unknown command opcodes.
+    EXPECT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "GERROR.CMDQ_ERR must be set for unknown command type";
+
+    // ARM spec defines no event type for unknown command opcode — the event
+    // queue must NOT contain a C_BAD_STE entry (that event type is for
+    // malformed stream table entries, not unknown command opcodes).
     auto events = smmu->getEventQueue();
     bool hasBadSte = false;
     for (const auto& ev : events) {
@@ -112,7 +121,7 @@ TEST_F(GErrorTest, CBadSteEventGeneratedWithCmdqErr) {
             break;
         }
     }
-    EXPECT_TRUE(hasBadSte) << "C_BAD_STE event must be in the event queue";
+    EXPECT_FALSE(hasBadSte) << "No C_BAD_STE event should be generated for unknown command opcode";
 }
 
 // ── §6.3.18: clearGerror — SMMU_GERRORN semantics ──────────────────────────

@@ -1350,8 +1350,10 @@ TEST_F(SMMUTest, ComprehensiveEventManagement) {
     events = eventsUpdateResult.getValue();
     EXPECT_EQ(events.size(), 0);
     
-    // Verify statistics still work after event clearing
-    EXPECT_GT(smmuController->getTotalFaults(), 0);
+    // BUG-NEW-12 fix: clearEvents() now resets atomic fault counters to zero
+    // so that getTotalFaultCount() agrees with getEventCount() (both zero).
+    // getTotalFaults() must be 0 after clearEvents().
+    EXPECT_EQ(smmuController->getTotalFaults(), 0u);
     EXPECT_GT(smmuController->getTotalTranslations(), 0);
 }
 

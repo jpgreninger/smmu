@@ -336,7 +336,11 @@ private:
     void handleAccessFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);
     
     // Task 5.3: Helper methods for event and command processing
-    void processCommand(const CommandEntry& command);
+    // BUG-NEW-08/09 fix: processCommand and the internal executeInvalidationCommand
+    // overload accept a queueLock reference so they can temporarily release
+    // queueMutex before acquiring stripe locks, preventing ABBA deadlock.
+    void processCommand(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock);
+    void executeInvalidationCommandLocked(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock);
     void generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                        SecurityState securityState = SecurityState::NonSecure, bool isStall = false,
                        uint16_t stag = 0);
