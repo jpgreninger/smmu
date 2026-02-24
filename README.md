@@ -4,7 +4,7 @@
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.5% (62 tests), Rust >95% (2,437 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (62 tests), Rust 94.72% lines / 93.53% functions (2,437 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
 ## Production Features
 
@@ -28,7 +28,7 @@ A comprehensive, production-ready software model of the ARM System Memory Manage
 
 ### ✅ Production Quality
 - **C++11 strict compliance** with zero C++14/17/20 features and no external dependencies
-- **88.5% test coverage** (2,166/2,446 lines) with 5 of 6 components exceeding 93% coverage
+- **90.9% line coverage** (3,240/3,563) | **96.2% function coverage** (432/449) — measured 2026-02-23
 - **100% test success rate** (62/62 tests passing) with unit, integration, performance, and thread safety validation
 - **Full ARM SMMU v3 IHI0070G.b compliance** — 80 conformance findings resolved across 6 QA passes
 - **Zero build warnings** with production-grade code quality (5/5 star rating)
@@ -81,21 +81,24 @@ make run_performance_tests    # Performance benchmarks (3 tests)
 
 ### Test Coverage
 
-**Overall Coverage**: 88.5% (2,166/2,446 executable lines) | **Quality Rating**: ⭐⭐⭐⭐⭐ (5/5 Stars)
+**Overall Coverage**: 90.9% lines (3,240/3,563) | 96.2% functions (432/449) | 59.7% branches
+*(Measured with gcovr + gcov, Debug + `--coverage`, 2026-02-23)*
 
 #### Component Coverage Breakdown
 
-| Component       | Coverage | Lines Tested | Status       |
-|-----------------|----------|--------------|--------------|
-| Fault Handler   | 98.5%    | 134/136      | ⭐ Excellent |
-| Configuration   | 97.6%    | 285/292      | ⭐ Excellent |
-| TLB Cache       | 96.9%    | 316/326      | ⭐ Excellent |
-| Stream Context  | 95.7%    | 419/438      | ⭐ Excellent |
-| Address Space   | 93.4%    | 226/242      | ⭐ Excellent |
-| SMMU Controller | 77.7%    | 786/1012     | ⭐ Good      |
+| Component            | Line Coverage | Lines       | Status       |
+|----------------------|---------------|-------------|--------------|
+| Fault Handler        | 98%           | 149/151     | ⭐ Excellent |
+| Configuration        | 97%           | 285/292     | ⭐ Excellent |
+| TLB Cache            | 97%           | 366/376     | ⭐ Excellent |
+| Address Space        | 95%           | 264/277     | ⭐ Excellent |
+| Stream Context       | 93%           | 478/510     | ⭐ Excellent |
+| SMMU Controller      | 84%           | 1,166/1,382 | ⭐ Good      |
+| configuration.h      | 100%          | 61/61       | ⭐ Perfect   |
+| tlb_cache.h          | 100%          | 34/34       | ⭐ Perfect   |
 
 **Coverage Highlights**:
-- ✅ 5 of 6 core components exceed 94% coverage
+- ✅ 5 of 6 source components ≥93% line coverage
 - ✅ All critical paths and fault handlers thoroughly tested
 - ✅ Zero build warnings across entire codebase
 - ✅ 100% test success rate (62/62 tests passing)
@@ -274,7 +277,7 @@ A high-performance, memory-safe Rust reimplementation of the ARM SMMU v3 with co
 - **Test Categories**: Unit (224), Integration (1,700+), Advanced (63), Optimization (23), Doc Tests (163)
 - **Lines of Code**: ~10,000 source, ~16,000 tests
 - **Test Execution**: ~6-12 seconds (full suite with optimizations)
-- **Estimated Coverage**: >95%
+- **Measured Coverage**: **94.72% lines** (7,681/8,109) | **93.53% functions** (1,027/1,098) — cargo-llvm-cov 2026-02-23
 - **Mutation Score**: 99.2% (129/130 mutants caught)
 
 **Test Suite Breakdown**:
@@ -468,7 +471,7 @@ match result {
 | **Test Count** | 2,437 | 62 | ✅ Rust (39x) |
 | **Test Scenarios** | >170,000 | ~500 | ✅ Rust (340x) |
 | **Test Suites** | 55 | 4 | ✅ Rust (14x) |
-| **Test Coverage** | >95% | 88.5% | ✅ Rust |
+| **Test Coverage** | 94.72% lines / 93.53% fn | 90.9% lines / 96.2% fn | ✅ Comparable |
 | **Mutation Testing** | 99.2% | N/A | ✅ Rust |
 | **CI/CD Automation** | Full | Manual | ✅ Rust |
 | **Cross-Platform** | 3 OS | 1 OS | ✅ Rust |
@@ -613,8 +616,8 @@ Total: ~150K lines of code (C++ + Rust + tests + documentation)
 ### Key Directories
 
 **C++ Implementation (`cpp/`)**
-- Production-ready C++11 implementation v1.2.7
-- 88.5% test coverage, 62 tests, 100% passing
+- Production-ready C++11 implementation v1.2.8
+- 90.9% line coverage / 96.2% function coverage, 62 tests, 100% passing
 - Hardware-exceeding performance (86-101ns translation latency)
 - True O(1) scalability with optimized sparse data structures
 - Full ARM SMMU v3 IHI0070G.b compliance (80 conformance findings resolved)
@@ -632,7 +635,7 @@ Total: ~150K lines of code (C++ + Rust + tests + documentation)
 - Build: `cd rust/smmu && cargo build --release`
 - Zero unsafe code, zero warnings, zero vulnerabilities
 - Memory-safe, thread-safe, cargo-deny audited
-- >95% estimated coverage with advanced testing framework
+- 94.72% line coverage / 93.53% function coverage — measured with cargo-llvm-cov
 
 **Shared Resources**
 - ARM SMMU v3 specification (PDF)

@@ -6,7 +6,7 @@
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
 [![Tests](https://img.shields.io/badge/tests-2437%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
-[![Coverage](https://img.shields.io/badge/coverage-%3E95%25-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Coverage](https://img.shields.io/badge/coverage-94.72%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -435,7 +435,7 @@ See [PERFORMANCE-RUST.md](PERFORMANCE-RUST.md) for complete technical details.
 - ❌ Tests Failed: 0
 - ⚠️ Tests Ignored: 28 (intentional - platform/feature gated)
 - ⚡ Execution Time: ~5-7 seconds (full suite)
-- 📈 Coverage: >95% estimated
+- 📈 Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** — measured with cargo-llvm-cov
 
 **Documentation**:
 - Generated [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) - Comprehensive 400+ line test report
@@ -857,9 +857,28 @@ The project follows strict coding standards:
 - ✅ Test Scenarios: >170,000 (142,000+ property-based + exhaustive concurrency)
 - ✅ Success Rate: 100.00%
 - ✅ Examples: 8/8 running successfully
-- ✅ Coverage: >95% estimated
+- ✅ Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** (1,027/1,098) — measured 2026-02-23 with cargo-llvm-cov
 - ✅ Test Suites: 55 test files, all passing
 - ✅ Execution Time: ~15-20 seconds total (including advanced tests)
+
+**Per-Module Coverage** (cargo-llvm-cov, 2026-02-23):
+
+| Module | Line Coverage | Function Coverage | Status |
+|--------|--------------|-------------------|--------|
+| `types/address.rs` | 100% (186/186) | 100% | ⭐ Perfect |
+| `fault/queue.rs` | 100% (96/96) | 100% | ⭐ Perfect |
+| `types/config.rs` | 98.63% (1296/1314) | 97.63% | ⭐ Excellent |
+| `types/fault_record.rs` | 98.66% (221/224) | 93.18% | ⭐ Excellent |
+| `fault/processing.rs` | 99.53% (211/212) | 100% | ⭐ Excellent |
+| `address_space/mod.rs` | 96.81% (576/595) | 92.94% | ⭐ Excellent |
+| `stream_context/mod.rs` | 95.02% (630/663) | 95.74% | ⭐ Excellent |
+| `fault/validator.rs` | 93.48% (215/230) | 96.30% | ⭐ Excellent |
+| `cache/mod.rs` | 93.22% (1499/1608) | 94.08% | ⭐ Excellent |
+| `smmu/mod.rs` | 92.30% (1258/1363) | 86.18% | ⭐ Excellent |
+| `fault/detection.rs` | 84.98% (345/406) | 81.08% | Good |
+| `fault/recovery.rs` | 83.06% (103/124) | 76.19% | Good |
+| `types/access_type.rs` | 89.90% (89/99) | 83.33% | Good |
+| `smmu-cli/src/main.rs` | 0% | 0% | N/A (binary, untested) |
 
 **Documentation Quality**:
 - ✅ Documentation examples: 163 tests, all passing
@@ -968,7 +987,7 @@ See [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) for complete te
 - Licenses: 0 conflicts
 - Tests: 2,039 passing (0 failures)
 - Doctests: 142 passing (0 failures)
-- Coverage: >95% (estimated)
+- Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** — measured with cargo-llvm-cov
 - Compliance: 100% ARM SMMU v3
 
 See `TASKS-RUST.md` for complete implementation details, `QA_REPORT.md` for quality assurance validation, and `COMPREHENSIVE_TEST_REPORT.md` for detailed test results.
