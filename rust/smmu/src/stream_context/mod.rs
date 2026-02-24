@@ -28,6 +28,7 @@ use crate::types::{
     AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError, TranslationData,
     TranslationError, TranslationResult, IOVA, PA, PASID,
 };
+use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, AtomicUsize, Ordering};
@@ -246,24 +247,27 @@ impl StreamContext {
         self.check_enabled()?;
 
         let pasid_value = pasid.as_u32();
+        let max_pasids = self.max_pasids_per_stream.load(Ordering::Acquire);
 
-        // Check PASID limit
-        let current_count = self.pasid_map.len();
-        let max_pasids = self.max_pasids_per_stream.load(Ordering::Relaxed);
-        if current_count >= max_pasids {
-            return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
+        // Use DashMap::entry() to make the duplicate-check and insert atomic within
+        // the shard lock.  This eliminates the TOCTOU window that existed between
+        // the previous separate contains_key() check and insert() call (BUG-RUST-M04).
+        match self.pasid_map.entry(pasid_value) {
+            Entry::Occupied(_) => Err(StreamContextError::PASIDAlreadyExists(pasid_value)),
+            Entry::Vacant(slot) => {
+                // Count check must be performed while the shard lock is held so
+                // no concurrent inserter can slip in between the count read and
+                // our own insert.  DashMap holds the shard lock for the duration
+                // of the entry() call, so this is safe.
+                let current_count = self.pasid_map.len();
+                if current_count >= max_pasids {
+                    return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
+                }
+                let address_space = Arc::new(AddressSpace::new());
+                slot.insert(address_space);
+                Ok(())
+            }
         }
-
-        // Check for duplicate
-        if self.pasid_map.contains_key(&pasid_value) {
-            return Err(StreamContextError::PASIDAlreadyExists(pasid_value));
-        }
-
-        // Create new AddressSpace for this PASID (no RwLock needed - AddressSpace is lock-free)
-        let address_space = Arc::new(AddressSpace::new());
-        self.pasid_map.insert(pasid_value, address_space);
-
-        Ok(())
     }
 
     // ========================================================================
@@ -1891,5 +1895,57 @@ mod tests {
         let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
         assert!(result.is_ok(), "Two-stage translation with PASID 0 should succeed: {:?}", result);
         assert_eq!(result.unwrap().physical_address(), final_pa);
+    }
+
+    // ── BUG-RUST-M04: create_pasid() limit check must be atomic (TOCTOU) ────
+
+    /// Regression guard: `create_pasid()` must enforce the max-PASID limit atomically
+    /// using `entry()` so that no concurrent inserter can slip a PASID in between
+    /// the count check and the actual insert.
+    ///
+    /// Single-threaded proof: set max_pasids to 2, insert PASID 1 and PASID 2 to fill
+    /// the limit exactly, then verify that a third insert is rejected with
+    /// `PASIDLimitExceeded`.  Before the fix the check (`pasid_map.len()`) was
+    /// performed outside the shard lock, creating a window for concurrent overcount.
+    #[test]
+    fn bug_rust_m04_create_pasid_enforces_limit_atomically() {
+        let ctx = StreamContext::new();
+        ctx.set_max_pasids_per_stream(2);
+
+        let p1 = PASID::new(1).unwrap();
+        let p2 = PASID::new(2).unwrap();
+        let p3 = PASID::new(3).unwrap();
+
+        assert!(ctx.create_pasid(p1).is_ok(), "first PASID must succeed");
+        assert!(ctx.create_pasid(p2).is_ok(), "second PASID must succeed (fills limit)");
+
+        let result = ctx.create_pasid(p3);
+        assert!(
+            matches!(result, Err(StreamContextError::PASIDLimitExceeded(2, 2))),
+            "BUG-RUST-M04: third PASID must be rejected with PASIDLimitExceeded; got {result:?}"
+        );
+
+        // Confirm neither PASID 1 nor PASID 2 was corrupted by the failed insert attempt.
+        assert!(ctx.has_pasid(p1), "PASID 1 must still exist after failed third insert");
+        assert!(ctx.has_pasid(p2), "PASID 2 must still exist after failed third insert");
+        assert!(!ctx.has_pasid(p3), "PASID 3 must NOT have been inserted");
+        assert_eq!(ctx.pasid_count(), 2, "pasid_count must remain 2 after failed insert");
+    }
+
+    /// Regression guard: duplicate PASID insertion must be rejected atomically.
+    /// The `entry()` API ensures the `Occupied` branch is taken with the shard
+    /// lock held, preventing a second concurrent caller from inserting the same key.
+    #[test]
+    fn bug_rust_m04_create_pasid_rejects_duplicate_atomically() {
+        let ctx = StreamContext::new();
+        let pasid = PASID::new(42).unwrap();
+
+        assert!(ctx.create_pasid(pasid).is_ok());
+        let result = ctx.create_pasid(pasid);
+        assert!(
+            matches!(result, Err(StreamContextError::PASIDAlreadyExists(42))),
+            "BUG-RUST-M04: duplicate create_pasid must return PASIDAlreadyExists; got {result:?}"
+        );
+        assert_eq!(ctx.pasid_count(), 1, "pasid_count must remain 1 after duplicate rejection");
     }
 }

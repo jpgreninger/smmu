@@ -8,6 +8,7 @@
 #include <vector>
 #include <deque>
 #include <mutex>
+#include <atomic>
 #include <cstddef>
 #include <unordered_map>
 
@@ -60,10 +61,13 @@ private:
     // Configuration
     size_t maxQueueSize;
     
-    // Statistics
-    uint64_t totalFaults;
-    uint64_t translationFaults;
-    uint64_t permissionFaults;
+    // BUG-CPP-H01 fix: statistics counters are written under queueMutex but read
+    // without any lock from getTotalFaultCount() / getTranslationFaultCount() /
+    // getPermissionFaultCount().  Using std::atomic<uint64_t> eliminates the data
+    // race and lets getters use load(relaxed) without needing the mutex.
+    std::atomic<uint64_t> totalFaults;
+    std::atomic<uint64_t> translationFaults;
+    std::atomic<uint64_t> permissionFaults;
 
     // Running counters for O(1) count queries (reflect current queue contents)
     std::unordered_map<int, size_t> faultTypeCounters;

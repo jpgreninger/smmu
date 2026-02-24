@@ -7,7 +7,7 @@
 
 namespace smmu {
 
-FaultHandler::FaultHandler() : maxQueueSize(1000), totalFaults(0), translationFaults(0), permissionFaults(0) {
+FaultHandler::FaultHandler() : maxQueueSize(1000), totalFaults(0u), translationFaults(0u), permissionFaults(0u) {
 }
 
 FaultHandler::~FaultHandler() {
@@ -17,13 +17,17 @@ void FaultHandler::recordFault(const FaultRecord& fault) {
     std::lock_guard<std::mutex> lock(queueMutex);
     eventQueue.push_back(fault);
 
-    // Update statistics
-    totalFaults++;
+    // Update statistics atomically so that lock-free getters see consistent values.
+    // BUG-CPP-H01 fix: fetch_add with relaxed ordering is sufficient here because
+    // the getters (getTotalFaultCount etc.) do not need to observe any accompanying
+    // store; they only need an up-to-date count, which relaxed atomics guarantee on
+    // all coherent architectures used by this implementation.
+    totalFaults.fetch_add(1u, std::memory_order_relaxed);
     if (fault.faultType == FaultType::TranslationFault) {
-        translationFaults++;
+        translationFaults.fetch_add(1u, std::memory_order_relaxed);
     }
     else if (fault.faultType == FaultType::PermissionFault) {
-        permissionFaults++;
+        permissionFaults.fetch_add(1u, std::memory_order_relaxed);
     }
 
     // Update running counters for O(1) count queries
@@ -143,15 +147,18 @@ size_t FaultHandler::getMaxQueueSize() const {
 }
 
 uint64_t FaultHandler::getTotalFaultCount() const {
-    return totalFaults;
+    // BUG-CPP-H01 fix: load from atomic — no lock required.
+    return totalFaults.load(std::memory_order_relaxed);
 }
 
 uint64_t FaultHandler::getTranslationFaultCount() const {
-    return translationFaults;
+    // BUG-CPP-H01 fix: load from atomic — no lock required.
+    return translationFaults.load(std::memory_order_relaxed);
 }
 
 uint64_t FaultHandler::getPermissionFaultCount() const {
-    return permissionFaults;
+    // BUG-CPP-H01 fix: load from atomic — no lock required.
+    return permissionFaults.load(std::memory_order_relaxed);
 }
 
 size_t FaultHandler::getFaultCountByType(FaultType faultType) const {
@@ -185,14 +192,21 @@ uint64_t FaultHandler::getFaultRate(uint64_t currentTime, uint64_t timeWindow) c
 
 void FaultHandler::resetStatistics() {
     std::lock_guard<std::mutex> lock(queueMutex);
-    totalFaults = 0;
-    translationFaults = 0;
-    permissionFaults = 0;
+    // BUG-CPP-H01 fix: store through atomics so that any concurrent reader
+    // using load(relaxed) sees the zeroed value after this function returns.
+    totalFaults.store(0u, std::memory_order_relaxed);
+    translationFaults.store(0u, std::memory_order_relaxed);
+    permissionFaults.store(0u, std::memory_order_relaxed);
     // BUG-12 fix: clear the per-type counter maps so that getFaultCountByType()
     // and getFaultCountByAccessType() return 0 after a reset instead of
     // returning stale counts from before the reset.
     faultTypeCounters.clear();
     accessTypeCounters.clear();
+    // BUG-CPP-M04 fix: clear the eventQueue so that getEventCount() agrees with
+    // getTotalFaultCount() (both zero) after a reset.  Previously the queue was
+    // left intact, creating a logically contradictory state where the atomic
+    // counters showed 0 faults but getEventCount() returned the old queue size.
+    eventQueue.clear();
 }
 
 void FaultHandler::reset() {

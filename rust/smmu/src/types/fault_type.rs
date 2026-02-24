@@ -104,6 +104,13 @@ pub enum FaultType {
     ///
     /// Always generates `C_BAD_SUBSTREAMID` (event code 0x08); never stalled.
     BadSubstreamId = 0x11,
+
+    /// Security fault — transaction violates security policy (ARM IHI0070G.b §7.3)
+    ///
+    /// Distinct from `PermissionFault`: raised when a transaction crosses a
+    /// security boundary (e.g. NonSecure transaction targeting Secure memory).
+    /// Maps to `EventType::FPermission` (0x13) in the event queue per §7.3.16.
+    SecurityFault = 0x12,
 }
 
 impl FaultType {
@@ -135,6 +142,7 @@ impl FaultType {
             Self::STEFetchFault => "Stream Table Entry Fetch Fault",
             Self::StreamDisabled => "Stream Disabled",
             Self::BadSubstreamId => "Bad SubstreamID",
+            Self::SecurityFault => "Security Fault",
         }
     }
 
@@ -159,6 +167,7 @@ impl FaultType {
             Self::STEFetchFault => "Error fetching Stream Table Entry",
             Self::StreamDisabled => "Transaction on a disabled/abort stream (STE.Config=disabled)",
             Self::BadSubstreamId => "Non-zero PASID (SubstreamID) supplied to a stage-2-only or bypass stream",
+            Self::SecurityFault => "Transaction violates security policy (crosses security boundary)",
         }
     }
 
@@ -216,6 +225,7 @@ impl FaultType {
             Self::BadSTE | Self::BadCD | Self::BadStreamID | Self::StreamDisabled | Self::BadSubstreamId => FaultSeverity::Critical,
             Self::TranslationFault
             | Self::PermissionFault
+            | Self::SecurityFault
             | Self::ExternalAbort
             | Self::AddressSizeFault
             | Self::AlignmentFault
@@ -283,6 +293,7 @@ impl FaultType {
             0x0F => Ok(Self::STEFetchFault),
             0x10 => Ok(Self::StreamDisabled),
             0x11 => Ok(Self::BadSubstreamId),
+            0x12 => Ok(Self::SecurityFault),
             _ => Err(ValidationError::InvalidFaultType { code }),
         }
     }

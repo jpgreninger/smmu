@@ -4,6 +4,9 @@
 #include <gtest/gtest.h>
 #include "smmu/fault_handler.h"
 #include "smmu/types.h"
+#include <thread>
+#include <vector>
+#include <atomic>
 
 namespace smmu {
 namespace test {
@@ -306,18 +309,140 @@ TEST_F(FaultHandlerTest, FaultHandlerReset) {
     // Add some faults
     faultHandler->recordFault(createTestFault(FaultType::TranslationFault, AccessType::Read));
     faultHandler->recordFault(createTestFault(FaultType::PermissionFault, AccessType::Write));
-    
+
     EXPECT_GT(faultHandler->getFaultCount(), 0);
-    
+
     // Reset fault handler
     faultHandler->reset();
-    
+
     EXPECT_EQ(faultHandler->getFaultCount(), 0);
     EXPECT_TRUE(faultHandler->getFaults().empty());
-    
+
     // Verify all statistics are reset
     EXPECT_EQ(faultHandler->getFaultCountByType(FaultType::TranslationFault), 0);
     EXPECT_EQ(faultHandler->getFaultCountByType(FaultType::PermissionFault), 0);
+}
+
+// BUG-CPP-H01: FaultHandler statistics counters data race.
+// getTotalFaultCount(), getTranslationFaultCount(), getPermissionFaultCount()
+// must read atomically — no lock is held during those calls, so the underlying
+// counters must be std::atomic<uint64_t>.
+//
+// This test verifies two things:
+//
+//  1. No missed increments: the exact expected counts are observed after all
+//     writers have joined (checks against lost-update under concurrent access).
+//
+//  2. No out-of-range torn reads: while writers are active, each individual
+//     counter read must return a value in [0, expectedTotal].  A torn read of
+//     a plain uint64_t on a 32-bit or store-forwarding architecture can produce
+//     a value that is completely outside the valid range (e.g. 0xFFFFFFFF00000000
+//     if the high word is written before the low word is visible).
+//
+// Note: The three counters (total, translation, permission) are updated by
+// three separate atomic fetch_add calls.  It is therefore possible to
+// transiently observe total < translation + permission (reader samples them
+// in different moments).  That is NOT a bug; it is an expected property of
+// three independent atomics.  Only torn reads or lost increments are bugs.
+TEST_F(FaultHandlerTest, StatisticsCounters_ConcurrentReadWrite_NoDataRace) {
+    static constexpr size_t NUM_WRITER_THREADS = 4;
+    static constexpr size_t FAULTS_PER_THREAD  = 500;
+    static constexpr uint64_t EXPECTED_TOTAL   = NUM_WRITER_THREADS * FAULTS_PER_THREAD;
+
+    std::atomic<bool> go{false};
+    std::atomic<bool> tornReadDetected{false};
+
+    // Reader thread: continuously reads the statistics counters without holding
+    // any external lock (mirrors the data-race scenario from the bug report).
+    std::thread reader([&]() {
+        while (!go.load(std::memory_order_acquire)) {}
+        for (int i = 0; i < 10000; ++i) {
+            uint64_t total       = faultHandler->getTotalFaultCount();
+            uint64_t translation = faultHandler->getTranslationFaultCount();
+            uint64_t permission  = faultHandler->getPermissionFaultCount();
+
+            // Each counter must be in [0, EXPECTED_TOTAL].  A torn read of a
+            // plain (non-atomic) uint64_t can produce a garbage value far
+            // outside this range, demonstrating undefined behavior.
+            if (total > EXPECTED_TOTAL ||
+                translation > EXPECTED_TOTAL ||
+                permission  > EXPECTED_TOTAL) {
+                tornReadDetected.store(true, std::memory_order_release);
+            }
+        }
+    });
+
+    // Writer threads: each records an equal mix of TranslationFault and
+    // PermissionFault records.
+    std::vector<std::thread> writers;
+    writers.reserve(NUM_WRITER_THREADS);
+    for (size_t t = 0; t < NUM_WRITER_THREADS; ++t) {
+        writers.emplace_back([&, t]() {
+            while (!go.load(std::memory_order_acquire)) {}
+            for (size_t i = 0; i < FAULTS_PER_THREAD; ++i) {
+                FaultType ft = ((i % 2) == 0) ? FaultType::TranslationFault
+                                               : FaultType::PermissionFault;
+                FaultRecord fault;
+                fault.streamID   = static_cast<StreamID>(t);
+                fault.pasid      = static_cast<PASID>(i % 8);
+                fault.address    = static_cast<IOVA>(i * 0x1000);
+                fault.faultType  = ft;
+                fault.accessType = AccessType::Read;
+                fault.timestamp  = static_cast<uint64_t>(i);
+                faultHandler->recordFault(fault);
+            }
+        });
+    }
+
+    go.store(true, std::memory_order_release);
+
+    for (auto& w : writers) {
+        w.join();
+    }
+    reader.join();
+
+    EXPECT_FALSE(tornReadDetected.load())
+        << "Torn read detected: a statistics counter returned a value outside "
+           "[0, EXPECTED_TOTAL], indicating a non-atomic read of a plain uint64_t";
+
+    // After all writers finish the counters must be exact (no lost increments).
+    const uint64_t expectedTranslation = EXPECTED_TOTAL / 2;
+    const uint64_t expectedPermission  = EXPECTED_TOTAL / 2;
+
+    EXPECT_EQ(faultHandler->getTotalFaultCount(),       EXPECTED_TOTAL)
+        << "Total fault count incorrect after concurrent writes";
+    EXPECT_EQ(faultHandler->getTranslationFaultCount(), expectedTranslation)
+        << "Translation fault count incorrect after concurrent writes";
+    EXPECT_EQ(faultHandler->getPermissionFaultCount(),  expectedPermission)
+        << "Permission fault count incorrect after concurrent writes";
+}
+
+// BUG-CPP-H01 (b): resetStatistics() followed immediately by getTotalFaultCount()
+// on another thread must return 0, not a stale or torn value.
+TEST_F(FaultHandlerTest, StatisticsCounters_ResetIsVisible_AfterConcurrentReset) {
+    // Populate the handler with some faults.
+    for (int i = 0; i < 100; ++i) {
+        faultHandler->recordFault(
+            createTestFault(FaultType::TranslationFault, AccessType::Read, i));
+    }
+    ASSERT_EQ(faultHandler->getTotalFaultCount(), 100u);
+
+    std::atomic<bool> resetDone{false};
+    uint64_t observedAfterReset = 999u; // sentinel
+
+    std::thread resetter([&]() {
+        faultHandler->resetStatistics();
+        resetDone.store(true, std::memory_order_release);
+    });
+
+    resetter.join();
+
+    // Read must see the reset value once the store is visible.
+    ASSERT_TRUE(resetDone.load(std::memory_order_acquire));
+    observedAfterReset = faultHandler->getTotalFaultCount();
+
+    EXPECT_EQ(observedAfterReset, 0u)
+        << "getTotalFaultCount() returned non-zero after resetStatistics()";
 }
 
 } // namespace test

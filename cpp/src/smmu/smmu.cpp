@@ -1429,32 +1429,33 @@ FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA io
 }
 
 void SMMU::handleTranslationFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    (void)securityState; // Suppress unused parameter warning - reserved for future security-aware recovery
-    
     // ARM SMMU v3 spec: Translation fault recovery mechanisms
     // In a full implementation, this could trigger:
     // - Demand paging from storage
     // - Page table updates
     // - Memory allocation
-    
-    // For now, we invalidate any stale cache entries to ensure consistency
+
+    // BUG-CPP-M03 fix: pass the actual securityState so that the TLB entry
+    // (tagged with the correct security state at insertion time) is properly
+    // evicted.  Previously the NonSecure default was used, leaving Secure-tagged
+    // entries in the cache after a fault on a Secure stream.
     if (tlbCache) {
-        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK);
+        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK, securityState);
     }
 }
 
 void SMMU::handlePermissionFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
-    (void)accessType; // Suppress unused parameter warning - reserved for future access-type-specific recovery
-    (void)securityState; // Suppress unused parameter warning - reserved for future security-aware recovery
+    (void)accessType; // Reserved for future access-type-specific recovery logic
     // ARM SMMU v3 spec: Permission fault recovery mechanisms
     // This could implement:
     // - Security policy checks
     // - Permission escalation requests
     // - Access logging for security audit
-    
-    // For now, just ensure the translation is not cached with wrong permissions
+
+    // BUG-CPP-M03 fix: pass the actual securityState so that a Secure TLB entry
+    // is correctly evicted rather than leaving it in the cache.
     if (tlbCache) {
-        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK);
+        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK, securityState);
     }
 }
 
@@ -1474,17 +1475,17 @@ void SMMU::handleAddressSizeFaultRecovery(StreamID streamID, PASID pasid, IOVA i
 }
 
 void SMMU::handleAccessFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
-    (void)accessType; // Suppress unused parameter warning - reserved for future access-type-specific recovery
-    (void)securityState; // Suppress unused parameter warning - reserved for future security-aware recovery
+    (void)accessType; // Reserved for future access-type-specific recovery logic
     // ARM SMMU v3 spec: Access fault recovery mechanisms
     // This could implement:
     // - Retry logic with backoff
     // - Alternative access paths
     // - Hardware fault recovery
-    
-    // For now, we clear any potentially corrupted cache state
+
+    // BUG-CPP-M03 fix: pass the actual securityState so that a Secure TLB entry
+    // is correctly evicted when an access fault occurs on a Secure stream.
     if (tlbCache) {
-        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK);
+        tlbCache->invalidate(streamID, pasid, iova & ~PAGE_MASK, securityState);
     }
 }
 
@@ -1608,7 +1609,14 @@ void SMMU::processCommandQueue() {
 
     // ARM SMMU v3 spec: Process command queue with proper ordering.
     // BUG-03 fix: protect commandQueue with queueMutex.
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    // BUG-CPP-C01 fix: Use unique_lock so we can temporarily release queueMutex
+    // before acquiring a stream stripe lock inside the CMD_SYNC handler.
+    // Lock ordering invariant: stripe lock must NEVER be acquired while
+    // queueMutex is held (translate() acquires stripe -> queueMutex via
+    // generateEvent(); holding both in the opposite order causes an ABBA
+    // deadlock).  Releasing queueMutex before taking the stripe lock, then
+    // re-acquiring queueMutex to continue the loop, preserves the invariant.
+    std::unique_lock<std::recursive_mutex> lock(queueMutex);
     while (!commandQueue.empty()) {
         // BUG-04 fix: copy command by value before pop_front() so that the
         // reference is not dangling when we inspect command.type afterwards.
@@ -1636,14 +1644,21 @@ void SMMU::processCommandQueue() {
             if (command.cs != 0) {
                 // FINDING-NEW-39: derive security state from the stream config rather than
                 // hardcoding NonSecure, per ARM §4.8.
+                // BUG-CPP-C01 fix: release queueMutex before acquiring the stripe lock to
+                // prevent the ABBA deadlock: translate() holds stripe->queueMutex whereas
+                // the old code held queueMutex->stripe here.
                 SecurityState syncEventSecState = SecurityState::NonSecure;
                 {
                     size_t syncStripe = getStreamStripe(command.streamID);
-                    std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
-                    auto syncIt = streamMap.find(command.streamID);
-                    if (syncIt != streamMap.end()) {
-                        syncEventSecState = syncIt->second->getStreamConfiguration().securityState;
+                    lock.unlock();
+                    {
+                        std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
+                        auto syncIt = streamMap.find(command.streamID);
+                        if (syncIt != streamMap.end()) {
+                            syncEventSecState = syncIt->second->getStreamConfiguration().securityState;
+                        }
                     }
+                    lock.lock();
                 }
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
                               command.startAddress, syncEventSecState);
@@ -1787,11 +1802,24 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                 // match condition: (sid >> (range+1)) == (command.streamID >> (range+1))
                 uint32_t prefixBits = static_cast<uint32_t>(command.range) + 1u;
                 StreamID cmdPrefix = command.streamID >> prefixBits;
+
+                // BUG-CPP-M01 fix: acquire all stripe locks in index order before
+                // iterating streamMap.  Without the locks, a concurrent
+                // configureStream() or removeStream() can modify the map during
+                // iteration causing iterator invalidation (undefined behaviour).
+                // This matches the pattern used by getStreamCount() and
+                // setGlobalFaultMode().
+                std::vector<std::unique_lock<std::mutex>> rangeLocks;
+                rangeLocks.reserve(NUM_STREAM_STRIPES);
+                for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+                    rangeLocks.emplace_back(streamLockStripes[i]);
+                }
                 for (const auto& pair : streamMap) {
                     if ((pair.first >> prefixBits) == cmdPrefix) {
                         invalidateStreamCache(pair.first);
                     }
                 }
+                // rangeLocks released here (RAII)
             }
             break;
             

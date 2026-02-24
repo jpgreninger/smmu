@@ -53,6 +53,7 @@ set(UNIT_TEST_SOURCES
     test_configuration_validation.cpp
     test_edge_cases.cpp
     optimization_regression_test.cpp
+    test_medium_bugs.cpp
     ../test_thread_safety.cpp
 )
 

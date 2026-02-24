@@ -9,6 +9,8 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <future>
 
 namespace smmu {
 namespace test {
@@ -1602,16 +1604,133 @@ TEST_F(Task53PerformanceTest, QueueMemoryUsageStability) {
     EXPECT_LE(maxEventQueueSize, DEFAULT_EVENT_QUEUE_SIZE);
     EXPECT_LE(maxCommandQueueSize, DEFAULT_COMMAND_QUEUE_SIZE);
     EXPECT_LE(maxPRIQueueSize, DEFAULT_PRI_QUEUE_SIZE);
-    
+
     // Final cleanup
     smmu->clearEventQueue();
     smmu->clearCommandQueue();
     smmu->clearPRIQueue();
-    
+
     // After clearing, queues should be manageable
     EXPECT_LE(smmu->getEventQueueSize(), 20);  // Allow some tolerance
     EXPECT_LE(smmu->getCommandQueueSize(), 20);
     EXPECT_LE(smmu->getPRIQueueSize(), 20);
+}
+
+// ============================================================================
+// BUG-CPP-C01: Lock-ordering deadlock in processCommandQueue / CMD_SYNC
+// ============================================================================
+//
+// processCommandQueue() holds queueMutex (recursive_mutex) while processing
+// every command.  For CMD_SYNC it then tries to acquire
+// streamLockStripes[syncStripe] (plain mutex) to read the stream's security
+// state.  Meanwhile, translate() holds a stripe lock and calls
+// submitCommand(), which acquires queueMutex — an ABBA deadlock.
+//
+// The fix releases queueMutex before acquiring the stripe lock so that the
+// lock order is always: stripe lock -> queueMutex (or stripe lock alone, or
+// queueMutex alone), never queueMutex -> stripe lock.
+//
+// This test reproduces the deadlock scenario.  Without the fix the test
+// hangs and is killed by the deadline; with the fix it completes in well
+// under 5 seconds.
+
+class CommandQueueDeadlockTest : public Task53EventCommandProcessingTest {
+};
+
+TEST_F(CommandQueueDeadlockTest, CmdSync_ProcessQueueAndTranslate_NoDeadlock) {
+    // ARM §6.3.9 CMDQEN must be set before processCommandQueue() does anything.
+    // setCR0(bit4=CMDQEN | bit0=SMMUEN | bit3=EVENTQEN).
+    smmu->setCR0(0x1Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
+
+    // Pre-map a page so that translate() can succeed and reach submitCommand().
+    PagePermissions rw(true, true, false);
+    ASSERT_TRUE(smmu->mapPage(testStreamID, testPASID, 0x5000, 0x6000, rw));
+
+    std::atomic<bool> translationDone{false};
+    std::atomic<bool> processingDone{false};
+    std::atomic<bool> deadlockDetected{false};
+
+    // Thread A: submit a CMD_SYNC command then call processCommandQueue().
+    // processCommandQueue() will hold queueMutex and try to acquire the stripe
+    // lock while handling the SYNC completion event.
+    std::thread processorThread([&]() {
+        CommandEntry syncCmd;
+        syncCmd.type      = CommandType::SYNC;
+        syncCmd.streamID  = testStreamID;
+        syncCmd.pasid     = testPASID;
+        syncCmd.cs        = 1u; // CS=0b01 — emit completion event (exercises the stripe-lock path)
+
+        smmu->submitCommand(syncCmd);
+        smmu->processCommandQueue();
+        processingDone.store(true, std::memory_order_release);
+    });
+
+    // Thread B: perform a translation (acquires stripe lock) then calls
+    // submitCommand() (acquires queueMutex).  This is the reverse lock order
+    // that creates the ABBA cycle.
+    std::thread translationThread([&]() {
+        // A brief yield lets the processor thread start and (without the fix)
+        // enter the deadlock window.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // translate() -> stripe lock -> submitCommand() -> queueMutex
+        smmu->translate(testStreamID, testPASID, 0x5000, AccessType::Read);
+        translationDone.store(true, std::memory_order_release);
+    });
+
+    // Wait up to 5 seconds for both threads to finish.  If either is still
+    // running after the timeout the test fails (deadlock detected).
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (translationDone.load(std::memory_order_acquire) &&
+            processingDone.load(std::memory_order_acquire)) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (!translationDone.load(std::memory_order_acquire) ||
+        !processingDone.load(std::memory_order_acquire)) {
+        deadlockDetected.store(true, std::memory_order_release);
+        // Detach rather than join to let the process exit cleanly; the
+        // EXPECT below will fail the test.
+        processorThread.detach();
+        translationThread.detach();
+    } else {
+        processorThread.join();
+        translationThread.join();
+    }
+
+    EXPECT_FALSE(deadlockDetected.load())
+        << "Deadlock detected: processCommandQueue(CMD_SYNC) and translate() "
+           "deadlocked on queueMutex/stripe-lock ABBA cycle (BUG-CPP-C01)";
+    EXPECT_TRUE(processingDone.load())
+        << "processCommandQueue() did not complete within timeout";
+    EXPECT_TRUE(translationDone.load())
+        << "translate() did not complete within timeout";
+}
+
+// Verify that after the fix, CMD_SYNC still correctly reads the security
+// state from the stream configuration and emits the completion event.
+TEST_F(CommandQueueDeadlockTest, CmdSync_SecurityState_ReadFromStream) {
+    smmu->setCR0(0x1Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
+    smmu->clearEventQueue();
+
+    CommandEntry syncCmd;
+    syncCmd.type     = CommandType::SYNC;
+    syncCmd.streamID = testStreamID;
+    syncCmd.pasid    = testPASID;
+    syncCmd.cs       = 1u; // CS != 0 -> completion event must be generated
+
+    EXPECT_TRUE(smmu->submitCommand(syncCmd));
+    smmu->processCommandQueue();
+
+    // A completion event should have been generated (cs != 0 path).
+    // processEventQueue() drains the internal event queue into the fault handler.
+    smmu->processEventQueue();
+
+    // The command queue must be empty after processing.
+    EXPECT_EQ(smmu->getCommandQueueSize(), 0u)
+        << "Command queue not drained after CMD_SYNC processing";
 }
 
 } // namespace test

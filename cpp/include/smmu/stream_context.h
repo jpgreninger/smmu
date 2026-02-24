@@ -22,7 +22,7 @@ public:
     // PASID management
     VoidResult createPASID(PASID pasid);
     VoidResult removePASID(PASID pasid);
-    void addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressSpace);
+    VoidResult addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressSpace);
     
     // Page mapping operations
     VoidResult mapPage(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);

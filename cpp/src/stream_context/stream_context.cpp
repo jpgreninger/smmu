@@ -126,29 +126,31 @@ VoidResult StreamContext::removePASID(PASID pasid) {
 
 // Add PASID with existing AddressSpace (for sharing scenarios)
 // ARM SMMU v3 spec: Supports shared address spaces across PASIDs
-void StreamContext::addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressSpace) {
+VoidResult StreamContext::addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressSpace) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    
-    // ARM SMMU v3 spec: Validate PASID within 20-bit range
-    // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
+
+    // BUG-CPP-M02 fix: return errors instead of silently ignoring invalid inputs.
+    // ARM SMMU v3 spec: Validate PASID within 20-bit range (0xFFFFF).
+    // PASID 0 is valid and commonly used for kernel/hypervisor contexts.
     if (pasid > MAX_PASID) {
-        return;  // Silently ignore invalid PASID to maintain interface consistency
+        return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds ARM SMMU v3 specification limits
     }
-    
-    // Validate AddressSpace pointer - null pointer indicates programming error
+
+    // BUG-CPP-M02 fix: null AddressSpace is a programming error; report it.
     if (!addressSpace) {
-        return;  // Null AddressSpace not allowed - maintain translation integrity
+        return makeVoidError(SMMUError::InvalidConfiguration);  // Null AddressSpace not allowed
     }
-    
-    // Insert or replace existing PASID mapping
-    // ARM SMMU v3: Allows multiple PASIDs to share same address space
+
+    // Insert or replace existing PASID mapping.
+    // ARM SMMU v3: Allows multiple PASIDs to share the same address space.
     pasidMap[pasid] = addressSpace;
-    
-    // Update PASID count statistics
+
+    // Update PASID count statistics.
     streamStatistics.pasidCount = pasidMap.size();
-    
-    // Note: If replacing existing PASID, old AddressSpace reference count
-    // decrements and may trigger automatic cleanup via shared_ptr
+
+    // Note: If replacing an existing PASID, the old AddressSpace reference count
+    // decrements and may trigger automatic cleanup via shared_ptr.
+    return makeVoidSuccess();
 }
 
 // Map page within specific PASID address space

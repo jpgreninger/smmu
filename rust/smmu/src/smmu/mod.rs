@@ -287,9 +287,10 @@ pub struct SMMU {
     ///
     /// Bit-field controlling global SMMU queue enable gates:
     ///   Bit 0: SMMUEN   — global enable (mirrors `enabled`)
-    ///   Bit 1: PRIQEN   — PRI queue enable gate
-    ///   Bit 2: EVENTQEN — Event queue enable gate
-    ///   Bit 3: CMDQEN   — Command queue enable gate
+    ///   Bit 1: INTEN    — interrupt enable
+    ///   Bit 2: PRIQEN   — PRI queue enable gate
+    ///   Bit 3: EVENTQEN — Event queue enable gate
+    ///   Bit 4: CMDQEN   — Command queue enable gate
     ///
     /// Software may write this register directly via `set_cr0()` to control
     /// individual queue gates without toggling the global enable.
@@ -325,12 +326,14 @@ impl SMMU {
 
     /// CR0 bit 0: SMMUEN — global SMMU enable (§6.3.9)
     pub const CR0_SMMUEN: u32   = 1 << 0;
-    /// CR0 bit 1: PRIQEN — PRI queue enable gate (§6.3.9)
-    pub const CR0_PRIQEN: u32   = 1 << 1;
-    /// CR0 bit 2: EVENTQEN — Event queue enable gate (§6.3.9)
-    pub const CR0_EVENTQEN: u32 = 1 << 2;
-    /// CR0 bit 3: CMDQEN — Command queue enable gate (§6.3.9)
-    pub const CR0_CMDQEN: u32   = 1 << 3;
+    /// CR0 bit 1: INTEN — interrupt enable (§6.3.9)
+    pub const CR0_INTEN: u32    = 1 << 1;
+    /// CR0 bit 2: PRIQEN — PRI queue enable gate (§6.3.9)
+    pub const CR0_PRIQEN: u32   = 1 << 2;
+    /// CR0 bit 3: EVENTQEN — Event queue enable gate (§6.3.9)
+    pub const CR0_EVENTQEN: u32 = 1 << 3;
+    /// CR0 bit 4: CMDQEN — Command queue enable gate (§6.3.9)
+    pub const CR0_CMDQEN: u32   = 1 << 4;
 
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
@@ -480,7 +483,7 @@ impl SMMU {
             // set_cr0(0) explicitly per the ARM reset-to-disabled semantics for
             // the queue gates (CT-33).
             cr0: AtomicU32::new(
-                (1 << 1) | (1 << 2) | (1 << 3), // CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN
+                Self::CR0_PRIQEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN,
             ),
         }
     }
@@ -1836,22 +1839,36 @@ impl SMMU {
                 } else {
                     initial
                 };
-                // Ensure uniqueness: if the candidate collides with an existing
-                // stall_queue entry, keep incrementing until a free slot is found.
-                // Guard with 65535 iterations to prevent infinite loop when the queue
-                // is exhausted (ARM §3.12.2: STAG is a 16-bit non-zero identifier).
+                // Ensure uniqueness using an atomic check-and-insert via entry()
+                // API (ARM §3.12.2: STAG is a 16-bit non-zero identifier).
+                // Guard with 65535 iterations to prevent infinite loop when the
+                // queue is exhausted.  failed_translations is already incremented
+                // once at the top of the error branch; do not increment again here.
                 let mut iters: u32 = 0;
-                while self.stall_queue.contains_key(&candidate) {
-                    candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
-                    if candidate == 0 {
-                        candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
-                    }
-                    iters += 1;
-                    if iters >= 65535 {
-                        // Stall queue is full — abort this transaction rather than
-                        // silently overwriting an existing stalled entry.
-                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                        return Err(TranslationError::TlbConflict);
+                loop {
+                    match self.stall_queue.entry(candidate) {
+                        Entry::Vacant(slot) => {
+                            slot.insert(StallRecord {
+                                stag: candidate,
+                                stream_id: stream_id.as_u32(),
+                                pasid: pasid.as_u32(),
+                                iova: iova.as_u64(),
+                                access,
+                                security_state,
+                            });
+                            break;
+                        }
+                        Entry::Occupied(_) => {
+                            candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                            if candidate == 0 {
+                                candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                            }
+                            iters += 1;
+                            if iters >= 65535 {
+                                // Stall queue is full — abort this transaction.
+                                return Err(TranslationError::TlbConflict);
+                            }
+                        }
                     }
                 }
                 candidate
@@ -1862,15 +1879,8 @@ impl SMMU {
             self.record_translation_fault(stream_id, pasid, iova, access, security_state, error, is_stall, stag);
 
             if is_stall {
-                let record = StallRecord {
-                    stag,
-                    stream_id: stream_id.as_u32(),
-                    pasid: pasid.as_u32(),
-                    iova: iova.as_u64(),
-                    access,
-                    security_state,
-                };
-                self.stall_queue.insert(stag, record);
+                // The stall record was already inserted atomically via entry()
+                // inside the STAG allocation loop above.
                 return Err(TranslationError::Stalled { stag });
             }
         } else {
@@ -2005,7 +2015,7 @@ impl SMMU {
             | FaultType::WalkEABT
             | FaultType::OutputAddressRangeFault
             | FaultType::UnsupportedAtomicUpdate => EventType::FTranslation,
-            FaultType::PermissionFault => EventType::FPermission,
+            FaultType::PermissionFault | FaultType::SecurityFault => EventType::FPermission,
         }
     }
 
@@ -2028,7 +2038,7 @@ impl SMMU {
             TranslationError::InvalidAddress { .. } => FaultType::AddressSizeFault,
             TranslationError::AddressSizeError => FaultType::AddressSizeFault,
             TranslationError::AlignmentError => FaultType::AlignmentFault,
-            TranslationError::SecurityViolation => FaultType::PermissionFault,
+            TranslationError::SecurityViolation => FaultType::SecurityFault,
             TranslationError::ExternalAbort => FaultType::ExternalAbort,
             TranslationError::TlbConflict => FaultType::TLBConflictAbort,
             TranslationError::InvalidStreamID => FaultType::BadStreamID,
@@ -2118,7 +2128,13 @@ impl SMMU {
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
-            if event.stall || queue.len() < self.event_queue_capacity {
+            // Stall events get a higher (but bounded) capacity limit — 2× normal —
+            // because a stalled transaction can never complete without the event
+            // (software needs it to issue CMD_RESUME).  However, unbounded growth
+            // under sustained stall-mode fault load is not acceptable per §3.12.2,
+            // so we still enforce an absolute cap.
+            let stall_capacity = self.event_queue_capacity.saturating_mul(2);
+            if (event.stall && queue.len() < stall_capacity) || queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
             }
@@ -2207,8 +2223,7 @@ impl SMMU {
     /// Implements event queue management per Section 6.3.
     pub fn submit_event(&self, event: EventEntry) -> Result<(), SMMUError> {
         let mut queue = self.event_queue.write().unwrap();
-        // Only enforce capacity for small queues (testing overflow behavior)
-        if self.event_queue_capacity < 200 && queue.len() >= self.event_queue_capacity {
+        if queue.len() >= self.event_queue_capacity {
             return Err(SMMUError::EventQueueFull);
         }
         queue.push_back(event);
@@ -3604,5 +3619,310 @@ mod tests {
         assert_eq!(smmu.cmdq_prod_index(), 5); // prod unchanged by processing
         assert_eq!(smmu.cmdq_occupied_entries(), 0);
         assert!(smmu.is_cmdq_empty_by_index());
+    }
+
+    // ── BUG-RUST-H01: STAG TOCTOU — entry() API must be used ────────────────
+
+    /// Regression guard: stall_queue must use entry() for atomic check-and-insert.
+    ///
+    /// Before the fix, check-then-insert was non-atomic: two concurrent threads
+    /// could both see the same STAG as free and both insert, with the second
+    /// silently overwriting the first.  After the fix, only one of them wins
+    /// the Vacant slot and the other increments to a new candidate.
+    ///
+    /// Single-threaded proof: pre-populate the stall_queue with every STAG
+    /// value 1..=3, then trigger a stall fault on a stream whose STAG counter
+    /// starts at 1.  The allocation loop must skip all occupied slots and land
+    /// on a fresh STAG (4), not silently overwrite slot 1.
+    #[test]
+    fn bug_rust_h01_stag_entry_no_overwrite() {
+        use crate::types::{AccessType, FaultMode, SecurityState, StreamConfig, IOVA, PASID};
+
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+
+        let stream_id = StreamID::new(0x10).unwrap();
+        let cfg = StreamConfig::builder()
+            .stage1_enabled(true)
+            .translation_enabled(true)
+            .fault_mode(FaultMode::Stall)
+            .build()
+            .unwrap();
+        smmu.configure_stream(stream_id, cfg).unwrap();
+        smmu.create_pasid(stream_id, PASID::new(0).unwrap()).unwrap();
+
+        // Pre-populate slots 1, 2, 3 with sentinel records so the allocator
+        // must skip them.
+        for tag in 1u16..=3 {
+            let sentinel = StallRecord {
+                stag: tag,
+                stream_id: 0xFF,
+                pasid: 0xFF,
+                iova: 0xDEAD_BEEF,
+                access: AccessType::Read,
+                security_state: SecurityState::NonSecure,
+            };
+            smmu.stall_queue.insert(tag, sentinel);
+        }
+
+        // Reset the STAG counter so it starts at 1 (will collide with slots 1-3).
+        smmu.stag_counter.store(1, Ordering::Relaxed);
+
+        // Trigger a stall fault.
+        let result = smmu.translate(
+            stream_id,
+            PASID::new(0).unwrap(),
+            IOVA::new(0x9000_0000).unwrap(),
+            AccessType::Read,
+            SecurityState::NonSecure,
+        );
+
+        // The result must be Stalled with a STAG >= 4 (slots 1-3 are occupied).
+        match result {
+            Err(TranslationError::Stalled { stag }) => {
+                assert!(stag >= 4, "BUG-RUST-H01: STAG {stag} collides with a pre-occupied slot");
+                // The sentinel records in slots 1-3 must still be intact.
+                for occupied in 1u16..=3 {
+                    let entry = smmu.stall_queue.get(&occupied);
+                    assert!(
+                        entry.is_some(),
+                        "BUG-RUST-H01: pre-occupied stall record for STAG {occupied} was overwritten"
+                    );
+                    assert_eq!(
+                        entry.unwrap().stream_id,
+                        0xFF,
+                        "BUG-RUST-H01: stall record for STAG {occupied} was silently overwritten"
+                    );
+                }
+            }
+            other => panic!("expected Stalled error, got: {other:?}"),
+        }
+    }
+
+    // ── BUG-RUST-H02: failed_translations double-increment ───────────────────
+
+    /// Regression guard: a stall fault must increment `failed_translations`
+    /// exactly once, not twice.
+    ///
+    /// Before the fix, when a stall fault occurred, `failed_translations` was
+    /// incremented once at the top of the error branch and a second time inside
+    /// the STAG-exhaustion guard — even when the queue was not exhausted.
+    #[test]
+    fn bug_rust_h02_failed_translations_single_increment() {
+        use crate::types::{AccessType, FaultMode, SecurityState, StreamConfig, IOVA, PASID};
+
+        let smmu = SMMU::new();
+        smmu.enable().unwrap();
+
+        let stream_id = StreamID::new(0x20).unwrap();
+        let cfg = StreamConfig::builder()
+            .stage1_enabled(true)
+            .translation_enabled(true)
+            .fault_mode(FaultMode::Stall)
+            .build()
+            .unwrap();
+        smmu.configure_stream(stream_id, cfg).unwrap();
+        smmu.create_pasid(stream_id, PASID::new(0).unwrap()).unwrap();
+
+        let (_, _, before) = smmu.get_translation_stats();
+
+        // Trigger a single stall fault.
+        let result = smmu.translate(
+            stream_id,
+            PASID::new(0).unwrap(),
+            IOVA::new(0xBAD0_0000).unwrap(),
+            AccessType::Read,
+            SecurityState::NonSecure,
+        );
+        assert!(
+            matches!(result, Err(TranslationError::Stalled { .. })),
+            "expected a stall, got: {result:?}"
+        );
+
+        let (_, _, after) = smmu.get_translation_stats();
+        assert_eq!(
+            after - before,
+            1,
+            "BUG-RUST-H02: failed_translations incremented {} time(s) for a single stall fault (expected 1)",
+            after - before
+        );
+    }
+
+    // ── BUG-RUST-H03: CR0 bit positions per ARM IHI0070G.b §6.3.9 ───────────
+
+    /// Regression guard: CR0 constants must match ARM IHI0070G.b §6.3.9.
+    ///
+    /// The ARM spec defines:
+    ///   bit 0 — SMMUEN
+    ///   bit 1 — INTEN
+    ///   bit 2 — PRIQEN
+    ///   bit 3 — EVENTQEN
+    ///   bit 4 — CMDQEN
+    ///
+    /// Before the fix INTEN was missing and PRIQEN/EVENTQEN/CMDQEN were at
+    /// bits 1/2/3 — one position too low.
+    #[test]
+    fn bug_rust_h03_cr0_bit_positions() {
+        assert_eq!(SMMU::CR0_SMMUEN,   1 << 0, "CR0_SMMUEN must be bit 0 (§6.3.9)");
+        assert_eq!(SMMU::CR0_INTEN,    1 << 1, "CR0_INTEN must be bit 1 (§6.3.9)");
+        assert_eq!(SMMU::CR0_PRIQEN,   1 << 2, "CR0_PRIQEN must be bit 2 (§6.3.9)");
+        assert_eq!(SMMU::CR0_EVENTQEN, 1 << 3, "CR0_EVENTQEN must be bit 3 (§6.3.9)");
+        assert_eq!(SMMU::CR0_CMDQEN,   1 << 4, "CR0_CMDQEN must be bit 4 (§6.3.9)");
+    }
+
+    /// Regression guard: after reset, CR0 must have PRIQEN|EVENTQEN|CMDQEN
+    /// at their correct bit positions (bits 2, 3, 4).
+    #[test]
+    fn bug_rust_h03_cr0_reset_value_uses_correct_bits() {
+        let smmu = SMMU::new();
+        let cr0 = smmu.get_cr0();
+        // SMMUEN must be clear after reset.
+        assert_eq!(cr0 & SMMU::CR0_SMMUEN, 0, "SMMUEN must be clear after reset");
+        // Queue-enable bits must be set after reset.
+        let queue_bits = SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN;
+        assert_eq!(
+            cr0 & queue_bits,
+            queue_bits,
+            "BUG-RUST-H03: queue-enable bits must be at bits 2/3/4 after reset; cr0=0x{cr0:08x}"
+        );
+        // Bits 1 and 2 specifically — before the fix PRIQEN was at bit 1, which
+        // would make (cr0 & (1<<1)) != 0 but (cr0 & (1<<2)) == 0.
+        assert_eq!(cr0 & (1 << 2), 1 << 2, "BUG-RUST-H03: PRIQEN must be at bit 2 (§6.3.9)");
+        assert_eq!(cr0 & (1 << 3), 1 << 3, "BUG-RUST-H03: EVENTQEN must be at bit 3 (§6.3.9)");
+        assert_eq!(cr0 & (1 << 4), 1 << 4, "BUG-RUST-H03: CMDQEN must be at bit 4 (§6.3.9)");
+    }
+
+    // ── BUG-RUST-M01: SecurityViolation must map to SecurityFault, not PermissionFault ──
+
+    /// Regression guard: `TranslationError::SecurityViolation` must be mapped to
+    /// `FaultType::SecurityFault`, not `FaultType::PermissionFault`, per ARM IHI0070G.b §7.3.
+    ///
+    /// Before the fix, SecurityViolation was incorrectly mapped to PermissionFault,
+    /// conflating two distinct ARM SMMU v3 fault types.
+    #[test]
+    fn bug_rust_m01_security_violation_maps_to_security_fault() {
+        let fault_type = SMMU::map_translation_error_to_fault_type(&TranslationError::SecurityViolation);
+        assert_eq!(
+            fault_type,
+            FaultType::SecurityFault,
+            "BUG-RUST-M01: SecurityViolation must map to FaultType::SecurityFault (ARM IHI0070G.b §7.3)"
+        );
+        assert_ne!(
+            fault_type,
+            FaultType::PermissionFault,
+            "BUG-RUST-M01: SecurityViolation must NOT map to PermissionFault"
+        );
+    }
+
+    /// Regression guard: `FaultType::SecurityFault` must be handled by
+    /// `map_fault_type_to_event_type()` and mapped to `EventType::FPermission` per §7.3.16.
+    #[test]
+    fn bug_rust_m01_security_fault_maps_to_f_permission_event() {
+        let event_type = SMMU::map_fault_type_to_event_type(FaultType::SecurityFault);
+        assert_eq!(
+            event_type,
+            EventType::FPermission,
+            "BUG-RUST-M01: FaultType::SecurityFault must map to EventType::FPermission (§7.3.16)"
+        );
+    }
+
+    // ── BUG-RUST-M02: Stall events must not bypass event queue capacity ──────
+
+    /// Regression guard: stall events must be bounded at 2× the normal event queue
+    /// capacity and must NOT grow without limit under sustained stall-mode fault load.
+    ///
+    /// Before the fix, `event.stall == true` caused the event to be enqueued
+    /// unconditionally, allowing unbounded memory growth.
+    #[test]
+    fn bug_rust_m02_stall_events_bounded_at_2x_capacity() {
+        use crate::types::{AccessType, FaultMode, SecurityState, StreamConfig, IOVA, PASID};
+
+        // Build an SMMU with a tiny event queue (capacity = 4) and a stall-mode stream.
+        // Use QueueConfig to set a small event queue size.
+        let config = SMMUConfig::from(crate::types::QueueConfig {
+            event_queue_size: 4,
+            command_queue_size: 32,
+            pri_queue_size: 32,
+        });
+        let smmu = SMMU::with_config(config);
+        smmu.enable().unwrap();
+
+        let stream_id = StreamID::new(1).unwrap();
+        let stream_cfg = StreamConfig::builder()
+            .stage1_enabled(true)
+            .translation_enabled(true)
+            .fault_mode(FaultMode::Stall)
+            .build()
+            .unwrap();
+        smmu.configure_stream(stream_id, stream_cfg).unwrap();
+
+        let pasid = PASID::new(0).unwrap();
+        smmu.create_pasid(stream_id, pasid).unwrap();
+
+        // Attempt 20 translations to an unmapped address — each will produce a stall
+        // fault event (since the PASID has no pages mapped).
+        let iova = IOVA::new(0x9000_0000).unwrap();
+        let total_attempts = 20usize;
+        for _ in 0..total_attempts {
+            let _ = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
+        }
+
+        // Drain the event queue and count stall events.
+        let events = smmu.get_events();
+        let stall_events: Vec<_> = events.iter().filter(|e| e.stall).collect();
+        // 2× capacity = 8; stall events must be bounded.
+        assert!(
+            stall_events.len() <= 8,
+            "BUG-RUST-M02: stall events must be capped at 2× capacity (8); got {}",
+            stall_events.len()
+        );
+    }
+
+    // ── BUG-RUST-M03: submit_event() must enforce capacity for all queue sizes ─
+
+    /// Regression guard: `submit_event()` must return `Err(EventQueueFull)` once
+    /// the queue reaches its capacity, regardless of whether the capacity is >= 200.
+    ///
+    /// Before the fix, the `< 200` guard caused production-sized queues to never
+    /// enforce their limit, allowing unbounded growth.
+    #[test]
+    fn bug_rust_m03_submit_event_enforces_large_capacity() {
+        use crate::types::{EventType, QueueConfig};
+
+        // Use a capacity value >= 200 to exercise the previously-skipped path.
+        let capacity = 200usize;
+        let config = SMMUConfig::from(QueueConfig {
+            event_queue_size: capacity,
+            command_queue_size: 32,
+            pri_queue_size: 32,
+        });
+        let smmu = SMMU::with_config(config);
+
+        let make_event = |i: u32| EventEntry {
+            event_type: EventType::FTranslation,
+            stream_id: i,
+            pasid: 0,
+            address: 0,
+            security_state: SecurityState::NonSecure,
+            error_code: 0,
+            timestamp: u64::from(i),
+            stall: false,
+            stag: 0,
+        };
+
+        // Fill the queue exactly to capacity — all must succeed.
+        for i in 0..(capacity as u32) {
+            assert!(
+                smmu.submit_event(make_event(i)).is_ok(),
+                "BUG-RUST-M03: submit_event should succeed for entry {i} (capacity {capacity})"
+            );
+        }
+
+        // One more must fail.
+        let result = smmu.submit_event(make_event(capacity as u32));
+        assert!(
+            matches!(result, Err(SMMUError::EventQueueFull)),
+            "BUG-RUST-M03: submit_event must return EventQueueFull once capacity ({capacity}) is reached; got {result:?}"
+        );
     }
 }
