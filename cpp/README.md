@@ -1,10 +1,10 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.8** - Seventh-Pass Conformance Fix ✅
+## ✅ **PRODUCTION RELEASE v1.2.9** - Bug Fixes (Critical/High/Medium/Low) ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 62/62 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.8
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 62/62 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.9
 
-> **Since v1.2.6 (Feb 17, 2026)**: 45 conformance fixes across 7 QA passes. 43 new tests added (19 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All 62 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 45 conformance fixes across 7 QA passes. 43 new tests added (19 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved (BUG-CPP-01/06/08/09). All 62 tests pass at 100%.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 

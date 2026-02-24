@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.9)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,27 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.8** - Seventh-Pass Conformance Fix (NEW-44) ⚡
+## ✅ **PRODUCTION READY v1.2.9** - Bug Fixes (Critical/High/Medium/Low) ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,437 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 23, 2026)**: Version 1.2.8 — **FINDING-NEW-44** fixed: `StreamConfig.security_state` added; `ATC_INVALIDATE_COMPLETION`/`COMMAND_SYNC_COMPLETION` events now use stream security state per §4.5.1/§4.8. Rust conformance ~99%. 2,437 tests passing (100%).
+**🎯 Latest Update (February 23, 2026)**: Version 1.2.9 — All critical, high, medium, and low severity bugs resolved (BUG-RUST-04/05/06/07/08/09). Rust conformance ~99%. 2,437 tests passing (100%).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.9 (February 23, 2026)
+
+**Bug Fixes — Critical/High/Medium/Low Severity**
+
+- ✅ BUG-RUST-04 through BUG-RUST-09: All critical, high, medium, and low severity bugs resolved
+- ✅ 2,437 tests passing (100%), zero clippy warnings
+- ✅ ARM SMMU v3 conformance ~99% maintained
+
+---
 
 ### 🚀 Release v1.2.8 (February 23, 2026)
 
