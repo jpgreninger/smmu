@@ -361,12 +361,14 @@ TEST_F(SMMUAdvancedCoverageTest, CommandQueueSyncBarrier) {
     size_t initialSize = smmuController->getCommandQueueSize();
     EXPECT_EQ(initialSize, 4);
 
-    // Process queue - should stop at SYNC barrier
+    // Process queue — ARM §4.8: CMD_SYNC is a barrier, NOT a stop.
+    // All commands (including those after SYNC) must be processed in a single call.
     smmuController->processCommandQueue();
 
-    // Commands after SYNC should still be in queue
+    // After processCommandQueue, ALL commands including those after SYNC must be consumed.
     size_t afterSync = smmuController->getCommandQueueSize();
-    EXPECT_GT(afterSync, 0);
+    EXPECT_EQ(afterSync, 0u)
+        << "ARM §4.8: CMD_SYNC is a barrier only — processing must continue after SYNC";
 }
 
 // ========== MULTI-STREAM SCENARIO TESTS (~80 lines coverage) ==========

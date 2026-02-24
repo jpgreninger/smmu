@@ -230,10 +230,14 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     StreamContext* streamContext = streamIt->second.get();
 
-    // Release the stripe lock before performing translation — StreamContext
-    // internal methods acquire contextMutex, and we must not hold two locks
-    // in an order that other threads might invert (BUG-01).
-    lock.unlock();
+    // BUG-CPP-02 fix: Do NOT release the stripe lock before performTwoStageTranslation.
+    // A concurrent reset() acquires ALL stripe locks before clearing streamMap; keeping
+    // our stripe lock held prevents reset() from destroying the StreamContext while we
+    // still hold a raw pointer to it.  The lock is released only after all accesses to
+    // streamContext are complete (before handleTranslationFailure, which would re-acquire
+    // the same stripe lock via determineContextSecurityState and deadlock).
+    // Note: performTwoStageTranslation and the cache/stall result code below do NOT
+    // attempt to re-acquire this stripe lock, so there is no self-deadlock risk here.
 
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
@@ -250,13 +254,23 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         if (inStallMode) {
             // §3.12.2 / FINDING-NEW-26: STAG=0 is reserved; skip it so that
             // EventEntry.stag is always non-zero for genuine stall events.
-            uint16_t stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
-            if (stag == 0) {
-                stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
-            }
-            StallRecord record(stag, streamID, pasid, iova, accessType, securityState, currentTime);
+            // BUG-CPP-03 fix: Allocate STAG under stallQueueMutex_ and check for
+            // wrap-around collisions with existing active entries.  After 65535 stalls
+            // the 16-bit counter wraps and the new STAG could alias a live entry.
+            // Keep incrementing (under the lock) until a free slot is found, with a
+            // safety limit of 65535 iterations to avoid an infinite loop when the
+            // queue is completely full.
+            uint16_t stag = 0;
+            StallRecord record(0, streamID, pasid, iova, accessType, securityState, currentTime);
             {
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
+                static constexpr int MAX_STAG_TRIES = 65535;
+                int tries = 0;
+                do {
+                    stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+                    ++tries;
+                } while ((stag == 0 || stallQueue_.count(stag) != 0) && tries < MAX_STAG_TRIES);
+                record = StallRecord(stag, streamID, pasid, iova, accessType, securityState, currentTime);
                 stallQueue_[stag] = record;
             }
             // ARM §7.3 / FINDING-NEW-13: Derive the correct EventType from the actual
@@ -278,7 +292,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
             return makeTranslationError(SMMUError::Stalled);
         }
+        // BUG-CPP-02 fix: Release the stripe lock before calling handleTranslationFailure.
+        // That function may call determineContextSecurityState which tries to acquire the
+        // same stripe lock, which would deadlock.  All accesses to streamContext are
+        // complete at this point.
+        lock.unlock();
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
+        return result;
     }
 
     return result;
@@ -1194,7 +1214,10 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                 break;
             case SMMUError::InvalidAddress:
                 // ARM §3.4.1: IOVA exceeded the per-context input address size.
+                // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
+                // that handleTranslationFailure does not need to emit it again.
                 fault.faultType = FaultType::AddressSizeFault;
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;
@@ -1235,7 +1258,10 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                 fault.faultType = FaultType::SecurityFault;
                 break;
             case SMMUError::InvalidAddress:
+                // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
+                // that handleTranslationFailure does not need to emit it again.
                 fault.faultType = FaultType::AddressSizeFault;
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;
@@ -1271,10 +1297,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
-                // §7.3.14: Generate F_ADDR_SIZE (event code 0x11) when IOVA exceeds
-                // the configured input address size (ARM §3.4.1, TCR.T0SZ).
+                // §7.3.14: F_ADDR_SIZE event already emitted by the translation path
+                // (performTwoStageTranslation / stage-specific methods) before returning
+                // this error.  BUG-CPP-04 fix: do NOT re-emit it here to avoid a
+                // duplicate F_ADDR_SIZE event for a single fault.
                 faultType = FaultType::AddressSizeFault;
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
@@ -1615,7 +1642,11 @@ void SMMU::processCommandQueue() {
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
                               command.startAddress, syncEventSecState);
             }
-            break;
+            // BUG-CPP-05 fix: ARM §4.8 specifies CMD_SYNC as a barrier, not a stop.
+            // After completing the sync and emitting the optional completion event,
+            // processing must continue with the next command.  Only the CS=0b11
+            // CERROR_ILL error path (above) should stop processing via break.
+            continue;
         }
     }
 }
@@ -2226,8 +2257,10 @@ void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, Access
     
     recordFault(fault);
     
-    // Generate security event for monitoring
-    generateEvent(EventType::C_BAD_STE, streamID, pasid, iova, actualState);
+    // BUG-CPP-07 fix: Security state mismatches at translation time generate
+    // F_PERMISSION (event code 0x13, permission fault) per ARM §7.3.16, not
+    // C_BAD_STE which is for malformed STE configuration entries.
+    generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, actualState);
 }
 
 bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState contextState) const {

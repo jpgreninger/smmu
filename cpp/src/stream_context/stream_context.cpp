@@ -393,10 +393,18 @@ VoidResult StreamContext::clearAllPASIDs() {
         // Clear entire PASID map
         // ARM SMMU v3: All translations for this stream become invalid
         pasidMap.clear();
-        
+
+        // BUG-CPP-10 fix: When PASID 0 was created with two-stage enabled,
+        // stage2AddressSpace was set to alias the PASID-0 AddressSpace.
+        // After clearing pasidMap the shared_ptr in stage2AddressSpace still
+        // keeps that object alive, causing stage-2 translation to use a stale
+        // address space after clearAllPASIDs().  Reset it here so the next
+        // stage-2 operation starts with a clean (null) context.
+        stage2AddressSpace.reset();
+
         // Update PASID count statistics
         streamStatistics.pasidCount = 0;
-        
+
         // Note: AddressSpace objects automatically cleaned up via shared_ptr
         // when last reference is released - RAII ensures proper cleanup
         //

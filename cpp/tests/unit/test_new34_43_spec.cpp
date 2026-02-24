@@ -39,7 +39,7 @@ static constexpr PA       TEST_PA     = 0x9000'0000ULL;
 
 static void enableSMMU(SMMU& smmu) {
     smmu.enable();
-    uint32_t cr0 = smmu.getCR0() | (1u << 3); // CMDQEN
+    uint32_t cr0 = smmu.getCR0() | (1u << 4); // CMDQEN
     smmu.setCR0(cr0);
 }
 

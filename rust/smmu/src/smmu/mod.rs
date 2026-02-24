@@ -1616,7 +1616,7 @@ impl SMMU {
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
             return Ok(crate::types::TranslationData::new(
                 pa,
-                crate::types::PagePermissions::read_write(),
+                crate::types::PagePermissions::all(),
                 security_state,
             ));
         }
@@ -1804,7 +1804,7 @@ impl SMMU {
                     self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
                     return Ok(crate::types::TranslationData::new(
                         pa,
-                        crate::types::PagePermissions::read_write(),
+                        crate::types::PagePermissions::all(),
                         security_state,
                     ));
                 }
@@ -1827,8 +1827,32 @@ impl SMMU {
             // §3.12.2 / FINDING-NEW-26: Allocate STAG before recording fault so the
             // EventEntry carries the correct STAG value when is_stall==true.
             let stag = if is_stall {
-                let s = self.stag_counter.fetch_add(1, Ordering::Relaxed);
-                if s == 0 { self.stag_counter.fetch_add(1, Ordering::Relaxed) } else { s }
+                // Generate an initial candidate STAG, skipping zero (reserved).
+                let initial = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                let mut candidate = if initial == 0 {
+                    self.stag_counter.fetch_add(1, Ordering::Relaxed)
+                } else {
+                    initial
+                };
+                // Ensure uniqueness: if the candidate collides with an existing
+                // stall_queue entry, keep incrementing until a free slot is found.
+                // Guard with 65535 iterations to prevent infinite loop when the queue
+                // is exhausted (ARM §3.12.2: STAG is a 16-bit non-zero identifier).
+                let mut iters: u32 = 0;
+                while self.stall_queue.contains_key(&candidate) {
+                    candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                    if candidate == 0 {
+                        candidate = self.stag_counter.fetch_add(1, Ordering::Relaxed);
+                    }
+                    iters += 1;
+                    if iters >= 65535 {
+                        // Stall queue is full — abort this transaction rather than
+                        // silently overwriting an existing stalled entry.
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        return Err(TranslationError::TlbConflict);
+                    }
+                }
+                candidate
             } else {
                 0
             };

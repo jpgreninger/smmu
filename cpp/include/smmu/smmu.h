@@ -222,13 +222,14 @@ private:
     // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
     uint32_t gerrorStatus;     // global error flags; cleared by clearGerror()
 
-    // §6.3.9 SMMU_CR0 register (CT-33)
-    // bit 0: SMMUEN, bit 1: PRIQEN, bit 2: EVENTQEN, bit 3: CMDQEN
+    // §6.3.9 SMMU_CR0 register (CT-33) — ARM IHI0070G.b §6.3.9 layout:
+    // bit 0: SMMUEN, bit 1: INTEN, bit 2: PRIQEN, bit 3: EVENTQEN, bit 4: CMDQEN
     static constexpr uint32_t CR0_SMMUEN   = (1u << 0); // SMMU enable
-    static constexpr uint32_t CR0_PRIQEN   = (1u << 1); // PRI queue enable
-    static constexpr uint32_t CR0_EVENTQEN = (1u << 2); // Event queue enable
-    static constexpr uint32_t CR0_CMDQEN   = (1u << 3); // Command queue enable
-    uint32_t cr0_;             // SMMU_CR0 register value; bit0=SMMUEN, bit2=EVENTQEN, bit3=CMDQEN
+    static constexpr uint32_t CR0_INTEN    = (1u << 1); // Interrupt enable
+    static constexpr uint32_t CR0_PRIQEN   = (1u << 2); // PRI queue enable
+    static constexpr uint32_t CR0_EVENTQEN = (1u << 3); // Event queue enable
+    static constexpr uint32_t CR0_CMDQEN   = (1u << 4); // Command queue enable
+    uint32_t cr0_;             // SMMU_CR0 register value; bit0=SMMUEN, bit1=INTEN, bit3=EVENTQEN, bit4=CMDQEN
 
     // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
     // Note: smmuen_ is now derived from cr0_ bit 0, kept for backward compatibility
