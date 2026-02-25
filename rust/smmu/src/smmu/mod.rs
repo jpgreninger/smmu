@@ -2656,13 +2656,10 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
-                // §4.8 / FINDING-NEW-33 / BUG-NEW3-03 fix: CS=0b11 is Reserved → CERROR_ILL.
-                // Return an error so the caller (process_command_queue) sets GERROR_CMDQ_ERR
-                // and halts the queue, per ARM §6.3.17.
+                // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved. Treat as CS=0b00 (no
+                // completion signal) — do not generate an event, do not fault.
                 if command.cs == 0b11 {
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_SYNC CS=0b11 is Reserved per ARM §4.8 (CERROR_ILL)".to_string(),
-                    ));
+                    return Ok(());
                 }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
