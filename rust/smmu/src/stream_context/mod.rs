@@ -169,6 +169,14 @@ pub struct StreamContext {
     /// events so those events carry the stream's actual security state rather
     /// than a hardcoded `NonSecure`.  Default: `SecurityState::NonSecure` (0).
     security_state: AtomicU8,
+
+    /// Tracks the number of live PASIDs without calling `pasid_map.len()`.
+    ///
+    /// `DashMap::len()` acquires a read-lock on every shard; calling it while an
+    /// `entry()` write-guard is active on any shard causes a re-entrant deadlock
+    /// (DashMap documents this constraint).  A separate atomic counter avoids the
+    /// issue entirely while keeping the PASID-limit check effectively atomic.
+    pasid_count: AtomicUsize,
 }
 
 impl StreamContext {
@@ -213,6 +221,7 @@ impl StreamContext {
             aa64: AtomicBool::new(true),
             abort_mode: AtomicBool::new(false),
             security_state: AtomicU8::new(SecurityState::NonSecure as u8),
+            pasid_count: AtomicUsize::new(0),
         }
     }
 
@@ -252,19 +261,22 @@ impl StreamContext {
         // Use DashMap::entry() to make the duplicate-check and insert atomic within
         // the shard lock.  This eliminates the TOCTOU window that existed between
         // the previous separate contains_key() check and insert() call (BUG-RUST-M04).
+        //
+        // IMPORTANT: Do NOT call self.pasid_map.len() while an entry() guard is held.
+        // DashMap::len() acquires a read-lock on every shard; if the entry guard holds
+        // a write-lock on shard N and len() tries to read-lock shard N, the thread
+        // deadlocks.  We use pasid_count (AtomicUsize) instead to avoid the re-entrant
+        // lock (deadlock fix for the Rust test hang).
         match self.pasid_map.entry(pasid_value) {
             Entry::Occupied(_) => Err(StreamContextError::PASIDAlreadyExists(pasid_value)),
             Entry::Vacant(slot) => {
-                // Count check must be performed while the shard lock is held so
-                // no concurrent inserter can slip in between the count read and
-                // our own insert.  DashMap holds the shard lock for the duration
-                // of the entry() call, so this is safe.
-                let current_count = self.pasid_map.len();
+                let current_count = self.pasid_count.load(Ordering::Acquire);
                 if current_count >= max_pasids {
                     return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
                 }
                 let address_space = Arc::new(AddressSpace::new());
                 slot.insert(address_space);
+                self.pasid_count.fetch_add(1, Ordering::Release);
                 Ok(())
             }
         }
@@ -517,6 +529,7 @@ impl StreamContext {
             return Err(StreamContextError::PASIDNotFound(pasid_value));
         }
 
+        self.pasid_count.fetch_sub(1, Ordering::Release);
         Ok(())
     }
 
@@ -566,7 +579,7 @@ impl StreamContext {
         // this snapshot and the entry() write-lock is acceptable: the worst-case
         // outcome is one extra PASID briefly exceeding the soft cap, and the
         // duplicate-PASID check below remains fully atomic.
-        let current_count = self.pasid_map.len();
+        let current_count = self.pasid_count.load(Ordering::Acquire);
         if current_count >= max_pasids {
             return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
         }
@@ -575,6 +588,7 @@ impl StreamContext {
             Entry::Occupied(_) => Err(StreamContextError::PASIDAlreadyExists(pasid_value)),
             Entry::Vacant(slot) => {
                 slot.insert(address_space);
+                self.pasid_count.fetch_add(1, Ordering::Release);
                 Ok(())
             }
         }
@@ -619,7 +633,7 @@ impl StreamContext {
     /// ```
     #[must_use]
     pub fn pasid_count(&self) -> usize {
-        self.pasid_map.len()
+        self.pasid_count.load(Ordering::Acquire)
     }
 
     /// Clears all PASIDs and their associated AddressSpaces
@@ -641,6 +655,7 @@ impl StreamContext {
     pub fn clear_all_pasids(&self) -> Result<(), StreamContextError> {
         // Clear all PASIDs (including PASID 0)
         self.pasid_map.clear();
+        self.pasid_count.store(0, Ordering::Release);
         Ok(())
     }
 
@@ -1285,7 +1300,7 @@ impl StreamContext {
             }
 
             // Check that new limit isn't less than current PASID count
-            let current_count = self.pasid_map.len();
+            let current_count = self.pasid_count.load(Ordering::Acquire);
             if max_pasids < current_count {
                 return Err(StreamContextError::ConfigurationError(format!(
                     "Cannot reduce max_pasids_per_stream to {} (current count: {})",
@@ -1361,6 +1376,7 @@ impl StreamContext {
         // returning PASIDNotFound instead of the correct StreamDisabled.
         self.enabled.store(false, Ordering::SeqCst);
         self.pasid_map.clear();
+        self.pasid_count.store(0, Ordering::Release);
     }
 
     /// Checks if the stream is enabled

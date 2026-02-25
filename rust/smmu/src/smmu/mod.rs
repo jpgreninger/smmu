@@ -2141,6 +2141,10 @@ impl SMMU {
             if (event.stall && queue.len() < stall_capacity) || queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+            } else {
+                // BUG-NEW3-07 fix: §6.3.17 — set EVENTQ_ABT_ERR when an event is dropped
+                // due to queue overflow, so software can detect the loss.
+                self.gerror.fetch_or(Self::GERROR_EVENTQ_ABT_ERR, Ordering::Release);
             }
         }
     }
@@ -2319,8 +2323,10 @@ impl SMMU {
         }
 
         let mut queue = self.command_queue.write().unwrap();
-        // Only enforce capacity for small queues (testing overflow behavior)
-        if self.command_queue_capacity < 200 && queue.len() >= self.command_queue_capacity {
+        // BUG-NEW3-08 fix: enforce capacity for ALL queue sizes, not just < 200.
+        // The previous guard skipped overflow detection for large queues, allowing
+        // unbounded growth that violates ARM §3.5.1 circular queue semantics.
+        if queue.len() >= self.command_queue_capacity {
             return Err(SMMUError::CommandQueueFull);
         }
         queue.push_back(command);
@@ -2585,10 +2591,13 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
-                // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL; suppress
-                // the completion event entirely (no signal generated).
+                // §4.8 / FINDING-NEW-33 / BUG-NEW3-03 fix: CS=0b11 is Reserved → CERROR_ILL.
+                // Return an error so the caller (process_command_queue) sets GERROR_CMDQ_ERR
+                // and halts the queue, per ARM §6.3.17.
                 if command.cs == 0b11 {
-                    return Ok(());
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_SYNC CS=0b11 is Reserved per ARM §4.8 (CERROR_ILL)".to_string(),
+                    ));
                 }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {

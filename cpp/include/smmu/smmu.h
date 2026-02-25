@@ -119,7 +119,7 @@ public:
     // Cache invalidation command handling (Task 5.3.4)
     void executeInvalidationCommand(const CommandEntry& command);
     void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid);
-    void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr);
+    void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr, SecurityState securityState);
     
     // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model (FINDING-M-06)
     uint32_t getGerror() const;

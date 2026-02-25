@@ -54,9 +54,11 @@ VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permis
     }
     
     // Validate security state is within valid range
-    if (securityState != SecurityState::NonSecure && 
-        securityState != SecurityState::Secure && 
-        securityState != SecurityState::Realm) {
+    // BUG-NEW3-02 fix: Root security state is valid per ARM RME extension.
+    if (securityState != SecurityState::NonSecure &&
+        securityState != SecurityState::Secure &&
+        securityState != SecurityState::Realm &&
+        securityState != SecurityState::Root) {
         return makeVoidError(SMMUError::InvalidSecurityState);
     }
     

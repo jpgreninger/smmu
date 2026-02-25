@@ -64,7 +64,8 @@ SMMU::SMMU()
       smmuen_(false),
       gbpaAbort_(false),
       strtabLog2Size_(32),
-      stagCounter_(0) {
+      // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
+      stagCounter_(1) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -103,7 +104,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       smmuen_(false),
       gbpaAbort_(false),
       strtabLog2Size_(32),
-      stagCounter_(0) {
+      // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
+      stagCounter_(1) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -693,15 +695,19 @@ void SMMU::reset() {
     gerrorStatus = 0;
 
     // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
+    // BUG-NEW3-04 fix: ARM §6.3.9 — reset returns SMMU to disabled state (all CR0 bits clear).
+    // Resetting only smmuen_ is insufficient; queue-enable bits must also be cleared.
     smmuen_ = false;
     gbpaAbort_ = false;
+    cr0_ = 0;
 
     // ARM §3.12.2: Clear stall queue on reset.
     {
         std::lock_guard<std::mutex> slock(stallQueueMutex_);
         stallQueue_.clear();
     }
-    stagCounter_.store(0, std::memory_order_relaxed);
+    // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
+    stagCounter_.store(1, std::memory_order_relaxed);
 }
 
 // Helper methods
@@ -1907,22 +1913,24 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
             
         case CommandType::ATC_INV: {
-            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
-            executeATCInvalidationCommand(command.streamID, command.pasid,
-                                        command.startAddress, command.endAddress);
-            // FINDING-NEW-39: derive security state from the stream config rather than
-            // hardcoding NonSecure, per ARM §4.5.1 / §4.8.
-            SecurityState atcEventSecState = SecurityState::NonSecure;
+            // BUG-NEW3-01 fix: derive security state BEFORE calling
+            // executeATCInvalidationCommand so TLB entries are invalidated
+            // with the correct security state (Secure/Realm/Root), not just
+            // the default NonSecure.
+            SecurityState atcSecState = SecurityState::NonSecure;
             {
                 size_t atcStripe = getStreamStripe(command.streamID);
                 std::lock_guard<std::mutex> atcLock(streamLockStripes[atcStripe]);
                 auto atcIt = streamMap.find(command.streamID);
                 if (atcIt != streamMap.end()) {
-                    atcEventSecState = atcIt->second->getStreamConfiguration().securityState;
+                    atcSecState = atcIt->second->getStreamConfiguration().securityState;
                 }
             }
+            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
+            executeATCInvalidationCommand(command.streamID, command.pasid,
+                                        command.startAddress, command.endAddress, atcSecState);
             generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
-                          command.startAddress, atcEventSecState);
+                          command.startAddress, atcSecState);
             break;
         }
 
@@ -2013,12 +2021,13 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
     }
 }
 
-void SMMU::executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr) {
+void SMMU::executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr, SecurityState securityState) {
     // ARM SMMU v3 spec: Execute Address Translation Cache invalidation
-    
+
     if (tlbCache) {
         if (startAddr == 0 && endAddr == 0) {
-            // Global invalidation for stream/PASID
+            // Global invalidation for stream/PASID — these helpers invalidate all
+            // entries for the stream/PASID regardless of security state.
             if (pasid != 0) {
                 invalidatePASIDCache(streamID, pasid);
             } else {
@@ -2042,8 +2051,10 @@ void SMMU::executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA st
             // Invalidate each page in the range.
             // BUG-14 fix: detect unsigned wrap-around *before* incrementing so
             // we never execute the loop body with an overflowed address.
+            // BUG-NEW3-01 fix: pass the caller-supplied security state so that
+            // Secure/Realm/Root TLB entries are correctly targeted.
             while (currentAddr <= alignedEndAddr) {
-                tlbCache->invalidate(streamID, pasid, currentAddr);
+                tlbCache->invalidate(streamID, pasid, currentAddr, securityState);
                 if (currentAddr > UINT64_MAX - PAGE_SIZE) {
                     break; // Next increment would wrap — all pages covered
                 }
@@ -2123,12 +2134,13 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
             break;
 
         case CommandType::ATC_INV: {
-            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
-            executeATCInvalidationCommand(command.streamID, command.pasid,
-                                        command.startAddress, command.endAddress);
-            // FINDING-NEW-39: derive security state from the stream config.
-            // Release queueMutex before acquiring the stripe lock (same ABBA concern).
-            SecurityState atcEventSecState = SecurityState::NonSecure;
+            // BUG-NEW3-01 fix: derive security state BEFORE calling
+            // executeATCInvalidationCommand so TLB entries are invalidated with
+            // the correct security state (Secure/Realm/Root).
+            // Release queueMutex before acquiring the stripe lock to maintain the
+            // lock ordering invariant: stripe_lock must never be acquired while
+            // queueMutex is held.
+            SecurityState atcSecState = SecurityState::NonSecure;
             {
                 size_t atcStripe = getStreamStripe(command.streamID);
                 queueLock.unlock();
@@ -2136,13 +2148,16 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
                     std::lock_guard<std::mutex> atcLock(streamLockStripes[atcStripe]);
                     auto atcIt = streamMap.find(command.streamID);
                     if (atcIt != streamMap.end()) {
-                        atcEventSecState = atcIt->second->getStreamConfiguration().securityState;
+                        atcSecState = atcIt->second->getStreamConfiguration().securityState;
                     }
                 }
                 queueLock.lock();
             }
+            // §4.5.1: ATC_INVALIDATE_COMPLETION is generated ONLY for CMD_ATC_INV.
+            executeATCInvalidationCommand(command.streamID, command.pasid,
+                                        command.startAddress, command.endAddress, atcSecState);
             generateEvent(EventType::ATC_INVALIDATE_COMPLETION, command.streamID, command.pasid,
-                          command.startAddress, atcEventSecState);
+                          command.startAddress, atcSecState);
             break;
         }
 

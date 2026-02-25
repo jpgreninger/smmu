@@ -661,7 +661,7 @@ TEST_F(SMMUPhase4BCoverageTest, CommandProcessing_InvalidationCommands) {
     smmuController->executeTLBInvalidationCommand(CommandType::TLBI_NH_ALL, STREAM1, PASID1, 0, 0);
 
     // Execute ATC invalidation
-    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, TEST_IOVA1, TEST_IOVA2);
+    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, TEST_IOVA1, TEST_IOVA2, SecurityState::NonSecure);
 }
 
 } // namespace test

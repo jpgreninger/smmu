@@ -2762,7 +2762,7 @@ TEST_F(SMMUTest, Task81_Task53QueueIntegrationWithSMMUOperations) {
     // Test ATC invalidation command
     CommandEntry atcInvalidateCmd(CommandType::ATC_INV, queueStream, queuePasid, queueIova, queueIova + PAGE_SIZE);
     EXPECT_TRUE(smmuController->submitCommand(atcInvalidateCmd).isOk());
-    smmuController->executeATCInvalidationCommand(queueStream, queuePasid, queueIova, queueIova + PAGE_SIZE);
+    smmuController->executeATCInvalidationCommand(queueStream, queuePasid, queueIova, queueIova + PAGE_SIZE, SecurityState::NonSecure);
     
     // Test SYNC command
     CommandEntry syncCmd(CommandType::SYNC, 0, 0, 0, 0);

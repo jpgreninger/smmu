@@ -756,7 +756,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_ATCInvalidation_GlobalPASID) {
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute ATC invalidation with startAddr=0, endAddr=0, pasid=0 (line 1519-1525)
-    smmuController->executeATCInvalidationCommand(STREAM1, 0, 0, 0);
+    smmuController->executeATCInvalidationCommand(STREAM1, 0, 0, 0, SecurityState::NonSecure);
 
     // Stream cache should be invalidated
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -767,7 +767,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_ATCInvalidation_SpecificPASID)
     setupTwoStageStream(STREAM1, PASID1, true, false, true, false);
 
     // Execute ATC invalidation with specific PASID (line 1521-1522)
-    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, 0, 0);
+    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, 0, 0, SecurityState::NonSecure);
 
     // PASID cache should be invalidated
     EXPECT_EQ(smmuController->getCacheHitCount(), 0);
@@ -793,7 +793,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_ATCInvalidation_AddressRange) 
     }
 
     // Execute ATC invalidation with address range (line 1527-1541)
-    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, TEST_IOVA1, TEST_IOVA1 + 0x10000);
+    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, TEST_IOVA1, TEST_IOVA1 + 0x10000, SecurityState::NonSecure);
 
     // Cache entries in range should be invalidated
     smmuController->invalidateTranslationCache();
@@ -808,7 +808,7 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_ATCInvalidation_OverflowPreven
     IOVA startAddr = 0xFFFFFFFFFFFFF000ULL;
     IOVA endAddr = 0xFFFFFFFFFFFFFFFFULL;
 
-    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, startAddr, endAddr);
+    smmuController->executeATCInvalidationCommand(STREAM1, PASID1, startAddr, endAddr, SecurityState::NonSecure);
 
     // Should complete without infinite loop
     EXPECT_TRUE(true);
