@@ -2555,3 +2555,143 @@ Both implementations define the `StreamWorld` enum and store `strw: StreamWorld`
 | `rust/smmu/src/types/mod.rs` | CT-20 |
 | `rust/smmu/tests/test_ct_findings_spec.rs` | CT-04, CT-09, CT-13, CT-14, CT-19, CT-20, CT-23, CT-30, CT-33 |
 | `rust/smmu/src/cache/` | M-03, M-04 |
+
+---
+
+## Eighth-Pass Conformance Review (2026-02-24)
+
+### FINDING-NEW-47: SMMU_CR0 Bit Assignments Wrong in Both Implementations
+**Severity**: High
+**Spec Reference**: §6.3.9 (SMMU_CR0)
+**Description**: ARM IHI0070G.b §6.3.9 defines the SMMU_CR0 bit layout as:
+- bit[0]: SMMUEN
+- bit[1]: PRIQEN
+- bit[2]: EVENTQEN
+- bit[3]: CMDQEN
+- bit[4]: ATSCHK
+
+There is no INTEN field in SMMU_CR0.
+
+**Current Behavior**: Both C++ (`cpp/include/smmu/smmu.h` lines 227–231) and Rust (`rust/smmu/src/smmu/mod.rs` lines 328–336) define:
+```
+CR0_SMMUEN   = 1 << 0   (bit 0) — correct
+CR0_INTEN    = 1 << 1   (bit 1) — phantom; no such field in spec
+CR0_PRIQEN   = 1 << 2   (bit 2) — wrong; spec says PRIQEN=bit[1]
+CR0_EVENTQEN = 1 << 3   (bit 3) — wrong; spec says EVENTQEN=bit[2]
+CR0_CMDQEN   = 1 << 4   (bit 4) — wrong; spec says CMDQEN=bit[3]
+```
+
+The insertion of phantom `INTEN` at bit 1 pushes PRIQEN, EVENTQEN, and CMDQEN each one bit too high. The ATSCHK field (bit[4]) is entirely absent from both implementations.
+
+**Impact**: Any external agent using `getCR0()`/`get_cr0()` to inspect queue enable state would read or set wrong bits. The per-queue gate checks (`CR0_CMDQEN`, `CR0_EVENTQEN`, `CR0_PRIQEN`) all use the shifted constants; because `setCR0()`/`set_cr0()` and the gate checks use the same (wrong) constants internally, the behavioral outcome is self-consistent within the model. However, a conformant SMMU driver that writes a spec-correct CR0 value (e.g., `0x0F` to enable SMMUEN+PRIQEN+EVENTQEN+CMDQEN) will not work correctly with this model, and the model's `getCR0()` value is not interoperable with hardware descriptions.
+
+**File**: `cpp/include/smmu/smmu.h` lines 227–231; `rust/smmu/src/smmu/mod.rs` lines 327–336
+**Status**: NEW
+
+---
+
+### FINDING-NEW-48: SMMU_GERROR Bit Assignments Wrong in Both Implementations
+**Severity**: High
+**Spec Reference**: §6.3.17 (SMMU_GERROR)
+**Description**: ARM IHI0070G.b §6.3.17 defines the SMMU_GERROR bit layout as:
+- bit[0]: CMDQ_ERR — command queue processing error
+- bit[1]: Reserved RES0
+- bit[2]: EVENTQ_ABT_ERR — Event queue access aborted
+- bit[3]: PRIQ_ABT_ERR — PRI queue access aborted
+- bit[4]: MSI_CMDQ_ABT_ERR — CMD_SYNC MSI write aborted
+- bit[5]: MSI_EVENTQ_ABT_ERR — Event queue MSI write aborted
+- bit[6]: MSI_PRIQ_ABT_ERR — PRI queue MSI write aborted
+- bit[7]: MSI_GERROR_ABT_ERR — GERROR MSI write aborted
+- bit[8]: SFM_ERR — SMMU entered Service Failure Mode
+- bit[9]: CMDQP_ERR — Command queue control page error
+
+**Current Behavior**: Both C++ (`cpp/include/smmu/types.h` lines 1218–1225) and Rust (`rust/smmu/src/smmu/mod.rs` lines 305–321) define:
+```
+GERROR_SFE            = 1 << 0   — spec says CMDQ_ERR=bit[0], not SFE
+GERROR_MSI_ABT_ERR    = 1 << 2   — spec says EVENTQ_ABT_ERR=bit[2]
+GERROR_PRIQ_ABT_ERR   = 1 << 4   — spec says PRIQ_ABT_ERR=bit[3]
+GERROR_EVENTQ_ABT_ERR = 1 << 5   — spec says MSI_CMDQ_ABT_ERR=bit[4]
+GERROR_CMDQ_ERR       = 1 << 7   — spec says CMDQ_ERR=bit[0]
+GERROR_CMDQ_ABT_ERR   = 1 << 8   — no direct spec equivalent
+```
+
+The critical `GERROR_CMDQ_ERR` constant is placed at bit 7 rather than the spec-defined bit 0. The `SFM_ERR` field (spec bit[8]) and `MSI_GERROR_ABT_ERR` (spec bit[7]) are entirely absent. The Rust implementation additionally sets `GERROR_EVENTQ_ABT_ERR` (at its wrong bit 5) when the event queue is full (line 2147 of `rust/smmu/src/smmu/mod.rs`), which misidentifies an overflow condition as an abort condition (see also FINDING-NEW-51).
+
+**Impact**: Any conformant SMMU driver that parses GERROR bits at spec-defined positions will misinterpret the model's GERROR value. GERROR bit-field interoperability with hardware models or reference drivers is broken.
+
+**File**: `cpp/include/smmu/types.h` lines 1218–1225; `rust/smmu/src/smmu/mod.rs` lines 302–321
+**Status**: NEW
+
+---
+
+### FINDING-NEW-49: C++ processCommandQueue() Does Not Halt on GERROR_CMDQ_ERR
+**Severity**: High
+**Spec Reference**: §6.3.17 (SMMU_GERROR.CMDQ_ERR bit description)
+**Description**: ARM §6.3.17 states for the CMDQ_ERR bit: "Commands are not processed while this error is active." Once CMDQ_ERR is set, the hardware stops draining the command queue until software clears the error via SMMU_GERRORN.
+
+**Current Behavior**: In `cpp/src/smmu/smmu.cpp`, `processCommandQueue()` sets `gerrorStatus |= GERROR_CMDQ_ERR` in three distinct error paths inside `processCommand()` (lines 2222, 2335) and the `executeInvalidationCommand()` for unknown StreamIDs (line 1849). However, the outer `while (!commandQueue.empty())` loop at line 1658 never checks `gerrorStatus` after each `processCommand()` call. Only the `CS=0b11` CERROR_ILL case (line 1682) uses `break` to stop processing. All other error paths (unknown StreamID in CFGI_STE, unknown command opcode) set CMDQ_ERR but allow the loop to continue processing subsequent commands.
+
+The Rust `process_command_queue()` (lines 2347–2384 of `rust/smmu/src/smmu/mod.rs`) does `return Err(e)` on command processing errors (line 2375), which effectively halts — but does NOT guard against a pre-existing `GERROR_CMDQ_ERR` that was set by a previous invocation (see FINDING-NEW-50).
+
+**File**: `cpp/src/smmu/smmu.cpp` lines 1658–1713 (`processCommandQueue`), lines 2188–2338 (`processCommand`)
+**Status**: NEW
+
+---
+
+### FINDING-NEW-50: Neither Implementation Refuses to Process Commands When GERROR_CMDQ_ERR Is Already Active
+**Severity**: Medium
+**Spec Reference**: §6.3.17 (SMMU_GERROR.CMDQ_ERR), §4.1 (Command queue processing)
+**Description**: ARM §6.3.17 requires that "Commands are not processed while this error is active." This means that at the start of each command queue processing cycle, the implementation must check whether CMDQ_ERR is already set (from a previous error). If it is, no commands should be dequeued or processed until software clears the error by writing to SMMU_GERRORN.
+
+**Current Behavior**:
+- C++ `processCommandQueue()` (line 1642): checks `CR0_CMDQEN` but not `gerrorStatus & GERROR_CMDQ_ERR` before entering the command processing loop.
+- Rust `process_command_queue()` (line 2347): checks `CR0_CMDQEN` (line 2350) but does not check `self.gerror.load() & GERROR_CMDQ_ERR` at function entry.
+
+Both implementations will happily process new commands in a subsequent call to `processCommandQueue()`/`process_command_queue()` even if GERROR_CMDQ_ERR was set during a previous call and software has not yet cleared it.
+
+**File**: `cpp/src/smmu/smmu.cpp` line 1642; `rust/smmu/src/smmu/mod.rs` line 2347
+**Status**: NEW
+
+---
+
+### FINDING-NEW-51: Event Queue Overflow Handling Missing EVENTQ_PROD.OVFLG Toggle (Both Implementations)
+**Severity**: Medium
+**Spec Reference**: §7.4 (Event queue overflow), §6.3.xx (SMMU_EVENTQ_PROD.OVFLG)
+**Description**: ARM §7.4 defines the Event queue overflow protocol. When the event queue is full and a non-stall event is discarded, the SMMU must toggle the `SMMU_EVENTQ_PROD.OVFLG` bit (bit[31] of SMMU_EVENTQ_PROD) if the overflow condition is not already present. Software detects overflow by comparing `EVENTQ_PROD.OVFLG` against its copy of `EVENTQ_CONS.OVACKFLG`. A second overflow cannot be indicated until software acknowledges the first by writing `OVACKFLG = OVFLG`.
+
+Separately, `GERROR.EVENTQ_ABT_ERR` is defined for a different condition: when the SMMU's write to the Event queue in memory is terminated with an external bus abort (DRAM access error), not for queue-full overflow.
+
+**Current Behavior**:
+- C++ `generateEvent()` (lines 2443–2451 of `cpp/src/smmu/smmu.cpp`): silently discards the event via `return` when `eventQueue.size() >= maxEventQueueSize`. No OVFLG flag is toggled. No GERROR bit is set.
+- Rust `submit_event()` (line 2147 of `rust/smmu/src/smmu/mod.rs`): sets `GERROR_EVENTQ_ABT_ERR` when the event queue is full. This is incorrect — queue-full overflow is not an abort condition; it is a normal overflow condition signaled through OVFLG. `EVENTQ_ABT_ERR` should be set only when the SMMU cannot write to the event queue because of a memory system fault.
+
+Neither implementation tracks or exposes the OVFLG and OVACKFLG fields in the eventq_prod/eventq_cons index registers.
+
+**File**: `cpp/src/smmu/smmu.cpp` lines 2443–2451; `rust/smmu/src/smmu/mod.rs` line 2147
+**Status**: NEW
+
+---
+
+### FINDING-NEW-52: Missing C_BAD_SUBSTREAMID for SubstreamID >= 2^STE.S1CDMax (Both Implementations)
+**Severity**: Medium
+**Spec Reference**: §7.3.9 (C_BAD_SUBSTREAMID), §5.2 (STE.S1CDMax)
+**Description**: ARM §7.3.9 specifies that C_BAD_SUBSTREAMID (event 0x08) is generated when a transaction presents a SubstreamID (PASID) that is out of the valid range — specifically when `SubstreamID >= 2^STE.S1CDMax`. The STE.S1CDMax field defines how many high-order SubstreamID bits are supported; SubstreamIDs that exceed this limit must be rejected.
+
+**Current Behavior**: Both implementations check for `pasid != 0 && !stage1_enabled` (non-zero PASID on stage-2-only or bypass stream) and generate C_BAD_SUBSTREAMID in that case. However, neither implementation validates that `pasid < (1 << s1cd_max)` for stage-1-enabled streams.
+
+In C++ (`cpp/src/smmu/smmu.cpp`), the S1CDMax range check is entirely absent from `performTwoStageTranslation()`. In Rust (`rust/smmu/src/stream_context/mod.rs` line 1047 and `rust/smmu/src/smmu/mod.rs` line 1639–1702), the `s1cd_max_val` is retrieved but never used to validate the incoming PASID against the upper bound `2^s1cd_max`.
+
+A device presenting SubstreamID=5 to a stream configured with S1CDMax=2 (supporting only SubstreamIDs 0–3) should receive C_BAD_SUBSTREAMID. Instead, both implementations will attempt to look up the PASID in the address space map and return a translation fault or page-not-mapped error, which misidentifies the configuration error as a translation error.
+
+**File**: `cpp/src/smmu/smmu.cpp` lines 918–956; `rust/smmu/src/smmu/mod.rs` lines 1639–1702; `rust/smmu/src/stream_context/mod.rs` line 1047
+**Status**: NEW
+
+---
+
+### Summary
+- Critical: 0
+- High: 3 (FINDING-NEW-47, FINDING-NEW-48, FINDING-NEW-49)
+- Medium: 3 (FINDING-NEW-50, FINDING-NEW-51, FINDING-NEW-52)
+- Low: 0
+
+Note: FINDING-NEW-47 and FINDING-NEW-48 are High because wrong bit positions break register-level interoperability with conformant SMMU drivers. FINDING-NEW-49 is High because it directly contradicts a mandatory spec behavioral requirement (commands must not be processed while CMDQ_ERR is active). FINDING-NEW-50 through FINDING-NEW-52 are Medium as they affect interoperability and edge-case correctness but not the primary translation path.

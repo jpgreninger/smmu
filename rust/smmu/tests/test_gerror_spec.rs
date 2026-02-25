@@ -39,21 +39,29 @@ fn test_gerror_starts_at_zero() {
     assert_eq!(smmu.get_gerror(), 0, "GERROR must be 0 after reset");
 }
 
-/// §6.3.17: GERROR_CMDQ_ERR constant must be bit 7 (0x80) per spec.
+/// §6.3.17: GERROR_CMDQ_ERR constant must be bit 0 (0x01) per spec.
 #[test]
 fn test_gerror_cmdq_err_bit_position() {
-    assert_eq!(SMMU::GERROR_CMDQ_ERR, 0x80, "CMDQ_ERR must be bit 7 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_CMDQ_ERR, 1 << 0, "CMDQ_ERR must be bit 0 (§6.3.17)");
 }
 
-/// §6.3.17: Confirm all GERROR bit constant values match spec table.
+/// §6.3.17: Confirm all GERROR bit constant values match the ARM IHI0070G.b spec table.
 #[test]
 fn test_gerror_bit_constants() {
-    assert_eq!(SMMU::GERROR_SFE,            0x01, "SFE must be bit 0");
-    assert_eq!(SMMU::GERROR_MSI_ABT_ERR,    0x04, "MSI_ABT_ERR must be bit 2");
-    assert_eq!(SMMU::GERROR_PRIQ_ABT_ERR,   0x10, "PRIQ_ABT_ERR must be bit 4");
-    assert_eq!(SMMU::GERROR_EVENTQ_ABT_ERR, 0x20, "EVENTQ_ABT_ERR must be bit 5");
-    assert_eq!(SMMU::GERROR_CMDQ_ERR,       0x80, "CMDQ_ERR must be bit 7");
-    assert_eq!(SMMU::GERROR_CMDQ_ABT_ERR,  0x100, "CMDQ_ABT_ERR must be bit 8");
+    // New spec-correct constants (ARM §6.3.17)
+    assert_eq!(SMMU::GERROR_CMDQ_ERR,           1 << 0, "CMDQ_ERR must be bit 0 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_EVENTQ_ABT_ERR,     1 << 2, "EVENTQ_ABT_ERR must be bit 2 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_PRIQ_ABT_ERR,       1 << 3, "PRIQ_ABT_ERR must be bit 3 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_MSI_CMDQ_ABT_ERR,   1 << 4, "MSI_CMDQ_ABT_ERR must be bit 4 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_MSI_EVENTQ_ABT_ERR, 1 << 5, "MSI_EVENTQ_ABT_ERR must be bit 5 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_MSI_PRIQ_ABT_ERR,   1 << 6, "MSI_PRIQ_ABT_ERR must be bit 6 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_MSI_GERROR_ABT_ERR, 1 << 7, "MSI_GERROR_ABT_ERR must be bit 7 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_SFM_ERR,            1 << 8, "SFM_ERR must be bit 8 (§6.3.17)");
+    assert_eq!(SMMU::GERROR_CMDQP_ERR,          1 << 9, "CMDQP_ERR must be bit 9 (§6.3.17)");
+    // Backward-compatible aliases must resolve to the correct bit positions
+    assert_eq!(SMMU::GERROR_SFE,        SMMU::GERROR_SFM_ERR,          "GERROR_SFE alias must equal SFM_ERR (bit 8)");
+    assert_eq!(SMMU::GERROR_MSI_ABT_ERR, SMMU::GERROR_MSI_EVENTQ_ABT_ERR, "GERROR_MSI_ABT_ERR alias must equal MSI_EVENTQ_ABT_ERR (bit 5)");
+    assert_eq!(SMMU::GERROR_CMDQ_ABT_ERR, SMMU::GERROR_MSI_CMDQ_ABT_ERR, "GERROR_CMDQ_ABT_ERR alias must equal MSI_CMDQ_ABT_ERR (bit 4)");
 }
 
 // ── §6.3.18: SMMU_GERRORN — software clear ───────────────────────────────────

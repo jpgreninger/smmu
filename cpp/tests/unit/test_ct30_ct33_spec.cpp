@@ -113,11 +113,11 @@ TEST(Ct33Cr0, SMMUENBitMapsToEnableDisable) {
 
 TEST(Ct33Cr0, EventNotRecordedWhenEventqenNotSet) {
     SMMU smmu;
-    // CR0.EVENTQEN=0 (bit 3 cleared), SMMUEN=0 so bypass is active
+    // CR0.EVENTQEN=0 (bit 2 cleared), SMMUEN=0 so bypass is active (§6.3.9)
     smmu.setCR0(0u);
 
     // Trigger a stream lookup event (C_BAD_STREAMID) when SMMUEN is set but EVENTQEN=0
-    // Enable SMMUEN only, not EVENTQEN (bit 0=1, bit 3=0)
+    // Enable SMMUEN only, not EVENTQEN (bit 0=1, bit 2=0)
     smmu.setCR0(1u); // SMMUEN=1, EVENTQEN=0
 
     // Translate to non-existent stream to trigger C_BAD_STREAMID
@@ -130,8 +130,8 @@ TEST(Ct33Cr0, EventNotRecordedWhenEventqenNotSet) {
 
 TEST(Ct33Cr0, EventRecordedWhenEventqenSet) {
     SMMU smmu;
-    // CR0.SMMUEN=1 (bit 0), CR0.EVENTQEN=1 (bit 3) → value = 0x09 = 0b00001001
-    smmu.setCR0(0x09u);
+    // CR0.SMMUEN=1 (bit 0), CR0.EVENTQEN=1 (bit 2) → value = 0x05 = 0b00000101 (§6.3.9)
+    smmu.setCR0(0x05u);
     EXPECT_TRUE(smmu.isEnabled());
 
     // Translate to non-existent stream to trigger C_BAD_STREAMID
@@ -144,9 +144,9 @@ TEST(Ct33Cr0, EventRecordedWhenEventqenSet) {
 
 TEST(Ct33Cr0, CommandQueueDisabledWhenCmdqenNotSet) {
     SMMU smmu;
-    // CR0.SMMUEN=1 (bit 0), CR0.EVENTQEN=1 (bit 3), but CMDQEN=0 (bit 4 cleared)
-    // bit 0 = SMMUEN, bit 3 = EVENTQEN → 0x09; CMDQEN = bit 4 → not set
-    smmu.setCR0(0x09u); // SMMUEN=1, EVENTQEN=1, CMDQEN=0
+    // CR0.SMMUEN=1 (bit 0), CR0.EVENTQEN=1 (bit 2), but CMDQEN=0 (bit 3 cleared) (§6.3.9)
+    // bit 0 = SMMUEN, bit 2 = EVENTQEN → 0x05; CMDQEN = bit 3 → not set
+    smmu.setCR0(0x05u); // SMMUEN=1, EVENTQEN=1, CMDQEN=0
 
     StreamConfig cfg;
     cfg.translationEnabled = false;
@@ -170,8 +170,8 @@ TEST(Ct33Cr0, CommandQueueDisabledWhenCmdqenNotSet) {
 
 TEST(Ct33Cr0, CommandQueueProcessedWhenCmdqenSet) {
     SMMU smmu;
-    // bit 0=SMMUEN, bit 3=EVENTQEN, bit 4=CMDQEN → 0x19 = 0b00011001
-    smmu.setCR0(0x19u); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
+    // bit 0=SMMUEN, bit 2=EVENTQEN, bit 3=CMDQEN → 0x0D = 0b00001101 (§6.3.9)
+    smmu.setCR0(0x0Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
 
     CommandEntry cmd;
     cmd.type = CommandType::SYNC;

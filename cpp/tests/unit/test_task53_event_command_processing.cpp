@@ -1639,8 +1639,8 @@ class CommandQueueDeadlockTest : public Task53EventCommandProcessingTest {
 
 TEST_F(CommandQueueDeadlockTest, CmdSync_ProcessQueueAndTranslate_NoDeadlock) {
     // ARM §6.3.9 CMDQEN must be set before processCommandQueue() does anything.
-    // setCR0(bit4=CMDQEN | bit0=SMMUEN | bit3=EVENTQEN).
-    smmu->setCR0(0x1Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
+    // setCR0(bit3=CMDQEN | bit0=SMMUEN | bit2=EVENTQEN) = 0x0D (§6.3.9).
+    smmu->setCR0(0x0Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
 
     // Pre-map a page so that translate() can succeed and reach submitCommand().
     PagePermissions rw(true, true, false);
@@ -1712,7 +1712,7 @@ TEST_F(CommandQueueDeadlockTest, CmdSync_ProcessQueueAndTranslate_NoDeadlock) {
 // Verify that after the fix, CMD_SYNC still correctly reads the security
 // state from the stream configuration and emits the completion event.
 TEST_F(CommandQueueDeadlockTest, CmdSync_SecurityState_ReadFromStream) {
-    smmu->setCR0(0x1Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1
+    smmu->setCR0(0x0Du); // SMMUEN=1, EVENTQEN=1, CMDQEN=1 (§6.3.9 bit layout)
     smmu->clearEventQueue();
 
     CommandEntry syncCmd;

@@ -955,6 +955,23 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         // s1dss == 0b10: use CD[0] — fall through to normal stage-1 translation.
     }
 
+    // §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
+    // This must be checked BEFORE the AA64/T0SZ validation.
+    if (config.stage1Enabled && config.s1cdMax > 0 && pasid != 0 &&
+        pasid >= (1u << config.s1cdMax)) {
+        FaultRecord substreamFault;
+        substreamFault.streamID = streamID;
+        substreamFault.pasid = pasid;
+        substreamFault.address = iova;
+        substreamFault.faultType = FaultType::BadSubstreamId;
+        substreamFault.accessType = accessType;
+        substreamFault.securityState = securityState;
+        substreamFault.timestamp = currentTime;
+        recordFault(substreamFault);
+        generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::InvalidPASID);
+    }
+
     // §5.4 / CT-14: CD.AA64 validation — AArch32 LPAE mode is unsupported.
     // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range 0-39 for SMMUv3.0.
     if (config.stage1Enabled) {
@@ -1645,6 +1662,12 @@ void SMMU::processCommandQueue() {
         return;
     }
 
+    // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is already set.
+    // Software must clear it via SMMU_GERRORN before restarting queue processing.
+    if (gerrorStatus & GERROR_CMDQ_ERR) {
+        return;
+    }
+
     // ARM SMMU v3 spec: Process command queue with proper ordering.
     // BUG-03 fix: protect commandQueue with queueMutex.
     // BUG-CPP-C01 fix: Use unique_lock so we can temporarily release queueMutex
@@ -1665,6 +1688,12 @@ void SMMU::processCommandQueue() {
 
         // Process the command based on type
         processCommand(command, lock);
+
+        // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is set.
+        // If processCommand() set CMDQ_ERR, halt queue processing immediately.
+        if (gerrorStatus & GERROR_CMDQ_ERR) {
+            break;
+        }
 
         // ARM SMMU v3 spec: Handle synchronization commands
         if (command.type == CommandType::SYNC) {
@@ -2442,8 +2471,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (eventQueue.size() >= maxEventQueueSize) {
         if (!isStall) {
-            // §3.5.3: Non-stall events may be discarded when queue is full.
-            // Do NOT evict oldest — discard incoming event instead.
+            // §3.5.3 / ARM §7.4: Non-stall events may be discarded when queue is full.
+            // Toggle EVENTQ_PROD.OVFLG (bit 31) so software can detect overflow by
+            // comparing against its saved OVACKFLG in SMMU_EVENTQ_CONS.
+            // GERROR_EVENTQ_ABT_ERR is NOT set here — that bit signals a memory system
+            // abort on the event queue write, not a software-visible queue-full condition.
+            eventqProd ^= (1u << 31);
             return;
         }
         // Stall event: must not be lost even if it exceeds soft capacity.

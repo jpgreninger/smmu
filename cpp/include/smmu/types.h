@@ -1215,14 +1215,21 @@ struct CacheStatistics {
     }
 };
 
-// ARM §6.3.17: SMMU_GERROR bit constants (FINDING-M-06)
+// ARM §6.3.17: SMMU_GERROR bit constants — spec-correct bit positions.
 // Set by hardware; cleared by software writing to SMMU_GERRORN.
-static constexpr uint32_t GERROR_SFE            = (1u << 0);  ///< bit 0: Service Fault Enable error
-static constexpr uint32_t GERROR_MSI_ABT_ERR    = (1u << 2);  ///< bit 2: MSI transaction aborted
-static constexpr uint32_t GERROR_PRIQ_ABT_ERR   = (1u << 4);  ///< bit 4: PRI queue aborted
-static constexpr uint32_t GERROR_EVENTQ_ABT_ERR = (1u << 5);  ///< bit 5: Event queue aborted
-static constexpr uint32_t GERROR_CMDQ_ERR       = (1u << 7);  ///< bit 7: Command queue processing error
-static constexpr uint32_t GERROR_CMDQ_ABT_ERR   = (1u << 8);  ///< bit 8: Command queue aborted
+static constexpr uint32_t GERROR_CMDQ_ERR           = (1u << 0); ///< bit 0: Command queue processing error
+static constexpr uint32_t GERROR_EVENTQ_ABT_ERR     = (1u << 2); ///< bit 2: Event queue memory system abort
+static constexpr uint32_t GERROR_PRIQ_ABT_ERR       = (1u << 3); ///< bit 3: PRI queue memory system abort
+static constexpr uint32_t GERROR_MSI_CMDQ_ABT_ERR   = (1u << 4); ///< bit 4: MSI write abort for command queue
+static constexpr uint32_t GERROR_MSI_EVENTQ_ABT_ERR = (1u << 5); ///< bit 5: MSI write abort for event queue
+static constexpr uint32_t GERROR_MSI_PRIQ_ABT_ERR   = (1u << 6); ///< bit 6: MSI write abort for PRI queue
+static constexpr uint32_t GERROR_MSI_GERROR_ABT_ERR = (1u << 7); ///< bit 7: MSI write abort for GERROR
+static constexpr uint32_t GERROR_SFM_ERR            = (1u << 8); ///< bit 8: Service Fault Mapping error
+static constexpr uint32_t GERROR_CMDQP_ERR          = (1u << 9); ///< bit 9: Command queue paused error
+// Backward-compat aliases for renamed constants:
+static constexpr uint32_t GERROR_CMDQ_ABT_ERR   = GERROR_MSI_CMDQ_ABT_ERR;  ///< alias: use GERROR_MSI_CMDQ_ABT_ERR
+static constexpr uint32_t GERROR_MSI_ABT_ERR    = GERROR_MSI_EVENTQ_ABT_ERR; ///< alias: use GERROR_MSI_EVENTQ_ABT_ERR
+static constexpr uint32_t GERROR_SFE            = GERROR_SFM_ERR;             ///< alias: use GERROR_SFM_ERR
 
 // Task 5.3: Event and Command Processing - Command types for SMMU command queue
 // Opcode values match ARM IHI0070G.b §4.1.1 exactly.

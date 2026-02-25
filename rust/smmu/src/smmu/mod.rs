@@ -302,23 +302,39 @@ impl SMMU {
     // ARM §6.3.17: SMMU_GERROR bit constants (public for downstream testing)
     // ========================================================================
 
-    /// GERROR bit 0: SFE — Service Fault Enable error (§6.3.17)
-    pub const GERROR_SFE: u32            = 1 << 0;
-    /// GERROR bit 2: MSI_ABT_ERR — MSI transaction aborted (§6.3.17)
-    pub const GERROR_MSI_ABT_ERR: u32    = 1 << 2;
-    /// GERROR bit 4: PRIQ_ABT_ERR — PRI queue transaction aborted (§6.3.17)
-    pub const GERROR_PRIQ_ABT_ERR: u32   = 1 << 4;
-    /// GERROR bit 5: EVENTQ_ABT_ERR — Event queue transaction aborted (§6.3.17)
-    pub const GERROR_EVENTQ_ABT_ERR: u32 = 1 << 5;
-    /// GERROR bit 7: CMDQ_ERR — Command queue processing error (§6.3.17)
+    /// GERROR bit 0: CMDQ_ERR — Command queue processing error (§6.3.17)
     ///
     /// Set when the SMMU detects an error during command processing (e.g.,
     /// unsupported command opcode, C_BAD_STREAMID) and halts the command queue.
     /// Software must clear this bit (via `clear_gerror`) before command
     /// processing can resume.
-    pub const GERROR_CMDQ_ERR: u32       = 1 << 7;
-    /// GERROR bit 8: CMDQ_ABT_ERR — Command queue bus transaction aborted (§6.3.17)
-    pub const GERROR_CMDQ_ABT_ERR: u32   = 1 << 8;
+    pub const GERROR_CMDQ_ERR: u32           = 1 << 0;
+    /// GERROR bit 2: EVENTQ_ABT_ERR — Event queue memory system abort (§6.3.17)
+    pub const GERROR_EVENTQ_ABT_ERR: u32     = 1 << 2;
+    /// GERROR bit 3: PRIQ_ABT_ERR — PRI queue memory system abort (§6.3.17)
+    pub const GERROR_PRIQ_ABT_ERR: u32       = 1 << 3;
+    /// GERROR bit 4: MSI_CMDQ_ABT_ERR — MSI write abort for command queue (§6.3.17)
+    pub const GERROR_MSI_CMDQ_ABT_ERR: u32   = 1 << 4;
+    /// GERROR bit 5: MSI_EVENTQ_ABT_ERR — MSI write abort for event queue (§6.3.17)
+    pub const GERROR_MSI_EVENTQ_ABT_ERR: u32 = 1 << 5;
+    /// GERROR bit 6: MSI_PRIQ_ABT_ERR — MSI write abort for PRI queue (§6.3.17)
+    pub const GERROR_MSI_PRIQ_ABT_ERR: u32   = 1 << 6;
+    /// GERROR bit 7: MSI_GERROR_ABT_ERR — MSI write abort for GERROR (§6.3.17)
+    pub const GERROR_MSI_GERROR_ABT_ERR: u32 = 1 << 7;
+    /// GERROR bit 8: SFM_ERR — Service Fault Mapping error (§6.3.17)
+    pub const GERROR_SFM_ERR: u32            = 1 << 8;
+    /// GERROR bit 9: CMDQP_ERR — Command queue paused error (§6.3.17)
+    pub const GERROR_CMDQP_ERR: u32          = 1 << 9;
+
+    // Backward-compatible aliases for renamed/repositioned constants.
+    // Existing test code that references these names continues to compile.
+
+    /// Alias for [`GERROR_MSI_CMDQ_ABT_ERR`](Self::GERROR_MSI_CMDQ_ABT_ERR) (§6.3.17).
+    pub const GERROR_CMDQ_ABT_ERR: u32   = Self::GERROR_MSI_CMDQ_ABT_ERR;
+    /// Alias for [`GERROR_MSI_EVENTQ_ABT_ERR`](Self::GERROR_MSI_EVENTQ_ABT_ERR) (§6.3.17).
+    pub const GERROR_MSI_ABT_ERR: u32    = Self::GERROR_MSI_EVENTQ_ABT_ERR;
+    /// Alias for [`GERROR_SFM_ERR`](Self::GERROR_SFM_ERR) (§6.3.17).
+    pub const GERROR_SFE: u32            = Self::GERROR_SFM_ERR;
 
     // ========================================================================
     // ARM §6.3.9: SMMU_CR0 bit constants (public for downstream testing)
@@ -326,14 +342,18 @@ impl SMMU {
 
     /// CR0 bit 0: SMMUEN — global SMMU enable (§6.3.9)
     pub const CR0_SMMUEN: u32   = 1 << 0;
-    /// CR0 bit 1: INTEN — interrupt enable (§6.3.9)
-    pub const CR0_INTEN: u32    = 1 << 1;
-    /// CR0 bit 2: PRIQEN — PRI queue enable gate (§6.3.9)
-    pub const CR0_PRIQEN: u32   = 1 << 2;
-    /// CR0 bit 3: EVENTQEN — Event queue enable gate (§6.3.9)
-    pub const CR0_EVENTQEN: u32 = 1 << 3;
-    /// CR0 bit 4: CMDQEN — Command queue enable gate (§6.3.9)
-    pub const CR0_CMDQEN: u32   = 1 << 4;
+    /// CR0 bit 1: PRIQEN — PRI queue enable gate (§6.3.9)
+    ///
+    /// ARM IHI0070G.b §6.3.9: bit[1]=PRIQEN. Note: there is no INTEN bit in the
+    /// ARM SMMU v3 specification; the previous incorrect constant CR0_INTEN has
+    /// been removed.
+    pub const CR0_PRIQEN: u32   = 1 << 1;
+    /// CR0 bit 2: EVENTQEN — Event queue enable gate (§6.3.9)
+    pub const CR0_EVENTQEN: u32 = 1 << 2;
+    /// CR0 bit 3: CMDQEN — Command queue enable gate (§6.3.9)
+    pub const CR0_CMDQEN: u32   = 1 << 3;
+    /// CR0 bit 4: ATSCHK — ATS CHK enable (§6.3.9)
+    pub const CR0_ATSCHK: u32   = 1 << 4;
 
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
@@ -1824,6 +1844,21 @@ impl SMMU {
             }
         }
 
+        // NEW-52 / ARM §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
+        // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
+        // when the presented PASID falls outside the valid index range.
+        // PASID==0 is excluded: it is the "no substream" case handled by S1DSS above.
+        if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() != 0
+            && pasid.as_u32() >= (1u32 << stream_s1cd_max)
+        {
+            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            let substreamid_error = TranslationError::BadSubstreamId;
+            self.record_translation_fault(
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0,
+            );
+            return Err(substreamid_error);
+        }
+
         // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).
         // If so, enqueue a StallRecord and return Stalled { stag } instead of the
         // raw fault error — software must send CMD_RESUME or CMD_STALL_TERM to resolve.
@@ -2142,9 +2177,11 @@ impl SMMU {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
             } else {
-                // BUG-NEW3-07 fix: §6.3.17 — set EVENTQ_ABT_ERR when an event is dropped
-                // due to queue overflow, so software can detect the loss.
-                self.gerror.fetch_or(Self::GERROR_EVENTQ_ABT_ERR, Ordering::Release);
+                // NEW-51 / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit 31) when a non-stall
+                // event is discarded due to queue full.  Software detects overflow by
+                // comparing OVFLG against its saved OVACKFLG in SMMU_EVENTQ_CONS.
+                // GERROR_EVENTQ_ABT_ERR is reserved for memory bus aborts only (§6.3.17).
+                self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
             }
         }
     }
@@ -2351,6 +2388,13 @@ impl SMMU {
             return Ok(0);
         }
 
+        // NEW-50 / ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is
+        // already set.  Software must clear it via SMMU_GERRORN (clear_gerror)
+        // before restarting queue processing.
+        if self.gerror.load(Ordering::Acquire) & Self::GERROR_CMDQ_ERR != 0 {
+            return Ok(0);
+        }
+
         let mut processed = 0;
 
         loop {
@@ -2430,9 +2474,23 @@ impl SMMU {
         self.cmdq_cons.load(Ordering::Acquire)
     }
 
-    /// Returns the raw EVENTQ_PROD register value.
+    /// Returns the EVENTQ_PROD queue index (bits 30:0), masking out OVFLG (bit 31).
+    ///
+    /// Per ARM §7.4, bit 31 of `SMMU_EVENTQ_PROD` is the overflow flag (OVFLG)
+    /// and must not be included when computing the producer position or queue
+    /// occupancy.  Use [`get_eventq_prod`](Self::get_eventq_prod) to read the
+    /// full register value including OVFLG.
     #[must_use]
     pub fn eventq_prod_index(&self) -> u32 {
+        self.eventq_prod.load(Ordering::Acquire) & !(1u32 << 31)
+    }
+
+    /// Returns the full `SMMU_EVENTQ_PROD` register value including OVFLG (bit 31).
+    ///
+    /// Software compares bit 31 (OVFLG) against the saved OVACKFLG in
+    /// `SMMU_EVENTQ_CONS` to detect event queue overflow per ARM §7.4.
+    #[must_use]
+    pub fn get_eventq_prod(&self) -> u32 {
         self.eventq_prod.load(Ordering::Acquire)
     }
 
@@ -2461,9 +2519,13 @@ impl SMMU {
     }
 
     /// Returns true if the event queue is empty (PROD == CONS, ARM §3.5.1).
+    ///
+    /// OVFLG (bit 31) of `SMMU_EVENTQ_PROD` is masked before the comparison so
+    /// that a toggled overflow flag is never mistaken for a non-empty queue.
     #[must_use]
     pub fn is_eventq_empty_by_index(&self) -> bool {
-        self.eventq_prod.load(Ordering::Acquire) == self.eventq_cons.load(Ordering::Acquire)
+        let prod = self.eventq_prod.load(Ordering::Acquire) & !(1u32 << 31);
+        prod == self.eventq_cons.load(Ordering::Acquire)
     }
 
     /// Returns the number of entries in the command queue by PROD/CONS index.
@@ -2477,10 +2539,13 @@ impl SMMU {
     }
 
     /// Returns the number of entries in the event queue by PROD/CONS index.
+    ///
+    /// OVFLG (bit 31) of `SMMU_EVENTQ_PROD` is masked before computing occupancy
+    /// so that a toggled overflow flag does not corrupt the entry count.
     #[must_use]
     pub fn eventq_occupied_entries(&self) -> u32 {
         Self::queue_occupied(
-            self.eventq_prod.load(Ordering::Acquire),
+            self.eventq_prod.load(Ordering::Acquire) & !(1u32 << 31),
             self.eventq_cons.load(Ordering::Acquire),
             self.eventq_log2size,
         )
@@ -3761,30 +3826,29 @@ mod tests {
         );
     }
 
-    // ── BUG-RUST-H03: CR0 bit positions per ARM IHI0070G.b §6.3.9 ───────────
+    // ── NEW-47: CR0 bit positions per ARM IHI0070G.b §6.3.9 ─────────────────
 
     /// Regression guard: CR0 constants must match ARM IHI0070G.b §6.3.9.
     ///
     /// The ARM spec defines:
     ///   bit 0 — SMMUEN
-    ///   bit 1 — INTEN
-    ///   bit 2 — PRIQEN
-    ///   bit 3 — EVENTQEN
-    ///   bit 4 — CMDQEN
+    ///   bit 1 — PRIQEN
+    ///   bit 2 — EVENTQEN
+    ///   bit 3 — CMDQEN
+    ///   bit 4 — ATSCHK
     ///
-    /// Before the fix INTEN was missing and PRIQEN/EVENTQEN/CMDQEN were at
-    /// bits 1/2/3 — one position too low.
+    /// Note: there is no INTEN bit in ARM SMMU v3 §6.3.9.
     #[test]
     fn bug_rust_h03_cr0_bit_positions() {
         assert_eq!(SMMU::CR0_SMMUEN,   1 << 0, "CR0_SMMUEN must be bit 0 (§6.3.9)");
-        assert_eq!(SMMU::CR0_INTEN,    1 << 1, "CR0_INTEN must be bit 1 (§6.3.9)");
-        assert_eq!(SMMU::CR0_PRIQEN,   1 << 2, "CR0_PRIQEN must be bit 2 (§6.3.9)");
-        assert_eq!(SMMU::CR0_EVENTQEN, 1 << 3, "CR0_EVENTQEN must be bit 3 (§6.3.9)");
-        assert_eq!(SMMU::CR0_CMDQEN,   1 << 4, "CR0_CMDQEN must be bit 4 (§6.3.9)");
+        assert_eq!(SMMU::CR0_PRIQEN,   1 << 1, "CR0_PRIQEN must be bit 1 (§6.3.9)");
+        assert_eq!(SMMU::CR0_EVENTQEN, 1 << 2, "CR0_EVENTQEN must be bit 2 (§6.3.9)");
+        assert_eq!(SMMU::CR0_CMDQEN,   1 << 3, "CR0_CMDQEN must be bit 3 (§6.3.9)");
+        assert_eq!(SMMU::CR0_ATSCHK,   1 << 4, "CR0_ATSCHK must be bit 4 (§6.3.9)");
     }
 
     /// Regression guard: after reset, CR0 must have PRIQEN|EVENTQEN|CMDQEN
-    /// at their correct bit positions (bits 2, 3, 4).
+    /// at their correct bit positions (bits 1, 2, 3 per §6.3.9).
     #[test]
     fn bug_rust_h03_cr0_reset_value_uses_correct_bits() {
         let smmu = SMMU::new();
@@ -3796,13 +3860,12 @@ mod tests {
         assert_eq!(
             cr0 & queue_bits,
             queue_bits,
-            "BUG-RUST-H03: queue-enable bits must be at bits 2/3/4 after reset; cr0=0x{cr0:08x}"
+            "NEW-47: queue-enable bits must be at bits 1/2/3 after reset; cr0=0x{cr0:08x}"
         );
-        // Bits 1 and 2 specifically — before the fix PRIQEN was at bit 1, which
-        // would make (cr0 & (1<<1)) != 0 but (cr0 & (1<<2)) == 0.
-        assert_eq!(cr0 & (1 << 2), 1 << 2, "BUG-RUST-H03: PRIQEN must be at bit 2 (§6.3.9)");
-        assert_eq!(cr0 & (1 << 3), 1 << 3, "BUG-RUST-H03: EVENTQEN must be at bit 3 (§6.3.9)");
-        assert_eq!(cr0 & (1 << 4), 1 << 4, "BUG-RUST-H03: CMDQEN must be at bit 4 (§6.3.9)");
+        // Verify exact bit positions per §6.3.9.
+        assert_eq!(cr0 & (1 << 1), 1 << 1, "NEW-47: PRIQEN must be at bit 1 (§6.3.9)");
+        assert_eq!(cr0 & (1 << 2), 1 << 2, "NEW-47: EVENTQEN must be at bit 2 (§6.3.9)");
+        assert_eq!(cr0 & (1 << 3), 1 << 3, "NEW-47: CMDQEN must be at bit 3 (§6.3.9)");
     }
 
     // ── BUG-RUST-M01: SecurityViolation must map to SecurityFault, not PermissionFault ──

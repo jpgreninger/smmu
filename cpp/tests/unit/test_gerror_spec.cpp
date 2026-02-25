@@ -56,14 +56,21 @@ TEST_F(GErrorTest, GerrorZeroAfterReset) {
 
 // ── §6.3.17: GERROR bit constants ──────────────────────────────────────────
 
-/// §6.3.17: Verify all GERROR bit constant values match spec table.
+/// §6.3.17: Verify all GERROR bit constant values match spec table (ARM IHI0070G.b §6.3.17).
 TEST_F(GErrorTest, GerrorBitConstantsMatchSpec) {
-    EXPECT_EQ(GERROR_SFE,            0x001u) << "SFE must be bit 0";
-    EXPECT_EQ(GERROR_MSI_ABT_ERR,    0x004u) << "MSI_ABT_ERR must be bit 2";
-    EXPECT_EQ(GERROR_PRIQ_ABT_ERR,   0x010u) << "PRIQ_ABT_ERR must be bit 4";
-    EXPECT_EQ(GERROR_EVENTQ_ABT_ERR, 0x020u) << "EVENTQ_ABT_ERR must be bit 5";
-    EXPECT_EQ(GERROR_CMDQ_ERR,       0x080u) << "CMDQ_ERR must be bit 7";
-    EXPECT_EQ(GERROR_CMDQ_ABT_ERR,   0x100u) << "CMDQ_ABT_ERR must be bit 8";
+    EXPECT_EQ(GERROR_CMDQ_ERR,           (1u << 0)) << "CMDQ_ERR must be bit 0 (§6.3.17)";
+    EXPECT_EQ(GERROR_EVENTQ_ABT_ERR,     (1u << 2)) << "EVENTQ_ABT_ERR must be bit 2 (§6.3.17)";
+    EXPECT_EQ(GERROR_PRIQ_ABT_ERR,       (1u << 3)) << "PRIQ_ABT_ERR must be bit 3 (§6.3.17)";
+    EXPECT_EQ(GERROR_MSI_CMDQ_ABT_ERR,   (1u << 4)) << "MSI_CMDQ_ABT_ERR must be bit 4 (§6.3.17)";
+    EXPECT_EQ(GERROR_MSI_EVENTQ_ABT_ERR, (1u << 5)) << "MSI_EVENTQ_ABT_ERR must be bit 5 (§6.3.17)";
+    EXPECT_EQ(GERROR_MSI_PRIQ_ABT_ERR,   (1u << 6)) << "MSI_PRIQ_ABT_ERR must be bit 6 (§6.3.17)";
+    EXPECT_EQ(GERROR_MSI_GERROR_ABT_ERR, (1u << 7)) << "MSI_GERROR_ABT_ERR must be bit 7 (§6.3.17)";
+    EXPECT_EQ(GERROR_SFM_ERR,            (1u << 8)) << "SFM_ERR must be bit 8 (§6.3.17)";
+    EXPECT_EQ(GERROR_CMDQP_ERR,          (1u << 9)) << "CMDQP_ERR must be bit 9 (§6.3.17)";
+    // Backward-compat aliases
+    EXPECT_EQ(GERROR_SFE,          GERROR_SFM_ERR)             << "SFE alias must equal SFM_ERR (bit 8)";
+    EXPECT_EQ(GERROR_MSI_ABT_ERR,  GERROR_MSI_EVENTQ_ABT_ERR) << "MSI_ABT_ERR alias must equal MSI_EVENTQ_ABT_ERR (bit 5)";
+    EXPECT_EQ(GERROR_CMDQ_ABT_ERR, GERROR_MSI_CMDQ_ABT_ERR)   << "CMDQ_ABT_ERR alias must equal MSI_CMDQ_ABT_ERR (bit 4)";
 }
 
 // ── §6.3.17: CMDQ_ERR set on command error ─────────────────────────────────
@@ -170,8 +177,8 @@ TEST_F(GErrorTest, ClearGerrorDoesNotClearOtherBits) {
     smmu->processCommandQueue();
     ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u);
 
-    // Clear a different bit (SFE) — should not affect CMDQ_ERR
-    smmu->clearGerror(GERROR_SFE);
+    // Clear a different bit (SFM_ERR) — should not affect CMDQ_ERR
+    smmu->clearGerror(GERROR_SFM_ERR);
     EXPECT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
         << "CMDQ_ERR must remain set after clearing a different GERROR bit";
 }

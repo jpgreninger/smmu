@@ -157,7 +157,7 @@ TEST(New22Spec, QueueFull_Sets_GERROR_CMDQ_ABT_ERR) {
 
     uint32_t gerror = smmu->getGerror();
     EXPECT_NE(gerror & GERROR_CMDQ_ABT_ERR, 0u)
-        << "GERROR_CMDQ_ABT_ERR (bit 8) must be set when command queue is full (§6.3.17)";
+        << "GERROR_CMDQ_ABT_ERR (bit 4, MSI_CMDQ_ABT_ERR alias) must be set when command queue is full (§6.3.17)";
 }
 
 // ─── FINDING-NEW-23: F_PERMISSION must be generated on TLB cache-hit permission fault ───
