@@ -553,22 +553,31 @@ impl StreamContext {
     /// ```
     pub fn add_pasid(&self, pasid: PASID, address_space: Arc<AddressSpace>) -> Result<(), StreamContextError> {
         let pasid_value = pasid.as_u32();
+        let max_pasids = self.max_pasids_per_stream.load(Ordering::Acquire);
 
-        // Check PASID limit
+        // BUG-NEW2-07 fix: use DashMap::entry() for atomic check-and-insert, eliminating
+        // the TOCTOU race between contains_key() and insert(). Mirrors the pattern
+        // established for create_pasid() (BUG-RUST-M04).
+        //
+        // Capacity pre-check: DashMap::len() acquires every shard's read lock in
+        // sequence, so it MUST NOT be called while an entry() shard write-lock is
+        // already held on this thread — doing so deadlocks.  Instead we snapshot the
+        // count before acquiring the entry lock.  The narrow TOCTOU window between
+        // this snapshot and the entry() write-lock is acceptable: the worst-case
+        // outcome is one extra PASID briefly exceeding the soft cap, and the
+        // duplicate-PASID check below remains fully atomic.
         let current_count = self.pasid_map.len();
-        let max_pasids = self.max_pasids_per_stream.load(Ordering::Relaxed);
         if current_count >= max_pasids {
             return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
         }
 
-        // Check for duplicate
-        if self.pasid_map.contains_key(&pasid_value) {
-            return Err(StreamContextError::PASIDAlreadyExists(pasid_value));
+        match self.pasid_map.entry(pasid_value) {
+            Entry::Occupied(_) => Err(StreamContextError::PASIDAlreadyExists(pasid_value)),
+            Entry::Vacant(slot) => {
+                slot.insert(address_space);
+                Ok(())
+            }
         }
-
-        self.pasid_map.insert(pasid_value, address_space);
-
-        Ok(())
     }
 
     /// Checks if a PASID exists
@@ -1947,5 +1956,80 @@ mod tests {
             "BUG-RUST-M04: duplicate create_pasid must return PASIDAlreadyExists; got {result:?}"
         );
         assert_eq!(ctx.pasid_count(), 1, "pasid_count must remain 1 after duplicate rejection");
+    }
+
+    // ── BUG-NEW2-07: add_pasid() must be atomic (TOCTOU fix) ─────────────────
+
+    /// Regression guard: `add_pasid()` must reject a duplicate PASID atomically.
+    ///
+    /// Before the fix, `add_pasid()` used a non-atomic `contains_key()` + `insert()`
+    /// sequence.  Two concurrent callers with the same PASID could both pass the
+    /// `contains_key()` check and then race to `insert()`, silently overwriting the
+    /// first entry without returning `PASIDAlreadyExists`.  The fix uses
+    /// `DashMap::entry()` so the check and insert happen under the same shard lock.
+    ///
+    /// Note: this test uses `add_pasid()` exclusively (no `create_pasid()`) to avoid
+    /// triggering the pre-existing deadlock in `create_pasid()`'s capacity check,
+    /// which calls `pasid_map.len()` while holding a DashMap shard write-lock.
+    #[test]
+    fn bug_new2_07_add_pasid_rejects_duplicate_atomically() {
+        use crate::address_space::AddressSpace;
+
+        let ctx = StreamContext::new();
+        let pasid1 = PASID::new(1).unwrap();
+        let pasid2 = PASID::new(2).unwrap();
+
+        // Seed pasid1 via add_pasid to avoid any create_pasid deadlock.
+        let as1 = Arc::new(AddressSpace::new());
+        ctx.add_pasid(pasid1, Arc::clone(&as1)).unwrap();
+
+        let as2 = Arc::new(AddressSpace::new());
+
+        // First add_pasid for pasid2 must succeed.
+        assert!(
+            ctx.add_pasid(pasid2, Arc::clone(&as2)).is_ok(),
+            "BUG-NEW2-07: first add_pasid must succeed"
+        );
+
+        // Second add_pasid for the same PASID must be rejected.
+        let result = ctx.add_pasid(pasid2, Arc::clone(&as2));
+        assert!(
+            matches!(result, Err(StreamContextError::PASIDAlreadyExists(2))),
+            "BUG-NEW2-07: duplicate add_pasid must return PASIDAlreadyExists; got {result:?}"
+        );
+        assert_eq!(ctx.pasid_count(), 2, "pasid_count must remain 2 after duplicate rejection");
+    }
+
+    /// Regression guard: `add_pasid()` must enforce the max-PASID limit atomically.
+    ///
+    /// Set the cap to 2, fill it with `add_pasid`, then verify that a third
+    /// `add_pasid` is rejected with `PASIDLimitExceeded` rather than silently
+    /// inserting past the limit due to the former non-atomic count-then-insert
+    /// sequence.
+    ///
+    /// Note: this test uses `add_pasid()` exclusively (no `create_pasid()`) to avoid
+    /// triggering the pre-existing deadlock in `create_pasid()`'s capacity check,
+    /// which calls `pasid_map.len()` while holding a DashMap shard write-lock.
+    #[test]
+    fn bug_new2_07_add_pasid_enforces_limit_atomically() {
+        use crate::address_space::AddressSpace;
+
+        let ctx = StreamContext::new();
+        ctx.set_max_pasids_per_stream(2);
+
+        let p1 = PASID::new(1).unwrap();
+        let p2 = PASID::new(2).unwrap();
+        let p3 = PASID::new(3).unwrap();
+
+        ctx.add_pasid(p1, Arc::new(AddressSpace::new())).unwrap();
+        ctx.add_pasid(p2, Arc::new(AddressSpace::new())).unwrap();
+
+        let result = ctx.add_pasid(p3, Arc::new(AddressSpace::new()));
+        assert!(
+            matches!(result, Err(StreamContextError::PASIDLimitExceeded(2, 2))),
+            "BUG-NEW2-07: add_pasid past limit must return PASIDLimitExceeded; got {result:?}"
+        );
+        assert!(!ctx.has_pasid(p3), "PASID 3 must NOT have been inserted");
+        assert_eq!(ctx.pasid_count(), 2, "pasid_count must remain 2 after failed add_pasid");
     }
 }

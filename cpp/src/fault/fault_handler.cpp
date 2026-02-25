@@ -237,6 +237,14 @@ void FaultHandler::enforceQueueLimit() {
         if (accessTypeCounters[atKey] > 0) {
             accessTypeCounters[atKey]--;
         }
+        // BUG-NEW2-01 fix: decrement atomic counters to stay consistent with
+        // queue size after eviction.  Mirrors the fetch_add in recordFault().
+        totalFaults.fetch_sub(1u, std::memory_order_relaxed);
+        if (evicted.faultType == FaultType::TranslationFault) {
+            translationFaults.fetch_sub(1u, std::memory_order_relaxed);
+        } else if (evicted.faultType == FaultType::PermissionFault) {
+            permissionFaults.fetch_sub(1u, std::memory_order_relaxed);
+        }
         eventQueue.pop_front();
     }
 }

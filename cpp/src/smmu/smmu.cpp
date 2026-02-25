@@ -282,6 +282,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // safety limit of 65535 iterations to avoid an infinite loop when the
             // queue is completely full.
             uint16_t stag = 0;
+            bool stagValid = false;
             StallRecord record(0, streamID, pasid, iova, accessType, securityState, currentTime);
             {
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
@@ -291,8 +292,20 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
                     ++tries;
                 } while ((stag == 0 || stallQueue_.count(stag) != 0) && tries < MAX_STAG_TRIES);
-                record = StallRecord(stag, streamID, pasid, iova, accessType, securityState, currentTime);
-                stallQueue_[stag] = record;
+                // BUG-NEW2-03 fix: only write to stallQueue_ when a valid unique
+                // non-zero slot was found.  If the queue is exhausted, fall back
+                // to terminate-mode fault handling instead of corrupting the queue.
+                if (stag != 0 && stallQueue_.count(stag) == 0) {
+                    stagValid = true;
+                    record = StallRecord(stag, streamID, pasid, iova, accessType, securityState, currentTime);
+                    stallQueue_[stag] = record;
+                }
+            }
+            if (!stagValid) {
+                // Stall queue exhausted — fall back to terminate-mode fault handling.
+                lock.unlock();
+                handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
+                return result;
             }
             // ARM §7.3 / FINDING-NEW-13: Derive the correct EventType from the actual
             // error so the OS fault handler receives the right fault classification.
@@ -1799,6 +1812,10 @@ std::vector<PRIEntry> SMMU::getPRIQueue() const {
 void SMMU::clearPRIQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     priQueue.clear();
+    // BUG-NEW2-02 fix: reset PROD/CONS indices to match the empty queue,
+    // mirroring clearCommandQueue() and clearEventQueue() per ARM §3.5.1.
+    priqProd = 0;
+    priqCons = 0;
 }
 
 size_t SMMU::getPRIQueueSize() const {
@@ -1810,11 +1827,26 @@ size_t SMMU::getPRIQueueSize() const {
 void SMMU::executeInvalidationCommand(const CommandEntry& command) {
     // ARM SMMU v3 spec: Execute cache invalidation commands
     switch (command.type) {
-        case CommandType::CFGI_STE:
-            // Stream Table Entry invalidation - invalidate specific stream
+        case CommandType::CFGI_STE: {
+            // BUG-NEW2-04 fix: check stream existence before invalidating.
+            // ARM §4.3.1: CMD_CFGI_STE with an unknown StreamID must generate
+            // C_BAD_STREAMID and set GERROR.CMDQ_ERR.
+            size_t cfgiStripe = getStreamStripe(command.streamID);
+            bool streamFound = false;
+            {
+                std::lock_guard<std::mutex> stripeLock(streamLockStripes[cfgiStripe]);
+                streamFound = (streamMap.find(command.streamID) != streamMap.end());
+            }
+            if (!streamFound) {
+                generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
+                              command.startAddress, SecurityState::NonSecure);
+                gerrorStatus |= GERROR_CMDQ_ERR;
+                break;
+            }
             invalidateStreamCache(command.streamID);
             break;
-            
+        }
+
         case CommandType::CFGI_ALL:
             // ARM §4.3.2: CMD_CFGI_ALL (range==31) or CMD_CFGI_STE_RANGE (range<31).
             // NOTE: shifting uint32_t by 32 bits is UB, so range==31 is handled separately.

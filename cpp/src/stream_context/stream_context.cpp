@@ -145,6 +145,12 @@ VoidResult StreamContext::addPASID(PASID pasid, std::shared_ptr<AddressSpace> ad
     // ARM SMMU v3: Allows multiple PASIDs to share the same address space.
     pasidMap[pasid] = addressSpace;
 
+    // BUG-NEW2-06 fix: keep stage2AddressSpace alias in sync when replacing
+    // PASID-0 on a stage-2-enabled stream, mirroring createPASID() logic.
+    if (pasid == 0 && stage2Enabled) {
+        stage2AddressSpace = addressSpace;
+    }
+
     // Update PASID count statistics.
     streamStatistics.pasidCount = pasidMap.size();
 
@@ -1095,7 +1101,11 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         // Use Read access type for Stage-2 address lookup — permission intersection
         // is applied below; we don't want Stage-2 to independently reject a write
         // that Stage-1 already accepted (the intersection handles that).
-        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
+        // BUG-NEW2-05 fix: use AccessType::Read for Stage-2 lookup so that Stage-2
+        // does not independently deny writes before the Stage-1∩Stage-2 permission
+        // intersection below.  The intersection applies the original accessType to
+        // the combined permissions.
+        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, securityState);
         if (stage2Result.isError()) {
             // Stage-2 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault

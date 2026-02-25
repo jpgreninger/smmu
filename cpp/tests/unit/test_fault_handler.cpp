@@ -349,6 +349,13 @@ TEST_F(FaultHandlerTest, StatisticsCounters_ConcurrentReadWrite_NoDataRace) {
     static constexpr size_t FAULTS_PER_THREAD  = 500;
     static constexpr uint64_t EXPECTED_TOTAL   = NUM_WRITER_THREADS * FAULTS_PER_THREAD;
 
+    // Ensure the queue is large enough to hold every fault so that no eviction
+    // occurs.  enforceQueueLimit() now correctly decrements the atomic counters
+    // on eviction (BUG-NEW2-01 fix); without a sufficient queue size the counters
+    // would reflect the bounded queue size rather than the lifetime total this
+    // test checks for.
+    faultHandler->setMaxQueueSize(static_cast<size_t>(EXPECTED_TOTAL));
+
     std::atomic<bool> go{false};
     std::atomic<bool> tornReadDetected{false};
 
