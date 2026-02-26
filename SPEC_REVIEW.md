@@ -1,13 +1,13 @@
 # ARM SMMU v3 Conformance Review
 
 **Specification**: ARM IHI 0070 G.b (April 30, 2025)
-**Review Date**: 2026-02-23 (seventh pass — NEW-44 through NEW-46 found; NEW-44 fixed same day)
+**Review Date**: 2026-02-25 (eighth pass — NEW-47 through NEW-52 found and fixed; commit 13a9aa4)
 **Implementations**:
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
-**Overall Conformance**: C++ ~97% | Rust ~99% (2 new open gaps in Rust: NEW-45, NEW-46)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 sixth-pass deep review found 10 new gaps NEW-34 through NEW-43; all 10 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 seventh-pass review found 3 new gaps NEW-44 through NEW-46: Rust security-state propagation, output-attribute override propagation (Both), STRW behavioral effect (Both) — C++ ~97% 74/74 | Rust ~98% 188/188; NEW-44 fixed 2026-02-23: added StreamConfig.security_state + StreamContext.set_security_state(); completion events now use stream security state — Rust ~99% 192/192; NEW-45 and NEW-46 accepted as software model scope)_
+**Overall Conformance**: C++ ~99% | Rust ~99% (all open findings resolved)
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 sixth-pass deep review found 10 new gaps NEW-34 through NEW-43; all 10 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 seventh-pass review found 3 new gaps NEW-44 through NEW-46: Rust security-state propagation, output-attribute override propagation (Both), STRW behavioral effect (Both) — C++ ~97% 74/74 | Rust ~98% 188/188; NEW-44 fixed 2026-02-23: added StreamConfig.security_state + StreamContext.set_security_state(); completion events now use stream security state — Rust ~99% 192/192; NEW-45 and NEW-46 accepted as software model scope; 2026-02-24 eighth-pass review found 6 new gaps NEW-47 through NEW-52; all 6 fixed 2026-02-24 commit 13a9aa4 — C++ ~99% 80/80 | Rust ~99% 207/207)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -2560,7 +2560,7 @@ Both implementations define the `StreamWorld` enum and store `strw: StreamWorld`
 
 ## Eighth-Pass Conformance Review (2026-02-24)
 
-### FINDING-NEW-47: SMMU_CR0 Bit Assignments Wrong in Both Implementations
+### FINDING-NEW-47 ✅ — SMMU_CR0 Bit Assignments Wrong in Both Implementations
 **Severity**: High
 **Spec Reference**: §6.3.9 (SMMU_CR0)
 **Description**: ARM IHI0070G.b §6.3.9 defines the SMMU_CR0 bit layout as:
@@ -2585,12 +2585,14 @@ The insertion of phantom `INTEN` at bit 1 pushes PRIQEN, EVENTQEN, and CMDQEN ea
 
 **Impact**: Any external agent using `getCR0()`/`get_cr0()` to inspect queue enable state would read or set wrong bits. The per-queue gate checks (`CR0_CMDQEN`, `CR0_EVENTQEN`, `CR0_PRIQEN`) all use the shifted constants; because `setCR0()`/`set_cr0()` and the gate checks use the same (wrong) constants internally, the behavioral outcome is self-consistent within the model. However, a conformant SMMU driver that writes a spec-correct CR0 value (e.g., `0x0F` to enable SMMUEN+PRIQEN+EVENTQEN+CMDQEN) will not work correctly with this model, and the model's `getCR0()` value is not interoperable with hardware descriptions.
 
-**File**: `cpp/include/smmu/smmu.h` lines 227–231; `rust/smmu/src/smmu/mod.rs` lines 327–336
-**Status**: NEW
+**File**: `cpp/include/smmu/smmu.h`; `rust/smmu/src/smmu/mod.rs`
+**Status**: ✅ Fixed
+
+**Fix**: Removed phantom `CR0_INTEN`; corrected bit positions: `PRIQEN=bit[1]`, `EVENTQEN=bit[2]`, `CMDQEN=bit[3]`; added `CR0_ATSCHK=bit[4]`. Updated all tests using hardcoded CR0 magic numbers. Commit: **13a9aa4**.
 
 ---
 
-### FINDING-NEW-48: SMMU_GERROR Bit Assignments Wrong in Both Implementations
+### FINDING-NEW-48 ✅ — SMMU_GERROR Bit Assignments Wrong in Both Implementations
 **Severity**: High
 **Spec Reference**: §6.3.17 (SMMU_GERROR)
 **Description**: ARM IHI0070G.b §6.3.17 defines the SMMU_GERROR bit layout as:
@@ -2619,12 +2621,14 @@ The critical `GERROR_CMDQ_ERR` constant is placed at bit 7 rather than the spec-
 
 **Impact**: Any conformant SMMU driver that parses GERROR bits at spec-defined positions will misinterpret the model's GERROR value. GERROR bit-field interoperability with hardware models or reference drivers is broken.
 
-**File**: `cpp/include/smmu/types.h` lines 1218–1225; `rust/smmu/src/smmu/mod.rs` lines 302–321
-**Status**: NEW
+**File**: `cpp/include/smmu/types.h`; `rust/smmu/src/smmu/mod.rs`
+**Status**: ✅ Fixed
+
+**Fix**: Corrected all GERROR bit positions to match §6.3.17: `CMDQ_ERR=bit[0]`, `EVENTQ_ABT_ERR=bit[2]`, `PRIQ_ABT_ERR=bit[3]`, `MSI_CMDQ_ABT_ERR=bit[4]`, `MSI_EVENTQ_ABT_ERR=bit[5]`, `MSI_PRIQ_ABT_ERR=bit[6]`, `MSI_GERROR_ABT_ERR=bit[7]`, `SFM_ERR=bit[8]`, `CMDQP_ERR=bit[9]`. Added backward-compat aliases for renamed constants. Commit: **13a9aa4**.
 
 ---
 
-### FINDING-NEW-49: C++ processCommandQueue() Does Not Halt on GERROR_CMDQ_ERR
+### FINDING-NEW-49 ✅ — C++ processCommandQueue() Does Not Halt on GERROR_CMDQ_ERR
 **Severity**: High
 **Spec Reference**: §6.3.17 (SMMU_GERROR.CMDQ_ERR bit description)
 **Description**: ARM §6.3.17 states for the CMDQ_ERR bit: "Commands are not processed while this error is active." Once CMDQ_ERR is set, the hardware stops draining the command queue until software clears the error via SMMU_GERRORN.
@@ -2633,12 +2637,14 @@ The critical `GERROR_CMDQ_ERR` constant is placed at bit 7 rather than the spec-
 
 The Rust `process_command_queue()` (lines 2347–2384 of `rust/smmu/src/smmu/mod.rs`) does `return Err(e)` on command processing errors (line 2375), which effectively halts — but does NOT guard against a pre-existing `GERROR_CMDQ_ERR` that was set by a previous invocation (see FINDING-NEW-50).
 
-**File**: `cpp/src/smmu/smmu.cpp` lines 1658–1713 (`processCommandQueue`), lines 2188–2338 (`processCommand`)
-**Status**: NEW
+**File**: `cpp/src/smmu/smmu.cpp` (`processCommandQueue`)
+**Status**: ✅ Fixed
+
+**Fix**: C++ `processCommandQueue()` now breaks the command loop immediately after any `processCommand()` call that sets `GERROR_CMDQ_ERR`. Commit: **13a9aa4**.
 
 ---
 
-### FINDING-NEW-50: Neither Implementation Refuses to Process Commands When GERROR_CMDQ_ERR Is Already Active
+### FINDING-NEW-50 ✅ — Neither Implementation Refuses to Process Commands When GERROR_CMDQ_ERR Is Already Active
 **Severity**: Medium
 **Spec Reference**: §6.3.17 (SMMU_GERROR.CMDQ_ERR), §4.1 (Command queue processing)
 **Description**: ARM §6.3.17 requires that "Commands are not processed while this error is active." This means that at the start of each command queue processing cycle, the implementation must check whether CMDQ_ERR is already set (from a previous error). If it is, no commands should be dequeued or processed until software clears the error by writing to SMMU_GERRORN.
@@ -2649,12 +2655,14 @@ The Rust `process_command_queue()` (lines 2347–2384 of `rust/smmu/src/smmu/mod
 
 Both implementations will happily process new commands in a subsequent call to `processCommandQueue()`/`process_command_queue()` even if GERROR_CMDQ_ERR was set during a previous call and software has not yet cleared it.
 
-**File**: `cpp/src/smmu/smmu.cpp` line 1642; `rust/smmu/src/smmu/mod.rs` line 2347
-**Status**: NEW
+**File**: `cpp/src/smmu/smmu.cpp`; `rust/smmu/src/smmu/mod.rs`
+**Status**: ✅ Fixed
+
+**Fix**: Both C++ and Rust `processCommandQueue()`/`process_command_queue()` now check `GERROR_CMDQ_ERR` at function entry and return immediately if already set, preventing command processing until software clears the error via `clearGerror()`/`clear_gerror()`. Commit: **13a9aa4**.
 
 ---
 
-### FINDING-NEW-51: Event Queue Overflow Handling Missing EVENTQ_PROD.OVFLG Toggle (Both Implementations)
+### FINDING-NEW-51 ✅ — Event Queue Overflow Handling Missing EVENTQ_PROD.OVFLG Toggle (Both Implementations)
 **Severity**: Medium
 **Spec Reference**: §7.4 (Event queue overflow), §6.3.xx (SMMU_EVENTQ_PROD.OVFLG)
 **Description**: ARM §7.4 defines the Event queue overflow protocol. When the event queue is full and a non-stall event is discarded, the SMMU must toggle the `SMMU_EVENTQ_PROD.OVFLG` bit (bit[31] of SMMU_EVENTQ_PROD) if the overflow condition is not already present. Software detects overflow by comparing `EVENTQ_PROD.OVFLG` against its copy of `EVENTQ_CONS.OVACKFLG`. A second overflow cannot be indicated until software acknowledges the first by writing `OVACKFLG = OVFLG`.
@@ -2667,12 +2675,14 @@ Separately, `GERROR.EVENTQ_ABT_ERR` is defined for a different condition: when t
 
 Neither implementation tracks or exposes the OVFLG and OVACKFLG fields in the eventq_prod/eventq_cons index registers.
 
-**File**: `cpp/src/smmu/smmu.cpp` lines 2443–2451; `rust/smmu/src/smmu/mod.rs` line 2147
-**Status**: NEW
+**File**: `cpp/src/smmu/smmu.cpp`; `rust/smmu/src/smmu/mod.rs`
+**Status**: ✅ Fixed
+
+**Fix**: C++ `generateEvent()` now XORs `eventqProd |= (1u<<31)` (OVFLG toggle) instead of silently discarding non-stall events on queue-full. Rust `submit_event()` replaces the incorrect `GERROR_EVENTQ_ABT_ERR` set with `eventq_prod.fetch_xor(1u32 << 31, ...)` on queue-full overflow; `GERROR_EVENTQ_ABT_ERR` is reserved for memory bus aborts only. Rust also exposes `eventq_prod_index()` with bit[31] masked for the wrap-comparison helper. Commit: **13a9aa4**.
 
 ---
 
-### FINDING-NEW-52: Missing C_BAD_SUBSTREAMID for SubstreamID >= 2^STE.S1CDMax (Both Implementations)
+### FINDING-NEW-52 ✅ — Missing C_BAD_SUBSTREAMID for SubstreamID >= 2^STE.S1CDMax (Both Implementations)
 **Severity**: Medium
 **Spec Reference**: §7.3.9 (C_BAD_SUBSTREAMID), §5.2 (STE.S1CDMax)
 **Description**: ARM §7.3.9 specifies that C_BAD_SUBSTREAMID (event 0x08) is generated when a transaction presents a SubstreamID (PASID) that is out of the valid range — specifically when `SubstreamID >= 2^STE.S1CDMax`. The STE.S1CDMax field defines how many high-order SubstreamID bits are supported; SubstreamIDs that exceed this limit must be rejected.
@@ -2683,15 +2693,18 @@ In C++ (`cpp/src/smmu/smmu.cpp`), the S1CDMax range check is entirely absent fro
 
 A device presenting SubstreamID=5 to a stream configured with S1CDMax=2 (supporting only SubstreamIDs 0–3) should receive C_BAD_SUBSTREAMID. Instead, both implementations will attempt to look up the PASID in the address space map and return a translation fault or page-not-mapped error, which misidentifies the configuration error as a translation error.
 
-**File**: `cpp/src/smmu/smmu.cpp` lines 918–956; `rust/smmu/src/smmu/mod.rs` lines 1639–1702; `rust/smmu/src/stream_context/mod.rs` line 1047
-**Status**: NEW
+**File**: `cpp/src/smmu/smmu.cpp`; `rust/smmu/src/smmu/mod.rs`; `rust/smmu/src/stream_context/mod.rs`
+**Status**: ✅ Fixed
+
+**Fix**: C++ `performTwoStageTranslation()` now checks `pasid >= (1u << config.s1cdMax)` before translating stage-1-enabled, substream-capable streams and generates `C_BAD_SUBSTREAMID` on violation. Rust `translate()` performs the same `pasid.as_u32() >= (1u32 << stream_s1cd_max)` check post-S1DSS routing. `C_BAD_SUBSTREAMID` is always an abort — never stalled — regardless of stream fault mode. Commit: **13a9aa4**.
 
 ---
 
 ### Summary
 - Critical: 0
-- High: 3 (FINDING-NEW-47, FINDING-NEW-48, FINDING-NEW-49)
-- Medium: 3 (FINDING-NEW-50, FINDING-NEW-51, FINDING-NEW-52)
+- High: 3 (FINDING-NEW-47 ✅, FINDING-NEW-48 ✅, FINDING-NEW-49 ✅)
+- Medium: 3 (FINDING-NEW-50 ✅, FINDING-NEW-51 ✅, FINDING-NEW-52 ✅)
 - Low: 0
+- **All 6 findings resolved. Commit: 13a9aa4.**
 
 Note: FINDING-NEW-47 and FINDING-NEW-48 are High because wrong bit positions break register-level interoperability with conformant SMMU drivers. FINDING-NEW-49 is High because it directly contradicts a mandatory spec behavioral requirement (commands must not be processed while CMDQ_ERR is active). FINDING-NEW-50 through FINDING-NEW-52 are Medium as they affect interoperability and edge-case correctness but not the primary translation path.
