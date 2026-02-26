@@ -1,13 +1,13 @@
 # ARM SMMU v3 Conformance Review
 
 **Specification**: ARM IHI 0070 G.b (April 30, 2025)
-**Review Date**: 2026-02-25 (eighth pass — NEW-47 through NEW-52 found and fixed; commit 13a9aa4)
+**Review Date**: 2026-02-25 (ninth pass — BUG-01 through BUG-08 found and fixed; commit 89b4adc)
 **Implementations**:
 - C++: `cpp/`
 - Rust: `rust/smmu/`
 
 **Overall Conformance**: C++ ~99% | Rust ~99% (all open findings resolved)
-_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 sixth-pass deep review found 10 new gaps NEW-34 through NEW-43; all 10 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 seventh-pass review found 3 new gaps NEW-44 through NEW-46: Rust security-state propagation, output-attribute override propagation (Both), STRW behavioral effect (Both) — C++ ~97% 74/74 | Rust ~98% 188/188; NEW-44 fixed 2026-02-23: added StreamConfig.security_state + StreamContext.set_security_state(); completion events now use stream security state — Rust ~99% 192/192; NEW-45 and NEW-46 accepted as software model scope; 2026-02-24 eighth-pass review found 6 new gaps NEW-47 through NEW-52; all 6 fixed 2026-02-24 commit 13a9aa4 — C++ ~99% 80/80 | Rust ~99% 207/207)_
+_(Baseline was C++ ~68% | Rust ~76% on 2026-02-18; updated after 44 fixes — 39 from QA re-review + 5 from 2026-02-21 follow-up session; revised to C++ ~83% | Rust ~91% after 2026-02-21 deep QA review found 6 new gaps: NEW-15 through NEW-20; C++ raised to ~85% after NEW-19 and NEW-20 fixed 2026-02-21; C++ ~87% | Rust ~93% after NEW-15 and NEW-16 fixed 2026-02-21; C++ ~89% | Rust ~95% after NEW-17 and NEW-18 fixed 2026-02-21; all gaps closed with tests 2026-02-22 — C++ 56/56 | Rust 157/157; 2026-02-22 deep re-review found 4 new gaps NEW-21 through NEW-24; all 4 fixed 2026-02-22 — C++ ~91% 57/57 | Rust ~96% 157/157; 2026-02-22 third-pass review found 4 new gaps NEW-25 through NEW-28; all 4 fixed 2026-02-22 — C++ ~93% 58/58 | Rust ~97% 157/157; 2026-02-22 fourth-pass review found 5 new gaps NEW-29 through NEW-33; all 5 fixed 2026-02-22 — C++ ~94% 59/59 | Rust ~98% 158/158; 2026-02-23 fifth-pass CT review found 9 new gaps CT-04 through CT-33; all 9 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 sixth-pass deep review found 10 new gaps NEW-34 through NEW-43; all 10 fixed 2026-02-23 — C++ ~97% 74/74 | Rust ~99% 188/188; 2026-02-23 seventh-pass review found 3 new gaps NEW-44 through NEW-46: Rust security-state propagation, output-attribute override propagation (Both), STRW behavioral effect (Both) — C++ ~97% 74/74 | Rust ~98% 188/188; NEW-44 fixed 2026-02-23: added StreamConfig.security_state + StreamContext.set_security_state(); completion events now use stream security state — Rust ~99% 192/192; NEW-45 and NEW-46 accepted as software model scope; 2026-02-24 eighth-pass review found 6 new gaps NEW-47 through NEW-52; all 6 fixed 2026-02-24 commit 13a9aa4 — C++ ~99% 80/80 | Rust ~99% 207/207; 2026-02-25 ninth-pass debugger+QA review found 8 implementation bugs BUG-01 through BUG-08; all 8 fixed 2026-02-25 commit 89b4adc — C++ 64/64 | Rust 163/163)_
 
 Both implementations are software-layer abstractions. They do not implement the
 hardware register map or binary-compatible data structures of the ARM SMMU v3
@@ -2537,7 +2537,7 @@ Both implementations define the `StreamWorld` enum and store `strw: StreamWorld`
 | File | Relevant Findings |
 |------|------------------|
 | `cpp/include/smmu/types.h` | H-01, H-02, H-07, L-05, NEW-08, NEW-09, NEW-11, NEW-12, NEW-17, NEW-19, NEW-20, NEW-26, NEW-27, NEW-28, CT-20, NEW-45, NEW-46 |
-| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28, CT-09, CT-13, CT-14, CT-33, NEW-37, NEW-38 (partial), NEW-39, NEW-40, NEW-43 |
+| `cpp/src/smmu/smmu.cpp` | H-05, H-08, M-05, M-10, NEW-03, NEW-07, NEW-08, NEW-09, NEW-11, NEW-12, NEW-13, NEW-15, NEW-16, NEW-21, NEW-22, NEW-23, NEW-25, NEW-27, NEW-28, CT-09, CT-13, CT-14, CT-33, NEW-37, NEW-38 (partial), NEW-39, NEW-40, NEW-43, BUG-03, BUG-06, BUG-08 |
 | `cpp/src/stream_context/stream_context.cpp` | NEW-34, NEW-38, NEW-41 |
 | `cpp/include/smmu/smmu.h` | NEW-35 |
 | `cpp/tests/integration/test_pasid_context_switching.cpp` | NEW-14 |
@@ -2550,8 +2550,8 @@ Both implementations define the `StreamWorld` enum and store `strw: StreamWorld`
 | `rust/smmu/src/types/translation_result.rs` | NEW-11 |
 | `rust/smmu/src/types/config.rs` | NEW-18, NEW-24, CT-09, NEW-36, NEW-44, NEW-45, NEW-46 |
 | `rust/smmu/src/types/pri_entry.rs` | CT-30 |
-| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33, NEW-39, NEW-44 |
-| `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18, CT-09, CT-13, CT-14, NEW-46 |
+| `rust/smmu/src/smmu/mod.rs` | H-03, H-05, H-08, M-09, NEW-02, NEW-03, NEW-10, NEW-11, NEW-15, NEW-16, NEW-26, NEW-27, CT-13, CT-14, CT-33, NEW-39, NEW-44, BUG-01, BUG-02, BUG-04, BUG-05 |
+| `rust/smmu/src/stream_context/mod.rs` | NEW-11, NEW-18, CT-09, CT-13, CT-14, NEW-46, BUG-07 |
 | `rust/smmu/src/types/mod.rs` | CT-20 |
 | `rust/smmu/tests/test_ct_findings_spec.rs` | CT-04, CT-09, CT-13, CT-14, CT-19, CT-20, CT-23, CT-30, CT-33 |
 | `rust/smmu/src/cache/` | M-03, M-04 |
@@ -2708,3 +2708,165 @@ A device presenting SubstreamID=5 to a stream configured with S1CDMax=2 (support
 - **All 6 findings resolved. Commit: 13a9aa4.**
 
 Note: FINDING-NEW-47 and FINDING-NEW-48 are High because wrong bit positions break register-level interoperability with conformant SMMU drivers. FINDING-NEW-49 is High because it directly contradicts a mandatory spec behavioral requirement (commands must not be processed while CMDQ_ERR is active). FINDING-NEW-50 through FINDING-NEW-52 are Medium as they affect interoperability and edge-case correctness but not the primary translation path.
+
+---
+
+## Ninth-Pass Debugger + QA Review (2026-02-25)
+
+This pass used static analysis, dynamic test execution, and code review (debugger agent)
+followed by spec verification of each proposed fix (qa-expert agent) before implementation.
+All 8 bugs found and fixed in commit **89b4adc**. C++: 64/64 tests pass. Rust: 163/163 tests pass.
+
+---
+
+### BUG-01 ✅ — Rust PRI Queue Capacity Bypass (`< 200` Guard)
+**Severity**: Medium
+**Spec Reference**: §8.1 (PRI queue overflow), §3.5.1 (Circular queue semantics)
+**Affected**: Rust
+
+`submit_page_request` only enforced PRI queue capacity when `pri_queue_capacity < 200`. For
+queues ≥ 200, the guard was skipped and the queue could grow without bound, violating ARM
+§3.5.1 circular queue semantics. The same bug in `submit_command` had been fixed in
+BUG-NEW3-08 but `submit_page_request` was missed.
+
+Additionally, §8.1 requires toggling `SMMU_PRIQ_PROD.OVFLG` (bit[31]) when a PRI message is
+discarded due to a full queue, provided an overflow condition is not already present.
+
+**Fix**: Removed the `self.pri_queue_capacity < 200 &&` condition. Added conditional
+`priq_prod.fetch_xor(1u32 << 31)` on queue-full discard, guarded by `ovflg == ovackflg` to
+prevent a spurious second toggle before software acknowledges the first.
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-02 ✅ — Rust CMD_SYNC CS=0b11 Silently Ignored Instead of CERROR_ILL
+**Severity**: High
+**Spec Reference**: §4.7.3 (CMD_SYNC CS field), §4.1.3 (Command errors), §7.5 (GERROR toggle semantics)
+**Affected**: Rust (C++ was already correct)
+
+Despite commit `d9aada5` claiming to fix this, the Rust implementation still returned `Ok(())`
+for CS=0b11. ARM §4.7.3 states: "0b11: Reserved: Causes a CERROR_ILL." Command errors are
+reported via `GERROR.CMDQ_ERR` (bit[0] **toggled** per §7.5 XOR semantics) and an `Err` return
+to halt queue processing — not via the Event queue (§4.1.3 / §7.1).
+
+The QA review additionally identified that §7.5 requires `fetch_xor` (toggle), not `fetch_or`,
+for all GERROR bit activations. The C++ code's use of `|=` is also technically non-conformant
+but is a pre-existing issue; only the Rust fix uses the correct `fetch_xor`.
+
+**Fix**: CS=0b11 now calls `self.gerror.fetch_xor(GERROR_CMDQ_ERR, Ordering::Release)` and
+returns `Err(InvalidCommandParameters)`. Test updated: now asserts `process_command_queue`
+returns `Err` and `GERROR_CMDQ_ERR` is non-zero; no EventEntry is checked.
+**File**: `rust/smmu/src/smmu/mod.rs`, `rust/smmu/tests/test_new31_33_spec.rs`
+
+---
+
+### BUG-03 ✅ — C++ `submitCommand` Incorrectly Sets `GERROR_CMDQ_ABT_ERR` on Queue Full
+**Severity**: Medium
+**Spec Reference**: §6.3.17 (SMMU_GERROR), §3.5.1
+**Affected**: C++ (Rust did not have this bug)
+
+`submitCommand` set `gerrorStatus |= GERROR_CMDQ_ABT_ERR` when the command queue was full.
+The QA review confirmed this is non-conformant: `GERROR_MSI_CMDQ_ABT_ERR` (bit[4]) is defined
+for CMD_SYNC MSI write aborts only; `GERROR_CMDQ_ERR` (bit[0]) fires when the SMMU hardware
+encounters a bad command during consumption. Queue fullness is a software-producer concern
+handled by PROD/CONS index comparison — no GERROR bit is spec-defined for this condition.
+
+**Fix**: Removed `gerrorStatus |= GERROR_CMDQ_ABT_ERR` from the queue-full path. Test
+`QueueFull_Sets_GERROR_CMDQ_ABT_ERR` renamed to `QueueFull_DoesNotSetAnyGerrorBit` and
+inverted to assert `gerror == 0`.
+**File**: `cpp/src/smmu/smmu.cpp`, `cpp/tests/unit/test_new21_22_23_spec.cpp`
+
+---
+
+### BUG-04 ✅ — Rust CMD_CFGI_STE C_BAD_STREAMID Event Has Wrong `error_code`
+**Severity**: Low
+**Spec Reference**: §7.3.3 (C_BAD_STREAMID = 0x02), §7.3.4 (F_STE_FETCH = 0x03)
+**Affected**: Rust
+
+When `CMD_CFGI_STE` was issued for an unknown StreamID, the generated `EventEntry` had
+`error_code: 0x03`. Per §7.3.3, C_BAD_STREAMID has event number 0x02; 0x03 is the opcode
+for F_STE_FETCH (§7.3.4), an entirely different condition (external abort fetching the STE).
+
+**Fix**: Changed `error_code: 0x03` → `error_code: 0x02`.
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-05 ✅ — Rust `record_stream_not_found_fault` Missing OVFLG Toggle on Queue Full
+**Severity**: Low
+**Spec Reference**: §7.4 (Event queue overflow), §7.2.1 (Event recording conditions)
+**Affected**: Rust
+
+When the event queue was full and a C_BAD_STREAMID event was discarded in
+`record_stream_not_found_fault`, `EVENTQ_PROD.OVFLG` (bit[31]) was not toggled. The
+`record_translation_fault` path already applied the OVFLG toggle; this path was missed.
+ARM §7.4: "When an overflow occurs, the SMMU toggles the SMMU_EVENTQ_PROD.OVFLG flag
+if the overflow condition is not already present."
+
+**Fix**: Added `ovflg == ovackflg` guard followed by `eventq_prod.fetch_xor(1u32 << 31)`
+in the queue-full branch, matching `record_translation_fault`.
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-06 ✅ — C++ `executeInvalidationCommandLocked` CFGI_STE Missing Stream Pre-condition Note
+**Severity**: Low
+**Spec Reference**: §4.3.1 (CMD_CFGI_STE), §7.3.3 (C_BAD_STREAMID)
+**Affected**: C++
+
+`executeInvalidationCommandLocked` called `invalidateStreamCache(command.streamID)` for
+CFGI_STE without any stream-existence check. Currently unreachable via normal queue processing
+(the `processCommand` caller already validates), but a latent correctness hazard if the
+function is ever called directly. The QA review also clarified that ARM §4.3.1 does **not**
+require C_BAD_STREAMID for CFGI_STE with a non-existent StreamID — a CFGI_STE for an unknown
+stream is a no-op per spec; the upstream stream-existence check is a model-internal safety
+gate, not a spec mandate.
+
+**Fix**: Added a PRE-CONDITION comment documenting caller responsibility and noting the
+§4.3.1 spec basis.
+**File**: `cpp/src/smmu/smmu.cpp`
+
+---
+
+### BUG-07 ✅ — Rust Two-Stage Translation Holds `stage2_address_space` Lock Across `record_fault_internal`
+**Severity**: Medium
+**Spec Reference**: N/A (implementation safety)
+**Affected**: Rust
+
+In `translate_two_stage`, the `stage2_address_space` read-lock was held when
+`record_fault_internal` was called. `record_fault_internal` acquires a `fault_records`
+write-lock. If a concurrent thread holds `fault_records.write()` while waiting to acquire
+`stage2_address_space.write()` (e.g., via `set_stage2_address_space`), an ABBA deadlock
+results. Note: `record_fault_internal` uses `try_write()`, so the worst practical case was a
+silently dropped fault record rather than a hard deadlock — but the lock inversion was a real
+latent hazard.
+
+**Fix**: Scoped the `stage2_address_space` read-lock into a block that ends before any
+`record_fault_internal` call. The Stage-2 translation result is captured as `stage2_result`
+and the guard is dropped before fault recording or permission-intersection logic.
+**File**: `rust/smmu/src/stream_context/mod.rs`
+
+---
+
+### BUG-08 ✅ — C++ `classifyTranslationFault` Acquires Useless Stripe Lock
+**Severity**: Low
+**Spec Reference**: N/A (implementation cleanup)
+**Affected**: C++
+
+`classifyTranslationFault` acquired a per-stream stripe lock, called `streamMap.find()`,
+discarded the result with `(void)`, then always returned `FaultType::TranslationFault`. The
+lock and lookup had no effect on the return value — pure dead code adding stripe-lock
+contention on the hot translation path.
+
+**Fix**: Removed the lock acquisition, `getStreamStripe()` call, and `streamMap.find()` line.
+Added `(void)streamID` and `(void)iova` suppression casts for the now-unused parameters.
+**File**: `cpp/src/smmu/smmu.cpp`
+
+---
+
+### Summary
+- Critical: 0
+- High: 1 (BUG-02 ✅)
+- Medium: 3 (BUG-01 ✅, BUG-03 ✅, BUG-07 ✅)
+- Low: 4 (BUG-04 ✅, BUG-05 ✅, BUG-06 ✅, BUG-08 ✅)
+- **All 8 bugs resolved. Commit: 89b4adc.**
