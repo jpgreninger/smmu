@@ -2234,6 +2234,18 @@ impl SMMU {
             if queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+            } else {
+                // BUG-05 / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit[31]) when a
+                // non-stall event (C_BAD_STREAMID) is discarded due to a full queue,
+                // provided an overflow is not already signalled (§7.4: "provided that
+                // an overflow condition is not already present").
+                let prod = self.eventq_prod.load(Ordering::Acquire);
+                let cons = self.eventq_cons.load(Ordering::Acquire);
+                let ovflg    = (prod >> 31) & 1;
+                let ovackflg = (cons >> 31) & 1;
+                if ovflg == ovackflg {
+                    self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
+                }
             }
         }
     }
@@ -2656,10 +2668,17 @@ impl SMMU {
                 let _ = self.submit_event(event);
             },
             CommandType::Sync => {
-                // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved. Treat as CS=0b00 (no
-                // completion signal) — do not generate an event, do not fault.
+                // §4.8 / BUG-02: CS=0b11 is Reserved — CERROR_ILL per ARM §4.7.3.
+                // CERROR_ILL is reported exclusively via GERROR.CMDQ_ERR (bit[0]
+                // toggled, per §7.5 toggle semantics) + halting queue processing.
+                // No EventEntry is written to the Event queue for command errors
+                // (§7.1 / §4.1.3 — command errors use SMMU_CMDQ_CONS.ERR + GERROR,
+                // not the Event queue).
                 if command.cs == 0b11 {
-                    return Ok(());
+                    self.gerror.fetch_xor(Self::GERROR_CMDQ_ERR, Ordering::Release);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_SYNC: CS=0b11 is Reserved — CERROR_ILL (ARM §4.7.3)".to_string(),
+                    ));
                 }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
@@ -2758,7 +2777,7 @@ impl SMMU {
                         pasid: command.pasid,
                         address: 0,
                         security_state: SecurityState::NonSecure,
-                        error_code: 0x03,  // C_BAD_STREAMID opcode per §7.3.3
+                        error_code: 0x02,  // C_BAD_STREAMID event number per §7.3.3 (0x03 = F_STE_FETCH §7.3.4)
                         timestamp,
                         stall: false,
                         stag: 0,
@@ -2853,8 +2872,22 @@ impl SMMU {
         }
 
         let mut queue = self.pri_queue.write().unwrap();
-        // Only enforce capacity for small queues (testing overflow behavior)
-        if self.pri_queue_capacity < 200 && queue.len() >= self.pri_queue_capacity {
+        // BUG-01 / ARM §8.1: enforce PRI queue capacity unconditionally — the
+        // previous `< 200` guard was an implementation artifact with no spec basis.
+        if queue.len() >= self.pri_queue_capacity {
+            // §8.1: Toggle PRIQ_PROD.OVFLG (bit[31]) when a PRI message is discarded
+            // due to a full queue, provided an overflow condition is not already present
+            // (i.e. OVFLG already differs from the software-acknowledged OVACKFLG).
+            // Use XOR to toggle rather than OR so a second toggle is only applied after
+            // software acknowledges the first via PRIQ_CONS.OVACKFLG = PRIQ_PROD.OVFLG.
+            let current_prod = self.priq_prod.load(Ordering::Acquire);
+            let current_cons = self.priq_cons.load(Ordering::Acquire);
+            let ovflg    = (current_prod >> 31) & 1;
+            let ovackflg = (current_cons >> 31) & 1;
+            if ovflg == ovackflg {
+                // No active overflow — toggle OVFLG to signal the new overflow.
+                self.priq_prod.fetch_xor(1u32 << 31, Ordering::Release);
+            }
             return Err(SMMUError::PriQueueFull);
         }
         queue.push_back(request);

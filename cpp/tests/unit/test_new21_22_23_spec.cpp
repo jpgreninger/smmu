@@ -110,19 +110,16 @@ TEST(New21Spec, ATC_INV_EmitsExactlyOneCompletion) {
         << "CMD_ATC_INV must emit exactly one ATC_INVALIDATE_COMPLETION (§4.5.1)";
 }
 
-// ─── FINDING-NEW-22: Command queue full must set GERROR_CMDQ_ABT_ERR, NOT emit F_TLB_CONFLICT ───
+// ─── FINDING-NEW-22 / BUG-03: Command queue full — no GERROR bit, no F_TLB_CONFLICT ───
 
 // When the command queue is full, no F_TLB_CONFLICT event must be generated.
 TEST(New22Spec, QueueFull_DoesNotEmit_F_TLB_CONFLICT) {
     auto smmu = std::make_unique<SMMU>();
     smmu->enable();
 
-    // Fill the queue beyond capacity by forcing a size-limited queue.
-    // submitCommand returns CommandQueueFull when full; first fill it up.
     CommandEntry sync;
     sync.type = CommandType::SYNC;
 
-    // Submit until full
     VoidResult r;
     for (int i = 0; i < 2000; ++i) {
         r = smmu->submitCommand(sync);
@@ -133,13 +130,15 @@ TEST(New22Spec, QueueFull_DoesNotEmit_F_TLB_CONFLICT) {
     }
     ASSERT_TRUE(r.isError()) << "Queue must eventually become full";
 
-    // No F_TLB_CONFLICT event must appear
     EXPECT_EQ(countEvents(*smmu, EventType::F_TLB_CONFLICT), 0)
         << "Queue full must not emit F_TLB_CONFLICT (§6.3.17)";
 }
 
-// When the command queue is full, GERROR_CMDQ_ABT_ERR must be set.
-TEST(New22Spec, QueueFull_Sets_GERROR_CMDQ_ABT_ERR) {
+// BUG-03: command queue full must NOT set any GERROR bit.
+// ARM §6.3.17: GERROR_MSI_CMDQ_ABT_ERR (bit[4]) is for CMD_SYNC MSI write
+// aborts; GERROR_CMDQ_ERR (bit[0]) is for hardware command consumption errors.
+// Queue fullness is a software producer concern — no GERROR bit is defined.
+TEST(New22Spec, QueueFull_DoesNotSetAnyGerrorBit) {
     auto smmu = std::make_unique<SMMU>();
     smmu->enable();
 
@@ -156,8 +155,8 @@ TEST(New22Spec, QueueFull_Sets_GERROR_CMDQ_ABT_ERR) {
     ASSERT_TRUE(r.isError()) << "Queue must eventually become full";
 
     uint32_t gerror = smmu->getGerror();
-    EXPECT_NE(gerror & GERROR_CMDQ_ABT_ERR, 0u)
-        << "GERROR_CMDQ_ABT_ERR (bit 4, MSI_CMDQ_ABT_ERR alias) must be set when command queue is full (§6.3.17)";
+    EXPECT_EQ(gerror, 0u)
+        << "BUG-03: no GERROR bit must be set when command queue is full (§6.3.17, §3.5.1)";
 }
 
 // ─── FINDING-NEW-23: F_PERMISSION must be generated on TLB cache-hit permission fault ───

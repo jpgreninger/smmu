@@ -1168,28 +1168,34 @@ impl StreamContext {
         let ipa =
             IOVA::new(stage1_result.physical_address().as_u64()).map_err(|_| TranslationError::AddressSizeError)?;
 
-        // Stage-2: IPA → PA
-        let stage2_guard = self.stage2_address_space.read().unwrap();
-        let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
+        // Stage-2: IPA → PA.
+        // BUG-07: Scope the stage2_address_space read-lock tightly so it is
+        // released before any call to record_fault_internal (which acquires the
+        // fault_records write-lock).  Holding stage2_address_space.read() across
+        // record_fault_internal creates an ABBA deadlock risk if a concurrent
+        // writer calls set_stage2_address_space() while holding fault_records.write().
+        let stage2_result = {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
+            stage2.translate_page(ipa, access_type, security_state)
+        }; // stage2_address_space read-lock released here
 
-        let result = stage2.translate_page(ipa, access_type, security_state);
-
-        // Record Stage-2 fault if error
-        if let Err(ref error) = result {
+        // Record Stage-2 fault if error (lock is no longer held)
+        if let Err(ref error) = stage2_result {
             let fault_type = match error {
                 TranslationError::PageNotMapped => FaultType::TranslationFault,
                 TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
                 _ => FaultType::TranslationFault,
             };
             self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
-            return result;
+            return stage2_result;
         }
 
         // §3.3.1 / FINDING-NEW-29: Effective permissions = intersection of Stage-1 and Stage-2.
         // Stage-2 translation succeeded; intersect its permissions with Stage-1 permissions to
         // derive the final access rights.  If the intersected permissions deny the requested
         // access type, record a PermissionFault and return PermissionViolation.
-        let s2_data = result.unwrap();
+        let s2_data = stage2_result.unwrap();
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
 
         let access_denied = match access_type {

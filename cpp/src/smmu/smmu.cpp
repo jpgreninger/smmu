@@ -1463,9 +1463,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
 }
 
 FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) const {
-    (void)pasid; // Suppress unused parameter warning - reserved for future PASID-aware fault classification
-    (void)accessType; // Suppress unused parameter warning - reserved for future access-aware fault classification  
-    (void)securityState; // Suppress unused parameter warning - reserved for future security-aware fault classification
+    (void)streamID;    // reserved for future stream-aware fault classification
+    (void)pasid;       // reserved for future PASID-aware fault classification
+    (void)iova;        // reserved for future address-aware fault classification
+    (void)accessType;  // reserved for future access-aware fault classification
+    (void)securityState; // reserved for future security-aware fault classification
     
     // ARM §7.3.13–7.3.16 / FINDING-NEW-43: Fault classification must be based on
     // actual error cause, not on arbitrary IOVA value heuristics.
@@ -1474,12 +1476,10 @@ FaultType SMMU::classifyTranslationFault(StreamID streamID, PASID pasid, IOVA io
     // input address size — that is handled in handleTranslationFailure() via the
     // SMMUError::InvalidAddress case.  Here we return the generic default.
 
-    // BUG-06 fix: streamMap must be accessed under the appropriate stripe lock.
-    size_t stripe = getStreamStripe(streamID);
-    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
-    (void)streamMap.find(streamID);  // access under lock for BUG-06 correctness
-
     // Default: TranslationFault — callers supply the real error code via result.getError().
+    // Note: the previous lock acquisition + discarded streamMap.find() here were dead
+    // code with no effect on the return value; removed to eliminate spurious stripe-lock
+    // contention on the hot translation path (BUG-08).
     return FaultType::TranslationFault;
 }
 
@@ -1643,9 +1643,11 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
     // processPRIQueue -> submitCommand re-entrant calls).
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     if (commandQueue.size() >= maxCommandQueueSize) {
-        // §6.3.17: Command queue abort — set GERROR.CMDQ_ABT_ERR (bit 8).
-        // No event is generated; hardware signals the error via GERROR only.
-        gerrorStatus |= GERROR_CMDQ_ABT_ERR;
+        // ARM §3.5.1 / §6.3.17: Command queue full is a software-producer concern
+        // handled by PROD/CONS index comparison.  No GERROR bit is defined for this
+        // condition: GERROR.MSI_CMDQ_ABT_ERR (bit[4]) is for CMD_SYNC MSI write
+        // aborts only, and GERROR.CMDQ_ERR (bit[0]) is for hardware command
+        // consumption errors — neither applies to a simple queue-full rejection.
         return makeVoidError(SMMUError::CommandQueueFull);
     }
     CommandEntry timestampedCommand = command;
@@ -2102,7 +2104,13 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
     // ARM SMMU v3 spec: Execute cache invalidation commands (called with queueMutex held)
     switch (command.type) {
         case CommandType::CFGI_STE:
-            // Stream Table Entry invalidation - invalidate specific stream
+            // Stream Table Entry invalidation — invalidate specific stream.
+            // PRE-CONDITION: callers must have already verified that command.streamID
+            // is a known StreamID (generating C_BAD_STREAMID + GERROR_CMDQ_ERR if
+            // not found) before calling this function.  ARM §4.3.1 does not define
+            // any error condition for a CFGI_STE targeting a non-existent stream
+            // (it is effectively a no-op); the stream-existence check is a model-
+            // internal safety gate applied upstream in processCommand().
             invalidateStreamCache(command.streamID);
             break;
 

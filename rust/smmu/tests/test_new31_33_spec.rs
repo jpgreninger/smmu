@@ -193,23 +193,39 @@ fn pri_request_nonsecure_generates_nonsecure_event() {
     );
 }
 
-// ── FINDING-NEW-33: CMD_SYNC CS=0b11 reserved must NOT generate completion event ─
+// ── FINDING-NEW-33 / BUG-02: CMD_SYNC CS=0b11 reserved → CERROR_ILL ──────────
 
-/// CMD_SYNC with CS=0b11 is Reserved per §4.8. The SMMU must NOT generate a
-/// COMMAND_SYNC_COMPLETION event in response.
+/// CMD_SYNC with CS=0b11 is Reserved per §4.8 — must generate CERROR_ILL:
+/// sets GERROR.CMDQ_ERR (bit[0] toggled), halts queue, generates no
+/// CommandSyncCompletion event.  Command errors are NOT reported via the
+/// Event queue (§4.1.3 / §7.1).
 #[test]
 fn cmd_sync_cs_reserved_generates_no_completion_event() {
     let smmu = make_smmu();
 
     let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
-    cmd.cs = 0b11; // Reserved value per §4.8
+    cmd.cs = 0b11; // Reserved value — must cause CERROR_ILL per §4.7.3
     smmu.submit_command(cmd).unwrap();
-    smmu.process_command_queue().unwrap();
 
+    // process_command_queue must return Err (CERROR_ILL halts processing)
+    let result = smmu.process_command_queue();
+    assert!(
+        result.is_err(),
+        "§4.7.3 / BUG-02: process_command_queue must return Err for CMD_SYNC CS=0b11"
+    );
+
+    // GERROR.CMDQ_ERR must be toggled per §7.5
+    assert_ne!(
+        smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR,
+        0,
+        "§4.7.3 / BUG-02: GERROR.CMDQ_ERR (bit[0]) must be set after CERROR_ILL"
+    );
+
+    // No CommandSyncCompletion event — command errors use GERROR, not Event queue
     let sync_events = count_events_of_type(&smmu, EventType::CommandSyncCompletion);
     assert_eq!(
         sync_events, 0,
-        "§4.8 / FINDING-NEW-33: CMD_SYNC CS=0b11 (reserved) must NOT generate a CommandSyncCompletion event"
+        "§4.8 / BUG-02: CMD_SYNC CS=0b11 must NOT generate a CommandSyncCompletion event"
     );
 }
 
