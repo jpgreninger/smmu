@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.9)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.10)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,29 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.9** - Bug Fixes (Critical/High/Medium/Low) ⚡
+## ✅ **PRODUCTION READY v1.2.10** - Bug Fixes (Tenth-Pass) ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,437 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 23, 2026)**: Version 1.2.9 — All critical, high, medium, and low severity bugs resolved (BUG-RUST-04/05/06/07/08/09). Rust conformance ~99%. 2,437 tests passing (100%).
+**🎯 Latest Update (February 26, 2026)**: Version 1.2.10 — Tenth-pass bug fixes: BUG-09/10/11/13 resolved (GERROR OR semantics §6.3.19, OVFLG guards §7.4, SSIDSIZE validation §5.2, stall fault recording §3.12.2). 2,437 tests passing (100%).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.10 (February 26, 2026)
+
+**Bug Fixes — Tenth-Pass (BUG-09/10/11/13)**
+
+- ✅ BUG-09/15: Removed spurious `fetch_xor(GERROR_CMDQ_ERR)` — GERROR uses OR semantics (§6.3.19/§7.5)
+- ✅ BUG-10: OVFLG toggle now guarded by `!event.stall` and `ovflg==ovackflg` (§7.4)
+- ✅ BUG-11: `s1cd_max` validated ≤ 20 (`S1CD_MAX_LIMIT`) per §5.2 SSIDSIZE; shift guard for ≥ 32
+- ✅ BUG-13: Stall-queue exhaustion now records fault event per §3.12.2 before returning original error
+- ✅ 2,437 tests passing (100%), zero clippy warnings, clippy clean (`--all-targets -D warnings`)
+
+---
 
 ### 🚀 Release v1.2.9 (February 23, 2026)
 

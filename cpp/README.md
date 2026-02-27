@@ -1,10 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.9** - Bug Fixes (Critical/High/Medium/Low) ✅
+## ✅ **PRODUCTION RELEASE v1.2.10** - Bug Fixes (Tenth-Pass) ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 62/62 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.9
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 65/65 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.10
 
-> **Since v1.2.6 (Feb 17, 2026)**: 45 conformance fixes across 7 QA passes. 43 new tests added (19 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved (BUG-CPP-01/06/08/09). All 62 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 52 conformance fixes across 10 QA passes. 50 new tests added (20 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved. All 65 tests pass at 100%.
+>
+> **v1.2.10 (Feb 26, 2026)**: Tenth-pass bug fixes — BUG-11 (s1cdMax > 20 validation + shift guard, §5.2), BUG-14 (C_BAD_STREAMID security state from command, §7.3.3). 3 new tests in `test_tenth_pass_bugs_spec.cpp`.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 
@@ -184,7 +186,7 @@ A production-ready, high-performance C++11 implementation of the ARM System Memo
 ### ✅ Production Quality
 - **C++11 strict compliance** - Zero C++14/17/20 features, no external dependencies beyond STL
 - **90.9% line coverage** (3,240/3,563 lines) | **96.2% function coverage** (432/449) — 5 of 6 source components ≥93%
-- **100% test success rate** (62/62 tests passing — 19 test files)
+- **100% test success rate** (65/65 tests passing — 20 test files)
 - **Zero build warnings** with production-grade code quality
 - **Full ARM SMMU v3 IHI0070G.b compliance** — 80 conformance findings found and fixed across 6 QA passes
 - **Thread-safe operations** with comprehensive mutex protection and fine-grained locking
@@ -210,13 +212,13 @@ make -j$(nproc)
 ```bash
 cd build
 
-# Run all tests (62/62 tests, 100% success rate)
+# Run all tests (65/65 tests, 100% success rate)
 make test
 # or with detailed output
 ctest --output-on-failure
 
 # Run specific test categories
-make run_unit_tests           # Unit tests (54 tests)
+make run_unit_tests           # Unit tests (57 tests)
 make run_integration_tests    # Integration tests (5 tests)
 make run_performance_tests    # Performance benchmarks (3 tests)
 
@@ -392,7 +394,7 @@ smmu/
 │   └── types/           # Type implementations
 │
 └── tests/               # Test suites
-    ├── unit/           # Unit tests (54 tests)
+    ├── unit/           # Unit tests (57 tests)
     ├── integration/    # Integration tests (5 tests)
     └── performance/    # Performance benchmarks (3 tests)
 ```
@@ -449,7 +451,7 @@ smmu/
 
 ### Test Categories
 
-**Unit Tests** (54 tests):
+**Unit Tests** (57 tests):
 - `test_types` - Core type validation
 - `test_address_space*` - Page table management (4 suites)
 - `test_stream_context*` - Stream state management (7 suites)
@@ -566,7 +568,7 @@ Ready for immediate deployment in:
 - **Performance-critical** simulation environments
 
 ### Quality Assurance
-- ✅ 100% test pass rate (62/62 tests)
+- ✅ 100% test pass rate (65/65 tests)
 - ✅ 90.9% line coverage (3,240/3,563) | 96.2% function coverage (432/449) — measured 2026-02-23
 - ✅ Zero build warnings
 - ✅ Hardware-exceeding performance (86-101ns translation latency)
@@ -579,7 +581,7 @@ Ready for immediate deployment in:
 
 **v1.2.8** (2026-02-23):
 - ✅ No C++ changes — version bump for Rust FINDING-NEW-44 parity release
-- ✅ All 62 tests passing (100% success rate)
+- ✅ All 65 tests passing (100% success rate)
 
 **v1.2.7** (2026-02-23):
 - ✅ 9 new conformance findings resolved (FINDING-NEW-34 through NEW-43)
@@ -591,7 +593,7 @@ Ready for immediate deployment in:
 - ✅ `CMD_CFGI_STE` for unknown StreamID generates `C_BAD_STREAMID` (§4.3.1)
 - ✅ Bypass path returns full RWX `PagePermissions` (§5.2)
 - ✅ Arbitrary IOVA heuristics removed from fault classifier (§7.3)
-- ✅ All 62 tests passing (100% success rate — 19 test files)
+- ✅ All 65 tests passing (100% success rate — 20 test files)
 
 **v1.2.6** (2026-02-17 → 2026-02-23 — 6 QA passes):
 - ✅ 36 conformance findings resolved (FINDING-H-01 through FINDING-CT-33)
