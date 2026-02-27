@@ -1302,17 +1302,24 @@ struct CommandEntry {
     /// 0b00 (SIG_NONE) — no completion signal; 0b01 (SIG_IRQ) — MSI/IRQ;
     /// 0b10 (SIG_MSI) — MSI write.  Ignored by other command types.
     uint8_t cs;  ///< defaults to 0 (SIG_NONE)
+    /// BUG-14 fix / ARM §7.3.3: Security state of the command's originating context.
+    /// C_BAD_STREAMID and similar command-error events must be recorded with the
+    /// security state matching the StreamID's security domain (§7.3 / §7.3.3).
+    /// Defaults to NonSecure; Secure commands should set this to SecurityState::Secure.
+    SecurityState securityState;  ///< defaults to NonSecure
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
                     prgIndex(0), range(31), stag(0), action(false), abort(false),
-                    asid(0), vmid(0), leaf(false), cs(0) {
+                    asid(0), vmid(0), leaf(false), cs(0),
+                    securityState(SecurityState::NonSecure) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
           flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
-          asid(0), vmid(0), leaf(false), cs(0) {
+          asid(0), vmid(0), leaf(false), cs(0),
+          securityState(SecurityState::NonSecure) {
     }
 };
 

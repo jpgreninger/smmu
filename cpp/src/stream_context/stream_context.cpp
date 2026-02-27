@@ -554,6 +554,14 @@ Result<bool> StreamContext::isConfigurationValid(const StreamConfig& config) con
         }
     }
     
+    // BUG-11 fix / ARM §5.2 STE.S1CDMax + SMMU_IDR1.SSIDSIZE:
+    // "The allowable range is 0 to SMMU_IDR1.SSIDSIZE inclusive."
+    // SSIDSIZE valid range 0–20; values > 20 are ILLEGAL per §5.2.
+    // Values >= 32 additionally cause UB on `1u << s1cdMax` in smmu.cpp.
+    if (config.s1cdMax > 20) {
+        return makeSuccess(false);  // s1cdMax exceeds SSIDSIZE architectural maximum
+    }
+
     return makeSuccess(true);  // Configuration is valid
 }
 

@@ -2870,3 +2870,125 @@ Added `(void)streamID` and `(void)iova` suppression casts for the now-unused par
 - Medium: 3 (BUG-01 ✅, BUG-03 ✅, BUG-07 ✅)
 - Low: 4 (BUG-04 ✅, BUG-05 ✅, BUG-06 ✅, BUG-08 ✅)
 - **All 8 bugs resolved. Commit: 89b4adc.**
+
+---
+
+## Tenth-Pass Review (2026-02-26)
+
+Bugs BUG-09 through BUG-15 found by debugger analysis and verified against IHI0070G.b by QA
+expert before any code changes. BUG-12 was WITHDRAWN (not required by spec). All remaining
+bugs fixed using TDD workflow (failing tests written before code changes).
+
+---
+
+### BUG-09/15 ✅ — Rust `process_single_command` Spurious `fetch_xor(GERROR_CMDQ_ERR)` on CS=0b11
+**Severity**: Medium
+**Spec Reference**: §6.3.19 (SMMU_GERROR), §7.5 (GERROR activation semantics)
+**Affected**: Rust
+
+When `CMD_SYNC` with `CS=0b11` (Reserved) was rejected, `process_single_command` called
+`fetch_xor(GERROR_CMDQ_ERR)` before returning the error. This toggled the GERROR bit
+regardless of its current state. ARM §6.3.19 and §7.5 specify "activate-only-if-inactive"
+(OR) semantics for GERROR bits — they are set when not already active and cleared only by
+software write-1-to-clear. The `fetch_xor` introduced a race: if a concurrent thread
+already set GERROR_CMDQ_ERR, the XOR would **clear** it, hiding the error from software.
+The authoritative `fetch_or` in `process_command_queue` (~line 2430) already handles GERROR
+activation correctly.
+
+**Fix**: Removed the spurious `fetch_xor(GERROR_CMDQ_ERR)` from `process_single_command`.
+The early-return path now simply returns `Err(...)` without touching GERROR.
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-10 ✅ — Rust EVENTQ_PROD.OVFLG Toggled for Stall Events and When Overflow Already Active
+**Severity**: High
+**Spec Reference**: §7.4 (SMMU_EVENTQ_PROD, OVFLG/OVACKFLG)
+**Affected**: Rust
+
+`record_translation_fault` toggled `EVENTQ_PROD.OVFLG` (bit[31]) on every event-queue-full
+condition without checking: (1) whether the event was a stall event (stall events must not
+contribute to the overflow flag per §7.4), and (2) whether OVFLG already differed from
+OVACKFLG (a second overflow before software acknowledges the first must not re-toggle OVFLG).
+
+**Fix**: Added two guards before the `fetch_xor(1u32 << 31)`:
+- `!event.stall` — stall faults never trigger OVFLG
+- `ovflg == ovackflg` — only toggle if no overflow is already pending software ACK
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-11 ✅ — `s1cd_max` / `s1cdMax` Not Validated Against SSIDSIZE Architectural Maximum (0–20)
+**Severity**: Medium
+**Spec Reference**: §5.2 (STE.S1CDMax), SMMU_IDR1.SSIDSIZE
+**Affected**: Rust + C++
+
+`STE.S1CDMax` represents the number of CD table index bits, with an architectural maximum of
+20 (matching SMMU_IDR1.SSIDSIZE valid range 0–20 per §5.2). Neither the Rust `StreamConfig`
+nor the C++ `StreamContext` rejected values > 20. Values ≥ 32 additionally caused an
+arithmetic panic (Rust debug) or undefined behaviour (C++ `1u << s1cdMax`) in the
+`C_BAD_SUBSTREAMID` substream range check.
+
+**Fix**:
+- Rust: Added `if self.s1cd_max > Self::S1CD_MAX_LIMIT` validation in `StreamConfig::validate()`; added shift guard `if stream_s1cd_max < 32` in `smmu/mod.rs`.
+- C++: Added `if (config.s1cdMax > 20)` rejection in `StreamContext::isConfigurationValid()`; added `(config.s1cdMax < 32u)` shift guard in `smmu.cpp`.
+**Files**: `rust/smmu/src/types/config.rs`, `rust/smmu/src/smmu/mod.rs`, `cpp/src/stream_context/stream_context.cpp`, `cpp/src/smmu/smmu.cpp`
+
+---
+
+### BUG-12 ✅ WITHDRAWN — Cross-Stage Security State Mismatch Not Required by Spec
+**Severity**: N/A
+**Spec Reference**: §5.2, §5.5
+**Affected**: C++
+
+Originally proposed as a missing validation: C++ allows Stage 1 (Secure) + Stage 2
+(NonSecure) combinations without rejection. QA expert analysis found no ARM IHI0070G.b
+requirement for C_BAD_STREAMID or fault on such a combination — the specification does not
+mandate matching security states across stages. No fix applied.
+
+---
+
+### BUG-13 ✅ — Rust Stall Queue Exhaustion Returns Without Recording Fault Event
+**Severity**: High
+**Spec Reference**: §3.12.2 (Stall fault model)
+**Affected**: Rust
+
+When the STAG allocation loop exhausted 65535 iterations (`iters >= 65535`), the function
+returned `Err(SMMUError::TlbConflict(...))` without recording a fault event in the event
+queue. ARM §3.12.2 states: "The SMMU always records the details of the fault in the Event
+queue, regardless of whether the transaction is terminated or stalled." Additionally, the
+returned error type `TlbConflict` was incorrect — stall-queue exhaustion should fall back to
+terminate mode and return the original translation error.
+
+**Fix**: Before returning on stall-loop exhaustion, call `record_translation_fault()` with
+the original fault details and `stall=false` (terminate mode). Return the original `error`
+rather than `SMMUError::TlbConflict`.
+**File**: `rust/smmu/src/smmu/mod.rs`
+
+---
+
+### BUG-14 ✅ — C++ `C_BAD_STREAMID` Event Hardcodes `NonSecure` Security State
+**Severity**: Medium
+**Spec Reference**: §7.3.3 (C_BAD_STREAMID event record)
+**Affected**: C++
+
+When `processCommand` or `executeInvalidationCommand` detected a bad StreamID and generated
+a `C_BAD_STREAMID` event record, the event's security state was hardcoded to
+`SecurityState::NonSecure`. ARM §7.3.3 specifies that the event's security state must reflect
+the security domain of the originating command. Secure commands issued from a Secure NS-PD
+or Root partition must generate a `C_BAD_STREAMID` event with Secure security state.
+
+**Fix**: Added `securityState` field to `CommandEntry` (defaulting to `NonSecure`) and
+updated both `executeInvalidationCommand` and `processCommand` call sites to use
+`command.securityState` when constructing the `C_BAD_STREAMID` event.
+**Files**: `cpp/include/smmu/types.h`, `cpp/src/smmu/smmu.cpp`
+
+---
+
+### Tenth-Pass Summary
+- Critical: 0
+- High: 2 (BUG-10 ✅, BUG-13 ✅)
+- Medium: 3 (BUG-09/15 ✅, BUG-11 ✅, BUG-14 ✅)
+- Withdrawn: 1 (BUG-12)
+- **All 6 actionable bugs resolved.**
+- **Test suite: C++ 65/65, Rust all pass, clippy clean.**

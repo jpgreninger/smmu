@@ -280,6 +280,9 @@ impl StreamConfig {
     /// ARM SMMU v3 maximum PASID value (20-bit)
     pub const MAX_PASID: u32 = (1 << 20) - 1;
 
+    /// ARM SMMU v3 maximum S1CDMax value per SMMU_IDR1.SSIDSIZE (ARM §5.2)
+    pub const S1CD_MAX_LIMIT: u8 = 20;
+
     /// Create a new builder for StreamConfig
     #[must_use]
     pub fn builder() -> StreamConfigBuilder {
@@ -470,6 +473,20 @@ impl StreamConfig {
         if !self.pasid_enabled && self.max_pasid != 0 {
             return Err(ValidationError::InvalidConfiguration {
                 reason: "max_pasid set without PASID enabled".into(),
+            });
+        }
+
+        // BUG-11 fix / ARM §5.2 STE.S1CDMax + SMMU_IDR1.SSIDSIZE:
+        // "The allowable range is 0 to SMMU_IDR1.SSIDSIZE inclusive."
+        // SSIDSIZE valid range is 0–20; values > 20 are ILLEGAL per §5.2.
+        // Values >= 32 additionally cause a panic (debug) or UB (release) on
+        // the shift `1u32 << s1cd_max` in the C_BAD_SUBSTREAMID check.
+        if self.s1cd_max > Self::S1CD_MAX_LIMIT {
+            return Err(ValidationError::InvalidConfiguration {
+                reason: format!(
+                    "s1cd_max={} exceeds SMMU_IDR1.SSIDSIZE maximum of {} (ARM §5.2)",
+                    self.s1cd_max, Self::S1CD_MAX_LIMIT
+                ),
             });
         }
 

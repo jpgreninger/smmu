@@ -1848,8 +1848,16 @@ impl SMMU {
         // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
         // when the presented PASID falls outside the valid index range.
         // PASID==0 is excluded: it is the "no substream" case handled by S1DSS above.
+        // BUG-11 fix: guard the shift — validation in StreamConfig::validate() now
+        // prevents s1cd_max > 20, but this defensive check ensures no panic / UB
+        // if a value >= 32 ever reaches this path (e.g., from unsafe construction).
+        let s1cd_max_limit: u32 = if stream_s1cd_max < 32 {
+            1u32 << stream_s1cd_max
+        } else {
+            u32::MAX
+        };
         if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() != 0
-            && pasid.as_u32() >= (1u32 << stream_s1cd_max)
+            && pasid.as_u32() >= s1cd_max_limit
         {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let substreamid_error = TranslationError::BadSubstreamId;
@@ -1904,8 +1912,18 @@ impl SMMU {
                             }
                             iters += 1;
                             if iters >= 65535 {
-                                // Stall queue is full — abort this transaction.
-                                return Err(TranslationError::TlbConflict);
+                                // BUG-13 fix: stall queue is full — fall back to
+                                // terminate mode.  Per ARM §3.12.2 "The SMMU always
+                                // records the details of the access into the Event
+                                // queue."  Record the fault as a non-stall event so
+                                // software sees the correct fault report.  Return the
+                                // original translation error (not TlbConflict, which
+                                // is IMPDEF for actual TLB geometry conflicts only).
+                                self.record_translation_fault(
+                                    stream_id, pasid, iova, access, security_state,
+                                    error, false, 0,
+                                );
+                                return Err(error.clone());
                             }
                         }
                     }
@@ -2177,11 +2195,22 @@ impl SMMU {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
             } else {
-                // NEW-51 / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit 31) when a non-stall
-                // event is discarded due to queue full.  Software detects overflow by
-                // comparing OVFLG against its saved OVACKFLG in SMMU_EVENTQ_CONS.
-                // GERROR_EVENTQ_ABT_ERR is reserved for memory bus aborts only (§6.3.17).
-                self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
+                // BUG-10 fix / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit 31) only when:
+                //   (1) the discarded event is NOT a stall event — stall fault records are
+                //       never discarded per §7.4 ("stall fault records do not cause an
+                //       overflow condition"), so stall events must never trigger OVFLG.
+                //   (2) no overflow is already active — i.e. OVFLG == OVACKFLG.  Only
+                //       toggle when transitioning from "no overflow" to "overflow" state,
+                //       matching the semantics in record_stream_not_found_fault (BUG-05).
+                if !event.stall {
+                    let prod = self.eventq_prod.load(Ordering::Acquire);
+                    let cons = self.eventq_cons.load(Ordering::Acquire);
+                    let ovflg    = (prod >> 31) & 1;
+                    let ovackflg = (cons >> 31) & 1;
+                    if ovflg == ovackflg {
+                        self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
+                    }
+                }
             }
         }
     }
@@ -2669,13 +2698,18 @@ impl SMMU {
             },
             CommandType::Sync => {
                 // §4.8 / BUG-02: CS=0b11 is Reserved — CERROR_ILL per ARM §4.7.3.
-                // CERROR_ILL is reported exclusively via GERROR.CMDQ_ERR (bit[0]
-                // toggled, per §7.5 toggle semantics) + halting queue processing.
+                // CERROR_ILL is reported via GERROR.CMDQ_ERR (bit[0] set via fetch_or
+                // in process_command_queue) + halting queue processing.
                 // No EventEntry is written to the Event queue for command errors
                 // (§7.1 / §4.1.3 — command errors use SMMU_CMDQ_CONS.ERR + GERROR,
                 // not the Event queue).
                 if command.cs == 0b11 {
-                    self.gerror.fetch_xor(Self::GERROR_CMDQ_ERR, Ordering::Release);
+                    // BUG-09/15 fix: do NOT call fetch_xor here.  Per §6.3.19 / §7.5,
+                    // GERROR bits use "activate-only-if-inactive" (OR) semantics —
+                    // the SMMU must not toggle a bit when the error is already active.
+                    // fetch_xor would briefly clear an already-set CMDQ_ERR bit before
+                    // process_command_queue applies its authoritative fetch_or, creating
+                    // a race window.  Let process_command_queue apply the single fetch_or.
                     return Err(SMMUError::InvalidCommandParameters(
                         "CMD_SYNC: CS=0b11 is Reserved — CERROR_ILL (ARM §4.7.3)".to_string(),
                     ));

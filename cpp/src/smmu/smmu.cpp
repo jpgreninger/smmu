@@ -5,6 +5,7 @@
 #include "smmu/smmu.h"
 #include <chrono>
 #include <algorithm>
+#include <climits>
 
 namespace smmu {
 
@@ -957,8 +958,11 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
     // §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
     // This must be checked BEFORE the AA64/T0SZ validation.
+    // BUG-11 fix: guard the shift — isConfigurationValid() now rejects s1cdMax > 20,
+    // but this defensive limit prevents UB if a value >= 32 ever reaches here.
+    const uint32_t s1cdMaxLimit = (config.s1cdMax < 32u) ? (1u << config.s1cdMax) : UINT32_MAX;
     if (config.stage1Enabled && config.s1cdMax > 0 && pasid != 0 &&
-        pasid >= (1u << config.s1cdMax)) {
+        pasid >= s1cdMaxLimit) {
         FaultRecord substreamFault;
         substreamFault.streamID = streamID;
         substreamFault.pasid = pasid;
@@ -1875,8 +1879,11 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                 streamFound = (streamMap.find(command.streamID) != streamMap.end());
             }
             if (!streamFound) {
+                // BUG-14 fix / ARM §7.3.3: use command.securityState, not hardcoded
+                // NonSecure.  §7.3 requires the event to be recorded in the Event queue
+                // matching the security state of the StreamID causing the event.
                 generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                              command.startAddress, SecurityState::NonSecure);
+                              command.startAddress, command.securityState);
                 gerrorStatus |= GERROR_CMDQ_ERR;
                 break;
             }
@@ -2254,8 +2261,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 queueLock.lock();
             }
             if (!streamFound) {
+                // BUG-14 fix / ARM §7.3.3: use command.securityState (second call site).
                 generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                              command.startAddress, SecurityState::NonSecure);
+                              command.startAddress, command.securityState);
                 gerrorStatus |= GERROR_CMDQ_ERR;
                 break;
             }
