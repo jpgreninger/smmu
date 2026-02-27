@@ -839,10 +839,9 @@ impl StreamContext {
         permissions: PagePermissions,
         security_state: SecurityState,
     ) -> Result<(), AddressSpaceError> {
-        // Check if stream is enabled
-        if !self.is_enabled() {
-            return Err(AddressSpaceError::InternalError);
-        }
+        // NOTE: ARM §3.4 / §5.2 — page-table setup is independent of stream
+        // enable state.  The is_enabled() guard belongs only in translate().
+        // Do NOT check is_enabled() here.
 
         let pasid_value = pasid.as_u32();
 

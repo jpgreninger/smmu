@@ -89,6 +89,7 @@ const fn resume_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     }
 }
 
@@ -111,6 +112,7 @@ const fn resume_cmd_retry(stag: u16, stream_id: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     }
 }
 
@@ -133,6 +135,7 @@ const fn resume_cmd_abort(stag: u16, stream_id: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     }
 }
 
@@ -155,6 +158,7 @@ const fn stall_term_cmd(stag: u16, stream_id: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     }
 }
 

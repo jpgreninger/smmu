@@ -203,6 +203,17 @@ pub struct CommandEntry {
     /// Ignored by all command types other than `Sync`.
     /// Defaults to 0 (SIG_NONE — no completion signal).
     pub cs: u8,
+
+    /// Security state of the originating command (ARM §7.3 / §3.10.2.1).
+    ///
+    /// ARM SMMU v3 requires that command error events (e.g., `C_BAD_STREAMID`,
+    /// `C_BAD_STE`) reflect the security state of the command that caused the
+    /// error, not a hardcoded default.  This field is propagated into the
+    /// `security_state` field of any event record generated when processing
+    /// this command fails.
+    ///
+    /// Defaults to `SecurityState::NonSecure` (least privileged).
+    pub security_state: crate::types::SecurityState,
 }
 
 impl CommandEntry {
@@ -235,6 +246,28 @@ impl CommandEntry {
             range: 31,
             leaf: false,
             cs: 0,
+            security_state: crate::types::SecurityState::NonSecure,
         }
+    }
+
+    /// Set the security state of this command (builder pattern).
+    ///
+    /// Use this to record which security world issued the command so that any
+    /// command error event generated during processing carries the correct
+    /// `security_state` per ARM §7.3 / §3.10.2.1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{CommandEntry, CommandType, SecurityState};
+    ///
+    /// let cmd = CommandEntry::new(CommandType::CfgiSte, 1, 0)
+    ///     .with_security_state(SecurityState::Secure);
+    /// assert_eq!(cmd.security_state, SecurityState::Secure);
+    /// ```
+    #[must_use]
+    pub fn with_security_state(mut self, ss: crate::types::SecurityState) -> Self {
+        self.security_state = ss;
+        self
     }
 }

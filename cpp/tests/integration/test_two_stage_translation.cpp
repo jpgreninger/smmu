@@ -193,7 +193,10 @@ TEST_F(TwoStageTranslationTest, Stage2TranslationFault) {
     
     auto& fault = events.getValue()[0];
     EXPECT_EQ(fault.streamID, testStreamID);
-    EXPECT_EQ(fault.pasid, 0);  // Stage-2 faults use PASID 0
+    // BUG-NEW-05 fix: ARM §7.3 requires Stage-2 fault records to carry the originating
+    // SubstreamID (PASID) of the transaction, not hardcoded 0.  The fault was triggered
+    // by testPASID (=1), so the fault record must carry pasid=1.
+    EXPECT_EQ(fault.pasid, testPASID);  // Stage-2 faults carry originating PASID (§7.3)
     EXPECT_EQ(fault.address, intermediate_ipa);  // Fault address is the IPA
     EXPECT_EQ(fault.faultType, FaultType::Level1TranslationFault);  // Stage-2 level-1 fault
 }

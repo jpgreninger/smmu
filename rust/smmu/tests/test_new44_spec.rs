@@ -73,6 +73,7 @@ fn test_atc_completion_uses_stream_security_state() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
     smmu.submit_command(cmd).expect("submit_command must succeed");
     smmu.process_command_queue().expect("process_command_queue must succeed");
@@ -162,6 +163,7 @@ fn test_atc_completion_nonsecure_stream_stays_nonsecure() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
     smmu.submit_command(cmd).expect("submit_command must succeed");
     smmu.process_command_queue().expect("process_command_queue must succeed");

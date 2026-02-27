@@ -1727,6 +1727,24 @@ impl SMMU {
                 return Err(TranslationError::StreamNotConfigured);
             };
 
+        // §3.4 OAS check for STE-level bypass (Config==0b100, both stages disabled).
+        // If IOVA >= OAS, abort with F_ADDR_SIZE; §7.3.14 mandates the event.
+        // NOTE: This check MUST run BEFORE TLB insertion (below) so that an
+        // out-of-range IOVA is never cached.  Caching the identity-map result
+        // first and then returning Err would leave a stale TLB entry that makes
+        // a subsequent translation of the same IOVA succeed from cache (BUG-NEW-09).
+        // Note: C_BAD_SUBSTREAMID (non-zero PASID) is already handled inside translate()
+        // and would have returned Err before reaching Ok here.
+        if is_bypass && result.is_ok() {
+            let oas_bits = self.config.read().unwrap().address_config.max_pa_bits as u64;
+            if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
+                let oas_error = TranslationError::AddressSizeError;
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0);
+                return Err(oas_error);
+            }
+        }
+
         // On successful translation, populate TLB cache tagged with both CD.ASID
         // and STE.S2VMID so that ASID-targeted and VMID-targeted invalidation work.
         // Skip caching when S1DSS routing will override the result (s1cd_max > 0,
@@ -1745,20 +1763,6 @@ impl SMMU {
                     0,
                 );
                 self.tlb_cache.insert(cache_key, entry);
-            }
-        }
-
-        // §3.4 OAS check for STE-level bypass (Config==0b100, both stages disabled).
-        // If IOVA >= OAS, abort with F_ADDR_SIZE; §7.3.14 mandates the event.
-        // Note: C_BAD_SUBSTREAMID (non-zero PASID) is already handled inside translate()
-        // and would have returned Err before reaching Ok here.
-        if is_bypass && result.is_ok() {
-            let oas_bits = self.config.read().unwrap().address_config.max_pa_bits as u64;
-            if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
-                let oas_error = TranslationError::AddressSizeError;
-                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0);
-                return Err(oas_error);
             }
         }
 
@@ -2810,7 +2814,7 @@ impl SMMU {
                         stream_id: command.stream_id,
                         pasid: command.pasid,
                         address: 0,
-                        security_state: SecurityState::NonSecure,
+                        security_state: command.security_state,
                         error_code: 0x02,  // C_BAD_STREAMID event number per §7.3.3 (0x03 = F_STE_FETCH §7.3.4)
                         timestamp,
                         stall: false,

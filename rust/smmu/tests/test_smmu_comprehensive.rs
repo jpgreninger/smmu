@@ -156,6 +156,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -183,6 +184,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -210,6 +212,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -237,6 +240,7 @@ fn test_command_queue_submit_atc_inv() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -265,6 +269,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     let result = smmu.submit_command(command);
@@ -296,6 +301,7 @@ fn test_command_queue_submit_sync() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -323,6 +329,7 @@ fn test_command_queue_submit_prefetch_config() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -349,6 +356,7 @@ fn test_command_queue_submit_prefetch_addr() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -375,6 +383,7 @@ fn test_command_queue_submit_cfgi_ste() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -401,6 +410,7 @@ fn test_command_queue_submit_cfgi_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -427,6 +437,7 @@ fn test_command_queue_submit_pri_resp() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -453,6 +464,7 @@ fn test_command_queue_submit_resume() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     assert!(smmu.submit_command(command).is_ok());
@@ -479,6 +491,7 @@ fn test_command_queue_process_single_tlbi() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     smmu.submit_command(command).unwrap();
@@ -516,6 +529,7 @@ fn test_command_queue_process_multiple_commands() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -552,6 +566,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     };
 
     smmu.submit_command(command).unwrap();
@@ -587,6 +602,7 @@ fn test_command_queue_process_sync_generates_event() {
         range: 31,
         leaf: false,
         cs: 1, // SIG_IRQ — generate completion event
+        security_state: SecurityState::NonSecure,
     };
 
     smmu.submit_command(command).unwrap();
@@ -630,6 +646,7 @@ fn test_command_queue_clear() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -666,6 +683,7 @@ fn test_command_queue_is_full() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
     }
@@ -1279,6 +1297,7 @@ fn test_queue_statistics() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     })
     .unwrap();
 
@@ -1326,6 +1345,7 @@ fn test_cache_statistics_invalidation_count() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
         })
         .unwrap();
     }
@@ -1371,6 +1391,7 @@ fn test_reset_queues_atomically() {
         range: 31,
         leaf: false,
         cs: 0,
+        security_state: SecurityState::NonSecure,
     })
     .unwrap();
 

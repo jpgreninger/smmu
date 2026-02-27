@@ -1210,8 +1210,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             stage2FaultType = FaultType::Stage2PermissionFault;
         }
 
-        // ARM SMMU v3 spec: Stage-2 faults use PASID 0 (hypervisor) and IPA as fault address
-        recordComprehensiveFault(streamID, 0, intermediatePA, stage2FaultType,
+        // BUG-NEW-05 fix: ARM §7.3 requires that fault records carry the originating
+        // SubstreamID (PASID) of the transaction that caused the fault.  The previous
+        // comment was incorrect — Stage-2 faults must use the guest PASID, not 0.
+        // Using pasid (the parameter to this function) preserves the originating PASID.
+        recordComprehensiveFault(streamID, pasid, intermediatePA, stage2FaultType,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 1, 0);
         return stage2Result;
     }
@@ -1784,15 +1787,30 @@ void SMMU::clearCommandQueue() {
 void SMMU::submitPageRequest(const PRIEntry& request) {
     // BUG-03 fix: protect priQueue with queueMutex.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
+
     if (priQueue.size() >= maxPRIQueueSize) {
-        priQueue.pop_front();
+        // BUG-NEW-02 fix: ARM §8.1 specifies that PRIQ_PROD.OVFLG is toggled only
+        // when transitioning from the non-overflow state to the overflow state.
+        // Overflow is "active" when bit 31 of priqProd differs from bit 31 of
+        // priqCons (analogous to the EVENTQ OVFLG / OVACKFLG mechanism).
+        // While overflow is active, new entries are inhibited — the oldest entries
+        // must NOT be evicted.  The old pop_front() eviction was incorrect.
+        if (((priqProd >> 31) & 1u) == ((priqCons >> 31) & 1u)) {
+            // Not yet overflowed: transition to overflow state by toggling OVFLG.
+            priqProd ^= (1u << 31);
+        }
+        // If already overflowed (OVFLG != OVACKFLG bit in priqCons), leave
+        // OVFLG unchanged and inhibit the new entry (do not push_back).
+        return;
     }
+
     PRIEntry timestampedRequest = request;
     timestampedRequest.timestamp = getCurrentTimestamp();
     priQueue.push_back(timestampedRequest);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08)
     priqProd = advanceQueueIndex(priqProd, priqLog2Size);
     // §7.3.19 / FINDING-NEW-32: carry the request's security state, not a hardcoded NonSecure.
+    // Only generate the E_PAGE_REQUEST event when the entry was actually enqueued.
     generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, request.securityState);
 }
 
@@ -2492,7 +2510,18 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             // comparing against its saved OVACKFLG in SMMU_EVENTQ_CONS.
             // GERROR_EVENTQ_ABT_ERR is NOT set here — that bit signals a memory system
             // abort on the event queue write, not a software-visible queue-full condition.
-            eventqProd ^= (1u << 31);
+            //
+            // BUG-NEW-01 fix: Only toggle OVFLG when transitioning from the non-overflow
+            // state to the overflow state.  Overflow is "active" when the OVFLG bit
+            // (bit 31 of eventqProd) differs from the OVACKFLG bit (bit 31 of
+            // eventqCons).  If overflow is already active, further dropped events must
+            // NOT toggle OVFLG again — doing so would clear the bit and hide the
+            // overflow condition from software (ARM §7.4).
+            if (((eventqProd >> 31) & 1u) == ((eventqCons >> 31) & 1u)) {
+                // Not yet overflowed: transition to overflow state by toggling OVFLG.
+                eventqProd ^= (1u << 31);
+            }
+            // If already overflowed (OVFLG != OVACKFLG), leave OVFLG unchanged.
             return;
         }
         // Stall event: must not be lost even if it exceeds soft capacity.
