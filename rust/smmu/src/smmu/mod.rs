@@ -1745,6 +1745,33 @@ impl SMMU {
             }
         }
 
+        // NEW-52 / ARM §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
+        // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
+        // when the presented PASID falls outside the valid index range.
+        // PASID==0 is excluded: it is the "no substream" case handled by S1DSS below.
+        // BUG-05 fix: this check MUST run BEFORE the TLB insert so that an invalid-PASID
+        // result is never cached. Previously this check ran after TLB insertion, so the first
+        // call would cache the inner Ok result and a subsequent call would hit the TLB fast
+        // path and return Ok instead of Err(BadSubstreamId) — ARM IHI0070G.b §7.3.9.
+        // BUG-11 fix: guard the shift — validation in StreamConfig::validate() now
+        // prevents s1cd_max > 20, but this defensive check ensures no panic / UB
+        // if a value >= 32 ever reaches this path (e.g., from unsafe construction).
+        let s1cd_max_limit: u32 = if stream_s1cd_max < 32 {
+            1u32 << stream_s1cd_max
+        } else {
+            u32::MAX
+        };
+        if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() != 0
+            && pasid.as_u32() >= s1cd_max_limit
+        {
+            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            let substreamid_error = TranslationError::BadSubstreamId;
+            self.record_translation_fault(
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0,
+            );
+            return Err(substreamid_error);
+        }
+
         // On successful translation, populate TLB cache tagged with both CD.ASID
         // and STE.S2VMID so that ASID-targeted and VMID-targeted invalidation work.
         // Skip caching when S1DSS routing will override the result (s1cd_max > 0,
@@ -1846,29 +1873,6 @@ impl SMMU {
                     // computed, fall through to the normal success/fault handling below.
                 }
             }
-        }
-
-        // NEW-52 / ARM §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
-        // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
-        // when the presented PASID falls outside the valid index range.
-        // PASID==0 is excluded: it is the "no substream" case handled by S1DSS above.
-        // BUG-11 fix: guard the shift — validation in StreamConfig::validate() now
-        // prevents s1cd_max > 20, but this defensive check ensures no panic / UB
-        // if a value >= 32 ever reaches this path (e.g., from unsafe construction).
-        let s1cd_max_limit: u32 = if stream_s1cd_max < 32 {
-            1u32 << stream_s1cd_max
-        } else {
-            u32::MAX
-        };
-        if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() != 0
-            && pasid.as_u32() >= s1cd_max_limit
-        {
-            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            let substreamid_error = TranslationError::BadSubstreamId;
-            self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0,
-            );
-            return Err(substreamid_error);
         }
 
         // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).

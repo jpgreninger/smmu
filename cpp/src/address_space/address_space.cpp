@@ -284,7 +284,8 @@ void AddressSpace::invalidatePage(IOVA iova) {
 
 // Map an address range with contiguous physical addresses
 // ARM SMMU v3 spec: Efficient mapping of large contiguous regions
-VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, const PagePermissions& permissions) {
+VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, const PagePermissions& permissions,
+                                   SecurityState securityState) {
     // Validate input parameters - range must be valid
     if (endIova < startIova) {
         return makeVoidError(SMMUError::InvalidAddress);  // Invalid range - end before start
@@ -328,7 +329,7 @@ VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, cons
     PA currentPa = alignedStartPa;
     for (uint64_t pageNum = startPageNum; pageNum <= endPageNum; ++pageNum) {
         // Create page entry with current physical address and permissions
-        PageEntry entry(currentPa, permissions);
+        PageEntry entry(currentPa, permissions, securityState);
         entry.valid = true;
         
         // Insert into sparse page table

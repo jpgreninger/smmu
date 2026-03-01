@@ -26,7 +26,8 @@ public:
     TranslationResult translatePage(IOVA iova, AccessType accessType, SecurityState securityState = SecurityState::NonSecure) const;
     
     // Address range mapping operations
-    VoidResult mapRange(IOVA startIova, IOVA endIova, PA startPa, const PagePermissions& permissions);
+    VoidResult mapRange(IOVA startIova, IOVA endIova, PA startPa, const PagePermissions& permissions,
+                        SecurityState securityState = SecurityState::NonSecure);
     VoidResult unmapRange(IOVA startIova, IOVA endIova);
     
     // Bulk page operations

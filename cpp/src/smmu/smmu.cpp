@@ -1238,13 +1238,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
-    // ARM SMMU v3 spec: Validate security state consistency across both stages
-    if (stage1Data.securityState != stage2Data.securityState) {
-        // Security state inconsistency between stages
-        recordComprehensiveFault(streamID, pasid, iova, FaultType::SecurityFault,
-                               accessType, securityState, FaultStage::BothStages, currentTime, 0, 0);
-        return makeTranslationError(SMMUError::InvalidSecurityState);
-    }
+    // ARM IHI0070G.b §3.10/§3.10.2: Stage-2 alone determines the final PA security
+    // state. Stage-1 IPA security state is an independent intermediate value and
+    // must NOT be compared against Stage-2 security state.  The only valid check is
+    // the one below — confirming the incoming transaction's security state is
+    // compatible with the Stage-2 output security state.
 
     // ARM SMMU v3 spec: Final security state validation - use stage2 security state as reference
     if (!validateSecurityState(securityState, stage2Data.securityState)) {

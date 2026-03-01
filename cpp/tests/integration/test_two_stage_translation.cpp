@@ -422,5 +422,47 @@ TEST_F(TwoStageTranslationTest, ComplexAddressRangeTwoStage) {
     }
 }
 
+// BUG-11 regression: Verify that the spurious cross-stage security state equality check
+// (old smmu.cpp:1242) has been removed and does not interfere with valid two-stage
+// translations.  ARM IHI0070G.b §3.10: Stage-2 alone determines the final PA security
+// state; Stage-1 and Stage-2 internal security state metadata need not be compared.
+//
+// Note: since AddressSpace::translatePage already enforces per-stage security state
+// consistency (entry.securityState == requestedState), both stage1Data and stage2Data
+// will always carry the incoming transaction's security state when their translations
+// succeed.  The old cross-stage equality check was therefore dead code — the regression
+// test below confirms end-to-end two-stage translation works correctly after its removal.
+TEST_F(TwoStageTranslationTest, BUG11_TwoStageTranslation_NoSpuriousSecurityFault) {
+    setupTwoStageStream();
+
+    IOVA test_iova = stage1_iova_base + 0x8000;
+    IPA test_ipa   = stage1_ipa_base  + 0x8000;
+    PA  test_pa    = stage2_pa_base   + 0x8000;
+
+    PagePermissions perms;
+    perms.read = true;
+    perms.write = true;
+    perms.execute = false;
+
+    // Stage-1: IOVA -> IPA (NonSecure)
+    auto r1 = smmu->mapPage(testStreamID, testPASID, test_iova, test_ipa, perms,
+                            SecurityState::NonSecure);
+    ASSERT_TRUE(r1.isOk()) << "Stage-1 mapping failed";
+
+    // Stage-2: IPA -> PA (NonSecure — consistent with incoming transaction)
+    auto r2 = smmu->mapPage(testStreamID, 0, test_ipa, test_pa, perms,
+                            SecurityState::NonSecure);
+    ASSERT_TRUE(r2.isOk()) << "Stage-2 mapping failed";
+
+    // Two-stage translation must succeed and return the Stage-2 PA.
+    auto result = smmu->translate(testStreamID, testPASID, test_iova, AccessType::Read,
+                                  SecurityState::NonSecure);
+    EXPECT_TRUE(result.isOk())
+        << "BUG-11: Two-stage translation must succeed without spurious cross-stage security fault";
+    if (result.isOk()) {
+        EXPECT_EQ(result.getValue().physicalAddress, test_pa);
+    }
+}
+
 } // namespace integration
 } // namespace smmu

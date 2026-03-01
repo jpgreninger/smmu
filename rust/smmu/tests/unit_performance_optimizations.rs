@@ -345,7 +345,7 @@ fn test_batch_operation_efficiency() {
 
     // Measure batch operation time
     let start = Instant::now();
-    addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
+    addr_space.map_pages(&mappings, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     let batch_time = start.elapsed();
 
     println!("Batch mapping time (1000 pages): {batch_time:?}");

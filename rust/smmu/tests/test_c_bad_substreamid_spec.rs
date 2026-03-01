@@ -238,3 +238,61 @@ fn stage2_only_event_carries_stream_id() {
         "event stream_id must match the faulting StreamID"
     );
 }
+
+/// BUG-05: TLB must not cache results for PASIDs that exceed `S1CDMax`.
+///
+/// ARM IHI0070G.b §7.3.9: `C_BAD_SUBSTREAMID` must fire for any PASID >= 2^STE.S1CDMax.
+/// Results for such PASIDs must never be cached. If the first `translate()` call
+/// correctly returns `Err(BadSubstreamId)` but stores the result in the TLB, a
+/// subsequent call with the same (`stream_id`, `pasid`, `iova`) would hit the cache
+/// and incorrectly return `Ok` instead of `Err(BadSubstreamId)`.
+#[test]
+fn test_bug05_tlb_must_not_cache_invalid_pasid() {
+    use smmu::types::{StreamConfigBuilder, TranslationError};
+
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+    let stream_id = sid(100);
+
+    // s1cd_max=2 means valid PASIDs are 0..(2^2 - 1) = 0..3; PASID 4 is out of range.
+    // s1dss=2: use CD[0] for PASID==0 (not relevant here).
+    // max_pasid=16: allow creating PASID 4 without hitting the PASID count limit.
+    let config = StreamConfigBuilder::new()
+        .translation_enabled(true)
+        .stage1_enabled(true)
+        .stage2_enabled(false)
+        .pasid_enabled(true)
+        .max_pasid(16)
+        .s1cd_max(2)
+        .s1dss(2)
+        .build()
+        .unwrap();
+
+    smmu.configure_stream(stream_id, config).unwrap();
+
+    // Create PASID 4 (out of range for s1cd_max=2, which limits to 0..3).
+    // create_pasid() does not enforce s1cd_max, only s1cd_max checked at translate time.
+    let invalid_pasid = pasid(4);
+    smmu.create_pasid(stream_id, invalid_pasid).unwrap();
+
+    let iova = IOVA::new(0x1000).unwrap();
+    let pa = PA::new(0x2000).unwrap();
+    smmu.map_page(stream_id, invalid_pasid, iova, pa, PagePermissions::read_write(), SecurityState::NonSecure)
+        .unwrap();
+
+    // First translate: must return Err(BadSubstreamId) — not Ok.
+    let result1 = smmu.translate(stream_id, invalid_pasid, iova, AccessType::Read, SecurityState::NonSecure);
+    assert!(
+        matches!(result1, Err(TranslationError::BadSubstreamId)),
+        "BUG-05: first translate must return Err(BadSubstreamId) for PASID >= 2^s1cd_max; got: {result1:?}"
+    );
+
+    // Second translate with same (stream_id, pasid, iova): must ALSO return Err(BadSubstreamId).
+    // If the TLB cached the inner Ok result before the s1cd_max check ran, this call
+    // would incorrectly return Ok from the TLB fast path, exposing the bug.
+    let result2 = smmu.translate(stream_id, invalid_pasid, iova, AccessType::Read, SecurityState::NonSecure);
+    assert!(
+        matches!(result2, Err(TranslationError::BadSubstreamId)),
+        "BUG-05: second translate must ALSO return Err(BadSubstreamId) — TLB must not cache invalid-PASID results; got: {result2:?}"
+    );
+}

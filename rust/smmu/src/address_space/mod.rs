@@ -695,14 +695,14 @@ impl AddressSpace {
     ///
     /// ```
     /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
     ///
     /// let mut addr_space = AddressSpace::new();
     /// let start_iova = IOVA::new(0x1000).unwrap();
     /// let end_iova = IOVA::new(0x1000 + (10 * PAGE_SIZE)).unwrap();
     /// let start_pa = PA::new(0x2000).unwrap();
     ///
-    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     /// ```
     pub fn map_range(
         &mut self,
@@ -710,6 +710,7 @@ impl AddressSpace {
         end_iova: IOVA,
         start_pa: PA,
         permissions: PagePermissions,
+        security_state: SecurityState,
     ) -> Result<(), AddressSpaceError> {
         // Validate range
         if end_iova.as_u64() < start_iova.as_u64() {
@@ -750,7 +751,7 @@ impl AddressSpace {
         // Map each page in the range with checked PA arithmetic to prevent overflow
         let mut current_pa = aligned_start_pa;
         for page_num in start_page_num..=end_page_num {
-            let entry = PageEntry::new(PA::new(current_pa).unwrap(), permissions);
+            let entry = PageEntry::with_security_state(PA::new(current_pa).unwrap(), permissions, security_state);
             self.page_table.insert(page_num, entry);
             current_pa = current_pa
                 .checked_add(PAGE_SIZE)
@@ -775,14 +776,14 @@ impl AddressSpace {
     ///
     /// ```
     /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
     ///
     /// let mut addr_space = AddressSpace::new();
     /// let start_iova = IOVA::new(0x1000).unwrap();
     /// let end_iova = IOVA::new(0x1000 + (10 * PAGE_SIZE)).unwrap();
     /// let start_pa = PA::new(0x2000).unwrap();
     ///
-    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_only()).unwrap();
+    /// addr_space.map_range(start_iova, end_iova, start_pa, PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
     /// addr_space.unmap_range(start_iova, end_iova).unwrap();
     /// ```
     pub fn unmap_range(&mut self, start_iova: IOVA, end_iova: IOVA) -> Result<(), AddressSpaceError> {
@@ -830,7 +831,7 @@ impl AddressSpace {
     ///
     /// ```
     /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
     ///
     /// let mut addr_space = AddressSpace::new();
     /// let mappings: Vec<(IOVA, PA)> = (0..10)
@@ -841,12 +842,13 @@ impl AddressSpace {
     ///     })
     ///     .collect();
     ///
-    /// addr_space.map_pages(&mappings, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_pages(&mappings, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     /// ```
     pub fn map_pages(
         &self,
         mappings: &[(IOVA, PA)],
         permissions: PagePermissions,
+        security_state: SecurityState,
     ) -> Result<(), AddressSpaceError> {
         // Validate permissions
         if !permissions.read() && !permissions.write() && !permissions.execute() {
@@ -869,7 +871,7 @@ impl AddressSpace {
         for &(iova, pa) in mappings {
             let page_num = self.page_number(iova);
             let aligned_pa = PA::new(pa.as_u64() & !PAGE_MASK).unwrap();
-            let entry = PageEntry::new(aligned_pa, permissions);
+            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state);
             self.page_table.insert(page_num, entry);
         }
 
@@ -1123,7 +1125,7 @@ impl AddressSpace {
     ///
     /// ```
     /// use smmu::address_space::AddressSpace;
-    /// use smmu::types::{IOVA, PA, PagePermissions, PAGE_SIZE};
+    /// use smmu::types::{IOVA, PA, PagePermissions, SecurityState, PAGE_SIZE};
     ///
     /// let mut addr_space = AddressSpace::new();
     /// let mappings: Vec<(IOVA, PA)> = (0..100)
@@ -1133,13 +1135,14 @@ impl AddressSpace {
     ///     })
     ///     .collect();
     ///
-    /// addr_space.map_pages_batched(&mappings, PagePermissions::read_write()).unwrap();
+    /// addr_space.map_pages_batched(&mappings, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     /// assert_eq!(addr_space.get_page_count().unwrap(), 100);
     /// ```
     pub fn map_pages_batched(
         &self,
         mappings: &[(IOVA, PA)],
         permissions: PagePermissions,
+        security_state: SecurityState,
     ) -> Result<(), AddressSpaceError> {
         // Validate permissions
         if !permissions.read() && !permissions.write() && !permissions.execute() {
@@ -1160,7 +1163,7 @@ impl AddressSpace {
 
             let page_num = self.page_number(iova);
             let aligned_pa = PA::new(pa.as_u64() & !PAGE_MASK).unwrap();
-            let entry = PageEntry::new(aligned_pa, permissions);
+            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state);
             batch.push((page_num, entry));
         }
 

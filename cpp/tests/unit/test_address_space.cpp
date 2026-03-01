@@ -1697,5 +1697,34 @@ TEST_F(AddressSpaceTest, UpdateAccessFlagsReadWriteSetsDirty) {
     EXPECT_TRUE(addressSpace->getPageDirty(TEST_IOVA_1));
 }
 
+// BUG-07 regression: mapRange() must preserve the caller-specified security state.
+// Reported: mapRange() always stored NonSecure regardless of securityState argument.
+TEST_F(AddressSpaceTest, BUG07_MapRange_PreservesSecurityState) {
+    IOVA startIova = 0x50000;
+    IOVA endIova   = 0x52000;
+    PA   startPa   = 0x60000;
+    PagePermissions perms;
+    perms.read  = true;
+    perms.write = true;
+    perms.execute = false;
+
+    // Map range with Secure security state
+    VoidResult mapResult = addressSpace->mapRange(startIova, endIova, startPa,
+                                                  perms, SecurityState::Secure);
+    ASSERT_TRUE(mapResult.isOk()) << "mapRange with Secure state should succeed";
+
+    // Translation with Secure state must succeed
+    auto secureResult = addressSpace->translatePage(startIova, AccessType::Read,
+                                                    SecurityState::Secure);
+    EXPECT_TRUE(secureResult.isOk())
+        << "BUG-07: Translation with Secure state must succeed after mapRange(Secure)";
+
+    // Translation with NonSecure state must fail (different security state)
+    auto nsResult = addressSpace->translatePage(startIova, AccessType::Read,
+                                                SecurityState::NonSecure);
+    EXPECT_FALSE(nsResult.isOk())
+        << "BUG-07: Translation with NonSecure state must fail for a Secure-mapped page";
+}
+
 } // namespace test
 } // namespace smmu
