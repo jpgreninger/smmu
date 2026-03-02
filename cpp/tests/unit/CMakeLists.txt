@@ -57,6 +57,8 @@ set(UNIT_TEST_SOURCES
     test_medium_bugs.cpp
     test_tenth_pass_bugs_spec.cpp
     test_new_bugs_spec.cpp
+    test_output_attributes.cpp
+    test_strw_privilege.cpp
     ../test_thread_safety.cpp
 )
 

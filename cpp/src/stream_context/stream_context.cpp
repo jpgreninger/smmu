@@ -1023,6 +1023,31 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
     streamStatistics.translationCount++;
     streamStatistics.lastAccessTimestamp = getCurrentTimestamp();
 
+    // §5.2 GAP-2: STRW=EL2/EL3 suppresses AP[1] privilege checks.
+    // Convert the caller's access type to its privileged variant when EL2 or EL3.
+    AccessType effectiveAccessType = accessType;
+    if (currentConfiguration.strw == StreamWorld::EL2 ||
+        currentConfiguration.strw == StreamWorld::EL3) {
+        switch (accessType) {
+            case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged; break;
+            case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged; break;
+            case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged; break;
+            case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
+            default: break;
+        }
+    }
+
+    // GAP-1: Helper lambda to apply STE output-attribute overrides to a TranslationData.
+    auto applyOutputAttrs = [&](TranslationData data) -> TranslationData {
+        data.memType      = currentConfiguration.mtCfg ? currentConfiguration.memAttr : 0u;
+        data.shareability = currentConfiguration.shCfg;
+        data.allocHint    = currentConfiguration.allocCfg;
+        data.instCfg      = currentConfiguration.instCfg;
+        data.privCfg      = currentConfiguration.privCfg;
+        data.nsCfgOut     = currentConfiguration.nsCfg;
+        return data;
+    };
+
     // ARM SMMU v3: Check if any translation stage is enabled
     if (!stage1Enabled && !stage2Enabled) {
         // §5.2 STE.Config==0b100 / FINDING-NEW-41: Bypass mode — identity mapping (PA == IOVA)
@@ -1032,7 +1057,7 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         bypassPerms.read    = true;
         bypassPerms.write   = true;
         bypassPerms.execute = true;
-        return makeTranslationSuccess(iova, bypassPerms, securityState);
+        return makeSuccess(applyOutputAttrs(TranslationData(iova, bypassPerms, securityState)));
     }
 
     // ARM SMMU v3: Check stream enabled state only for active translation contexts
@@ -1075,7 +1100,7 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
 
         // Perform Stage-1 translation (IOVA -> IPA)
-        stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
+        stage1Result = stage1AddressSpace->translatePage(iova, effectiveAccessType, securityState);
         if (stage1Result.isError()) {
             // Stage-1 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault
@@ -1087,7 +1112,7 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         if (ha || hd) {
             AddressSpace* as1 = getPASIDAddressSpaceUnlocked(pasid);
             if (as1) {
-                as1->updateAccessFlags(iova, ha, hd, accessType);
+                as1->updateAccessFlags(iova, ha, hd, effectiveAccessType);
             }
         }
 
@@ -1127,21 +1152,26 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         if (stage1Enabled && stage1Result.isOk()) {
             const PagePermissions& s1perms = stage1Result.getValue().permissions;
             const PagePermissions& s2perms = stage2Result.getValue().permissions;
-            intersected.read    = s1perms.read    && s2perms.read;
-            intersected.write   = s1perms.write   && s2perms.write;
-            intersected.execute = s1perms.execute && s2perms.execute;
+            intersected.read          = s1perms.read    && s2perms.read;
+            intersected.write         = s1perms.write   && s2perms.write;
+            intersected.execute       = s1perms.execute && s2perms.execute;
+            intersected.privilegedOnly = s1perms.privilegedOnly || s2perms.privilegedOnly;
         } else {
             // Stage-2 only — no Stage-1 to intersect with
             intersected = stage2Result.getValue().permissions;
         }
 
-        // Validate the intersected permissions against the requested access type
+        // Validate the intersected permissions against the effective access type
         bool permOk = false;
-        switch (accessType) {
-            case AccessType::Read:      permOk = intersected.read;  break;
-            case AccessType::Write:     permOk = intersected.write; break;
-            case AccessType::Execute:   permOk = intersected.execute; break;
-            case AccessType::ReadWrite: permOk = intersected.read && intersected.write; break;
+        switch (effectiveAccessType) {
+            case AccessType::Read:                permOk = intersected.read && !intersected.privilegedOnly; break;
+            case AccessType::Write:               permOk = intersected.write && !intersected.privilegedOnly; break;
+            case AccessType::Execute:             permOk = intersected.execute && !intersected.privilegedOnly; break;
+            case AccessType::ReadWrite:           permOk = intersected.read && intersected.write && !intersected.privilegedOnly; break;
+            case AccessType::ReadPrivileged:      permOk = intersected.read; break;
+            case AccessType::WritePrivileged:     permOk = intersected.write; break;
+            case AccessType::ExecutePrivileged:   permOk = intersected.execute; break;
+            case AccessType::ReadWritePrivileged: permOk = intersected.read && intersected.write; break;
             default: permOk = false; break;
         }
         if (!permOk) {
@@ -1150,16 +1180,16 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
 
         // Stage-2 success - return final physical address with intersected permissions
-        return makeTranslationSuccess(stage2Result.getValue().physicalAddress,
-                                    intersected,
-                                    stage2Result.getValue().securityState);
+        return makeSuccess(applyOutputAttrs(TranslationData(stage2Result.getValue().physicalAddress,
+                                                            intersected,
+                                                            stage2Result.getValue().securityState)));
     }
 
     // Only Stage-1 enabled: return the Stage-1 result directly.
     if (stage1Enabled && stage1Result.isOk()) {
-        return makeTranslationSuccess(intermediatePA,
-                                    stage1Result.getValue().permissions,
-                                    stage1Result.getValue().securityState);
+        return makeSuccess(applyOutputAttrs(TranslationData(intermediatePA,
+                                                            stage1Result.getValue().permissions,
+                                                            stage1Result.getValue().securityState)));
     }
 
     // BUG-08 fix: Bypass / identity-mapping mode (neither stage enabled).
@@ -1170,7 +1200,7 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
     bypassPermissions.read = true;
     bypassPermissions.write = true;
     bypassPermissions.execute = true;
-    return makeTranslationSuccess(intermediatePA, bypassPermissions, securityState);
+    return makeSuccess(applyOutputAttrs(TranslationData(intermediatePA, bypassPermissions, securityState)));
 }
 
 } // namespace smmu

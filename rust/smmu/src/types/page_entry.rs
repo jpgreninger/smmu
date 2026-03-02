@@ -18,7 +18,8 @@ use super::{AccessType, SecurityState, PA};
 /// - Bit 0: Read permission
 /// - Bit 1: Write permission
 /// - Bit 2: Execute permission
-/// - Bits 3-7: Reserved (future use)
+/// - Bit 3: Privileged-only access (GAP-2: STE.STRW privilege check)
+/// - Bits 4-7: Reserved (future use)
 ///
 /// # Examples
 ///
@@ -33,6 +34,11 @@ use super::{AccessType, SecurityState, PA};
 /// // Create read-write permissions
 /// let read_write = PagePermissions::read_write();
 /// assert!(read_write.read() && read_write.write());
+///
+/// // Create privileged-only read permissions
+/// let priv_read = PagePermissions::read_only_privileged();
+/// assert!(priv_read.read());
+/// assert!(priv_read.privileged_only());
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
@@ -41,9 +47,11 @@ pub struct PagePermissions(u8);
 
 impl PagePermissions {
     /// Bitfield constants
-    const READ: u8 = 0b001;
-    const WRITE: u8 = 0b010;
-    const EXEC: u8 = 0b100;
+    const READ: u8 = 0b0001;
+    const WRITE: u8 = 0b0010;
+    const EXEC: u8 = 0b0100;
+    /// Bit 3: privileged-only access restriction (GAP-2 STE.STRW)
+    const PRIV_ONLY: u8 = 0b1000;
 
     /// Creates new PagePermissions with explicit flags
     ///
@@ -89,6 +97,52 @@ impl PagePermissions {
     #[inline]
     pub const fn read_only() -> Self {
         Self::new(true, false, false)
+    }
+
+    /// Creates read-only privileged-only permissions (GAP-2: STE.STRW)
+    ///
+    /// Access is restricted to privileged callers unless STRW=EL2 or STRW=EL3
+    /// suppresses the privilege check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::PagePermissions;
+    ///
+    /// let perms = PagePermissions::read_only_privileged();
+    /// assert!(perms.read());
+    /// assert!(!perms.write());
+    /// assert!(perms.privileged_only());
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn read_only_privileged() -> Self {
+        Self(Self::READ | Self::PRIV_ONLY)
+    }
+
+    /// Returns a new `PagePermissions` with the `privileged_only` bit set or cleared.
+    ///
+    /// When `true`, the page is only accessible to privileged accesses unless
+    /// STRW=EL2 or STRW=EL3 suppresses the check (ARM §5.2 STE.STRW, GAP-2).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::PagePermissions;
+    ///
+    /// let perms = PagePermissions::read_write().with_privileged_only(true);
+    /// assert!(perms.privileged_only());
+    /// let perms2 = perms.with_privileged_only(false);
+    /// assert!(!perms2.privileged_only());
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn with_privileged_only(self, priv_only: bool) -> Self {
+        if priv_only {
+            Self(self.0 | Self::PRIV_ONLY)
+        } else {
+            Self(self.0 & !Self::PRIV_ONLY)
+        }
     }
 
     /// Creates write-only permissions
@@ -147,6 +201,28 @@ impl PagePermissions {
         (self.0 & Self::EXEC) != 0
     }
 
+    /// Returns true if access is restricted to privileged callers (GAP-2: STE.STRW)
+    ///
+    /// When `true`, the stream context's STRW field determines whether to enforce
+    /// or suppress this restriction: STRW=EL2 and STRW=EL3 suppress the check.
+    ///
+    /// Note: The [`allows()`](Self::allows) method does NOT check this flag; it is
+    /// evaluated separately at the stream-context translate level.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::PagePermissions;
+    ///
+    /// assert!(!PagePermissions::read_only().privileged_only());
+    /// assert!(PagePermissions::read_only_privileged().privileged_only());
+    /// ```
+    #[must_use]
+    #[inline(always)]
+    pub const fn privileged_only(self) -> bool {
+        (self.0 & Self::PRIV_ONLY) != 0
+    }
+
     /// Checks if the given access type is allowed
     ///
     /// # Arguments
@@ -188,17 +264,26 @@ impl PagePermissions {
 
     /// Returns the intersection of two permission sets
     ///
+    /// For R/W/X bits the intersection uses AND (both must allow).
+    /// For the `privileged_only` bit the intersection uses OR: if either
+    /// permission set restricts access to privileged callers the result
+    /// also restricts it (ARM §3.3.1, GAP-2).
+    ///
     /// # Arguments
     ///
     /// * `other` - The other permission set
     ///
     /// # Returns
     ///
-    /// A new PagePermissions with only permissions present in both sets
+    /// A new PagePermissions with only R/W/X permissions present in both sets,
+    /// and `privileged_only` set if either set has it.
     #[must_use]
     #[inline]
     pub const fn intersection(self, other: Self) -> Self {
-        Self(self.0 & other.0)
+        // R/W/X: AND (both must allow); privileged_only: OR (union of restrictions)
+        let rwx = self.0 & other.0 & 0b0111;
+        let priv_bit = (self.0 | other.0) & Self::PRIV_ONLY;
+        Self(rwx | priv_bit)
     }
 
     /// Checks if this permission set is a subset of another

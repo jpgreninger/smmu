@@ -111,8 +111,22 @@ pub enum TranslationError {
 /// Translation result data structure
 ///
 /// Contains successful translation output including physical address,
-/// permissions, and security state. This is the success type for
-/// TranslationResult.
+/// permissions, security state, and STE output-attribute overrides
+/// (GAP-1: §5.2 STE output-attribute override fields).
+///
+/// The six output-attribute fields carry the resolved STE override values
+/// applied by [`StreamContext`](crate::stream_context::StreamContext) after
+/// a successful translation:
+///
+/// - `mem_type`: resolved memory type (STE.MTCFG / STE.MemAttr)
+/// - `shareability`: shareability override (STE.SHCFG)
+/// - `alloc_hint`: allocation hint override (STE.ALLOCCFG)
+/// - `inst_cfg`: instruction/data attribute (STE.INSTCFG)
+/// - `priv_cfg`: privilege attribute (STE.PRIVCFG)
+/// - `ns_cfg_out`: resolved NS output attribute (STE.NSCFG)
+///
+/// All six fields default to `0` when constructed via [`TranslationData::new`]
+/// and are populated by the stream context via [`TranslationData::with_output_attrs`].
 ///
 /// # Examples
 ///
@@ -124,6 +138,8 @@ pub enum TranslationError {
 /// let data = TranslationData::new(pa, perms, SecurityState::NonSecure);
 ///
 /// assert_eq!(data.physical_address(), pa);
+/// assert_eq!(data.mem_type(), 0u8);
+/// assert_eq!(data.shareability(), 0u8);
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,10 +150,24 @@ pub struct TranslationData {
     permissions: PagePermissions,
     /// Security state of the translated address
     security_state: SecurityState,
+    /// §5.2 STE.MTCFG / STE.MemAttr: resolved memory type (0 = from-translation)
+    mem_type: u8,
+    /// §5.2 STE.SHCFG: shareability override (0 = from-translation)
+    shareability: u8,
+    /// §5.2 STE.ALLOCCFG: allocation hint override
+    alloc_hint: u8,
+    /// §5.2 STE.INSTCFG: instruction/data attribute override
+    inst_cfg: u8,
+    /// §5.2 STE.PRIVCFG: privilege attribute override
+    priv_cfg: u8,
+    /// §5.2 STE.NSCFG: resolved NS output attribute
+    ns_cfg_out: u8,
 }
 
 impl TranslationData {
     /// Creates new TranslationData with full translation information
+    ///
+    /// All six STE output-attribute override fields default to `0`.
     ///
     /// # Arguments
     ///
@@ -153,6 +183,7 @@ impl TranslationData {
     /// let pa = PA::new(0x2000).unwrap();
     /// let perms = PagePermissions::read_only();
     /// let data = TranslationData::new(pa, perms, SecurityState::Secure);
+    /// assert_eq!(data.mem_type(), 0u8);
     /// ```
     #[must_use]
     #[inline]
@@ -161,12 +192,19 @@ impl TranslationData {
             physical_address,
             permissions,
             security_state,
+            mem_type: 0,
+            shareability: 0,
+            alloc_hint: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            ns_cfg_out: 0,
         }
     }
 
     /// Creates TranslationData with physical address only
     ///
     /// Permissions default to none, security state defaults to NonSecure.
+    /// All six STE output-attribute override fields default to `0`.
     ///
     /// # Arguments
     ///
@@ -178,7 +216,166 @@ impl TranslationData {
             physical_address,
             permissions: PagePermissions::none(),
             security_state: SecurityState::NonSecure,
+            mem_type: 0,
+            shareability: 0,
+            alloc_hint: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            ns_cfg_out: 0,
         }
+    }
+
+    /// Returns the resolved memory type override (§5.2 STE.MTCFG/MemAttr, GAP-1)
+    ///
+    /// `0` means the memory type from the translation is used unchanged.
+    /// Non-zero means the STE.MemAttr value overrode the translation result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.mem_type(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn mem_type(&self) -> u8 {
+        self.mem_type
+    }
+
+    /// Returns the shareability override (§5.2 STE.SHCFG, GAP-1)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.shareability(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn shareability(&self) -> u8 {
+        self.shareability
+    }
+
+    /// Returns the allocation hint override (§5.2 STE.ALLOCCFG, GAP-1)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.alloc_hint(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn alloc_hint(&self) -> u8 {
+        self.alloc_hint
+    }
+
+    /// Returns the instruction/data attribute override (§5.2 STE.INSTCFG, GAP-1)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.inst_cfg(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn inst_cfg(&self) -> u8 {
+        self.inst_cfg
+    }
+
+    /// Returns the privilege attribute override (§5.2 STE.PRIVCFG, GAP-1)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.priv_cfg(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn priv_cfg(&self) -> u8 {
+        self.priv_cfg
+    }
+
+    /// Returns the resolved NS output attribute (§5.2 STE.NSCFG, GAP-1)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure);
+    /// assert_eq!(data.ns_cfg_out(), 0u8);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn ns_cfg_out(&self) -> u8 {
+        self.ns_cfg_out
+    }
+
+    /// Returns a new `TranslationData` with all six STE output-attribute fields set (GAP-1)
+    ///
+    /// Called by the stream context after a successful translation to apply STE
+    /// output-attribute overrides per ARM §5.2.
+    ///
+    /// # Arguments
+    ///
+    /// * `mem_type` - Resolved memory type (STE.MTCFG/MemAttr)
+    /// * `shareability` - Shareability override (STE.SHCFG)
+    /// * `alloc_hint` - Allocation hint override (STE.ALLOCCFG)
+    /// * `inst_cfg` - Instruction/data attribute (STE.INSTCFG)
+    /// * `priv_cfg` - Privilege attribute (STE.PRIVCFG)
+    /// * `ns_cfg_out` - Resolved NS output attribute (STE.NSCFG)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{TranslationData, PagePermissions, PA, SecurityState};
+    ///
+    /// let pa = PA::new(0x1000).unwrap();
+    /// let data = TranslationData::new(pa, PagePermissions::read_only(), SecurityState::NonSecure)
+    ///     .with_output_attrs(7, 3, 0xF, 2, 1, 2);
+    /// assert_eq!(data.mem_type(), 7u8);
+    /// assert_eq!(data.shareability(), 3u8);
+    /// assert_eq!(data.alloc_hint(), 0xFu8);
+    /// assert_eq!(data.inst_cfg(), 2u8);
+    /// assert_eq!(data.priv_cfg(), 1u8);
+    /// assert_eq!(data.ns_cfg_out(), 2u8);
+    /// ```
+    #[must_use]
+    pub const fn with_output_attrs(
+        mut self,
+        mem_type: u8,
+        shareability: u8,
+        alloc_hint: u8,
+        inst_cfg: u8,
+        priv_cfg: u8,
+        ns_cfg_out: u8,
+    ) -> Self {
+        self.mem_type = mem_type;
+        self.shareability = shareability;
+        self.alloc_hint = alloc_hint;
+        self.inst_cfg = inst_cfg;
+        self.priv_cfg = priv_cfg;
+        self.ns_cfg_out = ns_cfg_out;
+        self
     }
 
     /// Creates a builder for constructing TranslationData
@@ -216,6 +413,12 @@ impl Default for TranslationData {
             physical_address: PA::new(0).unwrap_or_else(|_| unreachable!()),
             permissions: PagePermissions::default(),
             security_state: SecurityState::NonSecure,
+            mem_type: 0,
+            shareability: 0,
+            alloc_hint: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            ns_cfg_out: 0,
         }
     }
 }
@@ -241,6 +444,12 @@ pub struct TranslationDataBuilder {
     physical_address: Option<PA>,
     permissions: PagePermissions,
     security_state: SecurityState,
+    mem_type: u8,
+    shareability: u8,
+    alloc_hint: u8,
+    inst_cfg: u8,
+    priv_cfg: u8,
+    ns_cfg_out: u8,
 }
 
 impl TranslationDataBuilder {
@@ -251,6 +460,12 @@ impl TranslationDataBuilder {
             physical_address: None,
             permissions: PagePermissions::none(),
             security_state: SecurityState::NonSecure,
+            mem_type: 0,
+            shareability: 0,
+            alloc_hint: 0,
+            inst_cfg: 0,
+            priv_cfg: 0,
+            ns_cfg_out: 0,
         }
     }
 
@@ -275,6 +490,26 @@ impl TranslationDataBuilder {
         self
     }
 
+    /// Sets all six STE output-attribute override fields (GAP-1)
+    #[must_use]
+    pub const fn output_attrs(
+        mut self,
+        mem_type: u8,
+        shareability: u8,
+        alloc_hint: u8,
+        inst_cfg: u8,
+        priv_cfg: u8,
+        ns_cfg_out: u8,
+    ) -> Self {
+        self.mem_type = mem_type;
+        self.shareability = shareability;
+        self.alloc_hint = alloc_hint;
+        self.inst_cfg = inst_cfg;
+        self.priv_cfg = priv_cfg;
+        self.ns_cfg_out = ns_cfg_out;
+        self
+    }
+
     /// Builds the TranslationData
     ///
     /// # Panics
@@ -286,6 +521,12 @@ impl TranslationDataBuilder {
             physical_address: self.physical_address.expect("Physical address must be set"),
             permissions: self.permissions,
             security_state: self.security_state,
+            mem_type: self.mem_type,
+            shareability: self.shareability,
+            alloc_hint: self.alloc_hint,
+            inst_cfg: self.inst_cfg,
+            priv_cfg: self.priv_cfg,
+            ns_cfg_out: self.ns_cfg_out,
         }
     }
 }

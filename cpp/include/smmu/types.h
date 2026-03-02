@@ -471,7 +471,15 @@ enum class AccessType {
     /// @brief Execute access - instruction fetches
     Execute,
     /// @brief Read-write access - atomic read-modify-write operations
-    ReadWrite
+    ReadWrite,
+    /// @brief Read access in privileged mode (ignores privilegedOnly check)
+    ReadPrivileged,
+    /// @brief Write access in privileged mode (ignores privilegedOnly check)
+    WritePrivileged,
+    /// @brief Execute access in privileged mode (ignores privilegedOnly check)
+    ExecutePrivileged,
+    /// @brief Read-write access in privileged mode (ignores privilegedOnly check)
+    ReadWritePrivileged
 };
 
 /**
@@ -732,21 +740,33 @@ struct PagePermissions {
     bool write;
     /// @brief Execute permission allowed
     bool execute;
-    
+    /// @brief If true, page is restricted to privileged access modes only (ARM §5.2 PRIVCFG)
+    bool privilegedOnly;
+
     /**
      * @brief Default constructor - no permissions
      * @details All permissions set to false for security.
      */
-    PagePermissions() : read(false), write(false), execute(false) {
+    PagePermissions() : read(false), write(false), execute(false), privilegedOnly(false) {
     }
-    
+
     /**
      * @brief Constructor with explicit permissions
      * @param r Read permission
      * @param w Write permission
      * @param x Execute permission
      */
-    PagePermissions(bool r, bool w, bool x) : read(r), write(w), execute(x) {
+    PagePermissions(bool r, bool w, bool x) : read(r), write(w), execute(x), privilegedOnly(false) {
+    }
+
+    /**
+     * @brief Constructor with explicit permissions including privileged-only flag
+     * @param r Read permission
+     * @param w Write permission
+     * @param x Execute permission
+     * @param priv If true, page requires privileged access mode
+     */
+    PagePermissions(bool r, bool w, bool x, bool priv) : read(r), write(w), execute(x), privilegedOnly(priv) {
     }
 };
 
@@ -769,38 +789,60 @@ struct TranslationData {
     PagePermissions permissions;
     /// @brief Security state of the translated address
     SecurityState securityState;
-    
+    /// @brief 4-bit resolved memory type; 0 = from-translation, 0xF = Normal WB when MTCFG=1
+    uint8_t memType;
+    /// @brief 2-bit shareability: 0=NSH, 1=from-translation, 2=OSH, 3=ISH
+    uint8_t shareability;
+    /// @brief 4-bit allocation hint (ALLOCCFG pass-through)
+    uint8_t allocHint;
+    /// @brief 2-bit instruction/data hint: 0=from-translation, 1=data, 2=instruction
+    uint8_t instCfg;
+    /// @brief 2-bit privilege attribute: 0=from-translation, 1=unpriv, 2=priv
+    uint8_t privCfg;
+    /// @brief 2-bit resolved NS output attribute
+    uint8_t nsCfgOut;
+
     /**
      * @brief Default constructor
      * @details Physical address = 0, NonSecure state, no permissions.
      */
-    TranslationData() : physicalAddress(0), securityState(SecurityState::NonSecure) {
+    TranslationData() : physicalAddress(0), securityState(SecurityState::NonSecure),
+                        memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0) {
     }
-    
+
     /**
      * @brief Constructor with physical address only
      * @param pa Physical address
      * @details Security state defaults to NonSecure, no permissions.
      */
-    TranslationData(PA pa) : physicalAddress(pa), securityState(SecurityState::NonSecure) {
+    TranslationData(PA pa) : physicalAddress(pa), securityState(SecurityState::NonSecure),
+                             memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0) {
     }
-    
+
     /**
      * @brief Constructor with address and permissions
      * @param pa Physical address
      * @param perms Page permissions
      * @details Security state defaults to NonSecure.
      */
-    TranslationData(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms), securityState(SecurityState::NonSecure) {
+    TranslationData(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms),
+                                                    securityState(SecurityState::NonSecure),
+                                                    memType(0), shareability(0), allocHint(0),
+                                                    instCfg(0), privCfg(0), nsCfgOut(0) {
     }
-    
+
     /**
      * @brief Constructor with full translation data
      * @param pa Physical address
      * @param perms Page permissions
      * @param secState Security state
      */
-    TranslationData(PA pa, PagePermissions perms, SecurityState secState) : physicalAddress(pa), permissions(perms), securityState(secState) {
+    TranslationData(PA pa, PagePermissions perms, SecurityState secState) : physicalAddress(pa),
+                                                                            permissions(perms),
+                                                                            securityState(secState),
+                                                                            memType(0), shareability(0),
+                                                                            allocHint(0), instCfg(0),
+                                                                            privCfg(0), nsCfgOut(0) {
     }
 };
 

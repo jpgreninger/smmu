@@ -1230,9 +1230,10 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // ARM SMMU v3 spec: Final permissions are intersection of Stage-1 and Stage-2 permissions
     // This ensures that access is only allowed if both stages permit it
     PagePermissions finalPermissions;
-    finalPermissions.read = stage1Data.permissions.read && stage2Data.permissions.read;
-    finalPermissions.write = stage1Data.permissions.write && stage2Data.permissions.write;
-    finalPermissions.execute = stage1Data.permissions.execute && stage2Data.permissions.execute;
+    finalPermissions.read          = stage1Data.permissions.read    && stage2Data.permissions.read;
+    finalPermissions.write         = stage1Data.permissions.write   && stage2Data.permissions.write;
+    finalPermissions.execute       = stage1Data.permissions.execute && stage2Data.permissions.execute;
+    finalPermissions.privilegedOnly = stage1Data.permissions.privilegedOnly || stage2Data.permissions.privilegedOnly;
 
     // ARM SMMU v3 spec: Validate final permissions against requested access
     if (!validateAccessPermissions(finalPermissions, accessType)) {

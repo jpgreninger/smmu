@@ -328,14 +328,22 @@ private:
         // ARM SMMU v3 spec: Validate access permissions against requested operation
         switch (accessType) {
             case AccessType::Read:
-                return permissions.read;
+                return permissions.read && !permissions.privilegedOnly;
             case AccessType::Write:
-                return permissions.write;
+                return permissions.write && !permissions.privilegedOnly;
             case AccessType::Execute:
-                return permissions.execute;
+                return permissions.execute && !permissions.privilegedOnly;
             case AccessType::ReadWrite:
                 // ARM §3.24: atomic read-modify-write is write-class; requires both
                 // read and write permissions.
+                return permissions.read && permissions.write && !permissions.privilegedOnly;
+            case AccessType::ReadPrivileged:
+                return permissions.read;
+            case AccessType::WritePrivileged:
+                return permissions.write;
+            case AccessType::ExecutePrivileged:
+                return permissions.execute;
+            case AccessType::ReadWritePrivileged:
                 return permissions.read && permissions.write;
             default:
                 return false; // Unknown access type

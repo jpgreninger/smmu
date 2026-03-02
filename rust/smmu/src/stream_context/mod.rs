@@ -25,8 +25,8 @@
 
 use crate::address_space::{AddressSpace, AddressSpaceError};
 use crate::types::{
-    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamContextError, TranslationData,
-    TranslationError, TranslationResult, IOVA, PA, PASID,
+    AccessType, FaultRecord, FaultType, PagePermissions, SecurityState, StreamConfig, StreamContextError,
+    StreamWorld, TranslationData, TranslationError, TranslationResult, IOVA, PA, PASID,
 };
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -162,6 +162,39 @@ pub struct StreamContext {
     /// by `disable_stream()` / `enable_stream()`.
     abort_mode: AtomicBool,
 
+    // ---- GAP-1: STE output-attribute override fields (§5.2 CT-19) ----
+
+    /// §5.2 STE.SHCFG: shareability override (2 bits, 0 = from-translation).
+    sh_cfg: AtomicU8,
+
+    /// §5.2 STE.ALLOCCFG: allocation hint override (4 bits).
+    alloc_cfg: AtomicU8,
+
+    /// §5.2 STE.MemAttr: memory type attribute (4 bits).
+    mem_attr: AtomicU8,
+
+    /// §5.2 STE.INSTCFG: instruction/data attribute override (2 bits).
+    inst_cfg: AtomicU8,
+
+    /// §5.2 STE.PRIVCFG: privilege attribute override (2 bits).
+    priv_cfg: AtomicU8,
+
+    /// §5.2 STE.NSCFG: non-secure attribute override (2 bits).
+    ns_cfg: AtomicU8,
+
+    /// §5.2 STE.MTCFG: memory type override enable.
+    ///
+    /// When `true`, `mem_attr` overrides the memory type in translated outputs.
+    mt_cfg: AtomicBool,
+
+    // ---- GAP-2: STE.STRW privilege check suppression (§5.2 CT-20) ----
+
+    /// §5.2 STE.STRW: Stream World — exception level selection (2 bits).
+    ///
+    /// EL2 and EL3 suppress the `privileged_only` check on `PagePermissions`.
+    /// Stored as the `u8` discriminant of `StreamWorld`.
+    strw: AtomicU8,
+
     /// Stream security state (FINDING-NEW-44).
     ///
     /// Stored as the `u8` discriminant of `SecurityState` for atomic access.
@@ -220,6 +253,14 @@ impl StreamContext {
             t1sz: AtomicU8::new(16),
             aa64: AtomicBool::new(true),
             abort_mode: AtomicBool::new(false),
+            sh_cfg: AtomicU8::new(0),
+            alloc_cfg: AtomicU8::new(0),
+            mem_attr: AtomicU8::new(0),
+            inst_cfg: AtomicU8::new(0),
+            priv_cfg: AtomicU8::new(0),
+            ns_cfg: AtomicU8::new(0),
+            mt_cfg: AtomicBool::new(false),
+            strw: AtomicU8::new(StreamWorld::El1El0 as u8),
             security_state: AtomicU8::new(SecurityState::NonSecure as u8),
             pasid_count: AtomicUsize::new(0),
         }
@@ -474,6 +515,202 @@ impl StreamContext {
     #[inline]
     pub fn set_abort_mode(&self, value: bool) {
         self.abort_mode.store(value, Ordering::Relaxed);
+    }
+
+    // ---- GAP-1: STE output-attribute override field accessors (§5.2) ----
+
+    /// Returns the STE.SHCFG shareability override value (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_sh_cfg(&self) -> u8 {
+        self.sh_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.SHCFG shareability override (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_sh_cfg(&self, value: u8) {
+        self.sh_cfg.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.ALLOCCFG allocation hint override (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_alloc_cfg(&self) -> u8 {
+        self.alloc_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.ALLOCCFG allocation hint override (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_alloc_cfg(&self, value: u8) {
+        self.alloc_cfg.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.MemAttr memory type attribute (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_mem_attr(&self) -> u8 {
+        self.mem_attr.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.MemAttr memory type attribute (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_mem_attr(&self, value: u8) {
+        self.mem_attr.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.INSTCFG instruction/data attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_inst_cfg(&self) -> u8 {
+        self.inst_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.INSTCFG instruction/data attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_inst_cfg(&self, value: u8) {
+        self.inst_cfg.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.PRIVCFG privilege attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_priv_cfg(&self) -> u8 {
+        self.priv_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.PRIVCFG privilege attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_priv_cfg(&self, value: u8) {
+        self.priv_cfg.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn get_ns_cfg(&self) -> u8 {
+        self.ns_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_ns_cfg(&self, value: u8) {
+        self.ns_cfg.store(value, Ordering::Relaxed);
+    }
+
+    /// Returns whether STE.MTCFG memory type override is enabled (ARM §5.2, GAP-1).
+    #[inline]
+    #[must_use]
+    pub fn is_mt_cfg_enabled(&self) -> bool {
+        self.mt_cfg.load(Ordering::Relaxed)
+    }
+
+    /// Sets the STE.MTCFG memory type override enable flag (ARM §5.2, GAP-1).
+    #[inline]
+    pub fn set_mt_cfg(&self, value: bool) {
+        self.mt_cfg.store(value, Ordering::Relaxed);
+    }
+
+    // ---- GAP-2: STE.STRW Stream World accessor (§5.2) ----
+
+    /// Returns the STE.STRW Stream World (exception level selection) (ARM §5.2, GAP-2).
+    ///
+    /// EL2 and EL3 suppress the `privileged_only` check on translated pages.
+    #[inline]
+    #[must_use]
+    pub fn get_strw(&self) -> StreamWorld {
+        match self.strw.load(Ordering::Relaxed) {
+            0x00 => StreamWorld::El1El0,
+            0x01 => StreamWorld::El2,
+            0x02 => StreamWorld::El2E2h,
+            0x03 => StreamWorld::El3,
+            _ => StreamWorld::El1El0, // safe fallback
+        }
+    }
+
+    /// Sets the STE.STRW Stream World (ARM §5.2, GAP-2).
+    #[inline]
+    pub fn set_strw(&self, world: StreamWorld) {
+        self.strw.store(world as u8, Ordering::Relaxed);
+    }
+
+    /// Applies a [`StreamConfig`] to this stream context atomically (GAP-1, GAP-2).
+    ///
+    /// Updates all configuration fields carried in `StreamConfig` that are relevant
+    /// to the translation path, including:
+    ///
+    /// - Stage enablement and PASID capacity
+    /// - STE output-attribute override fields (GAP-1)
+    /// - STE.STRW privilege suppression (GAP-2)
+    /// - Stall mode, HA/HD flags, VMID, security state, abort mode
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::stream_context::StreamContext;
+    /// use smmu::types::{StreamConfig, StreamWorld};
+    ///
+    /// let mut ctx = StreamContext::new();
+    /// let cfg = StreamConfig::builder()
+    ///     .translation_enabled(true)
+    ///     .stage1_enabled(true)
+    ///     .strw(StreamWorld::El2)
+    ///     .mt_cfg(true)
+    ///     .mem_attr(0x7)
+    ///     .build()
+    ///     .unwrap();
+    /// ctx.update_configuration(cfg);
+    /// assert_eq!(ctx.get_strw(), StreamWorld::El2);
+    /// assert!(ctx.is_mt_cfg_enabled());
+    /// ```
+    pub fn update_configuration(&mut self, cfg: StreamConfig) {
+        // Stage enablement
+        self.stage1_enabled.store(cfg.stage1_enabled, Ordering::SeqCst);
+        self.stage2_enabled.store(cfg.stage2_enabled, Ordering::SeqCst);
+
+        // Abort mode (STE.Config==0b000)
+        self.abort_mode.store(cfg.disabled && !cfg.translation_enabled, Ordering::SeqCst);
+
+        // PASID limits
+        if cfg.pasid_enabled {
+            self.max_pasids_per_stream
+                .store(cfg.max_pasid as usize + 1, Ordering::SeqCst);
+        }
+
+        // HA / HD
+        self.ha.store(cfg.ha, Ordering::SeqCst);
+        self.hd.store(cfg.hd, Ordering::SeqCst);
+
+        // Stall mode
+        self.stall_enabled
+            .store(cfg.fault_mode == crate::types::FaultMode::Stall, Ordering::SeqCst);
+
+        // VMID
+        self.vmid.store(cfg.vmid, Ordering::SeqCst);
+
+        // S1DSS / S1CDMax
+        self.s1dss.store(cfg.s1dss, Ordering::SeqCst);
+        self.s1cd_max.store(cfg.s1cd_max, Ordering::SeqCst);
+
+        // T0SZ / T1SZ / AA64
+        self.t0sz.store(cfg.t0sz, Ordering::SeqCst);
+        self.t1sz.store(cfg.t1sz, Ordering::SeqCst);
+        self.aa64.store(cfg.aa64, Ordering::SeqCst);
+
+        // Security state
+        self.security_state
+            .store(cfg.security_state as u8, Ordering::SeqCst);
+
+        // GAP-1: output-attribute override fields
+        self.sh_cfg.store(cfg.sh_cfg, Ordering::SeqCst);
+        self.alloc_cfg.store(cfg.alloc_cfg, Ordering::SeqCst);
+        self.mem_attr.store(cfg.mem_attr, Ordering::SeqCst);
+        self.inst_cfg.store(cfg.inst_cfg, Ordering::SeqCst);
+        self.priv_cfg.store(cfg.priv_cfg, Ordering::SeqCst);
+        self.ns_cfg.store(cfg.ns_cfg, Ordering::SeqCst);
+        self.mt_cfg.store(cfg.mt_cfg, Ordering::SeqCst);
+
+        // GAP-2: STRW
+        self.strw.store(cfg.strw as u8, Ordering::SeqCst);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -1095,9 +1332,21 @@ impl StreamContext {
                 _ => FaultType::TranslationFault,
             };
             self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
+            return Err(error.clone());
         }
 
-        result
+        let data = result.unwrap();
+
+        // §5.2 GAP-2: Check privileged_only against STRW suppression.
+        // If the page is privileged-only AND STRW does not suppress (not EL2/EL3),
+        // the access is denied with a PermissionFault.
+        if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
+            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
+            return Err(TranslationError::PermissionViolation { access: access_type });
+        }
+
+        // §5.2 GAP-1: Apply STE output-attribute overrides.
+        Ok(self.apply_output_attrs(data))
     }
 
     /// Stage-2 only translation: IPA → PA
@@ -1108,12 +1357,12 @@ impl StreamContext {
         access_type: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
-        // Get Stage-2 AddressSpace
-        let stage2_guard = self.stage2_address_space.read().unwrap();
-        let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
-
-        // Perform Stage-2 translation
-        let result = stage2.translate_page(ipa, access_type, security_state);
+        // Get Stage-2 AddressSpace (scope the read-lock tightly)
+        let result = {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
+            stage2.translate_page(ipa, access_type, security_state)
+        };
 
         // Record fault on error
         if let Err(ref error) = result {
@@ -1123,9 +1372,19 @@ impl StreamContext {
                 _ => FaultType::TranslationFault,
             };
             self.record_fault_internal(pasid, ipa, fault_type, access_type, security_state);
+            return Err(error.clone());
         }
 
-        result
+        let data = result.unwrap();
+
+        // §5.2 GAP-2: Check privileged_only against STRW suppression.
+        if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
+            self.record_fault_internal(pasid, ipa, FaultType::PermissionFault, access_type, security_state);
+            return Err(TranslationError::PermissionViolation { access: access_type });
+        }
+
+        // §5.2 GAP-1: Apply STE output-attribute overrides.
+        Ok(self.apply_output_attrs(data))
     }
 
     /// Two-stage translation: IOVA → IPA → PA
@@ -1212,7 +1471,15 @@ impl StreamContext {
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
-        Ok(TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state()))
+        // §5.2 GAP-2: Check final effective permissions for privileged_only.
+        if final_perms.privileged_only() && !self.strw_suppresses_priv() {
+            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
+            return Err(TranslationError::PermissionViolation { access: access_type });
+        }
+
+        // §5.2 GAP-1: Apply STE output-attribute overrides.
+        let result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        Ok(self.apply_output_attrs(result_data))
     }
 
     /// Bypass mode translation: IOVA = PA (identity mapping)
@@ -1220,10 +1487,45 @@ impl StreamContext {
         // Identity mapping: IOVA = PA
         let pa = PA::new(iova.as_u64()).map_err(|_| TranslationError::AddressSizeError)?;
 
-        // Full permissions in bypass mode
+        // Full permissions in bypass mode (privileged_only not applicable)
         let permissions = PagePermissions::new(true, true, true);
 
-        Ok(TranslationData::new(pa, permissions, security_state))
+        // §5.2 GAP-1: Apply STE output-attribute overrides even in bypass mode.
+        let data = TranslationData::new(pa, permissions, security_state);
+        Ok(self.apply_output_attrs(data))
+    }
+
+    // ---- GAP-1 / GAP-2 helpers ----
+
+    /// Returns `true` if STE.STRW suppresses the `privileged_only` permission check.
+    ///
+    /// Per ARM §5.2, EL2 and EL3 stream worlds suppress the privilege check; all
+    /// other worlds (El1El0, El2E2h) enforce it.
+    #[inline]
+    fn strw_suppresses_priv(&self) -> bool {
+        matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
+    }
+
+    /// Applies STE output-attribute overrides from the stream configuration to
+    /// a successfully translated [`TranslationData`] (§5.2 GAP-1).
+    ///
+    /// - If `STE.MTCFG` is set, the `mem_type` field is overridden with `STE.MemAttr`.
+    /// - `shareability`, `alloc_hint`, `inst_cfg`, `priv_cfg`, and `ns_cfg_out` are
+    ///   always written from the corresponding STE fields.
+    #[inline]
+    fn apply_output_attrs(&self, data: TranslationData) -> TranslationData {
+        let mem_type = if self.mt_cfg.load(Ordering::Relaxed) {
+            self.mem_attr.load(Ordering::Relaxed)
+        } else {
+            0u8
+        };
+        let shareability = self.sh_cfg.load(Ordering::Relaxed);
+        let alloc_hint = self.alloc_cfg.load(Ordering::Relaxed);
+        let inst_cfg = self.inst_cfg.load(Ordering::Relaxed);
+        let priv_cfg = self.priv_cfg.load(Ordering::Relaxed);
+        let ns_cfg_out = self.ns_cfg.load(Ordering::Relaxed);
+
+        data.with_output_attrs(mem_type, shareability, alloc_hint, inst_cfg, priv_cfg, ns_cfg_out)
     }
 
     // ========================================================================

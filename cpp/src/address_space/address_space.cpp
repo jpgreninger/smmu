@@ -640,16 +640,28 @@ uint64_t AddressSpace::pageNumber(IOVA iova) const {
 bool AddressSpace::checkPermissions(const PagePermissions& perms, AccessType accessType) const {
     switch (accessType) {
         case AccessType::Read:
-            return perms.read;
+            return perms.read && !perms.privilegedOnly;
 
         case AccessType::Write:
-            return perms.write;
+            return perms.write && !perms.privilegedOnly;
 
         case AccessType::Execute:
-            return perms.execute;
+            return perms.execute && !perms.privilegedOnly;
 
         case AccessType::ReadWrite:
             // Read-write (atomic) requires both read and write permissions
+            return perms.read && perms.write && !perms.privilegedOnly;
+
+        case AccessType::ReadPrivileged:
+            return perms.read;
+
+        case AccessType::WritePrivileged:
+            return perms.write;
+
+        case AccessType::ExecutePrivileged:
+            return perms.execute;
+
+        case AccessType::ReadWritePrivileged:
             return perms.read && perms.write;
 
         default:
