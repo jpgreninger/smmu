@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.12)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.13)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,26 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.12** - GAP-1 Output Attributes + GAP-2 STRW Privilege ⚡
+## ✅ **PRODUCTION READY v1.2.13** - Six Debugger-Identified Bug Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,546 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,546+ passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 1, 2026)**: Version 1.2.12 — GAP-1: STE output-attribute fields (memType, shareability, allocHint, instCfg, privCfg, nsCfgOut) applied at all translation return sites via `apply_output_attrs()`; `with_output_attrs()` builder on `TranslationData`; 14 new tests. GAP-2: STE.STRW EL2/EL3 suppresses privilege-only checks via `strw_suppresses_priv()`; `PagePermissions` bit-3 PRIV_ONLY flag; 11 new tests. 2,546 tests passing (100%), 1 ignored (intentional stress test), zero clippy warnings.
+**🎯 Latest Update (March 1, 2026)**: Version 1.2.13 — Three Rust bugs fixed: (1) `remove_pasid` now removes stale entry from `pasid_asid_map` preventing incorrect TLB tagging on PASID reuse (ARM §3.17); (2) `clear_all_pasids` and `disable` clear `pasid_asid_map` in lock-step with correct ordering; (3) `create_pasid` no longer requires stream to be enabled, matching ARM §3.21 commissioning sequence. Dead `check_enabled()` helper removed. All tests passing (100%), 1 ignored (intentional stress test), zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.13 (March 1, 2026)
+
+**Six Debugger-Identified Bug Fixes (C++ + Rust)**
+
+- ✅ Bug 4: `remove_pasid` now removes the corresponding entry from `pasid_asid_map`; recycled PASID values no longer inherit stale ASIDs causing incorrect TLB tagging (ARM §3.17)
+- ✅ Bug 5: `clear_all_pasids()` and `disable()` clear `pasid_asid_map` in lock-step after `pasid_map`; correct ordering: `enabled=false` → `pasid_map.clear()` → `pasid_asid_map.clear()`
+- ✅ Bug 6: Removed `check_enabled()` guard from `create_pasid()` — ARM §3.21 commissioning sequence requires CD/PASID setup to be independent of stream enable state; removed now-dead `check_enabled()` helper; updated two tests that encoded the incorrect behavior
+- ✅ All tests passing (100%), 1 ignored (intentional stress test), zero clippy warnings
 
 ### 🚀 Release v1.2.12 (March 1, 2026)
 

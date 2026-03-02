@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.12** - GAP-1 Output Attributes + GAP-2 STRW Privilege ✅
+## ✅ **PRODUCTION RELEASE v1.2.13** - Six Debugger-Identified Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 68/68 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.12
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 68/68 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.13
 
 > **Since v1.2.6 (Feb 17, 2026)**: 54 conformance fixes across 12 QA passes. 52 new tests added (22 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 68 tests pass at 100%.
 >
-> **v1.2.12 (March 1, 2026)**: GAP-1 — STE output-attribute fields (memType, shareability, allocHint, instCfg, privCfg, nsCfgOut) now applied at all `translateUnlocked()` return sites; 12 new tests in `test_output_attributes.cpp`. GAP-2 — STE.STRW EL2/EL3 suppresses privilege-only checks (EL2_E2H excluded); 4 new `AccessType` privileged variants; 12 new tests in `test_strw_privilege.cpp`.
+> **v1.2.13 (March 1, 2026)**: Three C++ bugs fixed: (1) TLB fast-path now applies STRW-aware privilege conversion for EL2/EL3 streams on `privilegedOnly` TLB hits (ARM §3.3.4/§13.4.1); (2) STAG counter changed from `memory_order_relaxed` to `memory_order_acq_rel`; (3) `mapRange` PA overflow guard corrected to use `alignedStartPa + numPages*PAGE_SIZE` (ARM §3.4 OAS). Flaky timing test also fixed. All 68 tests pass.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 

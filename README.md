@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.2.12 (C++ + Rust)** - GAP-1 Output Attributes + GAP-2 STRW Privilege ✅
+## ✅ **PRODUCTION RELEASE v1.2.13 (C++ + Rust)** - Six Debugger-Identified Bug Fixes ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
 **🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (68 tests), Rust 94.72% lines / 93.53% functions (2,546 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (March 1, 2026)**: v1.2.12 — GAP-1: STE output-attribute fields (memType, shareability, allocHint, instCfg, privCfg, nsCfgOut) applied at all translation return sites in C++ and Rust; GAP-2: STE.STRW EL2/EL3 now suppresses privilege-only checks (EL2_E2H does not). 25 new tests (12 C++, 13 Rust). ~99% ARM SMMU v3 conformance achieved. All tests passing (68 C++, 2,546 Rust), zero warnings.
+**Latest Update (March 1, 2026)**: v1.2.13 — Six debugger-identified bugs fixed across C++ and Rust: TLB fast-path STRW privilege conversion (ARM §3.3.4), STAG counter memory ordering, `mapRange` PA overflow guard (ARM §3.4 OAS), `remove_pasid`/`clear_all_pasids`/`disable` stale ASID map (ARM §3.17), and `create_pasid` spec non-compliance (ARM §3.21). All tests passing (68 C++, 2,546+ Rust), zero warnings.
 
 ## Production Features
 
