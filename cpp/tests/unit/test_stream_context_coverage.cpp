@@ -602,6 +602,9 @@ TEST_F(StreamContextCoverageTest, StatisticsReportingAccuracy) {
     // Get initial statistics
     StreamStatistics stats = streamContext->getStreamStatistics();
 
+    // Small delay to ensure timestamp difference (microsecond clock resolution)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
     // Verify all statistics fields are present
     EXPECT_GE(stats.creationTimestamp, 0);
     EXPECT_GE(stats.lastAccessTimestamp, 0);

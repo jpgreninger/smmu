@@ -227,9 +227,11 @@ fn test_enable_disable_stream() {
     stream_context.disable();
     assert!(!stream_context.is_enabled());
 
-    // Operations should fail when disabled
+    // Bug 6 fix: ARM §3.21 — PASID/CD setup is independent of stream enable state;
+    // create_pasid must succeed on a disabled stream so drivers can pre-configure
+    // page tables before re-enabling the stream.
     let result = stream_context.create_pasid(PASID::new(2).unwrap());
-    assert!(result.is_err());
+    assert!(result.is_ok(), "create_pasid must succeed on a disabled stream (ARM §3.21)");
 
     stream_context.enable();
     assert!(stream_context.is_enabled());

@@ -293,8 +293,11 @@ impl StreamContext {
     /// assert!(stream_context.create_pasid(pasid).is_ok());
     /// ```
     pub fn create_pasid(&self, pasid: PASID) -> Result<(), StreamContextError> {
-        // Check if stream is enabled
-        self.check_enabled()?;
+        // Bug 6 fix: do NOT guard PASID creation on stream-enabled state.
+        // ARM §3.21 commissioning sequence: CDs are fully initialized before STE.V is
+        // set to 1 (i.e. before the stream becomes active).  Page-table / PASID setup
+        // is independent of stream enable state (ARM §3.4 / §5.2).  The is_enabled()
+        // check belongs only in translate() and other transaction-path operations.
 
         let pasid_value = pasid.as_u32();
         let max_pasids = self.max_pasids_per_stream.load(Ordering::Acquire);
@@ -766,6 +769,11 @@ impl StreamContext {
             return Err(StreamContextError::PASIDNotFound(pasid_value));
         }
 
+        // Bug 4 fix: remove the corresponding ASID entry so that if this PASID value
+        // is later reallocated, get_pasid_asid_or_default() does not return the old
+        // ASID and cause incorrect TLB tagging (ARM §3.17).
+        self.pasid_asid_map.remove(&pasid_value);
+
         self.pasid_count.fetch_sub(1, Ordering::Release);
         Ok(())
     }
@@ -892,6 +900,9 @@ impl StreamContext {
     pub fn clear_all_pasids(&self) -> Result<(), StreamContextError> {
         // Clear all PASIDs (including PASID 0)
         self.pasid_map.clear();
+        // Bug 5 fix: clear ASID map in lock-step so recycled PASID values do not
+        // inherit stale ASIDs and cause incorrect TLB tagging (ARM §3.17).
+        self.pasid_asid_map.clear();
         self.pasid_count.store(0, Ordering::Release);
         Ok(())
     }
@@ -1683,6 +1694,11 @@ impl StreamContext {
         // returning PASIDNotFound instead of the correct StreamDisabled.
         self.enabled.store(false, Ordering::SeqCst);
         self.pasid_map.clear();
+        // Bug 5 fix: clear ASID map after pasid_map so recycled PASID values do not
+        // inherit stale ASIDs on stream re-use.  Order: enabled=false → pasid_map.clear()
+        // → pasid_asid_map.clear() preserves the invariant that an ASID entry only
+        // exists when a corresponding pasid_map entry exists (ARM §3.17).
+        self.pasid_asid_map.clear();
         self.pasid_count.store(0, Ordering::Release);
     }
 
@@ -1699,15 +1715,6 @@ impl StreamContext {
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
-    }
-
-    /// Checks if stream is enabled before operations
-    fn check_enabled(&self) -> Result<(), StreamContextError> {
-        if !self.is_enabled() {
-            Err(StreamContextError::ConfigurationError("Stream is not enabled".to_string()))
-        } else {
-            Ok(())
-        }
     }
 
     // ========================================================================

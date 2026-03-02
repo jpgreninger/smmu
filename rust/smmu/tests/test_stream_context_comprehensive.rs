@@ -656,12 +656,15 @@ fn test_disable_stream_clears_pasids() {
 
 #[test]
 fn test_create_pasid_when_disabled() {
+    // Bug 6 fix: ARM §3.21 commissioning sequence — CD/PASID setup is independent of
+    // stream enable state.  create_pasid() must succeed on a disabled stream so that
+    // drivers can pre-configure page tables before enabling the stream.  The enabled
+    // check belongs only in translate() (transaction-path operations).
     let ctx = StreamContext::new();
     ctx.disable();
 
     let result = ctx.create_pasid(PASID::new(1).unwrap());
-    assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), StreamContextError::ConfigurationError(_)));
+    assert!(result.is_ok(), "create_pasid must succeed on a disabled stream (ARM §3.21)");
 }
 
 #[test]

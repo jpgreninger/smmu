@@ -257,6 +257,40 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // Note: performTwoStageTranslation and the cache/stall result code below do NOT
     // attempt to re-acquire this stripe lock, so there is no self-deadlock risk here.
 
+    // Bug 1 fix: STRW-aware TLB re-check (ARM §3.3.4 / §13.4.1).
+    // The early lockless TLB fast path uses the raw accessType, so pages marked
+    // privilegedOnly will always fail validateAccessPermissions for non-privileged
+    // types, causing every TLB hit on an EL2/EL3 stream to fall through to the slow
+    // path unnecessarily.  Now that we have the stream context, derive the effective
+    // access type: STRW==EL2 (non-VHE) and STRW==EL3 suppress privilege checks by
+    // treating AP[1] as 1.  EL2_E2H (VHE) maintains privileged/non-privileged checks
+    // like EL1 and therefore must NOT be included here.
+    if (cachingEnabled && tlbCache) {
+        StreamConfig streamCfgForStrw = streamContext->getStreamConfiguration();
+        AccessType effectiveAccessType = accessType;
+        if (streamCfgForStrw.strw == StreamWorld::EL2 || streamCfgForStrw.strw == StreamWorld::EL3) {
+            switch (accessType) {
+                case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;      break;
+                case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
+                case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;   break;
+                case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
+                default: break;
+            }
+        }
+        if (effectiveAccessType != accessType) {
+            IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
+            Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
+            if (entryResult.isOk()) {
+                const TLBEntry& entry = entryResult.getValue();
+                if (entry.valid && validateAccessPermissions(entry.permissions, effectiveAccessType)) {
+                    PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
+                    TranslationData data(finalPA, entry.permissions, entry.securityState);
+                    return TranslationResult(data);
+                }
+            }
+        }
+    }
+
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
 
@@ -294,7 +328,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 static constexpr int MAX_STAG_TRIES = 65535;
                 int tries = 0;
                 do {
-                    stag = stagCounter_.fetch_add(1, std::memory_order_relaxed);
+                    stag = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
                     ++tries;
                 } while ((stag == 0 || stallQueue_.count(stag) != 0) && tries < MAX_STAG_TRIES);
                 // BUG-NEW2-03 fix: only write to stallQueue_ when a valid unique

@@ -312,18 +312,26 @@ VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, cons
     if (endIova - startIova == UINT64_MAX) {
         return makeVoidError(SMMUError::InvalidAddress);
     }
-    uint64_t rangeSize = endIova - startIova + 1;
-    if (startPa + rangeSize < startPa) {  // Overflow check for PA range
-        return makeVoidError(SMMUError::InvalidAddress);
-    }
-    
+
     // Align start addresses to page boundaries
     IOVA alignedStartIova = startIova & ~PAGE_MASK;
     PA alignedStartPa = startPa & ~PAGE_MASK;
-    
+
     // Calculate range in pages, ensuring we cover the entire requested range
     uint64_t startPageNum = pageNumber(alignedStartIova);
     uint64_t endPageNum = pageNumber(endIova);
+    uint64_t numPages = endPageNum - startPageNum + 1;
+
+    // BUG-3 fix: guard alignedStartPa + numPages*PAGE_SIZE overflow (ARM §3.4 OAS).
+    // The previous check used the unaligned startPa and rangeSize, but the loop
+    // advances alignedStartPa (which may be <= startPa).  Guard the multiplication
+    // itself first, then verify the final address stays within MAX_PHYSICAL_ADDRESS.
+    if (numPages > (MAX_PHYSICAL_ADDRESS / PAGE_SIZE)) {
+        return makeVoidError(SMMUError::InvalidAddress);
+    }
+    if (alignedStartPa + numPages * PAGE_SIZE - 1 > MAX_PHYSICAL_ADDRESS) {
+        return makeVoidError(SMMUError::InvalidAddress);
+    }
     
     // Map each page in the range with contiguous physical addresses
     PA currentPa = alignedStartPa;
