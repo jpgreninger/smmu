@@ -2,9 +2,9 @@
 
 ## ✅ **PRODUCTION RELEASE v1.2.10** - Bug Fixes (Tenth-Pass) ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 65/65 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.10
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 66/66 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.10
 
-> **Since v1.2.6 (Feb 17, 2026)**: 52 conformance fixes across 10 QA passes. 50 new tests added (20 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved. All 65 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 52 conformance fixes across 10 QA passes. 50 new tests added (20 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved. All 66 tests pass at 100%.
 >
 > **v1.2.10 (Feb 26, 2026)**: Tenth-pass bug fixes — BUG-11 (s1cdMax > 20 validation + shift guard, §5.2), BUG-14 (C_BAD_STREAMID security state from command, §7.3.3). 3 new tests in `test_tenth_pass_bugs_spec.cpp`.
 

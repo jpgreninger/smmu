@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.10)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.11)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,32 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.10** - Bug Fixes (Tenth-Pass) ⚡
+## ✅ **PRODUCTION READY v1.2.11** - Bug Fixes (Eleventh-Pass) ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,437 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (February 26, 2026)**: Version 1.2.10 — Tenth-pass bug fixes: BUG-09/10/11/13 resolved (GERROR OR semantics §6.3.19, OVFLG guards §7.4, SSIDSIZE validation §5.2, stall fault recording §3.12.2). 2,437 tests passing (100%).
+**🎯 Latest Update (March 1, 2026)**: Version 1.2.11 — Eleventh-pass fixes: BUG-03 (GERROR/GERRORN XOR-toggle §6.3.19/§6.3.20), BUG-04/SPEC-01 (CR0 reset value=0 §6.3.9), BUG-06 (C_BAD_CD must not stall §7.3.11/§3.12.2), BUG-13 (stall events not dropped §7.4/§3.5.3). TLB cache eviction re-enabled (LRU/FIFO). 25 ignored doctests fixed. 2,437 tests passing (100%), 1 ignored (intentional stress test).
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.11 (March 1, 2026)
+
+**Bug Fixes — Eleventh-Pass (BUG-03, BUG-04/SPEC-01, BUG-06, BUG-13) + Quality**
+
+- ✅ BUG-03: GERROR/GERRORN now implement XOR-toggle protocol (§6.3.19/§6.3.20); first signal toggles GERROR, clear_gerror toggles GERRORN, second signal while active is no-op
+- ✅ BUG-04/SPEC-01: CR0 reset value is 0 (§6.3.9); all queue-enable bits start cleared; enable() sets SMMUEN=1 and arms queues; CMDQEN=0 gates command processing; EVENTQEN=0 suppresses event recording
+- ✅ BUG-06: C_BAD_CD (§7.3.11) never stalls — the stall flag is always false; CBadCd event is recorded; non-stall fault paths unaffected
+- ✅ BUG-13: Stall events are never dropped when the stall queue is full (§7.4/§3.5.3/§3.5.4); stall_pending queue expands; OVFLG not set for stall overflow
+- ✅ TLB cache eviction re-enabled: LRU timestamp refreshed on hit; `insert()` now calls `evict_one()` when at capacity; FIFO/LRU policies fully operational
+- ✅ Fixed 25 ignored doctests in `pasid.rs`, `stream_id.rs`, `cache/mod.rs` — all doctests now run and pass
+- ✅ Fixed stale `enable_stream`/`disable_stream` test stubs with full lifecycle assertions per §5.2/§7.3.7
+- ✅ 2,437 tests passing (100%), 1 ignored (intentional stress test), zero clippy warnings
+
+---
 
 ### 🚀 Release v1.2.10 (February 26, 2026)
 

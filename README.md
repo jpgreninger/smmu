@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.2.10 (C++) / v1.2.10 (Rust)** - Bug Fixes (Tenth-Pass) ✅
+## ✅ **PRODUCTION RELEASE v1.2.10 (C++) / v1.2.11 (Rust)** - Bug Fixes (Eleventh-Pass Rust) ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
 **🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (65 tests), Rust 94.72% lines / 93.53% functions (2,437 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (February 26, 2026)**: Version 1.2.10 — Tenth-pass bug fixes: BUG-09/10/11/13/14/15 resolved (GERROR OR semantics, OVFLG guards, SSIDSIZE validation, stall fault recording, C_BAD_STREAMID security state). All tests passing (65 C++, 2,437 Rust), zero warnings.
+**Latest Update (March 1, 2026)**: Rust v1.2.11 — Eleventh-pass bug fixes: BUG-03 (GERROR/GERRORN XOR-toggle §6.3.19/§6.3.20), BUG-04/SPEC-01 (CR0 reset=0 §6.3.9), BUG-06 (C_BAD_CD no-stall §7.3.11), BUG-13 (stall events not dropped §7.4/§3.5.3); TLB eviction re-enabled; 25 doctests fixed. All tests passing (66 C++, 2,437 Rust), zero warnings.
 
 ## Production Features
 
@@ -235,15 +235,15 @@ if (result.success) {
 
 ---
 
-## 🦀 Rust Implementation - Production Ready v1.2.10
+## 🦀 Rust Implementation - Production Ready v1.2.11
 
 A high-performance, memory-safe Rust reimplementation of the ARM SMMU v3 with comprehensive testing, quality assurance, and world-class performance optimizations. Located in `rust/smmu/`.
 
-### ✅ **PRODUCTION READY v1.2.10** - Bug Fixes (Critical/High/Medium/Low)
+### ✅ **PRODUCTION READY v1.2.11** - Bug Fixes (Eleventh-Pass)
 
 **Quality Status**: ⭐⭐⭐⭐⭐ 5/5 Stars | **Clippy**: 0 warnings | **Tests**: 2,437/2,437 passing (100%) | **Performance**: 18.5ns concurrent, 31ns single-thread | **Mutation Score**: 99.2%
 
-**Latest Update (February 23, 2026)**: Version 1.2.9 released — all critical, high, medium, and low severity bugs resolved (BUG-CPP-01/06/08/09, BUG-RUST-04/05/06/07/08/09). 2,437 tests passing (100%).
+**Latest Update (March 1, 2026)**: Version 1.2.11 released — BUG-03/04/06/13 resolved (GERROR/GERRORN XOR-toggle, CR0 reset=0, C_BAD_CD no-stall, stall events not dropped); TLB eviction re-enabled; 25 doctests fixed; stale test stubs rewritten. 2,437 tests passing (100%), 1 ignored (intentional stress test).
 
 ### Production Achievements
 
@@ -465,7 +465,7 @@ match result {
 
 ### Rust vs C++ Comparison
 
-| Metric | Rust v1.2.10 | C++ v1.2.10 | Comparison |
+| Metric | Rust v1.2.11 | C++ v1.2.10 | Comparison |
 |--------|--------------|-------------|------------|
 | **Translation Latency** | 31-74ns | 86-101ns | ✅ Rust (faster) |
 | **Memory Safety** | Guaranteed | Manual | ✅ Rust |
@@ -484,7 +484,7 @@ match result {
 | **Production Readiness** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⚖️ Equal |
 | **ARM SMMU v3 Compliance** | 100% | 100% | ⚖️ Equal |
 
-**Rust v1.2.10 Advantages**:
+**Rust v1.2.11 Advantages**:
 - **Faster translation**: 31ns single-thread, 74ns concurrent (vs C++ 86-101ns)
 - **Outstanding concurrency**: 18.5ns per translation at 8 threads (4x speedup)
 - Memory safety guaranteed by compiler (no use-after-free, no buffer overflows)
@@ -513,7 +513,7 @@ match result {
 
 ### Rust Production Certification
 
-**✅ APPROVED FOR PRODUCTION v1.2.10** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
+**✅ APPROVED FOR PRODUCTION v1.2.11** - The Rust implementation has achieved production-ready quality with hardware-exceeding performance through:
 
 1. **Zero Clippy Warnings**: Pedantic mode with -D warnings passed ✅
 2. **Zero Security Vulnerabilities**: cargo-deny audit passed ✅
@@ -572,7 +572,7 @@ ARM-SMMU-v3/
 │   ├── RELEASE_NOTES.md        # C++ release documentation
 │   └── COVERAGE_*.md           # C++ coverage reports
 │
-├── rust/                        # Rust Implementation (v1.2.10)
+├── rust/                        # Rust Implementation (v1.2.11)
 │   ├── smmu/                   # Rust crate
 │   │   ├── src/                # Rust source files
 │   │   │   ├── address_space/
@@ -627,7 +627,7 @@ Total: ~150K lines of code (C++ + Rust + tests + documentation)
 - Zero external dependencies (STL only)
 
 **Rust Implementation (`rust/`)**
-- Production-ready Rust implementation v1.2.10
+- Production-ready Rust implementation v1.2.11
 - 2,437 tests passing (100% success rate)
 - >170,000 test scenarios with property-based testing
 - 99.2% mutation testing score (industry-leading)
