@@ -9,7 +9,7 @@
 //!
 //! # Examples
 //!
-//! ```ignore
+//! ```rust
 //! use smmu::types::StreamID;
 //!
 //! // Create a valid StreamID
@@ -68,8 +68,9 @@ impl StreamID {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let stream_id = StreamID::new(42)?;
+    /// ```rust
+    /// use smmu::types::StreamID;
+    /// let stream_id = StreamID::new(42).unwrap();
     /// ```
     pub fn new(value: u32) -> Result<Self, ValidationError> {
         if value > STREAM_ID_MAX {
@@ -86,8 +87,9 @@ impl StreamID {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let stream_id = StreamID::new(42)?;
+    /// ```rust
+    /// use smmu::types::StreamID;
+    /// let stream_id = StreamID::new(42).unwrap();
     /// assert_eq!(stream_id.as_u32(), 42);
     /// ```
     #[must_use]

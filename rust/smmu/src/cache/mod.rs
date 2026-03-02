@@ -35,9 +35,9 @@ use smallvec::SmallVec;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use smmu::cache::CacheEntry;
-/// use smmu::{IOVA, PA, PagePermissions, SecurityState};
+/// use smmu::{IOVA, PA, PagePermissions};
 ///
 /// let entry = CacheEntry::new(
 ///     IOVA::new(0x1000).unwrap(),
@@ -557,17 +557,25 @@ impl Default for CacheStatistics {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use smmu::cache::{TlbCache, ReplacementPolicy};
+/// ```rust
+/// use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
+/// use smmu::{IOVA, PA, PagePermissions, SecurityState, StreamID, PASID};
 ///
 /// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+///
+/// let stream_id = StreamID::new(1).unwrap();
+/// let pasid     = PASID::new(0).unwrap();
+/// let iova      = IOVA::new(0x1000).unwrap();
+/// let pa        = PA::new(0x2000).unwrap();
+/// let key   = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+/// let entry = CacheEntry::new(iova, pa, PagePermissions::read_write(), 0);
 ///
 /// // Insert translation
 /// cache.insert(key, entry);
 ///
 /// // Lookup translation
-/// if let Some(entry) = cache.lookup(&key) {
-///     // Cache hit - use cached translation
+/// if let Some(hit) = cache.lookup(&key) {
+///     let _ = hit.physical_address.as_u64(); // cache hit - use cached translation
 /// }
 ///
 /// // Invalidate by stream
@@ -604,7 +612,8 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// use smmu::cache::{TlbCache, ReplacementPolicy};
     /// let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// ```
     pub fn new(capacity: usize, policy: ReplacementPolicy) -> Self {
@@ -630,10 +639,17 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// if let Some(entry) = cache.lookup(&key) {
-    ///     // Use cached translation
-    ///     println!("PA: 0x{:x}", entry.physical_address.as_u64());
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
+    /// # use smmu::{IOVA, PA, PagePermissions, SecurityState, StreamID, PASID};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// # let key = CacheKey::new(StreamID::new(1).unwrap(), PASID::new(0).unwrap(),
+    /// #     IOVA::new(0x1000).unwrap(), SecurityState::NonSecure);
+    /// # let entry = CacheEntry::new(IOVA::new(0x1000).unwrap(),
+    /// #     PA::new(0x2000).unwrap(), PagePermissions::read_write(), 0);
+    /// # cache.insert(key, entry);
+    /// if let Some(hit) = cache.lookup(&key) {
+    ///     println!("PA: 0x{:x}", hit.physical_address.as_u64());
     /// }
     /// ```
     #[inline(always)]
@@ -673,7 +689,14 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
+    /// # use smmu::{IOVA, PA, PagePermissions, SecurityState, StreamID, PASID};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// # let key = CacheKey::new(StreamID::new(1).unwrap(), PASID::new(0).unwrap(),
+    /// #     IOVA::new(0x1000).unwrap(), SecurityState::NonSecure);
+    /// # let entry = CacheEntry::new(IOVA::new(0x1000).unwrap(),
+    /// #     PA::new(0x2000).unwrap(), PagePermissions::read_write(), 0);
     /// cache.insert(key, entry);
     /// ```
     #[inline]
@@ -753,7 +776,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// cache.invalidate_all();
     /// ```
     pub fn invalidate_all(&self) {
@@ -773,7 +798,11 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # use smmu::StreamID;
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// let stream_id = StreamID::new(1).unwrap();
     /// cache.invalidate_by_stream(stream_id);
     /// ```
     pub fn invalidate_by_stream(&self, stream_id: StreamID) {
@@ -809,7 +838,11 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # use smmu::PASID;
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// let pasid = PASID::new(42).unwrap();
     /// cache.invalidate_by_pasid(pasid);
     /// ```
     pub fn invalidate_by_pasid(&self, pasid: PASID) {
@@ -846,7 +879,12 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # use smmu::{StreamID, PASID};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// let stream_id = StreamID::new(1).unwrap();
+    /// let pasid = PASID::new(42).unwrap();
     /// cache.invalidate_by_stream_pasid(stream_id, pasid);
     /// ```
     pub fn invalidate_by_stream_pasid(&self, stream_id: StreamID, pasid: PASID) {
@@ -886,9 +924,14 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # use smmu::{IOVA, StreamID, PASID};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// let stream_id = StreamID::new(1).unwrap();
+    /// let pasid = PASID::new(0).unwrap();
     /// let start = IOVA::new(0x1000).unwrap();
-    /// let end = IOVA::new(0x5000).unwrap();
+    /// let end   = IOVA::new(0x5000).unwrap();
     /// cache.invalidate_by_va_range(stream_id, pasid, start, end);
     /// ```
     pub fn invalidate_by_va_range(&self, stream_id: StreamID, pasid: PASID, start: IOVA, end: IOVA) {
@@ -930,7 +973,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// cache.invalidate_by_asid(42);
     /// ```
     pub fn invalidate_by_asid(&self, target_asid: u16) {
@@ -963,7 +1008,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// cache.invalidate_by_vmid(42);
     /// ```
     pub fn invalidate_by_vmid(&self, target_vmid: u16) {
@@ -998,7 +1045,12 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, CacheKey, CacheEntry, ReplacementPolicy};
+    /// # use smmu::{IOVA, PA, PagePermissions, SecurityState, StreamID, PASID};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
+    /// # let key = CacheKey::new(StreamID::new(1).unwrap(), PASID::new(0).unwrap(),
+    /// #     IOVA::new(0x1000).unwrap(), SecurityState::NonSecure);
     /// if cache.invalidate_entry(&key) {
     ///     println!("Entry invalidated");
     /// }
@@ -1022,7 +1074,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// let stats = cache.statistics();
     /// println!("Hit rate: {:.2}%", stats.hit_rate());
     /// println!("Lookups: {}", stats.get_lookups());
@@ -1038,7 +1092,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// cache.clear_statistics();
     /// ```
     #[inline]
@@ -1050,7 +1106,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// println!("Cache contains {} entries", cache.len());
     /// ```
     #[inline]
@@ -1062,7 +1120,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// if cache.is_empty() {
     ///     println!("Cache is empty");
     /// }
@@ -1076,7 +1136,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// println!("Cache capacity: {}", cache.capacity());
     /// ```
     #[inline]
@@ -1088,7 +1150,9 @@ impl TlbCache {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// # use smmu::cache::{TlbCache, ReplacementPolicy};
+    /// # let cache = TlbCache::new(1024, ReplacementPolicy::Lru);
     /// match cache.policy() {
     ///     ReplacementPolicy::Lru => println!("Using LRU"),
     ///     ReplacementPolicy::Fifo => println!("Using FIFO"),

@@ -11,7 +11,7 @@
 //!
 //! # Examples
 //!
-//! ```ignore
+//! ```rust
 //! use smmu::types::PASID;
 //!
 //! // Create PASID for default address space
@@ -81,10 +81,11 @@ impl PASID {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let pasid = PASID::new(42)?;
-    /// let default_pasid = PASID::new(0)?; // Default address space
-    /// let max_pasid = PASID::new(0xF_FFFF)?; // Maximum value
+    /// ```rust
+    /// use smmu::types::PASID;
+    /// let pasid = PASID::new(42).unwrap();
+    /// let default_pasid = PASID::new(0).unwrap(); // Default address space
+    /// let max_pasid = PASID::new(0xF_FFFF).unwrap(); // Maximum value
     /// ```
     pub fn new(value: u32) -> Result<Self, ValidationError> {
         if value > PASID_MAX {
@@ -101,8 +102,9 @@ impl PASID {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let pasid = PASID::new(42)?;
+    /// ```rust
+    /// use smmu::types::PASID;
+    /// let pasid = PASID::new(42).unwrap();
     /// assert_eq!(pasid.as_u32(), 42);
     /// ```
     #[must_use]
