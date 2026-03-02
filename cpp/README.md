@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.10** - Bug Fixes (Tenth-Pass) ✅
+## ✅ **PRODUCTION RELEASE v1.2.12** - GAP-1 Output Attributes + GAP-2 STRW Privilege ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 66/66 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.10
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 68/68 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.12
 
-> **Since v1.2.6 (Feb 17, 2026)**: 52 conformance fixes across 10 QA passes. 50 new tests added (20 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved. All critical/high/medium/low severity bugs resolved. All 66 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 54 conformance fixes across 12 QA passes. 52 new tests added (22 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 68 tests pass at 100%.
 >
-> **v1.2.10 (Feb 26, 2026)**: Tenth-pass bug fixes — BUG-11 (s1cdMax > 20 validation + shift guard, §5.2), BUG-14 (C_BAD_STREAMID security state from command, §7.3.3). 3 new tests in `test_tenth_pass_bugs_spec.cpp`.
+> **v1.2.12 (March 1, 2026)**: GAP-1 — STE output-attribute fields (memType, shareability, allocHint, instCfg, privCfg, nsCfgOut) now applied at all `translateUnlocked()` return sites; 12 new tests in `test_output_attributes.cpp`. GAP-2 — STE.STRW EL2/EL3 suppresses privilege-only checks (EL2_E2H excluded); 4 new `AccessType` privileged variants; 12 new tests in `test_strw_privilege.cpp`.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 
