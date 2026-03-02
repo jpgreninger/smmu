@@ -245,5 +245,238 @@ TEST_F(GErrorTest, CmdqErrAccumulatesAcrossMultipleBadCommands) {
     EXPECT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u);
 }
 
+// ── BUG-03/SPEC-09: GERROR/GERRORN toggle protocol ─────────────────────────
+// ARM IHI0070G.b §6.3.19/6.3.20: The SMMU toggles GERROR[x] ONLY when the
+// error is currently INACTIVE (GERROR[x] == GERRORN[x]).  Software acknowledges
+// by writing GERRORN[x] to match GERROR[x].  Active errors are indicated by
+// GERROR XOR GERRORN != 0.
+//
+// These tests use getGerrorN() to verify the internal GERRORN register state,
+// which distinguishes the spec-correct implementation from a naive direct-clear
+// approach.  getGerrorN() returns the raw SMMU_GERRORN register value.
+
+/// BUG-03/SPEC-09: GERRORN must be 0 at construction (ARM §6.3.18 reset state).
+TEST_F(GErrorTest, GerrornZeroAfterConstruction) {
+    EXPECT_EQ(smmu->getGerrorN(), 0u)
+        << "SMMU_GERRORN must be zero after construction (ARM §6.3.18)";
+}
+
+/// BUG-03/SPEC-09: GERRORN must be 0 after reset() (ARM §6.3.18 reset state).
+TEST_F(GErrorTest, GerrornZeroAfterReset) {
+    // Trigger and acknowledge an error to set GERRORN != 0
+    CommandEntry badCmd;
+    badCmd.type = static_cast<CommandType>(0xFF);
+    badCmd.streamID = TEST_STREAM;
+    badCmd.pasid = TEST_PASID;
+    badCmd.startAddress = 0;
+    badCmd.endAddress = 0;
+    badCmd.flags = 0;
+    badCmd.timestamp = 0;
+    smmu->submitCommand(badCmd);
+    smmu->processCommandQueue();
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+    // GERRORN should be non-zero (toggled to acknowledge)
+    ASSERT_NE(smmu->getGerrorN(), 0u)
+        << "GERRORN must be non-zero after acknowledging an active error";
+
+    smmu->reset();
+    EXPECT_EQ(smmu->getGerrorN(), 0u)
+        << "SMMU_GERRORN must be zero after reset() (ARM §6.3.18)";
+    EXPECT_EQ(smmu->getGerror(), 0u)
+        << "Active errors (GERROR XOR GERRORN) must be zero after reset()";
+}
+
+/// BUG-03/SPEC-09: clearGerror() toggles GERRORN[x], NOT clears GERROR[x].
+/// After acknowledging CMDQ_ERR, GERRORN must be non-zero and GERROR active
+/// bits must be zero — the hardware GERROR register is NOT directly modified.
+TEST_F(GErrorTest, ClearGerrorTogglesGerrorn) {
+    // Trigger CMDQ_ERR
+    CommandEntry badCmd;
+    badCmd.type = static_cast<CommandType>(0xFF);
+    badCmd.streamID = TEST_STREAM;
+    badCmd.pasid = TEST_PASID;
+    badCmd.startAddress = 0;
+    badCmd.endAddress = 0;
+    badCmd.flags = 0;
+    badCmd.timestamp = 0;
+    smmu->submitCommand(badCmd);
+    smmu->processCommandQueue();
+    ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active before acknowledgement";
+    ASSERT_EQ(smmu->getGerrorN() & GERROR_CMDQ_ERR, 0u)
+        << "GERRORN.CMDQ_ERR must be 0 before acknowledgement";
+
+    // Software acknowledges: clearGerror() writes to GERRORN
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+
+    // After acknowledge: GERROR active bits must be 0, GERRORN must be toggled
+    EXPECT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR active bit must be 0 after software acknowledgement";
+    EXPECT_NE(smmu->getGerrorN() & GERROR_CMDQ_ERR, 0u)
+        << "GERRORN.CMDQ_ERR must be toggled (=1) after software acknowledgement "
+           "— clearGerror() must update GERRORN, NOT clear GERROR directly";
+}
+
+/// BUG-03/SPEC-09: clearGerror() on an already-inactive bit is a no-op.
+/// GERRORN must NOT be modified when the targeted error bit is not active.
+/// ARM §6.3.18: only active errors (GERROR[x] != GERRORN[x]) can be acknowledged.
+TEST_F(GErrorTest, ClearGerrorOnInactiveBitDoesNotModifyGerrorn) {
+    // No errors are active at this point
+    ASSERT_EQ(smmu->getGerror(), 0u);
+    ASSERT_EQ(smmu->getGerrorN(), 0u);
+
+    // Attempt to clear an inactive bit
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+
+    EXPECT_EQ(smmu->getGerrorN(), 0u)
+        << "GERRORN must not be modified when acknowledging an inactive error bit";
+    EXPECT_EQ(smmu->getGerror(), 0u)
+        << "Active error bits must remain 0 when clearing an already-inactive bit";
+}
+
+/// BUG-03/SPEC-09: When an error is already active (GERROR[x] != GERRORN[x]),
+/// signalling the same error again must NOT change GERROR[x].
+/// ARM §6.3.19: "The SMMU does not toggle a bit when an error is already active."
+/// This test verifies the XOR-toggle-only-if-inactive constraint.
+TEST_F(GErrorTest, ToggleProtocolDoesNotRetoggleActiveError) {
+    // Trigger CMDQ_ERR once — error becomes active
+    CommandEntry badCmd;
+    badCmd.type = static_cast<CommandType>(0xFF);
+    badCmd.streamID = TEST_STREAM;
+    badCmd.pasid = TEST_PASID;
+    badCmd.startAddress = 0;
+    badCmd.endAddress = 0;
+    badCmd.flags = 0;
+    badCmd.timestamp = 0;
+
+    smmu->submitCommand(badCmd);
+    smmu->processCommandQueue();
+    ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active after first bad command";
+
+    // Acknowledge the error so queue processing can resume
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+    ASSERT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be inactive after software acknowledge via clearGerror";
+
+    // Trigger CMDQ_ERR a second time — must become active again
+    CommandEntry badCmd2;
+    badCmd2.type = static_cast<CommandType>(0xFE);
+    badCmd2.streamID = TEST_STREAM;
+    badCmd2.pasid = TEST_PASID;
+    badCmd2.startAddress = 0;
+    badCmd2.endAddress = 0;
+    badCmd2.flags = 0;
+    badCmd2.timestamp = 0;
+
+    smmu->submitCommand(badCmd2);
+    smmu->processCommandQueue();
+    EXPECT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active again after second bad command";
+}
+
+/// BUG-03/SPEC-09: Submitting two back-to-back bad commands must NOT cause
+/// CMDQ_ERR to oscillate.  The first signal activates the bit; the second
+/// must be suppressed because the error is already active.
+/// After processing halts on the first bad command, CMDQ_ERR stays active.
+TEST_F(GErrorTest, ToggleProtocolDoesNotFlipAlreadyActiveError) {
+    CommandEntry badCmd1;
+    badCmd1.type = static_cast<CommandType>(0xA0);
+    badCmd1.streamID = TEST_STREAM;
+    badCmd1.pasid = TEST_PASID;
+    badCmd1.startAddress = 0;
+    badCmd1.endAddress = 0;
+    badCmd1.flags = 0;
+    badCmd1.timestamp = 0;
+
+    CommandEntry badCmd2;
+    badCmd2.type = static_cast<CommandType>(0xA1);
+    badCmd2.streamID = TEST_STREAM;
+    badCmd2.pasid = TEST_PASID;
+    badCmd2.startAddress = 0;
+    badCmd2.endAddress = 0;
+    badCmd2.flags = 0;
+    badCmd2.timestamp = 0;
+
+    smmu->submitCommand(badCmd1);
+    smmu->submitCommand(badCmd2);
+    // processCommandQueue() halts on CMDQ_ERR after the first bad command;
+    // the second command is not processed.  CMDQ_ERR must remain active.
+    smmu->processCommandQueue();
+
+    EXPECT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must remain active (=1) after processing a bad command; "
+           "a second signal while already active must not toggle bit back to 0";
+}
+
+/// BUG-03/SPEC-09: Software acknowledges GERROR via SMMU_GERRORN (clearGerror).
+/// After acknowledgement, the error is inactive and queue processing can resume.
+TEST_F(GErrorTest, GerrornAcknowledgementMakesErrorInactive) {
+    CommandEntry badCmd;
+    badCmd.type = static_cast<CommandType>(0xBB);
+    badCmd.streamID = TEST_STREAM;
+    badCmd.pasid = TEST_PASID;
+    badCmd.startAddress = 0;
+    badCmd.endAddress = 0;
+    badCmd.flags = 0;
+    badCmd.timestamp = 0;
+
+    smmu->submitCommand(badCmd);
+    smmu->processCommandQueue();
+    ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active before acknowledgement";
+
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+
+    EXPECT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "After software acknowledges via GERRORN, CMDQ_ERR active bit must be 0";
+}
+
+/// BUG-03/SPEC-09: Acknowledging an inactive bit (SFM_ERR not set) must not
+/// affect other active bits (CMDQ_ERR remains active).
+TEST_F(GErrorTest, GerrornAcknowledgesOnlySpecifiedBit) {
+    // Trigger CMDQ_ERR
+    CommandEntry badCmd1;
+    badCmd1.type = static_cast<CommandType>(0xCC);
+    badCmd1.streamID = TEST_STREAM;
+    badCmd1.pasid = TEST_PASID;
+    badCmd1.startAddress = 0;
+    badCmd1.endAddress = 0;
+    badCmd1.flags = 0;
+    badCmd1.timestamp = 0;
+
+    smmu->submitCommand(badCmd1);
+    smmu->processCommandQueue();
+    ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active after first bad command";
+
+    // Acknowledge CMDQ_ERR so queue processing can resume
+    smmu->clearGerror(GERROR_CMDQ_ERR);
+    ASSERT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be inactive after acknowledge";
+
+    // Trigger CMDQ_ERR again
+    CommandEntry badCmd2;
+    badCmd2.type = static_cast<CommandType>(0xCD);
+    badCmd2.streamID = TEST_STREAM;
+    badCmd2.pasid = TEST_PASID;
+    badCmd2.startAddress = 0;
+    badCmd2.endAddress = 0;
+    badCmd2.flags = 0;
+    badCmd2.timestamp = 0;
+
+    smmu->submitCommand(badCmd2);
+    smmu->processCommandQueue();
+    ASSERT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must be active again";
+
+    // Attempt to clear SFM_ERR (inactive) — must not affect CMDQ_ERR
+    smmu->clearGerror(GERROR_SFM_ERR);
+    EXPECT_NE(smmu->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CMDQ_ERR must remain active when acknowledging an inactive bit";
+    EXPECT_EQ(smmu->getGerrorN() & GERROR_SFM_ERR, 0u)
+        << "GERRORN.SFM_ERR must not be toggled when SFM_ERR is not active";
+}
+
 }  // namespace test
 }  // namespace smmu

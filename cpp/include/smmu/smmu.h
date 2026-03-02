@@ -131,7 +131,14 @@ public:
     void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr, SecurityState securityState);
     
     // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model (FINDING-M-06)
+    // getGerror() returns the active (unacknowledged) error bits: GERROR XOR GERRORN.
+    // Active errors are those where GERROR[x] != GERRORN[x].
     uint32_t getGerror() const;
+    // getGerrorN() returns the raw SMMU_GERRORN register value (software-written).
+    uint32_t getGerrorN() const;
+    // clearGerror() implements the ARM §6.3.18 SMMU_GERRORN write protocol.
+    // Software writes GERRORN to acknowledge active GERROR bits.
+    // Only bits that are currently active (GERROR[x] != GERRORN[x]) are toggled.
     void clearGerror(uint32_t bits);
 
     // ARM §6.3.9 SMMU_CR0.SMMUEN / §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
@@ -228,8 +235,14 @@ private:
     uint32_t priqProd;         // PRIQ_PROD register equivalent
     uint32_t priqCons;         // PRIQ_CONS register equivalent
 
-    // ARM §6.3.17: SMMU_GERROR register (FINDING-M-06)
-    uint32_t gerrorStatus;     // global error flags; cleared by clearGerror()
+    // ARM §6.3.17: SMMU_GERROR / §6.3.18: SMMU_GERRORN register pair (BUG-03/SPEC-09)
+    // GERROR is the hardware register toggled by the SMMU to signal errors.
+    // GERRORN is the software-writable register used to acknowledge errors.
+    // Active (unacknowledged) errors: gerrorStatus XOR gerrorNStatus != 0.
+    // The SMMU toggles gerrorStatus[x] only when the error is inactive
+    // (gerrorStatus[x] == gerrorNStatus[x]).  ARM IHI0070G.b §6.3.19/6.3.20.
+    uint32_t gerrorStatus;     // SMMU_GERROR: hardware error flags
+    uint32_t gerrorNStatus;    // SMMU_GERRORN: software acknowledgement register, init 0
 
     // CR0 bit constants are declared public above (§6.3.9).
     uint32_t cr0_;             // SMMU_CR0 register value; bit0=SMMUEN, bit1=PRIQEN, bit2=EVENTQEN, bit3=CMDQEN

@@ -61,6 +61,7 @@ SMMU::SMMU()
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
+      gerrorNStatus(0),
       cr0_(0),
       smmuen_(false),
       gbpaAbort_(false),
@@ -101,6 +102,7 @@ SMMU::SMMU(const SMMUConfiguration& config)
       priqProd(0),
       priqCons(0),
       gerrorStatus(0),
+      gerrorNStatus(0),
       cr0_(0),
       smmuen_(false),
       gbpaAbort_(false),
@@ -692,8 +694,10 @@ void SMMU::reset() {
     clearCommandQueue();
     clearPRIQueue();
 
-    // ARM §6.3.17: Reset global error register (FINDING-M-06)
+    // ARM §6.3.17/6.3.18: Reset global error registers (BUG-03/SPEC-09)
+    // Both GERROR and GERRORN are reset to 0 at power-on reset.
     gerrorStatus = 0;
+    gerrorNStatus = 0;
 
     // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
     // BUG-NEW3-04 fix: ARM §6.3.9 — reset returns SMMU to disabled state (all CR0 bits clear).
@@ -1669,9 +1673,11 @@ void SMMU::processCommandQueue() {
         return;
     }
 
-    // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is already set.
-    // Software must clear it via SMMU_GERRORN before restarting queue processing.
-    if (gerrorStatus & GERROR_CMDQ_ERR) {
+    // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is active.
+    // An error is active when GERROR[x] != GERRORN[x] (unacknowledged).
+    // Software must write GERRORN via clearGerror() to acknowledge before
+    // queue processing can resume.  BUG-03/SPEC-09.
+    if ((gerrorStatus ^ gerrorNStatus) & GERROR_CMDQ_ERR) {
         return;
     }
 
@@ -1696,9 +1702,10 @@ void SMMU::processCommandQueue() {
         // Process the command based on type
         processCommand(command, lock);
 
-        // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is set.
-        // If processCommand() set CMDQ_ERR, halt queue processing immediately.
-        if (gerrorStatus & GERROR_CMDQ_ERR) {
+        // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is active.
+        // If processCommand() signalled CMDQ_ERR, halt queue processing immediately.
+        // Active = GERROR[x] != GERRORN[x] (unacknowledged).  BUG-03/SPEC-09.
+        if ((gerrorStatus ^ gerrorNStatus) & GERROR_CMDQ_ERR) {
             break;
         }
 
@@ -1714,7 +1721,11 @@ void SMMU::processCommandQueue() {
                 recordFault(illFault);
                 // BUG-NEW-04 fix: set GERROR.CMDQ_ERR so software can detect
                 // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
-                gerrorStatus |= GERROR_CMDQ_ERR;
+                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive
+                // (gerrorStatus[x] == gerrorNStatus[x]).  ARM IHI0070G.b §6.3.19.
+                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
+                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                }
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
@@ -1900,7 +1911,12 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                 // matching the security state of the StreamID causing the event.
                 generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
                               command.startAddress, command.securityState);
-                gerrorStatus |= GERROR_CMDQ_ERR;
+                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
+                // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
+                // error is already active."
+                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
+                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                }
                 break;
             }
             invalidateStreamCache(command.streamID);
@@ -2280,7 +2296,12 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 // BUG-14 fix / ARM §7.3.3: use command.securityState (second call site).
                 generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
                               command.startAddress, command.securityState);
-                gerrorStatus |= GERROR_CMDQ_ERR;
+                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
+                // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
+                // error is already active."
+                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
+                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                }
                 break;
             }
             // Known StreamID — proceed with normal STE cache invalidation.
@@ -2393,21 +2414,42 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-NEW-05 fix: do not generate C_BAD_STE — the spec defines no
             // event type for "unknown command opcode".  GERROR.CMDQ_ERR is the
             // correct signal to software.
-            gerrorStatus |= GERROR_CMDQ_ERR;
+            // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
+            // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
+            // error is already active."
+            if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
+                gerrorStatus ^= GERROR_CMDQ_ERR;
+            }
             break;
     }
 }
 
-// ARM §6.3.17: Read SMMU_GERROR register (FINDING-M-06)
+// ARM §6.3.17: Read active (unacknowledged) SMMU_GERROR bits.
+// Active errors are those where GERROR[x] != GERRORN[x].
+// Returns GERROR XOR GERRORN so that acknowledged errors appear cleared.
+// BUG-03/SPEC-09: ARM IHI0070G.b §6.3.19/6.3.20.
 uint32_t SMMU::getGerror() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return gerrorStatus;
+    return gerrorStatus ^ gerrorNStatus;
 }
 
-// ARM §6.3.18: Clear SMMU_GERROR bits by writing to SMMU_GERRORN (FINDING-M-06)
+// ARM §6.3.18: Read SMMU_GERRORN register (software acknowledgement register).
+// Returns the raw GERRORN value — useful for spec-compliance verification.
+uint32_t SMMU::getGerrorN() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return gerrorNStatus;
+}
+
+// ARM §6.3.18: Software writes SMMU_GERRORN to acknowledge SMMU_GERROR bits.
+// BUG-03/SPEC-09: Only toggle GERRORN[x] for bits that are currently active
+// (GERROR[x] != GERRORN[x]).  Toggling GERRORN[x] to match GERROR[x] marks
+// the error as inactive.  Writing a bit that is already inactive is a no-op.
+// ARM IHI0070G.b §6.3.18: "Software writes GERRORN to acknowledge GERROR."
 void SMMU::clearGerror(uint32_t bits) {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    gerrorStatus &= ~bits;
+    // Restrict the toggle to bits that are currently active.
+    uint32_t activeBits = gerrorStatus ^ gerrorNStatus;
+    gerrorNStatus ^= (bits & activeBits);
 }
 
 // ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)

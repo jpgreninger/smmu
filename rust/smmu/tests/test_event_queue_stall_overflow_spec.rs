@@ -230,17 +230,37 @@ fn test_stall_event_survives_queue_overflow() {
         SecurityState::NonSecure,
     );
 
+    // BUG-13 fix / ARM §7.4: When the queue is full, stall events go to
+    // stall_pending rather than being dropped.  get_events() drains
+    // stall_pending into the main queue when space is available ("when the
+    // queue is next writable").
+    //
+    // Since the main queue is full (4/4), get_events() cannot drain yet.
+    // Verify via get_pending_stall_count() that the event was preserved.
+    let pending_stall_count = smmu.get_pending_stall_count();
     let events = smmu.get_events();
+    let immediate_stall_count = events.iter().filter(|e| e.stall).count();
 
-    // FINDING-NEW-03: `EventEntry::stall` does not exist yet — compile error
-    // is intentional for TDD RED phase.
-    let stall_count = events.iter().filter(|e| e.stall).count();
+    // The stall event must be preserved: in stall_pending (queue was full) or
+    // in the main queue (if space was available).
     assert!(
-        stall_count >= 1,
-        "stall event must survive queue overflow; \
-         stall_count={stall_count}, total events={}, event_types={:?}",
+        pending_stall_count >= 1 || immediate_stall_count >= 1,
+        "stall event must survive queue overflow (in stall_pending or event queue); \
+         pending_stall_count={pending_stall_count}, immediate_stall_count={immediate_stall_count}, \
+         total events={}, event_types={:?}",
         events.len(),
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
+    );
+
+    // Verify drain: clear the queue, then get_events() must drain stall_pending.
+    smmu.clear_event_queue();
+    let events_after_drain = smmu.get_events();
+    let stall_after = events_after_drain.iter().filter(|e| e.stall).count();
+    assert!(
+        stall_after >= 1,
+        "stall event must drain into event queue after space is available; \
+         stall_after={stall_after}, events_after={:?}",
+        events_after_drain.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }
 

@@ -22,7 +22,11 @@ use smmu::SMMU;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn make_smmu() -> SMMU {
-    SMMU::new()
+    let smmu = SMMU::new();
+    // ARM §6.3.9: CR0 resets to 0; set CMDQEN and PRIQEN so command and
+    // PRI queue operations work in these tests (BUG-04 fix).
+    smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN);
+    smmu
 }
 
 // ============================================================================

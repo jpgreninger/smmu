@@ -269,19 +269,47 @@ pub struct SMMU {
     /// stalls before wrap-around.
     stag_counter: AtomicU16,
 
-    /// Global error register (SMMU_GERROR, ARM §6.3.17).
+    /// Stall-event pending buffer (ARM IHI0070G.b §7.4 / BUG-13).
+    ///
+    /// When the main event queue is full (len >= 2*capacity) and a stall event
+    /// arrives, the event is placed here instead of being silently dropped.
+    /// ARM §7.4: "a fault record from a stalled transaction is not discarded
+    /// and an event is reported for the stalled transaction when the queue is
+    /// next writable."
+    ///
+    /// Events in this buffer do NOT trigger OVFLG (stall faults do not cause
+    /// an overflow condition per §7.4).  The buffer is drained into the main
+    /// event queue whenever space becomes available (at record-event time or
+    /// when get_events() is called).
+    stall_pending: Mutex<VecDeque<EventEntry>>,
+
+    /// Global error register (SMMU_GERROR, ARM §6.3.19).
     ///
     /// Bit-field of global error conditions:
-    ///   Bit 0:  SFE            — Service Fault Enable error
-    ///   Bit 2:  MSI_ABT_ERR    — MSI transaction aborted
-    ///   Bit 4:  PRIQ_ABT_ERR   — PRI queue aborted
-    ///   Bit 5:  EVENTQ_ABT_ERR — Event queue aborted
-    ///   Bit 7:  CMDQ_ERR       — Command queue processing error (key)
-    ///   Bit 8:  CMDQ_ABT_ERR   — Command queue aborted
+    ///   Bit 0:  CMDQ_ERR       — Command queue processing error (key)
+    ///   Bit 2:  EVENTQ_ABT_ERR — Event queue memory system abort
+    ///   Bit 3:  PRIQ_ABT_ERR   — PRI queue memory system abort
+    ///   Bit 4:  MSI_CMDQ_ABT_ERR  — MSI write abort for command queue
+    ///   Bit 5:  MSI_EVENTQ_ABT_ERR — MSI write abort for event queue
+    ///   Bit 6:  MSI_PRIQ_ABT_ERR  — MSI write abort for PRI queue
+    ///   Bit 7:  MSI_GERROR_ABT_ERR — MSI write abort for GERROR
+    ///   Bit 8:  SFM_ERR        — Service Fault Mapping error
+    ///   Bit 9:  CMDQP_ERR      — Command queue paused error
     ///
-    /// Set by the SMMU when a global error is detected (e.g., command error).
-    /// Cleared by software writing to SMMU_GERRORN (see `clear_gerror()`).
+    /// The SMMU toggles GERROR[x] ONLY when the error is currently INACTIVE
+    /// (GERROR[x] == GERRORN[x]).  An error is active when GERROR[x] != GERRORN[x].
+    /// Software acknowledges by writing GERRORN[x] to match GERROR[x].
+    /// Resets to 0 (ARM §6.3.19).
     gerror: AtomicU32,
+
+    /// Global error notify register (SMMU_GERRORN, ARM §6.3.20).
+    ///
+    /// Software-writable companion to GERROR.  An error bit is ACTIVE when
+    /// the corresponding bits differ (GERROR[x] XOR GERRORN[x] == 1).
+    /// Software acknowledges an error by toggling GERRORN[x] to match GERROR[x].
+    /// `clear_gerror(bits)` toggles the specified bits in this register.
+    /// Resets to 0 (ARM §6.3.20).
+    gerrorn: AtomicU32,
 
     /// SMMU_CR0 register (§6.3.9).
     ///
@@ -495,16 +523,15 @@ impl SMMU {
             fault_timestamp_counter: AtomicU64::new(0),
             stall_queue: DashMap::new(),
             stag_counter: AtomicU16::new(1),
+            stall_pending: Mutex::new(VecDeque::new()),
             gerror: AtomicU32::new(0),
-            // CR0 reset: SMMUEN=0 (bypass/disabled by default) but all queue
-            // enable bits default to 1 so that command / event / PRI processing
-            // works before SMMUEN is explicitly set.  SMMUEN is set via
-            // enable() or set_cr0().  Tests that want CMDQEN=0 must call
-            // set_cr0(0) explicitly per the ARM reset-to-disabled semantics for
-            // the queue gates (CT-33).
-            cr0: AtomicU32::new(
-                Self::CR0_PRIQEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN,
-            ),
+            // GERRORN reset: ARM §6.3.20 — resets to 0.
+            gerrorn: AtomicU32::new(0),
+            // CR0 reset: ARM IHI0070G.b §6.3.9 — ALL bits reset to 0.
+            // SMMUEN, CMDQEN, EVENTQEN, and PRIQEN are all 0 after reset.
+            // Software must explicitly set the required bits via set_cr0() or
+            // call enable() before using queues or translations.
+            cr0: AtomicU32::new(0),
         }
     }
 
@@ -679,12 +706,11 @@ impl SMMU {
     /// use smmu::SMMU;
     ///
     /// let smmu = SMMU::new();
-    /// // After reset the queue-enable bits (PRIQEN|EVENTQEN|CMDQEN) are set
-    /// // so that callers who never call enable() can still use the queues.
-    /// // SMMUEN (bit 0) is clear until enable() or set_cr0() is called.
-    /// assert_eq!(smmu.get_cr0() & SMMU::CR0_SMMUEN, 0, "SMMUEN must be clear after reset");
-    /// let queue_bits = SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN;
-    /// assert_eq!(smmu.get_cr0() & queue_bits, queue_bits, "queue enables are set after reset");
+    /// // ARM §6.3.9: All CR0 bits reset to 0 (SMMUEN=0, CMDQEN=0, EVENTQEN=0, PRIQEN=0).
+    /// assert_eq!(smmu.get_cr0(), 0, "CR0 must be 0 after reset (§6.3.9)");
+    /// // After enable(), SMMUEN and queue enable bits are set.
+    /// smmu.enable().unwrap();
+    /// assert_ne!(smmu.get_cr0() & SMMU::CR0_SMMUEN, 0, "SMMUEN set after enable()");
     /// ```
     #[must_use]
     pub fn get_cr0(&self) -> u32 {
@@ -715,11 +741,11 @@ impl SMMU {
     // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model
     // ========================================================================
 
-    /// Read SMMU_GERROR — global error status register (ARM §6.3.17).
+    /// Read SMMU_GERROR — global error status register (ARM §6.3.19).
     ///
-    /// Returns the current value of the GERROR register. Non-zero indicates
-    /// one or more global error conditions are active.  Bit positions:
-    /// - Bit 7 (`GERROR_CMDQ_ERR`): command queue processing error
+    /// Returns the raw GERROR register value.  An error bit is ACTIVE when
+    /// `get_gerror() XOR get_gerrorn()` is non-zero for that bit.  At reset
+    /// both GERROR and GERRORN are 0, so no errors are active.
     ///
     /// # Examples
     ///
@@ -734,12 +760,12 @@ impl SMMU {
         self.gerror.load(Ordering::Acquire)
     }
 
-    /// Write to SMMU_GERRORN — clear GERROR bits (ARM §6.3.18).
+    /// Read SMMU_GERRORN — global error notify register (ARM §6.3.20).
     ///
-    /// Clears only the bits specified in `bits`.  Other GERROR bits are
-    /// unaffected.  This mirrors the hardware semantics of writing a 1 to
-    /// each bit position in SMMU_GERRORN to acknowledge and clear the
-    /// corresponding GERROR bit.
+    /// Returns the software-writable GERRORN register value.  An error bit is
+    /// ACTIVE when `get_gerror() XOR get_gerrorn()` is non-zero.  Software
+    /// acknowledges an active error by calling `clear_gerror(bits)`, which
+    /// toggles the corresponding GERRORN bits to match GERROR.
     ///
     /// # Examples
     ///
@@ -747,11 +773,85 @@ impl SMMU {
     /// use smmu::SMMU;
     ///
     /// let smmu = SMMU::new();
-    /// smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);   // ack command queue error
-    /// assert_eq!(smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR, 0);
+    /// assert_eq!(smmu.get_gerrorn(), 0, "GERRORN must be zero after reset");
+    /// ```
+    #[must_use]
+    pub fn get_gerrorn(&self) -> u32 {
+        self.gerrorn.load(Ordering::Acquire)
+    }
+
+    /// Signal a GERROR error condition (ARM §6.3.19 XOR-toggle protocol).
+    ///
+    /// Toggles GERROR[x] for each bit in `bits` that is currently INACTIVE
+    /// (i.e., GERROR[x] == GERRORN[x]).  Bits that are already ACTIVE are
+    /// left unchanged — "The SMMU does not toggle a bit when an error is
+    /// already active" (ARM §6.3.19).
+    ///
+    /// This replaces the old `fetch_or` pattern which violated the spec by
+    /// setting bits unconditionally instead of using XOR-toggle semantics.
+    fn signal_gerror(&self, bits: u32) {
+        // Load both registers to determine which bits are inactive.
+        // An inactive bit satisfies GERROR[x] == GERRORN[x], i.e., XOR == 0.
+        let current_gerror  = self.gerror.load(Ordering::Acquire);
+        let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
+        // Bits that are currently ACTIVE (unequal): already active — no toggle.
+        // Bits that are currently INACTIVE (equal): toggle allowed.
+        let active   = current_gerror ^ current_gerrorn;
+        let inactive = bits & !active; // restrict to the requested bits that are inactive
+        if inactive != 0 {
+            self.gerror.fetch_xor(inactive, Ordering::Release);
+        }
+    }
+
+    /// Acknowledge GERROR error bits (ARM §6.3.20 — write SMMU_GERRORN).
+    ///
+    /// Software acknowledges an active error by writing GERRORN to match
+    /// GERROR for those bits.  This implementation toggles GERRORN for the
+    /// specified `bits`, which matches the hardware XOR semantics: toggling
+    /// GERRORN[x] makes it equal to GERROR[x], setting the error to INACTIVE.
+    ///
+    /// After this call:
+    /// - `get_gerrorn() & bits` will have been toggled.
+    /// - `(get_gerror() ^ get_gerrorn()) & bits` will be 0 (error inactive)
+    ///   provided the SMMU has not re-signalled in the interim.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::types::{CommandEntry, CommandType};
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+    ///
+    /// // Trigger CMDQ_ERR: submit a command for an unknown stream.
+    /// smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, 0xDEAD, 0)).unwrap();
+    /// let _ = smmu.process_command_queue();
+    ///
+    /// // Error is ACTIVE before acknowledge.
+    /// assert_ne!(
+    ///     (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
+    ///     0,
+    ///     "CMDQ_ERR must be ACTIVE before acknowledge"
+    /// );
+    ///
+    /// // Acknowledge: toggle GERRORN.CMDQ_ERR to match GERROR.CMDQ_ERR.
+    /// smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
+    ///
+    /// // Error is now INACTIVE: (GERROR ^ GERRORN) & CMDQ_ERR == 0.
+    /// assert_eq!(
+    ///     (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
+    ///     0,
+    ///     "CMDQ_ERR must be inactive after acknowledge"
+    /// );
     /// ```
     pub fn clear_gerror(&self, bits: u32) {
-        self.gerror.fetch_and(!bits, Ordering::Release);
+        // BUG-03 fix: toggle GERRORN to acknowledge the error (ARM §6.3.20).
+        // The old implementation (fetch_and(!bits)) directly cleared GERROR,
+        // which is a read-only hardware register.  Per the spec, software must
+        // write GERRORN; the SMMU uses XOR-toggle semantics: toggling GERRORN[x]
+        // to match GERROR[x] makes the error inactive (equal → inactive).
+        self.gerrorn.fetch_xor(bits, Ordering::Release);
     }
 
     /// Configure a stream with specified configuration
@@ -1878,11 +1978,24 @@ impl SMMU {
         // On translation fault, check whether the stream uses stall mode (ARM §3.12.2).
         // If so, enqueue a StallRecord and return Stalled { stag } instead of the
         // raw fault error — software must send CMD_RESUME or CMD_STALL_TERM to resolve.
-        // §3.9: C_BAD_SUBSTREAMID is always an abort — never stalled, regardless of stream mode.
+        //
+        // §3.12.2 / BUG-06: Configuration faults must NEVER stall — only translation
+        // faults (F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION) are stall-eligible.
+        // ARM §11.639: C_BAD_STREAMID, C_BAD_STE, C_BAD_SUBSTREAMID, C_BAD_CD,
+        // F_STE_FETCH, F_CD_FETCH must always abort.
         if let Err(ref error) = result {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-            let bad_substreamid = matches!(error, TranslationError::BadSubstreamId);
-            let is_stall = stall_mode && !bad_substreamid;
+            // Map the error to a fault type and check stall eligibility.
+            let fault_type = Self::map_translation_error_to_fault_type(error);
+            // Only translation-class faults are stall-eligible; configuration faults always abort.
+            let is_stall_eligible = matches!(
+                fault_type,
+                FaultType::TranslationFault
+                    | FaultType::AddressSizeFault
+                    | FaultType::AccessFlagFault
+                    | FaultType::PermissionFault
+            );
+            let is_stall = stall_mode && is_stall_eligible;
 
             // §3.12.2 / FINDING-NEW-26: Allocate STAG before recording fault so the
             // EventEntry carries the correct STAG value when is_stall==true.
@@ -2193,31 +2306,48 @@ impl SMMU {
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
-            // Stall events get a higher (but bounded) capacity limit — 2× normal —
-            // because a stalled transaction can never complete without the event
-            // (software needs it to issue CMD_RESUME).  However, unbounded growth
-            // under sustained stall-mode fault load is not acceptable per §3.12.2,
-            // so we still enforce an absolute cap.
-            let stall_capacity = self.event_queue_capacity.saturating_mul(2);
-            if (event.stall && queue.len() < stall_capacity) || queue.len() < self.event_queue_capacity {
+            // BUG-13 fix / ARM §7.4: "a fault record from a stalled transaction is not
+            // discarded and an event is reported for the stalled transaction when the
+            // queue is next writable."
+            //
+            // Drain any previously-pending stall events into the main queue first
+            // (FIFO order) before inserting the new event, provided space is available.
+            if queue.len() < self.event_queue_capacity {
+                if let Ok(mut pending) = self.stall_pending.lock() {
+                    while queue.len() < self.event_queue_capacity {
+                        match pending.pop_front() {
+                            Some(p) => {
+                                queue.push_back(p);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+
+            if queue.len() < self.event_queue_capacity {
+                // Main queue has space — insert directly.
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+            } else if event.stall {
+                // BUG-13 fix: stall event and queue is full — redirect to stall_pending
+                // instead of dropping.  Must NOT trigger OVFLG (ARM §7.4: stall fault
+                // records do not cause an overflow condition).
+                if let Ok(mut pending) = self.stall_pending.lock() {
+                    pending.push_back(event);
+                }
             } else {
+                // Non-stall event dropped due to full queue.
                 // BUG-10 fix / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit 31) only when:
-                //   (1) the discarded event is NOT a stall event — stall fault records are
-                //       never discarded per §7.4 ("stall fault records do not cause an
-                //       overflow condition"), so stall events must never trigger OVFLG.
-                //   (2) no overflow is already active — i.e. OVFLG == OVACKFLG.  Only
-                //       toggle when transitioning from "no overflow" to "overflow" state,
-                //       matching the semantics in record_stream_not_found_fault (BUG-05).
-                if !event.stall {
-                    let prod = self.eventq_prod.load(Ordering::Acquire);
-                    let cons = self.eventq_cons.load(Ordering::Acquire);
-                    let ovflg    = (prod >> 31) & 1;
-                    let ovackflg = (cons >> 31) & 1;
-                    if ovflg == ovackflg {
-                        self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
-                    }
+                //   (1) the discarded event is NOT a stall event (checked above).
+                //   (2) no overflow is already active — i.e. OVFLG == OVACKFLG.
+                let prod = self.eventq_prod.load(Ordering::Acquire);
+                let cons = self.eventq_cons.load(Ordering::Acquire);
+                let ovflg    = (prod >> 31) & 1;
+                let ovackflg = (cons >> 31) & 1;
+                if ovflg == ovackflg {
+                    self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
                 }
             }
         }
@@ -2332,11 +2462,30 @@ impl SMMU {
 
     /// Get all events from the queue (non-destructive read)
     ///
-    /// Returns a copy of all events currently in the queue.
-    /// Events remain in the queue until explicitly cleared.
+    /// Returns a copy of all events currently in the queue.  Also drains any
+    /// pending stall events from `stall_pending` into the main queue if space
+    /// is available (ARM §7.4: events are reported "when the queue is next
+    /// writable").  Events remain in the queue until explicitly cleared.
     pub fn get_events(&self) -> Vec<EventEntry> {
-        let queue = self.event_queue.read().unwrap();
-        queue.iter().copied().collect()
+        // Opportunistically drain stall_pending into the main queue before reading.
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                if let Ok(mut pending) = self.stall_pending.lock() {
+                    while queue.len() < self.event_queue_capacity {
+                        match pending.pop_front() {
+                            Some(p) => {
+                                queue.push_back(p);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            queue.iter().copied().collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Check if event queue has events
@@ -2366,6 +2515,19 @@ impl SMMU {
         queue.clear();
         self.eventq_prod.store(0, Ordering::Release);
         self.eventq_cons.store(0, Ordering::Release);
+    }
+
+    /// Get number of pending stall events waiting to drain into the main queue.
+    ///
+    /// ARM IHI0070G.b §7.4 / BUG-13: Stall events that could not fit in the main
+    /// event queue are redirected to an internal stall_pending buffer rather than
+    /// being dropped.  This method returns the count of events in that buffer.
+    ///
+    /// A return value > 0 indicates there are stall events awaiting drain; they
+    /// will be inserted into the main queue automatically when space is available.
+    #[must_use]
+    pub fn get_pending_stall_count(&self) -> usize {
+        self.stall_pending.lock().map_or(0, |p| p.len())
     }
 
     /// Get events filtered by event type
@@ -2437,10 +2599,13 @@ impl SMMU {
             return Ok(0);
         }
 
-        // NEW-50 / ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is
-        // already set.  Software must clear it via SMMU_GERRORN (clear_gerror)
-        // before restarting queue processing.
-        if self.gerror.load(Ordering::Acquire) & Self::GERROR_CMDQ_ERR != 0 {
+        // NEW-50 / ARM §6.3.19: Do not process commands when GERROR.CMDQ_ERR is
+        // ACTIVE (GERROR[x] != GERRORN[x]).  Software must acknowledge by writing
+        // GERRORN to match GERROR (via clear_gerror) before restarting queue processing.
+        // BUG-03 fix: use XOR-active test instead of raw GERROR bit test.
+        let gerror_active = self.gerror.load(Ordering::Acquire)
+            ^ self.gerrorn.load(Ordering::Acquire);
+        if gerror_active & Self::GERROR_CMDQ_ERR != 0 {
             return Ok(0);
         }
 
@@ -2464,7 +2629,9 @@ impl SMMU {
                     // ARM §6.3.17: set CMDQ_ERR and halt queue on command
                     // processing error (FINDING-M-06).
                     if let Err(e) = self.process_single_command(cmd) {
-                        self.gerror.fetch_or(Self::GERROR_CMDQ_ERR, Ordering::Release);
+                        // BUG-03 fix: use signal_gerror (XOR-toggle, only-if-inactive)
+                        // instead of fetch_or (unconditional set).
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
                         return Err(e);
                     }
                     processed += 1;
@@ -3919,25 +4086,22 @@ mod tests {
         assert_eq!(SMMU::CR0_ATSCHK,   1 << 4, "CR0_ATSCHK must be bit 4 (§6.3.9)");
     }
 
-    /// Regression guard: after reset, CR0 must have PRIQEN|EVENTQEN|CMDQEN
-    /// at their correct bit positions (bits 1, 2, 3 per §6.3.9).
+    /// BUG-04/§6.3.9: After reset, ALL CR0 bits must be 0.
+    ///
+    /// ARM IHI0070G.b §6.3.9: SMMUEN, PRIQEN, EVENTQEN, and CMDQEN all reset
+    /// to 0.  Software must explicitly set these bits before using the queues
+    /// or enabling translations.
     #[test]
     fn bug_rust_h03_cr0_reset_value_uses_correct_bits() {
         let smmu = SMMU::new();
         let cr0 = smmu.get_cr0();
-        // SMMUEN must be clear after reset.
-        assert_eq!(cr0 & SMMU::CR0_SMMUEN, 0, "SMMUEN must be clear after reset");
-        // Queue-enable bits must be set after reset.
-        let queue_bits = SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN;
-        assert_eq!(
-            cr0 & queue_bits,
-            queue_bits,
-            "NEW-47: queue-enable bits must be at bits 1/2/3 after reset; cr0=0x{cr0:08x}"
-        );
-        // Verify exact bit positions per §6.3.9.
-        assert_eq!(cr0 & (1 << 1), 1 << 1, "NEW-47: PRIQEN must be at bit 1 (§6.3.9)");
-        assert_eq!(cr0 & (1 << 2), 1 << 2, "NEW-47: EVENTQEN must be at bit 2 (§6.3.9)");
-        assert_eq!(cr0 & (1 << 3), 1 << 3, "NEW-47: CMDQEN must be at bit 3 (§6.3.9)");
+        // ALL bits must be 0 after reset per ARM §6.3.9.
+        assert_eq!(cr0, 0, "BUG-04/§6.3.9: CR0 must be 0 after reset; got cr0=0x{cr0:08x}");
+        // Individual checks for clarity.
+        assert_eq!(cr0 & SMMU::CR0_SMMUEN,   0, "§6.3.9: SMMUEN must be 0 after reset");
+        assert_eq!(cr0 & SMMU::CR0_PRIQEN,   0, "§6.3.9: PRIQEN must be 0 after reset");
+        assert_eq!(cr0 & SMMU::CR0_EVENTQEN, 0, "§6.3.9: EVENTQEN must be 0 after reset");
+        assert_eq!(cr0 & SMMU::CR0_CMDQEN,   0, "§6.3.9: CMDQEN must be 0 after reset");
     }
 
     // ── BUG-RUST-M01: SecurityViolation must map to SecurityFault, not PermissionFault ──
