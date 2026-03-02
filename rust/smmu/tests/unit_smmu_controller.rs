@@ -87,26 +87,76 @@ fn test_configure_stream_zero() {
 // ============================================================================
 
 #[test]
-#[ignore = "TODO: API doesn't have enable_stream/disable_stream methods"]
 fn test_enable_disable_stream() {
+    // §5.2 / §7.3.7: disable_stream() sets STE.Config==0b000 equivalent;
+    // translate() must return Err(StreamDisabled) and no event is recorded.
     let smmu = SMMU::new();
-    smmu.enable().unwrap(); // SMMUEN=1 required for translations to reach stream path (§6.3.9)
+    smmu.enable().unwrap();
     let stream_id = StreamID::new(1).unwrap();
+    let pasid = PASID::new(0).unwrap();
 
     smmu.configure_stream(stream_id, StreamConfig::stage1_only()).unwrap();
+    smmu.create_pasid(stream_id, pasid).unwrap();
 
-    // TODO: Use remove_stream and configure_stream with translation_enabled instead
+    // Before disable: translation reaches the normal path (may fault on unmapped
+    // address, but must NOT return StreamDisabled).
+    let before = smmu.translate(
+        stream_id, pasid,
+        IOVA::new(0x1000).unwrap(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+    );
+    assert!(
+        !matches!(before, Err(smmu::types::TranslationError::StreamDisabled)),
+        "before disable: must not return StreamDisabled; got {before:?}"
+    );
+
+    // Disable the stream; drain any events from the pre-disable translation.
+    smmu.disable_stream(stream_id).unwrap();
+    smmu.clear_event_queue();
+
+    // After disable: must abort silently (StreamDisabled), no event recorded.
+    let after = smmu.translate(
+        stream_id, pasid,
+        IOVA::new(0x1000).unwrap(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+    );
+    assert!(
+        matches!(after, Err(smmu::types::TranslationError::StreamDisabled)),
+        "after disable: expected StreamDisabled; got {after:?}"
+    );
+    assert!(
+        smmu.get_events().is_empty(),
+        "§7.3.7: no event must be recorded for a disabled stream"
+    );
+
+    // Re-enable: translation must reach the normal path again.
+    smmu.enable_stream(stream_id).unwrap();
+    let re_enabled = smmu.translate(
+        stream_id, pasid,
+        IOVA::new(0x1000).unwrap(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+    );
+    assert!(
+        !matches!(re_enabled, Err(smmu::types::TranslationError::StreamDisabled)),
+        "after re-enable: must not return StreamDisabled; got {re_enabled:?}"
+    );
 }
 
 #[test]
-#[ignore = "TODO: API doesn't have disable_stream method"]
 fn test_disable_nonexistent_stream() {
-    let _smmu = SMMU::new();
-    let _stream_id = StreamID::new(1).unwrap();
+    // Calling disable_stream() on a stream that was never configured must
+    // return an error — there is no stream context to disable.
+    let smmu = SMMU::new();
+    let stream_id = StreamID::new(99).unwrap();
 
-    // TODO: Test remove_stream on nonexistent stream instead
-    // let result = smmu.remove_stream(stream_id);
-    // assert!(result.is_err());
+    let result = smmu.disable_stream(stream_id);
+    assert!(
+        result.is_err(),
+        "disable_stream on unconfigured stream must return Err; got Ok"
+    );
 }
 
 // ============================================================================
