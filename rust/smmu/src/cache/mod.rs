@@ -656,17 +656,23 @@ impl TlbCache {
     pub fn lookup(&self, key: &CacheKey) -> Option<CacheEntry> {
         self.statistics.lookups.fetch_add(1, Ordering::Relaxed);
 
-        // Fast path: try read-only lookup first
-        if let Some(entry_ref) = self.entries.get(key) {
-            // Cache hit - update statistics
-            self.statistics.hits.fetch_add(1, Ordering::Relaxed);
-
-            // For LRU, we skip timestamp update on read to avoid write contention
-            // This trades perfect LRU for much better performance
-            // The timestamp will be set correctly on insertion
-            Some(*entry_ref)
+        if self.policy == ReplacementPolicy::Lru {
+            // LRU: refresh timestamp on hit so evict_one() always removes the
+            // least recently *used* entry, not the least recently inserted one.
+            if let Some(mut entry_ref) = self.entries.get_mut(key) {
+                self.statistics.hits.fetch_add(1, Ordering::Relaxed);
+                let ts = self.timestamp.fetch_add(1, Ordering::Relaxed);
+                entry_ref.timestamp = ts;
+                return Some(*entry_ref);
+            }
+            self.statistics.misses.fetch_add(1, Ordering::Relaxed);
+            None
         } else {
-            // Cache miss
+            // FIFO: insertion order only, no timestamp update on lookup.
+            if let Some(entry_ref) = self.entries.get(key) {
+                self.statistics.hits.fetch_add(1, Ordering::Relaxed);
+                return Some(*entry_ref);
+            }
             self.statistics.misses.fetch_add(1, Ordering::Relaxed);
             None
         }
@@ -705,14 +711,12 @@ impl TlbCache {
         let timestamp = self.timestamp.fetch_add(1, Ordering::Relaxed);
         entry.timestamp = timestamp;
 
-        // Insert into main cache - this is the critical path
-        // No secondary index maintenance for maximum performance
+        // Enforce capacity: evict one entry before inserting when at the limit.
+        if self.entries.len() >= self.capacity {
+            self.evict_one();
+        }
+
         self.entries.insert(key, entry);
-
-        // Note: For maximum performance, we allow the cache to grow slightly beyond capacity
-        // Eviction happens during invalidation operations or can be triggered manually
-        // This trades strict capacity enforcement for sub-200ns insertion latency
-
         self.statistics.insertions.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -741,7 +745,6 @@ impl TlbCache {
     ///
     /// For LRU: Finds and evicts entry with oldest timestamp
     /// For FIFO: Evicts first entry (approximate)
-    #[allow(dead_code)]
     fn evict_one(&self) {
         let key_to_evict = match self.policy {
             ReplacementPolicy::Lru => {
@@ -2472,7 +2475,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Eviction disabled for performance optimization"]
     fn test_tlb_cache_eviction_lru() {
         let cache = TlbCache::new(3, ReplacementPolicy::Lru);
 
@@ -2508,7 +2510,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Eviction disabled for performance optimization"]
     fn test_tlb_cache_eviction_fifo() {
         let cache = TlbCache::new(3, ReplacementPolicy::Fifo);
 
@@ -2986,7 +2987,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "LRU timestamp update on lookup disabled for performance"]
     fn test_tlb_cache_lru_timestamp_update() {
         let cache = TlbCache::new(10, ReplacementPolicy::Lru);
         let stream_id = StreamID::new(1).unwrap();

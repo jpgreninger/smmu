@@ -1265,21 +1265,6 @@ fn test_page_entry_ref_accessors() {
 }
 
 #[test]
-#[ignore = "DashMap doesn't support true mutable iteration - use map_page to modify entries"]
-fn test_page_entry_mut_ref_accessors() {
-    let addr_space = AddressSpace::new();
-    let iova = IOVA::new(0x1000).unwrap();
-    let pa = PA::new(0x2000).unwrap();
-
-    addr_space
-        .map_page(iova, pa, PagePermissions::read_only(), SecurityState::NonSecure)
-        .unwrap();
-
-    // With DashMap, modifications should be done via map_page
-    // This test is disabled as DashMap doesn't support true mutable iteration
-}
-
-#[test]
 fn test_page_info_accessors() {
     let start = IOVA::new(0x1000).unwrap();
     let end = IOVA::new(0x1000 + 2 * PAGE_SIZE).unwrap();
