@@ -279,3 +279,59 @@ TEST(TlbFastPathPrivilegeTest, El2E2HTlbFastPathNoPrivilegeSuppression) {
     EXPECT_EQ(first.getError(), SMMUError::PagePermissionViolation)
         << "Expected PagePermissionViolation for EL2_E2H stream on privilegedOnly page";
 }
+
+// ===== BUG-CPP-1: removeStream() must invalidate TLB entries =====
+//
+// ARM IHI0070G.b §7.3.3 (C_BAD_STREAMID) / §3.11 (stream decommissioning):
+// After a stream is removed, all subsequent translations for that StreamID
+// must produce a C_BAD_STREAMID configuration fault. A stale TLB entry from
+// before removal must not bypass the stream-existence check and return a
+// successful translation.
+//
+// TDD: This test MUST FAIL before the fix is applied (removeStream() does not
+// invalidate the TLB, so the stale TLB entry causes the second translate() to
+// succeed instead of returning an error).
+TEST(RemoveStreamTest, RemoveStreamInvalidatesTlb) {
+    static constexpr StreamID SID     = 0xBEEF;
+    static constexpr PASID    PID     = 0;
+    static constexpr IOVA     IOVA_VAL = 0x5000ULL;
+    static constexpr PA       PA_VAL   = 0xCAFE'0000ULL;
+
+    // Step 1: Configure a full SMMU with caching enabled and a mapped page.
+    std::unique_ptr<SMMU> smmu(new SMMU());
+    smmu->enable();
+    smmu->enableCaching(true);
+
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    cfg.strw               = StreamWorld::EL1_EL0;
+    smmu->configureStream(SID, cfg);
+    smmu->enableStream(SID);
+    smmu->createStreamPASID(SID, PID);
+
+    PagePermissions perms;
+    perms.read    = true;
+    perms.write   = false;
+    perms.execute = false;
+    smmu->mapPage(SID, PID, IOVA_VAL, PA_VAL, perms);
+
+    // Step 2: Prime the TLB — slow-path translate must succeed.
+    TranslationResult prime = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read);
+    ASSERT_TRUE(prime.isOk())
+        << "Initial translate (slow path) must succeed before removeStream()";
+
+    // Step 3: Remove the stream — this should also invalidate TLB entries.
+    VoidResult removeResult = smmu->removeStream(SID);
+    ASSERT_TRUE(removeResult.isOk())
+        << "removeStream() must succeed for a configured stream";
+
+    // Step 4: Translate after removal — must NOT succeed via stale TLB entry.
+    // The stream no longer exists, so the result must be an error (C_BAD_STREAMID).
+    TranslationResult afterRemove = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read);
+    EXPECT_TRUE(afterRemove.isError())
+        << "translate() after removeStream() must return an error (C_BAD_STREAMID), "
+           "not a successful translation via a stale TLB entry";
+}

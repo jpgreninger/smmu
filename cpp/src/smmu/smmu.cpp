@@ -421,10 +421,17 @@ VoidResult SMMU::removeStream(StreamID streamID) {
     // Disable stream before removal
     VoidResult disableResult = streamIt->second->disableStream();
     (void)disableResult; // Suppress unused variable warning - continue even if disable fails
-    
+
     // Clear all PASIDs for this stream
     streamIt->second->clearAllPASIDs();
-    
+
+    // ARM IHI0070G.b §7.3.3 / §3.11: Invalidate all TLB entries for this stream
+    // before erasing it from the stream map.  Without this, the TLB fast-path in
+    // translate() (which runs before the streamMap existence check) can serve a
+    // stale hit and return a successful translation for a removed stream instead
+    // of the required C_BAD_STREAMID configuration fault.
+    invalidateStreamCache(streamID);
+
     // Remove from map (unique_ptr will handle cleanup)
     streamMap.erase(streamIt);
     

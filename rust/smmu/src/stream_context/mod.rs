@@ -103,6 +103,16 @@ pub struct StreamContext {
     /// Stream enabled state (Section 4.2.2)
     enabled: AtomicBool,
 
+    /// BUG-RUST-1 fix: disabling-in-progress flag (ARM IHI0070G.b §7.3.6).
+    ///
+    /// Set to `true` immediately before `pasid_map.clear()` in `disable()` and
+    /// cleared to `false` after `enabled` is stored `false`.  A translator that
+    /// passed the `is_enabled()` check just before the enable flag was cleared
+    /// will find the `pasid_map` empty; by re-checking this flag it can return
+    /// `StreamDisabled` (F_STREAM_DISABLED) rather than the incorrect
+    /// `PASIDNotFound`.
+    disabling: AtomicBool,
+
     /// Fault records (Section 4.2.4)
     fault_records: Arc<RwLock<Vec<FaultRecord>>>,
 
@@ -239,6 +249,7 @@ impl StreamContext {
             stage2_enabled: AtomicBool::new(false),
             max_pasids_per_stream: AtomicUsize::new(1024),
             enabled: AtomicBool::new(true),
+            disabling: AtomicBool::new(false),
             fault_records: Arc::new(RwLock::new(Vec::new())),
             fault_rate_limit: AtomicUsize::new(usize::MAX),
             fault_retry_enabled: AtomicBool::new(false),
@@ -621,7 +632,9 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_strw(&self) -> StreamWorld {
-        match self.strw.load(Ordering::Relaxed) {
+        // BUG-RUST-3 fix: Acquire ordering so the Release store in
+        // update_configuration() is fully visible before this read.
+        match self.strw.load(Ordering::Acquire) {
             0x00 => StreamWorld::El1El0,
             0x01 => StreamWorld::El2,
             0x02 => StreamWorld::El2E2h,
@@ -666,54 +679,62 @@ impl StreamContext {
     /// assert!(ctx.is_mt_cfg_enabled());
     /// ```
     pub fn update_configuration(&mut self, cfg: StreamConfig) {
+        // BUG-RUST-3 fix: use Release ordering for all config-field stores.
+        //
+        // Pairing with the Acquire loads in the translate hot-path establishes
+        // a happens-before relationship: any translator that loads a config field
+        // via Acquire is guaranteed to see all stores that precede this Release
+        // sequence as a complete, consistent config snapshot.  SeqCst is
+        // stronger than necessary and has higher cost on weakly-ordered CPUs.
+
         // Stage enablement
-        self.stage1_enabled.store(cfg.stage1_enabled, Ordering::SeqCst);
-        self.stage2_enabled.store(cfg.stage2_enabled, Ordering::SeqCst);
+        self.stage1_enabled.store(cfg.stage1_enabled, Ordering::Release);
+        self.stage2_enabled.store(cfg.stage2_enabled, Ordering::Release);
 
         // Abort mode (STE.Config==0b000)
-        self.abort_mode.store(cfg.disabled && !cfg.translation_enabled, Ordering::SeqCst);
+        self.abort_mode.store(cfg.disabled && !cfg.translation_enabled, Ordering::Release);
 
         // PASID limits
         if cfg.pasid_enabled {
             self.max_pasids_per_stream
-                .store(cfg.max_pasid as usize + 1, Ordering::SeqCst);
+                .store(cfg.max_pasid as usize + 1, Ordering::Release);
         }
 
         // HA / HD
-        self.ha.store(cfg.ha, Ordering::SeqCst);
-        self.hd.store(cfg.hd, Ordering::SeqCst);
+        self.ha.store(cfg.ha, Ordering::Release);
+        self.hd.store(cfg.hd, Ordering::Release);
 
         // Stall mode
         self.stall_enabled
-            .store(cfg.fault_mode == crate::types::FaultMode::Stall, Ordering::SeqCst);
+            .store(cfg.fault_mode == crate::types::FaultMode::Stall, Ordering::Release);
 
         // VMID
-        self.vmid.store(cfg.vmid, Ordering::SeqCst);
+        self.vmid.store(cfg.vmid, Ordering::Release);
 
         // S1DSS / S1CDMax
-        self.s1dss.store(cfg.s1dss, Ordering::SeqCst);
-        self.s1cd_max.store(cfg.s1cd_max, Ordering::SeqCst);
+        self.s1dss.store(cfg.s1dss, Ordering::Release);
+        self.s1cd_max.store(cfg.s1cd_max, Ordering::Release);
 
         // T0SZ / T1SZ / AA64
-        self.t0sz.store(cfg.t0sz, Ordering::SeqCst);
-        self.t1sz.store(cfg.t1sz, Ordering::SeqCst);
-        self.aa64.store(cfg.aa64, Ordering::SeqCst);
+        self.t0sz.store(cfg.t0sz, Ordering::Release);
+        self.t1sz.store(cfg.t1sz, Ordering::Release);
+        self.aa64.store(cfg.aa64, Ordering::Release);
 
         // Security state
         self.security_state
-            .store(cfg.security_state as u8, Ordering::SeqCst);
+            .store(cfg.security_state as u8, Ordering::Release);
 
         // GAP-1: output-attribute override fields
-        self.sh_cfg.store(cfg.sh_cfg, Ordering::SeqCst);
-        self.alloc_cfg.store(cfg.alloc_cfg, Ordering::SeqCst);
-        self.mem_attr.store(cfg.mem_attr, Ordering::SeqCst);
-        self.inst_cfg.store(cfg.inst_cfg, Ordering::SeqCst);
-        self.priv_cfg.store(cfg.priv_cfg, Ordering::SeqCst);
-        self.ns_cfg.store(cfg.ns_cfg, Ordering::SeqCst);
-        self.mt_cfg.store(cfg.mt_cfg, Ordering::SeqCst);
+        self.sh_cfg.store(cfg.sh_cfg, Ordering::Release);
+        self.alloc_cfg.store(cfg.alloc_cfg, Ordering::Release);
+        self.mem_attr.store(cfg.mem_attr, Ordering::Release);
+        self.inst_cfg.store(cfg.inst_cfg, Ordering::Release);
+        self.priv_cfg.store(cfg.priv_cfg, Ordering::Release);
+        self.ns_cfg.store(cfg.ns_cfg, Ordering::Release);
+        self.mt_cfg.store(cfg.mt_cfg, Ordering::Release);
 
         // GAP-2: STRW
-        self.strw.store(cfg.strw as u8, Ordering::SeqCst);
+        self.strw.store(cfg.strw as u8, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -1277,7 +1298,9 @@ impl StreamContext {
         security_state: SecurityState,
     ) -> TranslationResult {
         // §5.2 / CT-09: STE.Config==0b000 — abort silently, no event.
-        if self.abort_mode.load(Ordering::Relaxed) {
+        // BUG-RUST-3 fix: use Acquire so the abort_mode store in
+        // update_configuration() (Release) happens-before this load.
+        if self.abort_mode.load(Ordering::Acquire) {
             return Err(TranslationError::StreamDisabled);
         }
 
@@ -1286,8 +1309,10 @@ impl StreamContext {
             return Err(TranslationError::StreamDisabled);
         }
 
-        let stage1_enabled = self.stage1_enabled.load(Ordering::Relaxed);
-        let stage2_enabled = self.stage2_enabled.load(Ordering::Relaxed);
+        // BUG-RUST-3 fix: Acquire ordering ensures the Release stores in
+        // update_configuration() are fully visible before these loads.
+        let stage1_enabled = self.stage1_enabled.load(Ordering::Acquire);
+        let stage2_enabled = self.stage2_enabled.load(Ordering::Acquire);
 
         // §3.9: non-zero PASID (SubstreamID) on a stage-2-only or bypass stream is
         // always terminated with an abort; C_BAD_SUBSTREAMID is recorded (§7.3.9).
@@ -1320,16 +1345,29 @@ impl StreamContext {
     ) -> TranslationResult {
         let pasid_value = pasid.as_u32();
 
-        // Get Stage-1 AddressSpace for PASID (lock-free DashMap lookup for all PASIDs)
-        let addr_space = self.pasid_map.get(&pasid_value).ok_or(TranslationError::PASIDNotFound)?;
+        // Get Stage-1 AddressSpace for PASID (lock-free DashMap lookup for all PASIDs).
+        // BUG-RUST-1 fix: if the lookup misses, check whether the stream is being
+        // concurrently disabled.  A translator that passed is_enabled()==true but
+        // then finds an empty map due to a concurrent disable() must return
+        // StreamDisabled (ARM §7.3.6 F_STREAM_DISABLED), not PASIDNotFound.
+        let addr_space = match self.pasid_map.get(&pasid_value) {
+            Some(a) => a,
+            None => {
+                if self.is_disabling() || !self.is_enabled() {
+                    return Err(TranslationError::StreamDisabled);
+                }
+                return Err(TranslationError::PASIDNotFound);
+            }
+        };
 
         // Perform Stage-1 translation (no RwLock needed - AddressSpace is lock-free)
         let result = addr_space.translate_page(iova, access_type, security_state);
 
-        // On successful translation, update Access Flag / Dirty State per ARM §3.13
+        // On successful translation, update Access Flag / Dirty State per ARM §3.13.
+        // BUG-RUST-3 fix: Acquire loads for ha/hd config fields.
         if result.is_ok() {
-            let ha = self.ha.load(Ordering::Relaxed);
-            let hd = self.hd.load(Ordering::Relaxed);
+            let ha = self.ha.load(Ordering::Acquire);
+            let hd = self.hd.load(Ordering::Acquire);
             if ha || hd {
                 addr_space.update_access_flags(iova, ha, hd, access_type);
             }
@@ -1408,15 +1446,25 @@ impl StreamContext {
     ) -> TranslationResult {
         let pasid_value = pasid.as_u32();
 
-        // Stage-1: IOVA → IPA (lock-free DashMap lookup for all PASIDs)
-        let addr_space = self.pasid_map.get(&pasid_value).ok_or(TranslationError::PASIDNotFound)?;
+        // Stage-1: IOVA → IPA (lock-free DashMap lookup for all PASIDs).
+        // BUG-RUST-1 fix: same disabling check as translate_stage1_only().
+        let addr_space = match self.pasid_map.get(&pasid_value) {
+            Some(a) => a,
+            None => {
+                if self.is_disabling() || !self.is_enabled() {
+                    return Err(TranslationError::StreamDisabled);
+                }
+                return Err(TranslationError::PASIDNotFound);
+            }
+        };
 
         // Stage-1: IOVA → IPA; use explicit match to avoid fragile unwrap()
         let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
             Ok(data) => {
-                // Update Access Flag / Dirty State per ARM §3.13 after successful Stage-1
-                let ha = self.ha.load(Ordering::Relaxed);
-                let hd = self.hd.load(Ordering::Relaxed);
+                // Update Access Flag / Dirty State per ARM §3.13 after successful Stage-1.
+                // BUG-RUST-3 fix: Acquire loads for ha/hd config fields.
+                let ha = self.ha.load(Ordering::Acquire);
+                let hd = self.hd.load(Ordering::Acquire);
                 if ha || hd {
                     addr_space.update_access_flags(iova, ha, hd, access_type);
                 }
@@ -1525,16 +1573,19 @@ impl StreamContext {
     ///   always written from the corresponding STE fields.
     #[inline]
     fn apply_output_attrs(&self, data: TranslationData) -> TranslationData {
-        let mem_type = if self.mt_cfg.load(Ordering::Relaxed) {
-            self.mem_attr.load(Ordering::Relaxed)
+        // BUG-RUST-3 fix: use Acquire ordering for all output-attribute config
+        // field loads so the Release stores in update_configuration() are
+        // guaranteed visible before these reads on weakly-ordered architectures.
+        let mem_type = if self.mt_cfg.load(Ordering::Acquire) {
+            self.mem_attr.load(Ordering::Acquire)
         } else {
             0u8
         };
-        let shareability = self.sh_cfg.load(Ordering::Relaxed);
-        let alloc_hint = self.alloc_cfg.load(Ordering::Relaxed);
-        let inst_cfg = self.inst_cfg.load(Ordering::Relaxed);
-        let priv_cfg = self.priv_cfg.load(Ordering::Relaxed);
-        let ns_cfg_out = self.ns_cfg.load(Ordering::Relaxed);
+        let shareability = self.sh_cfg.load(Ordering::Acquire);
+        let alloc_hint = self.alloc_cfg.load(Ordering::Acquire);
+        let inst_cfg = self.inst_cfg.load(Ordering::Acquire);
+        let priv_cfg = self.priv_cfg.load(Ordering::Acquire);
+        let ns_cfg_out = self.ns_cfg.load(Ordering::Acquire);
 
         data.with_output_attrs(mem_type, shareability, alloc_hint, inst_cfg, priv_cfg, ns_cfg_out)
     }
@@ -1688,18 +1739,35 @@ impl StreamContext {
     /// assert!(!ctx.is_enabled());
     /// ```
     pub fn disable(&self) {
-        // Disable first (SeqCst) so concurrent translators see StreamDisabled,
-        // then clear the PASID map.  Clearing before storing false would let a
-        // racing translate() pass is_enabled() and then find an empty map,
-        // returning PASIDNotFound instead of the correct StreamDisabled.
-        self.enabled.store(false, Ordering::SeqCst);
+        // BUG-RUST-1 fix (ARM IHI0070G.b §7.3.6 F_STREAM_DISABLED):
+        //
+        // Correct disable sequence to prevent TOCTOU race with translate():
+        //
+        //   1. Set `disabling=true` (SeqCst) — translators that pass the
+        //      is_enabled() check but then find an empty pasid_map will
+        //      detect this flag and return StreamDisabled instead of
+        //      the incorrect PASIDNotFound.
+        //   2. Clear pasid_map (and the ASID / count mirrors).
+        //   3. Store `enabled=false` (SeqCst) — new translators are now
+        //      rejected at the is_enabled() fast-path.
+        //   4. Clear `disabling=false` (SeqCst) — the in-progress marker
+        //      is no longer needed.
+        //
+        // This four-step sequence ensures that at no point can a translator
+        // observe both is_enabled()==true and an empty pasid_map without also
+        // seeing is_disabling()==true, which it converts to StreamDisabled.
+        self.disabling.store(true, Ordering::SeqCst);
         self.pasid_map.clear();
-        // Bug 5 fix: clear ASID map after pasid_map so recycled PASID values do not
-        // inherit stale ASIDs on stream re-use.  Order: enabled=false → pasid_map.clear()
-        // → pasid_asid_map.clear() preserves the invariant that an ASID entry only
-        // exists when a corresponding pasid_map entry exists (ARM §3.17).
+        // Bug 5 fix: clear ASID map after pasid_map so recycled PASID values do
+        // not inherit stale ASIDs on stream re-use.  Order:
+        //   disabling=true → pasid_map.clear() → pasid_asid_map.clear()
+        //   → enabled=false → disabling=false
+        // preserves the invariant that an ASID entry only exists when a
+        // corresponding pasid_map entry exists (ARM §3.17).
         self.pasid_asid_map.clear();
         self.pasid_count.store(0, Ordering::Release);
+        self.enabled.store(false, Ordering::SeqCst);
+        self.disabling.store(false, Ordering::SeqCst);
     }
 
     /// Checks if the stream is enabled
@@ -1715,6 +1783,19 @@ impl StreamContext {
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` while `disable()` is actively clearing the PASID map.
+    ///
+    /// Used by the translation hot-path to distinguish a `pasid_map` miss that
+    /// occurred because the stream is being disabled (in which case the correct
+    /// error is `StreamDisabled`) from a genuine missing PASID (`PASIDNotFound`).
+    ///
+    /// See `disable()` for the full synchronisation protocol (BUG-RUST-1 fix).
+    #[inline]
+    #[must_use]
+    fn is_disabling(&self) -> bool {
+        self.disabling.load(Ordering::Acquire)
     }
 
     // ========================================================================
