@@ -728,6 +728,35 @@ TEST_F(AddressSpaceCoverageTest, MapRangeOverflowDetection) {
     EXPECT_EQ(result.getError(), SMMUError::InvalidAddress);
 }
 
+TEST_F(AddressSpaceCoverageTest, AlignedPANearMaxPhysicalBoundaryOverflow) {
+    // GAP-C: Directly exercises the BUG-3 fix guard in mapRange (address_space.cpp):
+    //   if (alignedStartPa + numPages * PAGE_SIZE - 1 > MAX_PHYSICAL_ADDRESS)
+    //
+    // MAX_PHYSICAL_ADDRESS = 0x000FFFFFFFFFFFFFULL  (52-bit, = (1ULL<<52)-1)
+    // PAGE_SIZE             = 4096  (0x1000)
+    //
+    // alignedStartPa is placed exactly one PAGE_SIZE before the 52-bit ceiling so
+    // that a single-page mapping ends precisely at MAX_PHYSICAL_ADDRESS (success),
+    // while a two-page mapping overflows the boundary (failure).
+    PagePermissions perms(true, true, false);
+
+    // alignedStartPa sits one page below the 52-bit ceiling.
+    // alignedStartPa + 1*PAGE_SIZE - 1 == MAX_PHYSICAL_ADDRESS  (exact fit, no overflow)
+    const PA alignedStartPa = MAX_PHYSICAL_ADDRESS - PAGE_SIZE + 1;
+
+    // --- Success case: single page mapping that ends exactly at the PA ceiling ---
+    // startIova=0, endIova=PAGE_SIZE-1 → numPages=1
+    VoidResult ok = addressSpace->mapRange(0, PAGE_SIZE - 1, alignedStartPa, perms);
+    EXPECT_FALSE(ok.isError()) << "Single-page mapping ending at MAX_PHYSICAL_ADDRESS should succeed";
+
+    // --- Failure case: two-page mapping that crosses the 52-bit PA ceiling ---
+    // startIova=0, endIova=2*PAGE_SIZE-1 → numPages=2
+    // alignedStartPa + 2*PAGE_SIZE - 1 > MAX_PHYSICAL_ADDRESS → must be rejected
+    VoidResult fail = addressSpace->mapRange(0, 2 * PAGE_SIZE - 1, alignedStartPa, perms);
+    EXPECT_TRUE(fail.isError()) << "Two-page mapping exceeding MAX_PHYSICAL_ADDRESS should fail";
+    EXPECT_EQ(fail.getError(), SMMUError::InvalidAddress);
+}
+
 TEST_F(AddressSpaceCoverageTest, CheckPermissionsUnknownAccessType) {
     // This test covers lines 584, 586: Default case in checkPermissions
     PagePermissions perms(true, true, true);

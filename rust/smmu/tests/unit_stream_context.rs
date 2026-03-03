@@ -433,3 +433,91 @@ fn test_clear_all_pasids() {
     stream_context.clear_all_pasids().unwrap();
     assert_eq!(stream_context.pasid_count(), 0);
 }
+
+// ============================================================================
+// GAP-B: PASID-Recycling ASID Stale-Value Protection Tests
+//
+// Regression tests for Bug 4 (remove_pasid clears pasid_asid_map) and
+// Bug 5 (clear_all_pasids and disable clear pasid_asid_map).
+//
+// Without the fixes a recycled PASID value inherits the stale ASID from its
+// predecessor, causing incorrect TLB tagging (ARM SMMU v3 spec §3.17).
+// ============================================================================
+
+#[test]
+fn test_remove_pasid_clears_asid_map() {
+    // Bug 4 regression: remove_pasid must clear the ASID entry so a recycled
+    // PASID value does not inherit the stale ASID (ARM §3.17).
+    let stream_context = StreamContext::new();
+    let pasid = PASID::new(5).unwrap();
+
+    stream_context.create_pasid(pasid).unwrap();
+    stream_context.set_pasid_asid(pasid, 42).unwrap();
+
+    // Verify the ASID is set before removal.
+    assert_eq!(stream_context.get_pasid_asid(pasid).unwrap(), 42);
+
+    // Remove the PASID.
+    stream_context.remove_pasid(pasid).unwrap();
+
+    // Recycle the same PASID value.
+    stream_context.create_pasid(pasid).unwrap();
+
+    // The recycled PASID must NOT inherit the stale ASID — it must read back 0.
+    assert_eq!(
+        stream_context.get_pasid_asid(pasid).unwrap(),
+        0,
+        "Recycled PASID must not inherit stale ASID from previous owner"
+    );
+}
+
+#[test]
+fn test_clear_all_pasids_clears_asid_map() {
+    // Bug 5 regression: clear_all_pasids must clear the ASID map so a recycled
+    // PASID value does not inherit a stale ASID (ARM §3.17).
+    let stream_context = StreamContext::new();
+    let pasid = PASID::new(3).unwrap();
+
+    stream_context.create_pasid(pasid).unwrap();
+    stream_context.set_pasid_asid(pasid, 99).unwrap();
+    assert_eq!(stream_context.get_pasid_asid(pasid).unwrap(), 99);
+
+    // Clear all PASIDs (bulk teardown).
+    stream_context.clear_all_pasids().unwrap();
+
+    // Recycle the same PASID value.
+    stream_context.create_pasid(pasid).unwrap();
+
+    // The recycled PASID must NOT inherit the stale ASID — it must read back 0.
+    assert_eq!(
+        stream_context.get_pasid_asid(pasid).unwrap(),
+        0,
+        "Recycled PASID must not inherit stale ASID after clear_all_pasids"
+    );
+}
+
+#[test]
+fn test_disable_clears_asid_map() {
+    // Bug 5 regression: disable must clear the ASID map so a recycled PASID
+    // value on stream re-use does not inherit a stale ASID (ARM §3.17).
+    let stream_context = StreamContext::new();
+    let pasid = PASID::new(7).unwrap();
+
+    stream_context.create_pasid(pasid).unwrap();
+    stream_context.set_pasid_asid(pasid, 77).unwrap();
+    assert_eq!(stream_context.get_pasid_asid(pasid).unwrap(), 77);
+
+    // Simulate stream teardown.
+    stream_context.disable();
+
+    // Re-enable and recycle the same PASID value.
+    stream_context.enable();
+    stream_context.create_pasid(pasid).unwrap();
+
+    // The recycled PASID must NOT inherit the stale ASID — it must read back 0.
+    assert_eq!(
+        stream_context.get_pasid_asid(pasid).unwrap(),
+        0,
+        "Recycled PASID must not inherit stale ASID after disable/enable cycle"
+    );
+}
