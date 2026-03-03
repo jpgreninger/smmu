@@ -25,13 +25,19 @@ static uint32_t computeLog2Size(size_t capacity) {
 
 // Advance a circular index by 1 per ARM §3.5.1.
 // The index cycles 0..2^(log2size+1)-1 then wraps to 0.
+// BUG-CPP-2 fix: clamp log2size to 19 (IDR1.CMDQS max per ARM §3.5.1) before
+// the shift to prevent "2u << log2size" UB when log2size >= 31.
 static uint32_t advanceQueueIndex(uint32_t idx, uint32_t log2size) {
+    if (log2size > 19u) log2size = 19u; // ARM §3.5.1: spec max is 0 <= n <= 19
     uint32_t modulus = 2u << log2size; // 2^(log2size+1)
     return (idx + 1) % modulus;
 }
 
 // Compute number of occupied entries.
+// BUG-CPP-2 fix: clamp log2size to 19 before the shift (same rationale as
+// advanceQueueIndex above).
 static uint32_t queueOccupied(uint32_t prod, uint32_t cons, uint32_t log2size) {
+    if (log2size > 19u) log2size = 19u; // ARM §3.5.1: spec max is 0 <= n <= 19
     uint32_t modulus = 2u << log2size;
     return (prod - cons + modulus) % modulus;
 }
@@ -142,7 +148,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // §6.3.9 SMMUEN=0: bypass or abort depending on SMMU_GBPA.ABORT (§3.11, §13.2).
     // FINDING-NEW-01 / FINDING-NEW-09: check SMMUEN before TLB / stream lookup.
-    if (!smmuen_) {
+    // BUG-CPP-3 fix: read SMMUEN from the authoritative cr0_ register bit rather
+    // than the shadow smmuen_ bool to eliminate split-brain scenarios.
+    if ((cr0_ & CR0_SMMUEN) == 0u) {
         if (gbpaAbort_) {
             // GBPA.ABORT=1: abort all transactions — no identity mapping, no fault event.
             return makeTranslationError(SMMUError::GbpaAbort);
@@ -821,6 +829,25 @@ void SMMU::invalidatePASIDCache(StreamID streamID, PASID pasid) {
     // for cache tuning and debugging purposes
 }
 
+VoidResult SMMU::setStreamStage2AddressSpace(StreamID streamID,
+                                              std::shared_ptr<AddressSpace> stage2AS) {
+    // ARM IHI0070G.b §5.2: Associate a hypervisor-managed Stage-2 address space
+    // with the stream identified by streamID.
+    if (!stage2AS) {
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return makeVoidError(SMMUError::StreamNotConfigured);
+    }
+
+    streamIt->second->setStage2AddressSpace(stage2AS);
+    return makeVoidSuccess();
+}
+
 void SMMU::setStreamVMID(StreamID streamID, uint16_t vmid) {
     // ARM §5.2: STE.S2VMID — VMID for Stage-2 TLB tagging and targeted invalidation.
     size_t stripe = getStreamStripe(streamID);
@@ -1243,8 +1270,16 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     }
     
     // Perform Stage-2 translation: IPA -> PA
-    // ARM SMMU v3 spec: Stage-2 translates the IPA from Stage-1 to final PA
-    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, accessType, securityState);
+    // ARM IHI0070G.b §3.3.2, §3.12.1, §3.13.5, Ch.15, §16.5 (BUG-CPP-1 fix):
+    // The Stage-2 translatePage lookup for the IPA->PA mapping must use
+    // AccessType::Read regardless of the incoming accessType.  This mirrors the
+    // correct pattern established in StreamContext::translateUnlocked
+    // (BUG-NEW2-05 fix).  The real accessType is applied at the permission-
+    // intersection step below (validateAccessPermissions), not here.
+    // Using the incoming accessType here would cause a spurious PermissionFault
+    // when a hypervisor maps Stage-1 page-table pages as read-only in Stage-2
+    // and a guest WRITE triggers a Stage-2 PTW (page-table walk) lookup.
+    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, securityState);
     if (stage2Result.isError()) {
         // ARM SMMU v3 spec Section 7.3.3: Stage-2 fault attribution
         FaultType stage2FaultType;
@@ -2534,7 +2569,11 @@ void SMMU::disable() {
 }
 
 bool SMMU::isEnabled() const {
-    return smmuen_;
+    // BUG-CPP-3 fix: ARM IHI0070G.b §6.3.9 — SMMU_CR0.SMMUEN (bit 0) is the
+    // single authoritative source for the global enable state.  Reading smmuen_
+    // instead of cr0_ created a potential split-brain: the shadow bool and the
+    // register could diverge in concurrent code.  Always derive from cr0_.
+    return (cr0_ & CR0_SMMUEN) != 0u;
 }
 
 void SMMU::setGbpaAbort(bool abort) {

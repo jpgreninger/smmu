@@ -59,6 +59,9 @@ set(UNIT_TEST_SOURCES
     test_new_bugs_spec.cpp
     test_output_attributes.cpp
     test_strw_privilege.cpp
+    test_two_stage_access_type.cpp
+    test_queue_modulus.cpp
+    test_cr0_smmuen_sync.cpp
     ../test_thread_safety.cpp
 )
 

@@ -62,6 +62,13 @@ public:
     // Page mapping operations
     VoidResult mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);
     VoidResult unmapPage(StreamID streamID, PASID pasid, IOVA iova);
+
+    // Stage-2 address space configuration.
+    // Associates a hypervisor-managed Stage-2 address space with the given stream.
+    // Must be called after configureStream() for streams with stage2Enabled=true.
+    // ARM IHI0070G.b §5.2: Stage-2 translation context (S2TTB / S2VMID).
+    VoidResult setStreamStage2AddressSpace(StreamID streamID,
+                                           std::shared_ptr<AddressSpace> stage2AS);
     
     // Event management
     Result<std::vector<FaultRecord>> getEvents();  // Returns Result - error on event queue corruption or system failure
