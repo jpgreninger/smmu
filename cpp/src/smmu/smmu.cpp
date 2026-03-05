@@ -314,11 +314,20 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // BUG-NEW-02 fix: ARM §3.12.2 — configuration-class faults must always
         // abort immediately and must never be stalled.  Only F_TRANSLATION,
         // F_PERMISSION, and F_ADDR_SIZE are eligible for stall mode.
-        bool isConfigFault = (result.getError() == SMMUError::InvalidPASID         ||
-                              result.getError() == SMMUError::StreamDisabled        ||
-                              result.getError() == SMMUError::ConfigurationError    ||
-                              result.getError() == SMMUError::InvalidConfiguration  ||
-                              result.getError() == SMMUError::StreamNotConfigured);
+        // BUG-CPP-4 fix: Add PASIDNotFound (C_BAD_SUBSTREAMID) and
+        // AddressSpaceExhausted (C_BAD_STE) to the isConfigFault guard.
+        // ARM §3.12.2 and §7.3 intro: configuration errors always abort and
+        // must NEVER stall.  Only F_TRANSLATION, F_PERMISSION, F_ADDR_SIZE,
+        // and F_ACCESS (data faults) are eligible for stall mode.
+        // PASIDNotFound maps to C_BAD_SUBSTREAMID (configuration fault class).
+        // AddressSpaceExhausted maps to C_BAD_STE (configuration fault class).
+        bool isConfigFault = (result.getError() == SMMUError::InvalidPASID           ||
+                              result.getError() == SMMUError::StreamDisabled          ||
+                              result.getError() == SMMUError::ConfigurationError      ||
+                              result.getError() == SMMUError::InvalidConfiguration    ||
+                              result.getError() == SMMUError::StreamNotConfigured     ||
+                              result.getError() == SMMUError::PASIDNotFound           ||
+                              result.getError() == SMMUError::AddressSpaceExhausted);
         if (inStallMode && !isConfigFault) {
             // §3.12.2 / FINDING-NEW-26: STAG=0 is reserved; skip it so that
             // EventEntry.stag is always non-zero for genuine stall events.
@@ -370,6 +379,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     stallEventType = EventType::F_TRANSLATION;
                     break;
             }
+            // BUG-CPP-3 fix: Release the stripe lock BEFORE calling generateEvent().
+            // generateEvent() acquires queueMutex.  The lock-ordering invariant is:
+            // stripe lock must NEVER be held when queueMutex is acquired.  Violating
+            // this order creates an ABBA deadlock with any other thread that holds
+            // queueMutex and then attempts to acquire a stripe lock (e.g. the
+            // CMD_SYNC path in processCommandQueue).  The stall metadata
+            // (stallEventType, stag) was already captured above, so releasing the
+            // stripe lock here is safe — all accesses to streamContext are complete.
+            lock.unlock();
             generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
             return makeTranslationError(SMMUError::Stalled);
         }
@@ -2879,16 +2897,18 @@ FaultStage SMMU::determineFaultStage(const StreamConfig& config, FaultType fault
 }
 
 PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityState securityState) const {
+    // Suppress unused-parameter warning: accessType is retained in the signature
+    // for API stability and potential future use (e.g. AxPROT[1] decoding).
+    (void)accessType;
     // TODO(BUG-CPP-09): Privilege level should be a transaction attribute supplied
     // by the initiating master (ARM SMMU v3 §3.6 STREAM_WORLD / AxPROT[1]).
     // This is a heuristic approximation only; accurate privilege level requires the
     // initiating master to supply it as part of the transaction descriptor.
     //
-    // Previous behaviour mapped Secure→EL3 unconditionally, which is wrong for
-    // Secure EL1/EL2 software (OS drivers, hypervisors running in the Secure world).
-    // Root is the only state that genuinely implies EL3 (monitor/firmware).
-    // Realm management extensions use EL2; all other worlds default to EL1 for data
-    // and EL0 for instruction fetches (most DMA originates from OS/driver level).
+    // BUG-CPP-5 fix: Use security state only; Root→EL3 and Realm→EL2 remain
+    // correct (those states canonically imply specific exception levels).
+    // Secure and NonSecure default to EL0 per ARM §13.1.3 (spec default for
+    // unknown privilege is Unprivileged).
     switch (securityState) {
         case SecurityState::Root:
             return PrivilegeLevel::EL3;
@@ -2897,10 +2917,14 @@ PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityStat
         case SecurityState::Secure:
         case SecurityState::NonSecure:
         default:
-            // DMA typically originates from EL1 (OS drivers) or EL0 (userspace).
-            // Return EL1 as the safest general-purpose default.
-            return (accessType == AccessType::Execute) ? PrivilegeLevel::EL0
-                                                       : PrivilegeLevel::EL1;
+            // BUG-CPP-5 fix: ARM §13.1.3 states the spec default for missing
+            // PRIV is Unprivileged (EL0), regardless of security state.
+            // The previous heuristic (EL1 for data, EL0 for execute) was wrong:
+            // Secure/NonSecure do not imply a specific exception level; a
+            // Secure-EL2 hypervisor running DMA would receive incorrect EL1 bits
+            // in the fault syndrome.  Return EL0 (Unprivileged) for ALL access
+            // types to conform to §13.1.3.
+            return PrivilegeLevel::EL0;
     }
 }
 

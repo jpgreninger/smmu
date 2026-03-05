@@ -64,6 +64,9 @@ set(UNIT_TEST_SOURCES
     test_cr0_smmuen_sync.cpp
     test_bug_cpp1_event_codes.cpp
     test_bug_cpp2_fault_syndrome.cpp
+    test_bug_cpp3_stall_lock_order.cpp
+    test_bug_cpp4_config_fault_stall.cpp
+    test_bug_cpp5_priv_level_syndrome.cpp
     ../test_thread_safety.cpp
 )
 
