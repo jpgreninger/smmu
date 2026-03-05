@@ -1494,7 +1494,12 @@ impl StreamContext {
         let stage2_result = {
             let stage2_guard = self.stage2_address_space.read().unwrap();
             let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
-            stage2.translate_page(ipa, access_type, security_state)
+            // BUG-RUST-1 fix: ARM IHI0070G.b §7.3.16 — "When CLASS == TT, the
+            // access is implicitly Data and a read."  The Stage-2 lookup for the
+            // page-table walk (PTW) must use AccessType::Read regardless of the
+            // original transaction's access type.  The actual permission check is
+            // done by the S1 ∩ S2 intersection logic below (lines ~1516-1531).
+            stage2.translate_page(ipa, AccessType::Read, security_state)
         }; // stage2_address_space read-lock released here
 
         // Record Stage-2 fault if error (lock is no longer held)

@@ -62,6 +62,8 @@ set(UNIT_TEST_SOURCES
     test_two_stage_access_type.cpp
     test_queue_modulus.cpp
     test_cr0_smmuen_sync.cpp
+    test_bug_cpp1_event_codes.cpp
+    test_bug_cpp2_fault_syndrome.cpp
     ../test_thread_safety.cpp
 )
 

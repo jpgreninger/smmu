@@ -1519,15 +1519,30 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             // already generated in performTwoStageTranslation(); no additional recovery needed.
             break;
 
-        // ARM SMMU v3 specific fault types - default handling (recovery only, no re-recording)
+        // BUG-CPP-1 fix: Each fault type must emit its own correct event code per
+        // ARM IHI0070G.b.  The previous fall-through caused all six fault types to
+        // emit F_ACCESS (0x12), which is only correct for AccessFlagFault.
+
         case FaultType::ContextDescriptorFormatFault:
+            // §7.3.11: Context Descriptor format error → C_BAD_CD (0x0A).
+            // Event may already have been emitted by the CD-validation path;
+            // emit here only for paths that reach this case without a prior event.
+            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
+            break;
+
         case FaultType::TranslationTableFormatFault:
         case FaultType::Level0TranslationFault:
         case FaultType::Level1TranslationFault:
         case FaultType::Level2TranslationFault:
         case FaultType::Level3TranslationFault:
+            // §7.3.13: Translation table format error and level-N translation faults
+            // → F_TRANSLATION (0x10), not F_ACCESS (0x12).
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            break;
+
         case FaultType::AccessFlagFault:
-            // §7.3.15 / FINDING-NEW-31: Access flag fault → F_ACCESS event (0x12).
+            // §7.3.15: Access flag fault → F_ACCESS (0x12).  This is the ONLY
+            // fault type in this group that correctly emits F_ACCESS.
             generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState);
             break;
 
@@ -2754,9 +2769,25 @@ FaultSyndrome SMMU::generateFaultSyndrome(FaultType faultType, FaultStage stage,
                                          PrivilegeLevel privLevel, uint16_t contextDescIndex) const {
     (void)securityState; // Suppress unused parameter warning - reserved for future security-aware fault syndrome generation
     
-    // Generate ARM SMMU v3 compliant fault syndrome
-    bool writeAccess = (accessType == AccessType::Write);
-    bool instructionFetch = (accessType == AccessType::Execute);
+    // Generate ARM SMMU v3 compliant fault syndrome.
+    //
+    // BUG-CPP-2 fix: The original code only checked the single-variant Write and
+    // Execute types, leaving ReadWrite, WritePrivileged, ReadWritePrivileged, and
+    // ExecutePrivileged with wrong RnW/InD bits.
+    //
+    // ARM IHI0070G.b §7.3.13–7.3.15, line 35325:
+    //   RnW (bit [3]) = 1 for any access that contains a write component.
+    //   InD (bit [2]) = 1 for instruction fetches, BUT ONLY when RnW == 0.
+    //   "InD == 0 when RnW == 0" is a spec-required constraint.
+    bool writeAccess = (accessType == AccessType::Write             ||
+                        accessType == AccessType::ReadWrite         ||
+                        accessType == AccessType::WritePrivileged   ||
+                        accessType == AccessType::ReadWritePrivileged);
+    // InD is set for execute-class accesses only when there is no write component.
+    // Per spec: InD must be 0 when RnW (writeAccess) is 1.
+    bool instructionFetch = (!writeAccess) &&
+                            (accessType == AccessType::Execute ||
+                             accessType == AccessType::ExecutePrivileged);
     
     // Encode the syndrome register according to ARM SMMU v3 specification
     uint32_t syndromeRegister = encodeFaultSyndromeRegister(faultType, stage, faultLevel, writeAccess, instructionFetch);

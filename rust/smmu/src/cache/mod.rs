@@ -239,27 +239,53 @@ impl CacheKeyHash {
     /// - Good distribution for hash tables
     /// - The lower 12 bits of IOVA are skipped (4KB pages)
     /// - Uses efficient bit rotation and XOR mixing
+    ///
+    /// # ARM SMMU v3 Spec Compliance
+    ///
+    /// ARM IHI0070G.b §6.3.2 (SIDSIZE) defines StreamID as up to 32 bits wide.
+    /// This implementation uses XOR-multiply combination to incorporate all 32
+    /// bits of StreamID without loss — avoiding the overflow hazard of the
+    /// previous `u64::from(sid) << 48` approach, which silently discarded bits
+    /// 16-31 for any StreamID value >= 65536.
+    ///
+    /// BUG-RUST-2 fix: the previous formula placed the StreamID in bits 48-63
+    /// of a u64 (`<< 48`).  For a 32-bit StreamID value with bits 16-31 set,
+    /// the shift would overflow u64 and produce 0 — identical to StreamID 0.
+    /// The fix uses a 64-bit multiply-add to mix all 32 bits without overflow.
     #[inline(always)]
     pub fn hash(key: &CacheKey) -> u64 {
-        // Combine all fields with good bit separation for better distribution
-        // This is much faster than FNV-1a's multiple multiply operations
+        // BUG-RUST-2 fix: use XOR-multiply combination to incorporate all 32
+        // bits of StreamID without bit-shift overflow.
+        //
+        // Previous (buggy) approach:
+        //   let stream = u64::from(key.stream_id.as_u32()) << 48;
+        // For StreamID >= 0x10000, bits 16-31 overflowed the 64-bit boundary
+        // and were discarded, causing a hash collision with StreamID 0.
+        //
+        // Fixed approach: fold the 32-bit StreamID into the full 64-bit hash
+        // via Knuth's multiplicative hash constant (a prime approximation of
+        // phi^-1 * 2^64), providing excellent avalanche for all 32 bits.
+        let stream_u64 = u64::from(key.stream_id.as_u32());
+        let stream = stream_u64.wrapping_mul(0x9e37_79b9_7f4a_7c15_u64);
 
-        // StreamID (16 bits) - place in upper portion
-        let stream = u64::from(key.stream_id.as_u32()) << 48;
+        // PASID (20 bits) — fold into hash using a different constant
+        let pasid_u64 = u64::from(key.pasid.as_u32());
+        let pasid = pasid_u64.wrapping_mul(0x6c62_272e_07bb_0142_u64);
 
-        // PASID (20 bits) - place in middle-upper portion
-        let pasid = u64::from(key.pasid.as_u32()) << 26;
+        // Security state (2 bits)
+        let security = u64::from(key.security_state as u8) & 0x3;
 
-        // Security state (2 bits) - place in middle for better mixing
-        let security = (u64::from(key.security_state as u8) & 0x3) << 24;
-
-        // Page number (IOVA >> 12) - uses remaining 24 bits
-        let page = (key.iova.as_u64() >> 12) & 0xFF_FFFF;
+        // Page number (IOVA >> 12) — lower 12 bits are page offset (unused)
+        let page = (key.iova.as_u64() >> 12).wrapping_mul(0x517c_c1b7_2722_0a95_u64);
 
         // Combine all fields with a non-zero seed (FNV-1a offset basis) so
         // all-zero inputs (e.g. stream=0, PASID=0, IOVA=0, NonSecure=0b00)
         // never produce a zero hash value.
-        let mut hash = (stream | pasid | security | page) ^ 0xcbf2_9ce4_8422_2325_u64;
+        let mut hash = stream
+            .wrapping_add(pasid)
+            .wrapping_add(security)
+            .wrapping_add(page)
+            ^ 0xcbf2_9ce4_8422_2325_u64;
 
         // Fast mixing using bit rotation and XOR (murmur-like finalizer)
         // This provides good distribution with minimal operations
@@ -711,12 +737,17 @@ impl TlbCache {
         let timestamp = self.timestamp.fetch_add(1, Ordering::Relaxed);
         entry.timestamp = timestamp;
 
-        // Enforce capacity: evict one entry before inserting when at the limit.
-        if self.entries.len() >= self.capacity {
+        // Insert the new entry first, then enforce capacity by evicting until
+        // the map is within bounds.  This post-insert eviction loop handles the
+        // TOCTOU race: multiple concurrent threads may each pass a pre-insert
+        // capacity check and all insert simultaneously, causing the map to grow
+        // beyond capacity.  By checking *after* insertion and evicting in a loop,
+        // each thread participates in trimming the map back to capacity, so the
+        // final size remains bounded regardless of concurrency.
+        self.entries.insert(key, entry);
+        while self.entries.len() > self.capacity {
             self.evict_one();
         }
-
-        self.entries.insert(key, entry);
         self.statistics.insertions.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -2046,25 +2077,32 @@ mod tests {
 
     #[test]
     fn test_cache_key_hash_fnv_algorithm() {
-        // Verify FNV-1a algorithm implementation
+        // Verify the hash algorithm matches the production formula exactly.
+        // Inputs: stream_id=1, pasid=2, iova=0x3000 (page number 3), security=NonSecure
         let stream_id = StreamID::new(1).unwrap();
-        let pasid = PASID::new(2).unwrap();
-        let iova = IOVA::new(0x3000).unwrap(); // Page number 3
+        let pasid_val = PASID::new(2).unwrap();
+        let iova = IOVA::new(0x3000).unwrap(); // page number = 0x3000 >> 12 = 3
 
-        let key = CacheKey::new(stream_id, pasid, iova, SecurityState::NonSecure);
+        let key = CacheKey::new(stream_id, pasid_val, iova, SecurityState::NonSecure);
 
-        // Manual calculation using new optimized algorithm
-        // StreamID in upper 16 bits
-        let stream = (1u64) << 48;
-        // PASID in next 20 bits
-        let pasid = (2u64) << 26;
-        // Security state in middle 2 bits (NonSecure=0b00=0 per §3.10)
-        let security = ((SecurityState::NonSecure as u64) & 0x3) << 24;
-        // Page number (IOVA >> 12) - 0x3000 >> 12 = 3
-        let page = 3u64 & 0xFF_FFFF;
+        // Manual calculation matching the FIXED production formula in CacheKeyHash::hash():
+        //   stream = u64::from(stream_id).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        //   pasid  = u64::from(pasid).wrapping_mul(0x6c62_272e_07bb_0142)
+        //   security = u64::from(security_state as u8) & 0x3
+        //   page = (iova >> 12).wrapping_mul(0x517c_c1b7_2722_0a95)
+        //   hash = (stream + pasid + security + page) ^ 0xcbf2_9ce4_8422_2325
+        //   followed by the three-round murmur finalizer
+        let stream = 1u64.wrapping_mul(0x9e37_79b9_7f4a_7c15_u64);
+        let pasid = 2u64.wrapping_mul(0x6c62_272e_07bb_0142_u64);
+        let security = u64::from(SecurityState::NonSecure as u8) & 0x3;
+        // IOVA=0x3000, page number = 0x3000 >> 12 = 3
+        let page = 3u64.wrapping_mul(0x517c_c1b7_2722_0a95_u64);
 
-        // XOR with FNV-1a offset basis seed (matches the implementation)
-        let mut expected = (stream | pasid | security | page) ^ 0xcbf2_9ce4_8422_2325_u64;
+        let mut expected = stream
+            .wrapping_add(pasid)
+            .wrapping_add(security)
+            .wrapping_add(page)
+            ^ 0xcbf2_9ce4_8422_2325_u64;
         expected ^= expected >> 33;
         expected = expected.wrapping_mul(0xff51_afd7_ed55_8ccd);
         expected ^= expected >> 33;
