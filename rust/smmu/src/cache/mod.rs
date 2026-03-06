@@ -378,9 +378,22 @@ impl Hasher for FxHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.hash ^= u64::from(byte);
-            self.hash = self.hash.wrapping_mul(0x0100_0000_01B3);
+        // Process complete 8-byte chunks as native-endian u64 words via write_u64(),
+        // ensuring write(&x.to_ne_bytes()) == write_u64(x) for any aligned input.
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in chunks.by_ref() {
+            // SAFETY: chunks_exact(8) guarantees exactly 8 bytes.
+            let word = u64::from_ne_bytes(chunk.try_into().expect("chunk is exactly 8 bytes"));
+            self.write_u64(word);
+        }
+        // Handle trailing bytes (0–7) by zero-padding into a u64 in native-endian
+        // byte order, then folding through write_u64() so the same mixing applies.
+        let tail = chunks.remainder();
+        if !tail.is_empty() {
+            let mut word_bytes = [0u8; 8];
+            word_bytes[..tail.len()].copy_from_slice(tail);
+            let word = u64::from_ne_bytes(word_bytes);
+            self.write_u64(word);
         }
     }
 

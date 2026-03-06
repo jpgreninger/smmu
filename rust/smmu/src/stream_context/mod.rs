@@ -2131,16 +2131,19 @@ impl<'a> StreamContextQuery<'a> {
         self.ctx.get_fault_statistics()
     }
 
-    /// Returns PASIDs filtered by security state
+    /// Returns PASIDs filtered by security state.
     ///
-    /// # TODO
-    ///
-    /// This is a placeholder implementation. Full implementation would require
-    /// tracking security state per PASID/page, which is beyond basic Section 4.2 scope.
-    pub fn pasids_by_security_state(&self, _security_state: SecurityState) -> impl Iterator<Item = PASID> + 'a {
-        // TODO: Implement proper security state tracking per PASID
-        // For now, return empty iterator to avoid incorrect results
-        std::iter::empty()
+    /// Security state is tracked at the stream level (ARM §5.2 STE.SEC_SID classifies
+    /// the entire stream and all its substreams/PASIDs into a single security domain).
+    /// If the stream's security state matches `security_state`, all configured PASIDs
+    /// are returned; otherwise the iterator is empty.
+    pub fn pasids_by_security_state(&self, security_state: SecurityState) -> impl Iterator<Item = PASID> + 'a {
+        let pasid_values: Vec<u32> = if self.ctx.security_state() == security_state {
+            self.ctx.pasid_map.iter().map(|entry| *entry.key()).collect()
+        } else {
+            Vec::new()
+        };
+        pasid_values.into_iter().filter_map(|val| PASID::new(val).ok())
     }
 }
 

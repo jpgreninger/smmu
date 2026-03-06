@@ -282,7 +282,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
                 case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;   break;
                 case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
-                default: break;
+                // Already at the correct privilege level — Stage A will hit directly on a warm
+                // TLB using the *Privileged variant (validateAccessPermissions does not gate on
+                // !privilegedOnly for *Privileged types), so no promotion is needed and
+                // Stage B (effectiveAccessType != accessType) evaluates to false and is skipped.
+                case AccessType::ReadPrivileged:
+                case AccessType::WritePrivileged:
+                case AccessType::ExecutePrivileged:
+                case AccessType::ReadWritePrivileged:
+                    break;
             }
         }
         if (effectiveAccessType != accessType) {

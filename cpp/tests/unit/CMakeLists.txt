@@ -67,6 +67,7 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp3_stall_lock_order.cpp
     test_bug_cpp4_config_fault_stall.cpp
     test_bug_cpp5_priv_level_syndrome.cpp
+    test_bug_cpp6_strw_tlb_recheck.cpp
     ../test_thread_safety.cpp
 )
 

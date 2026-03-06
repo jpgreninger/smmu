@@ -758,11 +758,14 @@ fn test_query_get_stats() {
 #[test]
 fn test_query_pasids_by_security_state() {
     let ctx = StreamContext::new();
+    // Default security state is NonSecure; PASID 1 belongs to the stream's domain.
     ctx.create_pasid(PASID::new(1).unwrap()).unwrap();
 
     let query = ctx.query();
-    // Currently returns empty iterator (TODO in implementation)
-    assert_eq!(query.pasids_by_security_state(SecurityState::NonSecure).count(), 0);
+    // Stream is NonSecure → querying NonSecure returns all 1 PASID.
+    assert_eq!(query.pasids_by_security_state(SecurityState::NonSecure).count(), 1);
+    // Querying a different state returns nothing.
+    assert_eq!(query.pasids_by_security_state(SecurityState::Secure).count(), 0);
 }
 
 // ========================================================================
