@@ -800,16 +800,62 @@ impl SMMU {
     /// This replaces the old `fetch_or` pattern which violated the spec by
     /// setting bits unconditionally instead of using XOR-toggle semantics.
     fn signal_gerror(&self, bits: u32) {
-        // Load both registers to determine which bits are inactive.
-        // An inactive bit satisfies GERROR[x] == GERRORN[x], i.e., XOR == 0.
-        let current_gerror  = self.gerror.load(Ordering::Acquire);
-        let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
-        // Bits that are currently ACTIVE (unequal): already active — no toggle.
-        // Bits that are currently INACTIVE (equal): toggle allowed.
-        let active   = current_gerror ^ current_gerrorn;
-        let inactive = bits & !active; // restrict to the requested bits that are inactive
-        if inactive != 0 {
-            self.gerror.fetch_xor(inactive, Ordering::Release);
+        // BUG-RUST-DBGR-7 fix: use a CAS loop to atomically check-and-toggle.
+        // The spec (§6.3.19 §7.5) says "The SMMU does not toggle bit[x] if the
+        // error is already active".  An error is ACTIVE when GERROR[x] != GERRORN[x].
+        // A plain load-then-fetch_xor has a TOCTOU window: another thread could
+        // activate the bit between our load and our fetch_xor, causing us to
+        // incorrectly toggle an already-active bit.  A CAS loop closes this window.
+        loop {
+            let current_gerror  = self.gerror.load(Ordering::Acquire);
+            let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
+            // Bits that are currently ACTIVE (GERROR[x] != GERRORN[x]): skip.
+            // Bits that are currently INACTIVE (GERROR[x] == GERRORN[x]): toggle.
+            let active   = current_gerror ^ current_gerrorn;
+            let inactive = bits & !active;
+            if inactive == 0 {
+                break; // all requested bits are already active — nothing to do
+            }
+            let new_gerror = current_gerror ^ inactive;
+            if self.gerror.compare_exchange_weak(
+                current_gerror,
+                new_gerror,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ).is_ok() {
+                break; // success — CAS applied
+            }
+            // CAS failed: GERROR changed concurrently — retry loop
+        }
+    }
+
+    /// Toggle EVENTQ_PROD.OVFLG (bit 31) atomically, only if not already active.
+    ///
+    /// ARM §7.4: "OVFLG is toggled when a non-stall event record is discarded due
+    /// to queue full, provided that an overflow condition is not already present."
+    /// OVFLG is active when `OVFLG != OVACKFLG` (bit 31 of prod differs from
+    /// bit 31 of cons).  BUG-RUST-DBGR-8 fix: use CAS loop to close the TOCTOU
+    /// window between the `ovflg == ovackflg` check and the `fetch_xor`.
+    #[inline]
+    fn toggle_ovflg_once(&self) {
+        loop {
+            let prod = self.eventq_prod.load(Ordering::Acquire);
+            let cons = self.eventq_cons.load(Ordering::Acquire);
+            let ovflg    = (prod >> 31) & 1;
+            let ovackflg = (cons >> 31) & 1;
+            if ovflg != ovackflg {
+                break; // overflow already active — do NOT toggle again
+            }
+            let new_prod = prod ^ (1u32 << 31);
+            if self.eventq_prod.compare_exchange_weak(
+                prod,
+                new_prod,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ).is_ok() {
+                break; // success — CAS applied
+            }
+            // CAS failed: prod changed concurrently — retry loop
         }
     }
 
@@ -933,6 +979,9 @@ impl SMMU {
         // SMMU-configured streams.  update_configuration() sets every field.
         let stream_context = StreamContext::new();
         stream_context.update_configuration(config);
+        // BUG-RUST-DBGR-10 fix: store the StreamID so fault records carry the correct
+        // StreamID per ARM §7.3 (not placeholder 0).
+        stream_context.set_stream_id(stream_value);
 
         // Use entry API for atomic check-and-insert (eliminates TOCTOU race for duplicates)
         // This guarantees that no other thread can insert the same stream_id between
@@ -2053,18 +2102,18 @@ impl SMMU {
                             }
                             iters += 1;
                             if iters >= 65535 {
-                                // BUG-13 fix: stall queue is full — fall back to
-                                // terminate mode.  Per ARM §3.12.2 "The SMMU always
-                                // records the details of the access into the Event
-                                // queue."  Record the fault as a non-stall event so
-                                // software sees the correct fault report.  Return the
-                                // original translation error (not TlbConflict, which
-                                // is IMPDEF for actual TLB geometry conflicts only).
+                                // BUG-13 fix / BUG-RUST-DBGR-12 fix: stall queue is
+                                // full (all 65535 STAGs occupied).  ARM §3.12.2: "The
+                                // SMMU always records the details of the access into
+                                // the Event queue."  Record the fault as a non-stall
+                                // event so software sees the correct fault report.
+                                // Return StallQueueFull so callers can distinguish
+                                // this condition from a plain translation error.
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, access, security_state,
                                     error, false, 0,
                                 );
-                                return Err(error.clone());
+                                return Err(TranslationError::StallQueueFull);
                             }
                         }
                     }
@@ -2255,6 +2304,9 @@ impl SMMU {
             // BUG-RUST-DBGR-2 fix: §7.3.11 C_BAD_CD — invalid context descriptor.
             // Maps to BadCD (event code 0x0A), distinct from BadSubstreamId (0x08).
             TranslationError::BadCD => FaultType::BadCD,
+            // BUG-RUST-DBGR-12: StallQueueFull is a stall-queue resource exhaustion condition.
+            // The underlying fault was already recorded; map to TranslationFault for fallback.
+            TranslationError::StallQueueFull => FaultType::TranslationFault,
         }
     }
 
@@ -2362,16 +2414,9 @@ impl SMMU {
                 }
             } else {
                 // Non-stall event dropped due to full queue.
-                // BUG-10 fix / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit 31) only when:
-                //   (1) the discarded event is NOT a stall event (checked above).
-                //   (2) no overflow is already active — i.e. OVFLG == OVACKFLG.
-                let prod = self.eventq_prod.load(Ordering::Acquire);
-                let cons = self.eventq_cons.load(Ordering::Acquire);
-                let ovflg    = (prod >> 31) & 1;
-                let ovackflg = (cons >> 31) & 1;
-                if ovflg == ovackflg {
-                    self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
-                }
+                // BUG-10 fix / ARM §7.4 / BUG-RUST-DBGR-8 fix: Toggle OVFLG atomically
+                // via CAS loop (toggle_ovflg_once) — see that method for details.
+                self.toggle_ovflg_once();
             }
         }
     }
@@ -2425,17 +2470,9 @@ impl SMMU {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
             } else {
-                // BUG-05 / ARM §7.4: Toggle EVENTQ_PROD.OVFLG (bit[31]) when a
-                // non-stall event (C_BAD_STREAMID) is discarded due to a full queue,
-                // provided an overflow is not already signalled (§7.4: "provided that
-                // an overflow condition is not already present").
-                let prod = self.eventq_prod.load(Ordering::Acquire);
-                let cons = self.eventq_cons.load(Ordering::Acquire);
-                let ovflg    = (prod >> 31) & 1;
-                let ovackflg = (cons >> 31) & 1;
-                if ovflg == ovackflg {
-                    self.eventq_prod.fetch_xor(1u32 << 31, Ordering::Release);
-                }
+                // BUG-05 / ARM §7.4 / BUG-RUST-DBGR-8 fix: Toggle OVFLG atomically
+                // via CAS loop — see toggle_ovflg_once() for details.
+                self.toggle_ovflg_once();
             }
         }
     }
@@ -3112,13 +3149,25 @@ impl SMMU {
             // (i.e. OVFLG already differs from the software-acknowledged OVACKFLG).
             // Use XOR to toggle rather than OR so a second toggle is only applied after
             // software acknowledges the first via PRIQ_CONS.OVACKFLG = PRIQ_PROD.OVFLG.
-            let current_prod = self.priq_prod.load(Ordering::Acquire);
-            let current_cons = self.priq_cons.load(Ordering::Acquire);
-            let ovflg    = (current_prod >> 31) & 1;
-            let ovackflg = (current_cons >> 31) & 1;
-            if ovflg == ovackflg {
-                // No active overflow — toggle OVFLG to signal the new overflow.
-                self.priq_prod.fetch_xor(1u32 << 31, Ordering::Release);
+            // BUG-RUST-DBGR-8 fix: CAS loop for atomic OVFLG toggle (same pattern as toggle_ovflg_once).
+            loop {
+                let current_prod = self.priq_prod.load(Ordering::Acquire);
+                let current_cons = self.priq_cons.load(Ordering::Acquire);
+                let ovflg    = (current_prod >> 31) & 1;
+                let ovackflg = (current_cons >> 31) & 1;
+                if ovflg != ovackflg {
+                    break; // overflow already active — do NOT toggle again
+                }
+                let new_prod = current_prod ^ (1u32 << 31);
+                if self.priq_prod.compare_exchange_weak(
+                    current_prod,
+                    new_prod,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ).is_ok() {
+                    break; // CAS applied
+                }
+                // CAS failed: priq_prod changed concurrently — retry loop
             }
             return Err(SMMUError::PriQueueFull);
         }
@@ -3505,6 +3554,24 @@ impl SMMU {
     pub fn page_requests(&self) -> Vec<PRIEntry> {
         let requests = self.pri_queue.read().unwrap();
         requests.iter().copied().collect()
+    }
+
+    /// Pre-fill the stall queue with all 65535 STAGs to simulate exhaustion.
+    ///
+    /// **For integration tests only** (BUG-RUST-DBGR-12): fills every STAG slot
+    /// so that the next stall-mode fault hits the queue-full path and returns
+    /// `TranslationError::StallQueueFull`.  Not intended for production use.
+    pub fn inject_stall_records_for_test(&self, stream_id: u32, pasid: u32) {
+        for stag in 1u16..=u16::MAX {
+            self.stall_queue.entry(stag).or_insert(StallRecord {
+                stag,
+                stream_id,
+                pasid,
+                iova: 0xDEAD_BEEF,
+                access: AccessType::Read,
+                security_state: SecurityState::NonSecure,
+            });
+        }
     }
 }
 

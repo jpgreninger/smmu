@@ -115,6 +115,19 @@ pub enum TranslationError {
     /// path is never taken for configuration faults (ARM §11.639).
     #[error("Invalid context descriptor (§7.3.11 C_BAD_CD)")]
     BadCD,
+
+    /// Stall queue exhausted — all 65535 STAG slots are occupied (ARM §3.12.2)
+    ///
+    /// Returned when a stall-mode stream encounters a translation fault but all
+    /// STAG (Stall TAG) slots 1..=65535 are already in use.  The SMMU cannot
+    /// create a new stall entry; per §3.12.2 it still records the fault to the
+    /// event queue and returns this distinct error so callers can detect the
+    /// queue-full condition rather than receiving a silent fallback.
+    ///
+    /// This is distinct from `Stalled { stag }` (which succeeds in allocating
+    /// a STAG) and from `PageNotMapped` (which is the underlying fault cause).
+    #[error("Stall queue exhausted — all STAG slots occupied (§3.12.2)")]
+    StallQueueFull,
 }
 
 /// Translation result data structure
