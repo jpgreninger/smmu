@@ -222,7 +222,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.timestamp = currentTime;
         recordFault(fault);
         generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
-        return makeTranslationError(SMMUError::StreamNotConfigured);
+        // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID,
+        // not StreamNotConfigured (which would imply the stream exists but is disabled).
+        return makeTranslationError(SMMUError::InvalidStreamID);
     }
 
     StreamContext* streamContext = streamIt->second.get();
@@ -252,8 +254,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if (cachingEnabled && tlbCache) {
         StreamConfig streamCfgForTlb = streamContext->getStreamConfiguration();
         // Derive effective access type for the privilege-aware permission check.
+        // BUG-CPP-DBGR-5 fix: §5.2 says STRW is IGNORED when stage-2 is enabled for
+        // Non-secure streams.  Only apply STRW promotion for single-stage (stage-1-only) streams.
         AccessType effectiveAccessType = accessType;
-        if (streamCfgForTlb.strw == StreamWorld::EL2 || streamCfgForTlb.strw == StreamWorld::EL3) {
+        if (!streamCfgForTlb.stage2Enabled &&
+            (streamCfgForTlb.strw == StreamWorld::EL2 || streamCfgForTlb.strw == StreamWorld::EL3)) {
             switch (accessType) {
                 case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;      break;
                 case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
@@ -331,11 +336,16 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // and F_ACCESS (data faults) are eligible for stall mode.
         // PASIDNotFound maps to C_BAD_SUBSTREAMID (configuration fault class).
         // AddressSpaceExhausted maps to C_BAD_STE (configuration fault class).
+        // BUG-CPP-DBGR-12 fix: add InvalidStreamID to the config-fault guard.
+        // The streamMap-miss path now returns InvalidStreamID (§7.3.3 C_BAD_STREAMID)
+        // instead of StreamNotConfigured.  Both are configuration faults that must
+        // never stall — keep StreamNotConfigured for other callers that still use it.
         bool isConfigFault = (result.getError() == SMMUError::InvalidPASID           ||
                               result.getError() == SMMUError::StreamDisabled          ||
                               result.getError() == SMMUError::ConfigurationError      ||
                               result.getError() == SMMUError::InvalidConfiguration    ||
                               result.getError() == SMMUError::StreamNotConfigured     ||
+                              result.getError() == SMMUError::InvalidStreamID         ||
                               result.getError() == SMMUError::PASIDNotFound           ||
                               result.getError() == SMMUError::AddressSpaceExhausted);
         if (inStallMode && !isConfigFault) {
@@ -398,6 +408,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // (stallEventType, stag) was already captured above, so releasing the
             // stripe lock here is safe — all accesses to streamContext are complete.
             lock.unlock();
+            // BUG-CPP-DBGR-4 fix: null out the raw pointer after unlock to make it
+            // explicit that no further accesses to streamContext are allowed.
+            streamContext = nullptr;
             generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
             return makeTranslationError(SMMUError::Stalled);
         }
@@ -406,6 +419,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // same stripe lock, which would deadlock.  All accesses to streamContext are
         // complete at this point.
         lock.unlock();
+        // BUG-CPP-DBGR-4 fix: null out the raw pointer after unlock (defensive clarity).
+        streamContext = nullptr;
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
         return result;
     }
@@ -1263,13 +1278,25 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
     if (stage1Result.isError()) {
         // Stage-1 translation failed - record fault with comprehensive syndrome
-        // ARM SMMU v3 spec Section 7.3.2: Use level-specific fault classification
+        // BUG-CPP-DBGR-6 fix: §7.3.14/§7.3.16 — classify each error correctly
+        // instead of falling back to the generic AccessFault for all non-PageNotMapped errors.
         FaultType faultType;
-        if (stage1Result.getError() == SMMUError::PageNotMapped) {
-            // Use level-specific fault classification (ARM SMMU v3 Section 7.3.2)
-            faultType = classifyDetailedTranslationFault(iova, 1, false);
-        } else {
-            faultType = FaultType::AccessFault;
+        switch (stage1Result.getError()) {
+            case SMMUError::PageNotMapped:
+                faultType = classifyDetailedTranslationFault(iova, 1, false);
+                break;
+            case SMMUError::PagePermissionViolation:
+                faultType = FaultType::PermissionFault;
+                break;
+            case SMMUError::InvalidAddress:
+                faultType = FaultType::AddressSizeFault;
+                break;
+            case SMMUError::InvalidSecurityState:
+                faultType = FaultType::SecurityFault;
+                break;
+            default:
+                faultType = FaultType::AccessFault;
+                break;
         }
         recordComprehensiveFault(streamID, pasid, iova, faultType,
                                accessType, securityState, FaultStage::Stage1Only, currentTime, 1, 0);
@@ -1288,10 +1315,14 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // space) instead of the separate Stage-2 hypervisor address space.
     AddressSpace* stage2AddressSpace = streamContext->getStage2AddressSpace();
     if (!stage2AddressSpace) {
-        // Stage-2 address space not configured - Stage-2 translation fault
+        // §7.3.13: Stage-2 address space not configured — this is a translation fault
+        // (F_TRANSLATION), not a configuration fault (C_BAD_STE / AddressSpaceExhausted).
+        // BUG-CPP-DBGR-9 fix: return PageNotMapped so translate() routes to F_TRANSLATION;
+        // AddressSpaceExhausted was incorrectly treated as a config fault by the stall guard.
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
-        return makeTranslationError(SMMUError::AddressSpaceExhausted);
+        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::PageNotMapped);
     }
     // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
     // PASID-0 auto-link), the IPA from stage-1 cannot be looked up in stage-2 (IOVA→IPA mapping,
@@ -1321,12 +1352,26 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, stage1DataRef.securityState);
     if (stage2Result.isError()) {
         // ARM SMMU v3 spec Section 7.3.3: Stage-2 fault attribution
+        // BUG-CPP-DBGR-6 fix: §7.3.14/§7.3.16 — classify each Stage-2 error correctly.
+        // Stage2PermissionFault was incorrectly used as the fallback for all non-PageNotMapped
+        // errors (including PermissionViolation, which must produce F_PERMISSION).
         FaultType stage2FaultType;
-        if (stage2Result.getError() == SMMUError::PageNotMapped) {
-            // Use level-specific fault classification
-            stage2FaultType = classifyDetailedTranslationFault(intermediatePA, 1, false);
-        } else {
-            stage2FaultType = FaultType::Stage2PermissionFault;
+        switch (stage2Result.getError()) {
+            case SMMUError::PageNotMapped:
+                stage2FaultType = classifyDetailedTranslationFault(intermediatePA, 1, false);
+                break;
+            case SMMUError::PagePermissionViolation:
+                stage2FaultType = FaultType::PermissionFault;
+                break;
+            case SMMUError::InvalidAddress:
+                stage2FaultType = FaultType::AddressSizeFault;
+                break;
+            case SMMUError::InvalidSecurityState:
+                stage2FaultType = FaultType::SecurityFault;
+                break;
+            default:
+                stage2FaultType = FaultType::Stage2PermissionFault;
+                break;
         }
 
         // BUG-NEW-05 fix: ARM §7.3 requires that fault records carry the originating
@@ -1492,6 +1537,12 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 // §7.3.7 last line / §5.2 Config table: STE.Config==0b000 terminates without
                 // recording an event. Abort is silent — no EventEntry is enqueued.
                 faultType = FaultType::StreamDisabled;
+                break;
+            case SMMUError::InvalidStreamID:
+                // BUG-CPP-DBGR-12 fix: §7.3.3 — C_BAD_STREAMID event was already generated
+                // in translate() before reaching here.  Map to BadStreamID so the switch
+                // below takes the explicit no-op case and does not emit a wrong event.
+                faultType = FaultType::BadStreamID;
                 break;
             default:
                 faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);
@@ -2042,11 +2093,21 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                 // matching the security state of the StreamID causing the event.
                 generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
                               command.startAddress, command.securityState);
+                // BUG-CPP-DBGR-2 fix: wrap the GERROR XOR-toggle in queueMutex.
+                // The toggle reads and writes gerrorStatus/gerrorNStatus, which are
+                // also written by other paths (processCommandQueue, clearGerror) while
+                // holding queueMutex.  Not holding the lock here is a data race.
+                // queueMutex is a std::recursive_mutex, so this is safe even if called
+                // from a context that already holds it.
                 // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
                 // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
                 // error is already active."
-                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
-                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                {
+                    std::lock_guard<std::recursive_mutex> qLock(queueMutex);
+                    if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
+                        (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
+                        gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
+                    }
                 }
                 break;
             }
@@ -2586,9 +2647,11 @@ void SMMU::clearGerror(uint32_t bits) {
 // ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
 // §6.3.9 SMMU_CR0 register (CT-33)
 void SMMU::setCR0(uint32_t value) {
-    cr0_ = value;
-    // Mirror SMMUEN bit to smmuen_ for backward compatibility
-    smmuen_ = ((cr0_ & CR0_SMMUEN) != 0u);
+    // BUG-CPP-DBGR-1 fix: §6.3.9 — derive smmuen_ from `value` directly (not by
+    // re-reading cr0_ non-atomically), and use release stores for both so that
+    // any thread that observes smmuen_==true is also guaranteed to see the updated cr0_.
+    cr0_.store(value, std::memory_order_release);
+    smmuen_.store((value & CR0_SMMUEN) != 0u, std::memory_order_release);
 }
 
 uint32_t SMMU::getCR0() const {
@@ -2610,16 +2673,18 @@ uint8_t SMMU::getStrtabLog2Size() const {
 }
 
 void SMMU::enable() {
-    smmuen_ = true;
-    cr0_ |= CR0_SMMUEN;
-    // Also enable event and command queues by default when enable() is called
-    // (for backward compatibility — callers of enable() expect all queues active)
-    cr0_ |= CR0_EVENTQEN | CR0_CMDQEN | CR0_PRIQEN;
+    // BUG-CPP-DBGR-1 fix: use atomic load/store with release ordering so that
+    // concurrent translate() threads that read cr0_/smmuen_ see the updated state.
+    uint32_t newCr0 = cr0_.load(std::memory_order_relaxed) | CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN | CR0_PRIQEN;
+    cr0_.store(newCr0, std::memory_order_release);
+    smmuen_.store(true, std::memory_order_release);
 }
 
 void SMMU::disable() {
-    smmuen_ = false;
-    cr0_ &= ~CR0_SMMUEN;
+    // BUG-CPP-DBGR-1 fix: use atomic store with release ordering.
+    uint32_t newCr0 = cr0_.load(std::memory_order_relaxed) & ~CR0_SMMUEN;
+    cr0_.store(newCr0, std::memory_order_release);
+    smmuen_.store(false, std::memory_order_release);
 }
 
 bool SMMU::isEnabled() const {

@@ -74,6 +74,16 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp_new6_dirty_bit.cpp
     test_bug_cpp_dbgr7_stage2_sec_check.cpp
     test_bug_cpp_dbgr3_tlb_output_attrs.cpp
+    test_bug_cpp_dbgr1_setCR0.cpp
+    test_bug_cpp_dbgr2_gerror_toggle.cpp
+    test_bug_cpp_dbgr4_raw_ptr.cpp
+    test_bug_cpp_dbgr5_strw_twostage.cpp
+    test_bug_cpp_dbgr6_fault_classify.cpp
+    test_bug_cpp_dbgr8_bulk_map.cpp
+    test_bug_cpp_dbgr9_as_exhausted.cpp
+    test_bug_cpp_dbgr10_stage2_sec.cpp
+    test_bug_cpp_dbgr11_constructor.cpp
+    test_bug_cpp_dbgr12_bad_streamid_error.cpp
     ../test_thread_safety.cpp
 )
 

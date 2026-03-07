@@ -264,7 +264,7 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_NullStreamContext_ReturnsError) {
     TranslationResult result = smmu->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationDisabledBypassMode_ReturnsIOVA) {

@@ -215,7 +215,8 @@ TEST_F(UnconfiguredStreamTest, CompletelyUnconfiguredStream) {
     // Attempt translation without any configuration
     TranslationResult result = smmuController->translate(VALID_STREAM_ID, VALID_PASID, 0x10000000, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    // BUG-CPP-DBGR-12 fix: streamMap miss now returns InvalidStreamID (§7.3.3 C_BAD_STREAMID)
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 // Test operations on invalid StreamID

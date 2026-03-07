@@ -907,6 +907,10 @@ inline SMMUError faultTypeToSMMUError(FaultType faultType) {
         case FaultType::BadSubstreamId:
             return SMMUError::InvalidPASID;
 
+        case FaultType::BadStreamID:
+            // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID.
+            return SMMUError::InvalidStreamID;
+
         case FaultType::AccessFault:
         case FaultType::AccessFlagFault:
         case FaultType::DirtyBitFault:

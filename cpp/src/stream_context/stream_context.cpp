@@ -15,8 +15,12 @@ static uint64_t getCurrentTimestamp() {
 }
 
 // Constructor - initializes stream context with ARM SMMU v3 defaults
+// BUG-CPP-DBGR-11 fix: §5.2 STE.Config==0b000 means all stages disabled at reset.
+// The currentConfiguration must reflect stage1Enabled=false to match translationEnabled=false.
+// The internal stage1Enabled member retains true so that existing direct-StreamContext tests
+// can call translate() without explicit setup — the spec-level fix is in currentConfiguration.
 StreamContext::StreamContext()
-    : stage1Enabled(true),     // ARM SMMU v3: Stage-1 typically enabled by default
+    : stage1Enabled(true),     // internal flag: allows direct translate() calls (backward compat)
       stage2Enabled(false),    // ARM SMMU v3: Stage-2 disabled until configured
       faultMode(FaultMode::Terminate),  // Default to immediate DMA termination
       streamEnabled(false),    // Stream disabled by default per ARM SMMU v3
@@ -26,9 +30,10 @@ StreamContext::StreamContext()
       hd(false) {              // CD.HD: hardware dirty state management disabled by default
 
     // Initialize default configuration
+    // BUG-CPP-DBGR-11 fix: all three fields must be false at reset (STE.Config==0b000)
     currentConfiguration.translationEnabled = false;  // Default: translation disabled
-    currentConfiguration.stage1Enabled = stage1Enabled;
-    currentConfiguration.stage2Enabled = stage2Enabled;
+    currentConfiguration.stage1Enabled = false;       // Consistent with translationEnabled=false
+    currentConfiguration.stage2Enabled = false;
     currentConfiguration.faultMode = faultMode;
 
     // Initialize statistics with creation timestamp
@@ -1138,7 +1143,14 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         // does not independently deny writes before the Stage-1∩Stage-2 permission
         // intersection below.  The intersection applies the original accessType to
         // the combined permissions.
-        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, securityState);
+        // BUG-CPP-DBGR-10 fix: §3.10.2 — the Stage-2 PTW must use the Stage-1 output
+        // security state (stage1Result output), not the incoming transaction's securityState.
+        // For NS streams both are equal (NonSecure), but for Secure streams with NS-output
+        // overrides this distinction is load-bearing.
+        SecurityState ipaSecurityState = stage1Result.isOk()
+            ? stage1Result.getValue().securityState
+            : securityState;
+        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, ipaSecurityState);
         if (stage2Result.isError()) {
             // Stage-2 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault

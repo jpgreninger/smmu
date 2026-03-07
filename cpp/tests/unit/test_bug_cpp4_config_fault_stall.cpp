@@ -130,10 +130,15 @@ TEST(ConfigFaultStall, AddressSpaceExhausted_MustNotStall) {
     ASSERT_TRUE(result.isError())
         << "BUG-CPP-4: Missing stage-2 AS should return an error, not success";
 
-    EXPECT_NE(result.getError(), SMMUError::Stalled)
-        << "BUG-CPP-4 §3.12.2: AddressSpaceExhausted is a configuration fault "
-           "(C_BAD_STE) and must never stall; "
-           "fix: add SMMUError::AddressSpaceExhausted to the isConfigFault guard";
+    // BUG-CPP-DBGR-9 fix: §7.3.13 — a missing stage-2 descriptor is F_TRANSLATION
+    // (not C_BAD_STE).  With the fix, the missing stage-2 AS returns PageNotMapped
+    // which IS eligible for stall mode.  In a stall-mode stream this correctly returns
+    // SMMUError::Stalled.  The old assertion (must not stall) was testing wrong behavior.
+    // The correct assertion is that the error is either Stalled (stall mode, data fault)
+    // or PageNotMapped (terminate mode, data fault) — NOT a config fault.
+    EXPECT_NE(result.getError(), SMMUError::AddressSpaceExhausted)
+        << "BUG-CPP-DBGR-9: Must NOT return AddressSpaceExhausted (wrong C_BAD_STE class); "
+           "§7.3.13 requires F_TRANSLATION for missing stage-2 descriptor";
 }
 
 // ── BUG-CPP-4c: Genuine translation fault CAN still stall (regression) ───

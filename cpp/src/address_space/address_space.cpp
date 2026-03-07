@@ -400,7 +400,10 @@ VoidResult AddressSpace::unmapRange(IOVA startIova, IOVA endIova) {
 
 // Map multiple pages efficiently with same permissions
 // ARM SMMU v3 spec: Bulk operations for performance optimization
-VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappings, const PagePermissions& permissions) {
+// BUG-CPP-DBGR-8 fix: added SecurityState parameter so bulk-mapped pages carry
+// the correct security state for later translatePage() lookups (§3.10).
+VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappings, const PagePermissions& permissions,
+                                  SecurityState securityState) {
     // Validate permissions are at least partially set
     if (!permissions.read && !permissions.write && !permissions.execute) {
         return makeVoidError(SMMUError::InvalidPermissions);
@@ -443,8 +446,8 @@ VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappin
         uint64_t pageNum = pageNumber(iova);
         PA alignedPa = pa & ~PAGE_MASK;
         
-        // Create and insert page entry
-        PageEntry entry(alignedPa, permissions);
+        // Create and insert page entry with the provided security state
+        PageEntry entry(alignedPa, permissions, securityState);
         entry.valid = true;
         pageTable[pageNum] = entry;
     }

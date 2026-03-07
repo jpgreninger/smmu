@@ -82,7 +82,7 @@ TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_NullStreamContext) {
     // Don't configure stream - should hit lines 654-662
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 // Target line 692-703: Both stages enabled but no stages configured properly

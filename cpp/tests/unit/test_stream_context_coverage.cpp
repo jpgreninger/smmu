@@ -426,21 +426,24 @@ TEST_F(StreamContextCoverageTest, SelectiveConfigurationChanges) {
     // Get initial configuration
     StreamConfig baseConfig = streamContext->getStreamConfiguration();
     EXPECT_FALSE(baseConfig.translationEnabled);
-    EXPECT_TRUE(baseConfig.stage1Enabled);  // Default enabled
+    // BUG-CPP-DBGR-11 fix: §5.2 STE.Config==0b000 — stage1Enabled=false at reset
+    EXPECT_FALSE(baseConfig.stage1Enabled);  // Fixed: false at reset per spec
     EXPECT_FALSE(baseConfig.stage2Enabled); // Default disabled
 
-    // Create new config with only translation enabled changed
+    // Create new config with translationEnabled and stage1Enabled changed together
+    // (translation requires at least one stage per §5.2, so both must be set)
     StreamConfig newConfig = baseConfig;
     newConfig.translationEnabled = true;
+    newConfig.stage1Enabled = true;
 
     // Apply selective change
     VoidResult result = streamContext->applyConfigurationChanges(newConfig);
     EXPECT_TRUE(result.isOk());
 
-    // Verify only translation enabled changed
+    // Verify that translationEnabled and stage1Enabled changed, others unchanged
     StreamConfig updatedConfig = streamContext->getStreamConfiguration();
     EXPECT_TRUE(updatedConfig.translationEnabled);
-    EXPECT_EQ(baseConfig.stage1Enabled, updatedConfig.stage1Enabled);
+    EXPECT_TRUE(updatedConfig.stage1Enabled);
     EXPECT_EQ(baseConfig.stage2Enabled, updatedConfig.stage2Enabled);
     EXPECT_EQ(baseConfig.faultMode, updatedConfig.faultMode);
 }

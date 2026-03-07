@@ -71,7 +71,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, NullStreamContext_UnconfiguredStream_Record
 
     // Should return error for unconfigured stream
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 
     // Verify fault was recorded (lines 664-665)
     auto events = smmu->getEvents();

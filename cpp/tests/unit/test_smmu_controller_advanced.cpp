@@ -61,7 +61,7 @@ TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_UnconfiguredStream
     TranslationResult result = smmu->translate(999, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisabled_BypassMode) {

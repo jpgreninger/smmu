@@ -193,8 +193,10 @@ TEST(SMMUenSpec, EnabledSMMU_UnconfiguredStream_ReturnsStreamNotConfigured) {
 
     EXPECT_TRUE(result.isError())
         << "Enabled SMMU with unconfigured stream must return error";
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured)
-        << "Error must be StreamNotConfigured when SMMU enabled and stream unknown";
+    // BUG-CPP-DBGR-12 fix: §7.3.3 — the streamMap miss path now returns
+    // SMMUError::InvalidStreamID (matching C_BAD_STREAMID) instead of StreamNotConfigured.
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID)
+        << "Error must be InvalidStreamID (§7.3.3 C_BAD_STREAMID) when SMMU enabled and stream unknown";
 }
 
 /// §6.3.9: After enable() + stream configured + page mapped, normal translation

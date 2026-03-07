@@ -176,7 +176,7 @@ TEST_F(Cr0SmmuentSyncTest, SetCR0_SMMUEN_TranslationGoesNormalPath) {
         << "BUG-CPP-3: With cr0_.SMMUEN=1, translate() must use the normal "
            "stream path, not bypass.";
     if (result.isError()) {
-        EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured)
+        EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID)
             << "Unconfigured stream must return StreamNotConfigured";
     }
 }

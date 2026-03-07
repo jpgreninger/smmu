@@ -851,8 +851,10 @@ TEST_F(StreamContextCoverage70Test, GetStreamConfiguration) {
     StreamConfig config = streamContext->getStreamConfiguration();
 
     // Verify default configuration
+    // BUG-CPP-DBGR-11 fix: §5.2 STE.Config==0b000 — all stages disabled at reset.
+    // stage1Enabled must be false to be consistent with translationEnabled=false.
     EXPECT_FALSE(config.translationEnabled);
-    EXPECT_TRUE(config.stage1Enabled);
+    EXPECT_FALSE(config.stage1Enabled);
     EXPECT_FALSE(config.stage2Enabled);
 }
 

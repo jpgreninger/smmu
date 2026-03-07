@@ -42,7 +42,7 @@ TEST_F(SMMUTest, DefaultConstruction) {
     // Verify that translation on unconfigured SMMU fails
     TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 // Test stream configuration
@@ -474,7 +474,7 @@ TEST_F(SMMUTest, StreamIDBoundaryValidation) {
     uint64_t initialFaults = smmuController->getTotalFaults();
     TranslationResult result = smmuController->translate(unconfiguredStreamID, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
     EXPECT_GT(smmuController->getTotalFaults(), initialFaults);
     
     // Verify the unconfigured StreamID is indeed not configured

@@ -31,7 +31,9 @@ public:
     VoidResult unmapRange(IOVA startIova, IOVA endIova);
     
     // Bulk page operations
-    VoidResult mapPages(const std::vector<std::pair<IOVA, PA>>& mappings, const PagePermissions& permissions);
+    // BUG-CPP-DBGR-8 fix: added SecurityState parameter (default NonSecure for backward compat)
+    VoidResult mapPages(const std::vector<std::pair<IOVA, PA>>& mappings, const PagePermissions& permissions,
+                        SecurityState securityState = SecurityState::NonSecure);
     VoidResult unmapPages(const std::vector<IOVA>& iovas);
     
     // Query operations

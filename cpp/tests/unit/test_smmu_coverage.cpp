@@ -520,7 +520,7 @@ TEST_F(SMMUCoverageTest, AdvancedFault_StreamNotConfigured) {
     TranslationResult result = smmuController->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 
     // Verify fault was recorded
     Result<std::vector<FaultRecord>> events = smmuController->getEvents();
@@ -547,7 +547,7 @@ TEST_F(SMMUCoverageTest, AdvancedFault_InvalidStreamID) {
 
     EXPECT_TRUE(result.isError());
     // Will be StreamNotConfigured since stream was never configured
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 
     // Verify fault was recorded with proper timestamp
     Result<std::vector<FaultRecord>> events = smmuController->getEvents();

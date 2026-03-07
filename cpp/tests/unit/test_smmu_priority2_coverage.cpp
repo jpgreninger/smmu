@@ -100,7 +100,7 @@ TEST_F(SMMUPriority2CoverageTest, TwoStageTranslation_NullStreamContext) {
     // Try translation without configuring stream
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 
     // Verify fault was recorded
     auto eventsResult = smmuController->getEvents();
@@ -210,7 +210,9 @@ TEST_F(SMMUPriority2CoverageTest, BothStagesTranslation_Stage2NotConfigured) {
 
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::AddressSpaceExhausted);
+    // BUG-CPP-DBGR-9 fix: §7.3.13 — missing stage-2 AS is F_TRANSLATION (PageNotMapped),
+    // not C_BAD_STE (AddressSpaceExhausted). AddressSpaceExhausted was incorrect.
+    EXPECT_EQ(result.getError(), SMMUError::PageNotMapped);
 }
 
 // Test both stages translation with Stage-2 translation failure (lines 907-921)
@@ -867,7 +869,7 @@ TEST_F(SMMUPriority2CoverageTest, DetermineContextSecurityState_UnconfiguredStre
     // Try to translate without configuring stream
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
+    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
 // Test determineContextSecurityState with configured stream (line 1698)
