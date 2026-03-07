@@ -1732,12 +1732,23 @@ impl SMMU {
             // Verify cached entry allows the requested access type
             if cached.permissions.allows(access) {
                 self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
-                // Return translation data from cache
-                return Ok(crate::types::TranslationData::new(
+                // BUG-RUST-DBGR-1 fix: re-apply STE output-attribute overrides from the
+                // live stream configuration. CacheEntry does not store the six GAP-1 fields
+                // (mem_type, shareability, alloc_hint, inst_cfg, priv_cfg, ns_cfg_out), so
+                // constructing TranslationData::new() leaves them at zero on every cache hit.
+                // The slow path correctly calls apply_output_attrs(); we must do the same here.
+                let mut data = crate::types::TranslationData::new(
                     cached.physical_address,
                     cached.permissions,
                     cached.security_state,
-                ));
+                );
+                // Look up the stream context to apply its output-attribute configuration.
+                // Use the raw u32 key to match the DashMap key type.
+                let stream_value = stream_id.as_u32();
+                if let Some(stream_ref) = self.streams.get(&stream_value) {
+                    data = stream_ref.value().apply_output_attrs(data);
+                }
+                return Ok(data);
             }
             // Cache hit but insufficient permissions - fall through to full translation
         }
@@ -1804,10 +1815,12 @@ impl SMMU {
                                 }
                             }
                         }
-                        // BUG-NEW-11 fix: C_BAD_CD is a configuration fault (ARM §3.12.2);
-                        // must always abort — never stalled. Use BadSubstreamId so the
-                        // stall-mode filter correctly excludes it.
-                        return Err(TranslationError::BadSubstreamId);
+                        // BUG-RUST-DBGR-2 fix: C_BAD_CD is a configuration fault (ARM §3.12.2);
+                        // must always abort — never stalled. Return BadCD (event 0x0A) which
+                        // maps to FaultType::BadCD and is correctly excluded from the
+                        // stall-eligible set. Previously returned BadSubstreamId (0x08) which
+                        // was inconsistent with the CBadCd event recorded above.
+                        return Err(TranslationError::BadCD);
                     }
                 }
 
@@ -2239,6 +2252,9 @@ impl SMMU {
             TranslationError::GbpaAbort => FaultType::TranslationFault,
             // §3.9: non-zero PASID on stage-2-only or bypass stream → C_BAD_SUBSTREAMID.
             TranslationError::BadSubstreamId => FaultType::BadSubstreamId,
+            // BUG-RUST-DBGR-2 fix: §7.3.11 C_BAD_CD — invalid context descriptor.
+            // Maps to BadCD (event code 0x0A), distinct from BadSubstreamId (0x08).
+            TranslationError::BadCD => FaultType::BadCD,
         }
     }
 

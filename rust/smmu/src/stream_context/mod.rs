@@ -519,7 +519,11 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn is_abort_mode(&self) -> bool {
-        self.abort_mode.load(Ordering::Relaxed)
+        // BUG-RUST-DBGR-11 fix: use Acquire ordering to pair with the Release
+        // store in set_abort_mode(). The translate hot-path already uses
+        // Acquire directly; this makes the public method consistent and sound
+        // on weakly-ordered hardware.
+        self.abort_mode.load(Ordering::Acquire)
     }
 
     /// Sets the STE.Config==0b000 abort mode flag (ARM §5.2, CT-09).
@@ -1580,8 +1584,12 @@ impl StreamContext {
     /// - If `STE.MTCFG` is set, the `mem_type` field is overridden with `STE.MemAttr`.
     /// - `shareability`, `alloc_hint`, `inst_cfg`, `priv_cfg`, and `ns_cfg_out` are
     ///   always written from the corresponding STE fields.
+    ///
+    /// Made `pub` so that the SMMU TLB cache-hit path (BUG-RUST-DBGR-1 fix) can
+    /// re-apply output attributes from the live stream configuration on a cache hit,
+    /// without requiring `CacheEntry` to store the six GAP-1 fields.
     #[inline]
-    fn apply_output_attrs(&self, data: TranslationData) -> TranslationData {
+    pub fn apply_output_attrs(&self, data: TranslationData) -> TranslationData {
         // BUG-RUST-3 fix: use Acquire ordering for all output-attribute config
         // field loads so the Release stores in update_configuration() are
         // guaranteed visible before these reads on weakly-ordered architectures.
@@ -1791,7 +1799,11 @@ impl StreamContext {
     /// ```
     #[must_use]
     pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
+        // BUG-RUST-DBGR-5 fix: use Acquire ordering to pair with the SeqCst
+        // store in disable(). A Relaxed load has no happens-before relationship
+        // with a Release/SeqCst store on weakly-ordered hardware; Acquire is
+        // the correct and sufficient pairing.
+        self.enabled.load(Ordering::Acquire)
     }
 
     /// Returns `true` while `disable()` is actively clearing the PASID map.

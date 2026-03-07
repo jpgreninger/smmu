@@ -106,6 +106,15 @@ pub enum TranslationError {
     /// an abort; the stall path is never taken for this fault class.
     #[error("Non-zero PASID on stage-2-only or bypass stream (§3.9 C_BAD_SUBSTREAMID)")]
     BadSubstreamId,
+
+    /// Invalid or unsupported Context Descriptor (ARM §7.3.11, §3.12.2)
+    ///
+    /// Generates `C_BAD_CD` (event code 0x0A). Occurs when CD fields are
+    /// invalid — for example T0SZ/T1SZ out of range (> 39) or CD.AA64=false
+    /// (AArch32 LPAE unsupported). Always terminates with an abort; the stall
+    /// path is never taken for configuration faults (ARM §11.639).
+    #[error("Invalid context descriptor (§7.3.11 C_BAD_CD)")]
+    BadCD,
 }
 
 /// Translation result data structure

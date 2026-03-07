@@ -72,6 +72,8 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp_new3_s1dss_tlb.cpp
     test_bug_cpp_new5_stage2_ns.cpp
     test_bug_cpp_new6_dirty_bit.cpp
+    test_bug_cpp_dbgr7_stage2_sec_check.cpp
+    test_bug_cpp_dbgr3_tlb_output_attrs.cpp
     ../test_thread_safety.cpp
 )
 

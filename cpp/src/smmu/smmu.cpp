@@ -198,37 +198,6 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         }
     }
 
-    // Task 5.2: Optimized fast path - Check TLB cache first for maximum performance
-    if (cachingEnabled && tlbCache) {
-        // Performance optimization: Use lookupEntry() which returns TLBEntry by value (thread-safe)
-        IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
-        Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
-
-        if (entryResult.isOk()) {
-            const TLBEntry& entry = entryResult.getValue();
-            if (entry.valid) {
-                // ARM §3.16 / FINDING-NEW-37: TLB entries are valid until an explicit
-                // TLBI command.  No time-based eviction is performed here.
-                // Cache hit - validate access permissions against requested access type
-                // §3.12.2 / FINDING-NEW-25: On permission failure, fall through to the
-                // slow path so that FaultMode::Stall is correctly applied.  The slow
-                // path (performTwoStageTranslation) re-checks permissions via the page
-                // table and applies the stall-mode queue if required.
-                if (validateAccessPermissions(entry.permissions, accessType)) {
-                    // TLBCache already recorded hit statistics
-                    // No need for additional recordCacheHit() here
-
-                    PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
-                    TranslationData data(finalPA, entry.permissions, entry.securityState);
-                    return TranslationResult(data);
-                }
-                // Permission failure: fall through to slow path for stall-mode handling.
-            }
-        }
-        // Cache miss - TLBCache already recorded miss statistics
-        // No need for additional recordCacheMiss() here
-    }
-
     // BUG-01 fix: Use unique_lock so we can release the stripe lock before
     // calling StreamContext methods (which acquire contextMutex).  Holding
     // the stripe lock while waiting for contextMutex creates a lock-ordering
@@ -267,27 +236,29 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // Note: performTwoStageTranslation and the cache/stall result code below do NOT
     // attempt to re-acquire this stripe lock, so there is no self-deadlock risk here.
 
-    // Bug 1 fix: STRW-aware TLB re-check (ARM §3.3.4 / §13.4.1).
-    // The early lockless TLB fast path uses the raw accessType, so pages marked
-    // privilegedOnly will always fail validateAccessPermissions for non-privileged
-    // types, causing every TLB hit on an EL2/EL3 stream to fall through to the slow
-    // path unnecessarily.  Now that we have the stream context, derive the effective
-    // access type: STRW==EL2 (non-VHE) and STRW==EL3 suppress privilege checks by
-    // treating AP[1] as 1.  EL2_E2H (VHE) maintains privileged/non-privileged checks
+    // TLB fast path — now performed after streamContext is obtained so that the stream's
+    // STE output-attribute overrides (memType, shareability, allocHint, instCfg, privCfg,
+    // nsCfgOut) can be applied to the TranslationData on a cache hit.
+    // BUG-CPP-DBGR-3 fix: the previous early lockless TLB path constructed
+    // TranslationData(finalPA, permissions, securityState) which zero-initialises
+    // the six output-attribute fields.  By moving the TLB check to here we have
+    // the StreamConfig in hand and can re-apply the attributes the same way the
+    // slow path's applyOutputAttrs lambda does in StreamContext::translateUnlocked().
+    //
+    // Bug 1 fix: STRW-aware TLB check (ARM §3.3.4 / §13.4.1).
+    // STRW==EL2 (non-VHE) and STRW==EL3 suppress privilege checks by treating
+    // AP[1] as 1.  EL2_E2H (VHE) maintains privileged/non-privileged checks
     // like EL1 and therefore must NOT be included here.
     if (cachingEnabled && tlbCache) {
-        StreamConfig streamCfgForStrw = streamContext->getStreamConfiguration();
+        StreamConfig streamCfgForTlb = streamContext->getStreamConfiguration();
+        // Derive effective access type for the privilege-aware permission check.
         AccessType effectiveAccessType = accessType;
-        if (streamCfgForStrw.strw == StreamWorld::EL2 || streamCfgForStrw.strw == StreamWorld::EL3) {
+        if (streamCfgForTlb.strw == StreamWorld::EL2 || streamCfgForTlb.strw == StreamWorld::EL3) {
             switch (accessType) {
                 case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;      break;
                 case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
                 case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;   break;
                 case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
-                // Already at the correct privilege level — Stage A will hit directly on a warm
-                // TLB using the *Privileged variant (validateAccessPermissions does not gate on
-                // !privilegedOnly for *Privileged types), so no promotion is needed and
-                // Stage B (effectiveAccessType != accessType) evaluates to false and is skipped.
                 case AccessType::ReadPrivileged:
                 case AccessType::WritePrivileged:
                 case AccessType::ExecutePrivileged:
@@ -295,18 +266,37 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     break;
             }
         }
-        if (effectiveAccessType != accessType) {
-            IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
-            Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
-            if (entryResult.isOk()) {
-                const TLBEntry& entry = entryResult.getValue();
-                if (entry.valid && validateAccessPermissions(entry.permissions, effectiveAccessType)) {
+        IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
+        Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
+        if (entryResult.isOk()) {
+            const TLBEntry& entry = entryResult.getValue();
+            if (entry.valid) {
+                // ARM §3.16 / FINDING-NEW-37: TLB entries are valid until an explicit
+                // TLBI command.  No time-based eviction is performed here.
+                // Cache hit - validate access permissions against effective access type.
+                // §3.12.2 / FINDING-NEW-25: On permission failure, fall through to the
+                // slow path so that FaultMode::Stall is correctly applied.  The slow
+                // path (performTwoStageTranslation) re-checks permissions via the page
+                // table and applies the stall-mode queue if required.
+                if (validateAccessPermissions(entry.permissions, effectiveAccessType)) {
                     PA finalPA = entry.physicalAddress + (iova & PAGE_MASK);
                     TranslationData data(finalPA, entry.permissions, entry.securityState);
+                    // BUG-CPP-DBGR-3 fix: apply STE output-attribute overrides the same
+                    // way StreamContext::translateUnlocked()'s applyOutputAttrs lambda
+                    // does on the slow path.  Without this the six fields are always
+                    // zero-initialised on every TLB cache hit.
+                    data.memType      = streamCfgForTlb.mtCfg ? streamCfgForTlb.memAttr : 0u;
+                    data.shareability = streamCfgForTlb.shCfg;
+                    data.allocHint    = streamCfgForTlb.allocCfg;
+                    data.instCfg      = streamCfgForTlb.instCfg;
+                    data.privCfg      = streamCfgForTlb.privCfg;
+                    data.nsCfgOut     = streamCfgForTlb.nsCfg;
                     return TranslationResult(data);
                 }
+                // Permission failure: fall through to slow path for stall-mode handling.
             }
         }
+        // Cache miss — fall through to the full translation slow path.
     }
 
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
@@ -1370,19 +1360,14 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     }
 
     // ARM IHI0070G.b §3.10/§3.10.2: Stage-2 alone determines the final PA security
-    // state. Stage-1 IPA security state is an independent intermediate value and
-    // must NOT be compared against Stage-2 security state.  The only valid check is
-    // the one below — confirming the incoming transaction's security state is
-    // compatible with the Stage-2 output security state.
+    // state. The translatePage() call at stage-2 (above) already enforces the
+    // correct security state match — it rejects a lookup if the requested security
+    // state does not match the mapped entry.  Adding a second validateSecurityState()
+    // call here comparing the incoming transaction security state against the stage-2
+    // output security state is architecturally incorrect: the stage-2 output is the
+    // authoritative PA security state and is not required to equal the incoming NS
+    // bit by §3.10.2.  The check has been removed.
 
-    // ARM SMMU v3 spec: Final security state validation - use stage2 security state as reference
-    if (!validateSecurityState(securityState, stage2Data.securityState)) {
-        // Security state violation
-        recordComprehensiveFault(streamID, pasid, iova, FaultType::SecurityFault,
-                               accessType, securityState, FaultStage::BothStages, currentTime, 0, 0);
-        return makeTranslationError(SMMUError::InvalidSecurityState);
-    }
-    
     // Create successful final translation result
     return makeTranslationSuccess(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
 }
