@@ -22,7 +22,7 @@ fn make_pa(v: u64) -> PA {
 
 // Helper: build a stage1-only StreamContext with the given StreamConfig and page perms
 fn make_ctx_with_perms(cfg: StreamConfig, perms: PagePermissions) -> StreamContext {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.update_configuration(cfg);
     ctx.enable();
 

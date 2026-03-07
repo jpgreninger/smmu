@@ -399,7 +399,7 @@ impl StreamContext {
     /// `CMD_TLBI_S12_VMALL` with the old VMID to evict them.
     #[inline]
     pub fn set_vmid(&self, vmid: u16) {
-        self.vmid.store(vmid, Ordering::Relaxed);
+        self.vmid.store(vmid, Ordering::Release);
     }
 
     /// Returns whether stall fault mode is enabled for this stream (ARM §3.12.2).
@@ -414,7 +414,7 @@ impl StreamContext {
     /// of an immediate abort error.
     #[inline]
     pub fn set_stall_enabled(&self, enabled: bool) {
-        self.stall_enabled.store(enabled, Ordering::Relaxed);
+        self.stall_enabled.store(enabled, Ordering::Release);
     }
 
     /// Returns whether hardware Access Flag management is enabled (CD.HA, ARM SMMU v3 §3.13).
@@ -428,7 +428,7 @@ impl StreamContext {
     /// When enabled, the AF bit in the page table entry is set on first access.
     #[inline]
     pub fn set_ha(&self, enabled: bool) {
-        self.ha.store(enabled, Ordering::Relaxed);
+        self.ha.store(enabled, Ordering::Release);
     }
 
     /// Returns whether hardware Dirty State management is enabled (CD.HD, ARM SMMU v3 §3.13).
@@ -442,7 +442,7 @@ impl StreamContext {
     /// When enabled, the dirty bit in the page table entry is set on first write.
     #[inline]
     pub fn set_hd(&self, enabled: bool) {
-        self.hd.store(enabled, Ordering::Relaxed);
+        self.hd.store(enabled, Ordering::Release);
     }
 
     /// Returns the STE.S1DSS field value (0, 1, or 2) (ARM §5.2).
@@ -458,7 +458,7 @@ impl StreamContext {
     /// Sets the STE.S1DSS field value (ARM §5.2).
     #[inline]
     pub fn set_s1dss(&self, value: u8) {
-        self.s1dss.store(value, Ordering::Relaxed);
+        self.s1dss.store(value, Ordering::Release);
     }
 
     /// Returns the STE.S1CDMax field value (0 = not substream-capable) (ARM §5.2).
@@ -473,7 +473,7 @@ impl StreamContext {
     /// Sets the STE.S1CDMax field value (ARM §5.2).
     #[inline]
     pub fn set_s1cd_max(&self, value: u8) {
-        self.s1cd_max.store(value, Ordering::Relaxed);
+        self.s1cd_max.store(value, Ordering::Release);
     }
 
     /// Returns the CD.T0SZ value (ARM §5.4).
@@ -486,7 +486,7 @@ impl StreamContext {
     /// Sets the CD.T0SZ value (ARM §5.4).
     #[inline]
     pub fn set_t0sz(&self, value: u8) {
-        self.t0sz.store(value, Ordering::Relaxed);
+        self.t0sz.store(value, Ordering::Release);
     }
 
     /// Returns the CD.T1SZ value (ARM §5.4).
@@ -499,7 +499,7 @@ impl StreamContext {
     /// Sets the CD.T1SZ value (ARM §5.4).
     #[inline]
     pub fn set_t1sz(&self, value: u8) {
-        self.t1sz.store(value, Ordering::Relaxed);
+        self.t1sz.store(value, Ordering::Release);
     }
 
     /// Returns true when CD.AA64=1 (AArch64 translation tables, ARM §5.4).
@@ -512,7 +512,7 @@ impl StreamContext {
     /// Sets the CD.AA64 flag (ARM §5.4).
     #[inline]
     pub fn set_aa64(&self, value: bool) {
-        self.aa64.store(value, Ordering::Relaxed);
+        self.aa64.store(value, Ordering::Release);
     }
 
     /// Returns true when STE.Config==0b000 abort mode is active (ARM §5.2, CT-09).
@@ -528,7 +528,7 @@ impl StreamContext {
     /// without recording any event to the event queue.
     #[inline]
     pub fn set_abort_mode(&self, value: bool) {
-        self.abort_mode.store(value, Ordering::Relaxed);
+        self.abort_mode.store(value, Ordering::Release);
     }
 
     // ---- GAP-1: STE output-attribute override field accessors (§5.2) ----
@@ -543,7 +543,7 @@ impl StreamContext {
     /// Sets the STE.SHCFG shareability override (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_sh_cfg(&self, value: u8) {
-        self.sh_cfg.store(value, Ordering::Relaxed);
+        self.sh_cfg.store(value, Ordering::Release);
     }
 
     /// Returns the STE.ALLOCCFG allocation hint override (ARM §5.2, GAP-1).
@@ -556,7 +556,7 @@ impl StreamContext {
     /// Sets the STE.ALLOCCFG allocation hint override (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_alloc_cfg(&self, value: u8) {
-        self.alloc_cfg.store(value, Ordering::Relaxed);
+        self.alloc_cfg.store(value, Ordering::Release);
     }
 
     /// Returns the STE.MemAttr memory type attribute (ARM §5.2, GAP-1).
@@ -569,7 +569,7 @@ impl StreamContext {
     /// Sets the STE.MemAttr memory type attribute (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_mem_attr(&self, value: u8) {
-        self.mem_attr.store(value, Ordering::Relaxed);
+        self.mem_attr.store(value, Ordering::Release);
     }
 
     /// Returns the STE.INSTCFG instruction/data attribute override (ARM §5.2, GAP-1).
@@ -582,7 +582,7 @@ impl StreamContext {
     /// Sets the STE.INSTCFG instruction/data attribute override (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_inst_cfg(&self, value: u8) {
-        self.inst_cfg.store(value, Ordering::Relaxed);
+        self.inst_cfg.store(value, Ordering::Release);
     }
 
     /// Returns the STE.PRIVCFG privilege attribute override (ARM §5.2, GAP-1).
@@ -595,7 +595,7 @@ impl StreamContext {
     /// Sets the STE.PRIVCFG privilege attribute override (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_priv_cfg(&self, value: u8) {
-        self.priv_cfg.store(value, Ordering::Relaxed);
+        self.priv_cfg.store(value, Ordering::Release);
     }
 
     /// Returns the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
@@ -608,7 +608,7 @@ impl StreamContext {
     /// Sets the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_ns_cfg(&self, value: u8) {
-        self.ns_cfg.store(value, Ordering::Relaxed);
+        self.ns_cfg.store(value, Ordering::Release);
     }
 
     /// Returns whether STE.MTCFG memory type override is enabled (ARM §5.2, GAP-1).
@@ -621,7 +621,7 @@ impl StreamContext {
     /// Sets the STE.MTCFG memory type override enable flag (ARM §5.2, GAP-1).
     #[inline]
     pub fn set_mt_cfg(&self, value: bool) {
-        self.mt_cfg.store(value, Ordering::Relaxed);
+        self.mt_cfg.store(value, Ordering::Release);
     }
 
     // ---- GAP-2: STE.STRW Stream World accessor (§5.2) ----
@@ -644,9 +644,13 @@ impl StreamContext {
     }
 
     /// Sets the STE.STRW Stream World (ARM §5.2, GAP-2).
+    ///
+    /// Uses `Ordering::Release` to pair with the `Ordering::Acquire` load in
+    /// `get_strw()`, establishing a happens-before relationship on weakly-ordered
+    /// architectures (ARM/POWER).
     #[inline]
     pub fn set_strw(&self, world: StreamWorld) {
-        self.strw.store(world as u8, Ordering::Relaxed);
+        self.strw.store(world as u8, Ordering::Release);
     }
 
     /// Applies a [`StreamConfig`] to this stream context atomically (GAP-1, GAP-2).
@@ -665,7 +669,7 @@ impl StreamContext {
     /// use smmu::stream_context::StreamContext;
     /// use smmu::types::{StreamConfig, StreamWorld};
     ///
-    /// let mut ctx = StreamContext::new();
+    /// let ctx = StreamContext::new();
     /// let cfg = StreamConfig::builder()
     ///     .translation_enabled(true)
     ///     .stage1_enabled(true)
@@ -678,7 +682,7 @@ impl StreamContext {
     /// assert_eq!(ctx.get_strw(), StreamWorld::El2);
     /// assert!(ctx.is_mt_cfg_enabled());
     /// ```
-    pub fn update_configuration(&mut self, cfg: StreamConfig) {
+    pub fn update_configuration(&self, cfg: StreamConfig) {
         // BUG-RUST-3 fix: use Release ordering for all config-field stores.
         //
         // Pairing with the Acquire loads in the translate hot-path establishes
@@ -758,7 +762,7 @@ impl StreamContext {
     /// `CommandSyncCompletion` events generated for this stream.
     #[inline]
     pub fn set_security_state(&self, state: SecurityState) {
-        self.security_state.store(state as u8, Ordering::Relaxed);
+        self.security_state.store(state as u8, Ordering::Release);
     }
 
     /// Removes a PASID and its associated AddressSpace
@@ -943,7 +947,7 @@ impl StreamContext {
     /// stream_context.set_max_pasids_per_stream(512);
     /// ```
     pub fn set_max_pasids_per_stream(&self, max: usize) {
-        self.max_pasids_per_stream.store(max, Ordering::Relaxed);
+        self.max_pasids_per_stream.store(max, Ordering::Release);
     }
 
     /// Gets the AddressSpace for a PASID
@@ -992,7 +996,7 @@ impl StreamContext {
     /// assert!(!stream_context.is_stage1_enabled());
     /// ```
     pub fn set_stage1_enabled(&self, enabled: bool) {
-        self.stage1_enabled.store(enabled, Ordering::Relaxed);
+        self.stage1_enabled.store(enabled, Ordering::Release);
     }
 
     /// Sets Stage-2 translation enable state
@@ -1011,7 +1015,7 @@ impl StreamContext {
     /// assert!(stream_context.is_stage2_enabled());
     /// ```
     pub fn set_stage2_enabled(&self, enabled: bool) {
-        self.stage2_enabled.store(enabled, Ordering::Relaxed);
+        self.stage2_enabled.store(enabled, Ordering::Release);
     }
 
     /// Checks if Stage-1 translation is enabled
@@ -1274,7 +1278,7 @@ impl StreamContext {
     /// use smmu::stream_context::StreamContext;
     /// use smmu::types::{PASID, IOVA, PA, PagePermissions, SecurityState, AccessType};
     ///
-    /// let mut stream_context = StreamContext::new();
+    /// let stream_context = StreamContext::new();
     /// stream_context.set_stage1_enabled(true);
     /// stream_context.set_stage2_enabled(false);
     ///
@@ -1606,7 +1610,7 @@ impl StreamContext {
     /// ```
     /// use smmu::stream_context::StreamContext;
     ///
-    /// let mut ctx = StreamContext::new();
+    /// let ctx = StreamContext::new();
     /// let builder = ctx.update_config_builder();
     /// ```
     #[must_use]
@@ -2012,7 +2016,7 @@ impl StreamContext {
 /// ```
 /// use smmu::stream_context::{StreamContext, StreamConfigBuilder};
 ///
-/// let mut ctx = StreamContext::new();
+/// let ctx = StreamContext::new();
 /// let config = StreamConfigBuilder::new()
 ///     .max_pasids_per_stream(512)
 ///     .stage1_enabled(false)

@@ -150,8 +150,10 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // FINDING-NEW-01 / FINDING-NEW-09: check SMMUEN before TLB / stream lookup.
     // BUG-CPP-3 fix: read SMMUEN from the authoritative cr0_ register bit rather
     // than the shadow smmuen_ bool to eliminate split-brain scenarios.
-    if ((cr0_ & CR0_SMMUEN) == 0u) {
-        if (gbpaAbort_) {
+    // BUG-CPP-NEW-1 fix: use acquire load so that enable()/disable() writes
+    // (which use release stores) are visible to this translate() reader.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) == 0u) {
+        if (gbpaAbort_.load(std::memory_order_acquire)) {
             // GBPA.ABORT=1: abort all transactions — no identity mapping, no fault event.
             return makeTranslationError(SMMUError::GbpaAbort);
         }
@@ -310,10 +312,20 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
 
-    // Task 5.2: Cache successful translations for future lookups
+    // Task 5.2: Cache successful translations for future lookups.
+    // BUG-CPP-NEW-3 fix: ARM §3.9/§14.5 — S1DSS==0x01 bypass results must NEVER be
+    // cached in the TLB.  The bypass path in performTwoStageTranslation returns early
+    // with an identity result (PA == IOVA) when s1dss == 0x01 and pasid == 0.  Caching
+    // this result would allow a stale TLB hit to survive stream reconfiguration.
+    // Guard: skip TLB insert when s1dss == 0x01 AND pasid == 0 (the bypass condition).
+    // s1dss == 0x02 ("use CD[0]") is NOT a bypass and MUST still be cached normally.
+    // Only applies when the stream is substream-capable (s1cdMax > 0).
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
         StreamConfig streamCfg = streamContext->getStreamConfiguration();
-        cacheTranslationResult(streamID, pasid, iova, result, currentTime, streamCfg.asid, streamCfg.vmid);
+        bool s1dssIsBypass = (streamCfg.s1cdMax > 0 && pasid == 0 && streamCfg.s1dss == 0x01u);
+        if (!s1dssIsBypass) {
+            cacheTranslationResult(streamID, pasid, iova, result, currentTime, streamCfg.asid, streamCfg.vmid);
+        }
     } else if (result.isError()) {
         // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
         // If the stream is configured for stall, enqueue a StallRecord and return
@@ -771,15 +783,18 @@ void SMMU::reset() {
 
     // ARM §6.3.17/6.3.18: Reset global error registers (BUG-03/SPEC-09)
     // Both GERROR and GERRORN are reset to 0 at power-on reset.
-    gerrorStatus = 0;
-    gerrorNStatus = 0;
+    // BUG-CPP-NEW-1 fix: use release store so that subsequent acquire loads in
+    // translate() observe the zeroed values.
+    gerrorStatus.store(0, std::memory_order_release);
+    gerrorNStatus.store(0, std::memory_order_release);
 
     // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
     // BUG-NEW3-04 fix: ARM §6.3.9 — reset returns SMMU to disabled state (all CR0 bits clear).
     // Resetting only smmuen_ is insufficient; queue-enable bits must also be cleared.
-    smmuen_ = false;
-    gbpaAbort_ = false;
-    cr0_ = 0;
+    // BUG-CPP-NEW-1 fix: use release stores for these atomic members.
+    smmuen_.store(false, std::memory_order_release);
+    gbpaAbort_.store(false, std::memory_order_release);
+    cr0_.store(0, std::memory_order_release);
 
     // ARM §3.12.2: Clear stall queue on reset.
     {
@@ -1305,7 +1320,15 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // Using the incoming accessType here would cause a spurious PermissionFault
     // when a hypervisor maps Stage-1 page-table pages as read-only in Stage-2
     // and a guest WRITE triggers a Stage-2 PTW (page-table walk) lookup.
-    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, securityState);
+    // BUG-CPP-NEW-5 fix: ARM IHI0070G.b §3.3.2 / §3.10:
+    // The IPA security state is carried by the stage-1 output (stage1Data.securityState),
+    // not the incoming transaction's NS bit (securityState).  STE.NSCFG applies only when
+    // stage-1 is bypassed.  When stage-1 has completed a full translation, its output
+    // security state is the authoritative IPA security state for the stage-2 PTW lookup.
+    // For Non-secure streams both values are equal (NonSecure), so this is a no-op in the
+    // common case.  For Secure streams with NS-output overrides this is load-bearing.
+    const TranslationData& stage1DataRef = stage1Result.getValue();
+    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, stage1DataRef.securityState);
     if (stage2Result.isError()) {
         // ARM SMMU v3 spec Section 7.3.3: Stage-2 fault attribution
         FaultType stage2FaultType;
@@ -1326,7 +1349,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     }
 
     // Both stages successful - create final translation result
-    const TranslationData& stage1Data = stage1Result.getValue();
+    // Note: stage1DataRef was introduced above for the stage-2 PTW security state.
+    const TranslationData& stage1Data = stage1DataRef;
     const TranslationData& stage2Data = stage2Result.getValue();
 
     // ARM SMMU v3 spec: Final permissions are intersection of Stage-1 and Stage-2 permissions
@@ -1787,7 +1811,8 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
 
 void SMMU::processCommandQueue() {
     // §4.1.2 / CT-33: When CR0.CMDQEN=0, command queue processing is disabled.
-    if ((cr0_ & CR0_CMDQEN) == 0u) {
+    // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_CMDQEN) == 0u) {
         return;
     }
 
@@ -1795,7 +1820,9 @@ void SMMU::processCommandQueue() {
     // An error is active when GERROR[x] != GERRORN[x] (unacknowledged).
     // Software must write GERRORN via clearGerror() to acknowledge before
     // queue processing can resume.  BUG-03/SPEC-09.
-    if ((gerrorStatus ^ gerrorNStatus) & GERROR_CMDQ_ERR) {
+    // BUG-CPP-NEW-1 fix: use load(relaxed) — this function runs under queueMutex
+    // which provides the required memory ordering between writer and this reader.
+    if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
         return;
     }
 
@@ -1823,7 +1850,7 @@ void SMMU::processCommandQueue() {
         // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is active.
         // If processCommand() signalled CMDQ_ERR, halt queue processing immediately.
         // Active = GERROR[x] != GERRORN[x] (unacknowledged).  BUG-03/SPEC-09.
-        if ((gerrorStatus ^ gerrorNStatus) & GERROR_CMDQ_ERR) {
+        if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
             break;
         }
 
@@ -1943,7 +1970,8 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
 
 void SMMU::processPRIQueue() {
     // §CT-33: When CR0.PRIQEN=0, PRI queue processing is disabled.
-    if ((cr0_ & CR0_PRIQEN) == 0u) {
+    // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_PRIQEN) == 0u) {
         return;
     }
 
@@ -2656,7 +2684,8 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                          SecurityState securityState, bool isStall, uint16_t stag) {
     // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
     // Exception: stall events must always be recorded (§3.5.3 stall semantics).
-    if (!isStall && (cr0_ & CR0_EVENTQEN) == 0u) {
+    // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
+    if (!isStall && (cr0_.load(std::memory_order_acquire) & CR0_EVENTQEN) == 0u) {
         return;
     }
 

@@ -921,33 +921,18 @@ impl SMMU {
             return Err(SMMUError::stream_limit_exceeded(current_count, max_streams));
         }
 
-        // Create new StreamContext with configuration
+        // Create new StreamContext and apply the full configuration via
+        // update_configuration() — this is the ONLY path that sets all STE
+        // fields (including GAP-1 output-attribute overrides and GAP-2 STRW)
+        // with Release ordering, establishing a happens-before relationship
+        // with the Acquire loads in the translate hot-path.
+        //
+        // BUG-RUST-NEW-2 fix: Previously individual Relaxed setters were used,
+        // leaving GAP-1/GAP-2 fields (mt_cfg, mem_attr, sh_cfg, alloc_cfg,
+        // inst_cfg, priv_cfg, ns_cfg, strw) at their zero defaults for all
+        // SMMU-configured streams.  update_configuration() sets every field.
         let stream_context = StreamContext::new();
-
-        // Apply stream configuration
-        stream_context.set_stage1_enabled(config.stage1_enabled);
-        stream_context.set_stage2_enabled(config.stage2_enabled);
-        stream_context.set_vmid(config.vmid);
-        stream_context.set_stall_enabled(config.fault_mode == crate::types::FaultMode::Stall);
-        // Apply hardware Access Flag / Dirty State management (CD.HA/CD.HD, ARM §3.13)
-        stream_context.set_ha(config.ha);
-        stream_context.set_hd(config.hd);
-        // Apply STE.S1DSS and STE.S1CDMax (ARM §5.2, §3.9)
-        stream_context.set_s1dss(config.s1dss);
-        stream_context.set_s1cd_max(config.s1cd_max);
-        // Apply CD.T0SZ, CD.T1SZ, CD.AA64 (ARM §5.4, CT-13, CT-14)
-        stream_context.set_t0sz(config.t0sz);
-        stream_context.set_t1sz(config.t1sz);
-        stream_context.set_aa64(config.aa64);
-        // §5.2 / CT-09: STE.Config==0b000 — abort mode (no event, silent abort).
-        stream_context.set_abort_mode(config.disabled);
-        // FINDING-NEW-44: propagate the stream's security state so completion
-        // events (AtcInvalidateCompletion, CommandSyncCompletion) use it.
-        stream_context.set_security_state(config.security_state);
-
-        if config.pasid_enabled {
-            stream_context.set_max_pasids_per_stream(config.max_pasid as usize);
-        }
+        stream_context.update_configuration(config);
 
         // Use entry API for atomic check-and-insert (eliminates TOCTOU race for duplicates)
         // This guarantees that no other thread can insert the same stream_id between

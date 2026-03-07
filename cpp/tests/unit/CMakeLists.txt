@@ -68,6 +68,10 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp4_config_fault_stall.cpp
     test_bug_cpp5_priv_level_syndrome.cpp
     test_bug_cpp6_strw_tlb_recheck.cpp
+    test_bug_cpp_new1_atomic_cr0.cpp
+    test_bug_cpp_new3_s1dss_tlb.cpp
+    test_bug_cpp_new5_stage2_ns.cpp
+    test_bug_cpp_new6_dirty_bit.cpp
     ../test_thread_safety.cpp
 )
 

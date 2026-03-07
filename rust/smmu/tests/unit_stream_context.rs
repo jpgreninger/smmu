@@ -703,7 +703,7 @@ fn test_bug_rust1_concurrent_disable_error_is_stream_disabled() {
 /// The test is valuable as a contract specification and for Miri verification.
 #[test]
 fn test_bug_rust3_update_configuration_config_visible_to_translate() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
 
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0x5000).unwrap();
@@ -795,7 +795,7 @@ fn test_bug_rust3_update_configuration_config_visible_to_translate() {
 /// immediately following `translate()` load (Acquire).
 #[test]
 fn test_bug_rust3_repeated_config_toggle_observes_latest_values() {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
 
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0xA000).unwrap();

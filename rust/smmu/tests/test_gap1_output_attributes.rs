@@ -74,7 +74,7 @@ fn test_translation_data_has_ns_cfg_out_field() {
 
 // Helper: build a stage1-only StreamContext ready for translation
 fn make_stage1_ctx(cfg: StreamConfig) -> StreamContext {
-    let mut ctx = StreamContext::new();
+    let ctx = StreamContext::new();
     ctx.update_configuration(cfg);
     ctx.enable();
 

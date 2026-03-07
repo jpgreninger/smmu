@@ -134,7 +134,15 @@ bool AddressSpace::updateAccessFlags(IOVA iova, bool ha, bool hd, AccessType acc
         changed = true;
     }
 
-    bool isWrite = (accessType == AccessType::Write || accessType == AccessType::ReadWrite);
+    // BUG-CPP-NEW-6 fix: Include all write variants (Privileged and Execute-combined).
+    // ARM §3.13: Hardware dirty-bit tracking applies to any write access, regardless
+    // of privilege level.  WritePrivileged and ReadWritePrivileged are write operations
+    // and must trigger the dirty-bit update.  Execute-only variants (Execute,
+    // ExecutePrivileged) are NOT writes and must NOT set the dirty bit.
+    bool isWrite = (accessType == AccessType::Write         ||
+                    accessType == AccessType::ReadWrite      ||
+                    accessType == AccessType::WritePrivileged ||
+                    accessType == AccessType::ReadWritePrivileged);
     if (hd && isWrite && !entry.dirty) {
         entry.dirty = true;
         changed = true;

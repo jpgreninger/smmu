@@ -248,16 +248,22 @@ private:
     // Active (unacknowledged) errors: gerrorStatus XOR gerrorNStatus != 0.
     // The SMMU toggles gerrorStatus[x] only when the error is inactive
     // (gerrorStatus[x] == gerrorNStatus[x]).  ARM IHI0070G.b §6.3.19/6.3.20.
-    uint32_t gerrorStatus;     // SMMU_GERROR: hardware error flags
-    uint32_t gerrorNStatus;    // SMMU_GERRORN: software acknowledgement register, init 0
+    // BUG-CPP-NEW-1 fix: converted to std::atomic<uint32_t> to eliminate the data race
+    // between translate() (reader, no lock) and signalError/reset() (writers).
+    std::atomic<uint32_t> gerrorStatus;   // SMMU_GERROR: hardware error flags
+    std::atomic<uint32_t> gerrorNStatus;  // SMMU_GERRORN: software acknowledgement register, init 0
 
     // CR0 bit constants are declared public above (§6.3.9).
-    uint32_t cr0_;             // SMMU_CR0 register value; bit0=SMMUEN, bit1=PRIQEN, bit2=EVENTQEN, bit3=CMDQEN
+    // BUG-CPP-NEW-1 fix: converted to std::atomic<uint32_t>.  translate() reads cr0_
+    // without holding any lock (hot path); enable()/disable()/reset()/setCR0() write it.
+    // Acquire/Release ordering ensures the SMMUEN bit is visible across threads.
+    std::atomic<uint32_t> cr0_;           // SMMU_CR0 register value; bit0=SMMUEN, bit1=PRIQEN, bit2=EVENTQEN, bit3=CMDQEN
 
     // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
-    // Note: smmuen_ is now derived from cr0_ bit 0, kept for backward compatibility
-    bool smmuen_;              // SMMUEN bit — false (disabled) at reset
-    bool gbpaAbort_;           // GBPA.ABORT bit — false (bypass) at reset
+    // Note: smmuen_ is derived from cr0_ bit 0, kept for backward compatibility.
+    // BUG-CPP-NEW-1 fix: converted to std::atomic<bool> to eliminate the data race.
+    std::atomic<bool> smmuen_;            // SMMUEN bit — false (disabled) at reset
+    std::atomic<bool> gbpaAbort_;         // GBPA.ABORT bit — false (bypass) at reset
 
     // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
     // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
