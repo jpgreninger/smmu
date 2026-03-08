@@ -1557,7 +1557,13 @@ impl StreamContext {
             // page-table walk (PTW) must use AccessType::Read regardless of the
             // original transaction's access type.  The actual permission check is
             // done by the S1 ∩ S2 intersection logic below (lines ~1516-1531).
-            stage2.translate_page(ipa, AccessType::Read, security_state)
+            //
+            // BUG-2 fix: ARM IHI0070G.b §3.10.2.2 — "When stage 1 translation is
+            // performed, the NS attribute provided to stage 2 comes from stage 1
+            // translation tables."  The NS bit for the Stage-2 lookup must come from
+            // the Stage-1 output (stage1_result.security_state()), not the incoming
+            // transaction's security_state parameter.
+            stage2.translate_page(ipa, AccessType::Read, stage1_result.security_state())
         }; // stage2_address_space read-lock released here
 
         // Record Stage-2 fault if error (lock is no longer held)
@@ -1623,8 +1629,13 @@ impl StreamContext {
     ///
     /// Per ARM §5.2, EL2 and EL3 stream worlds suppress the privilege check; all
     /// other worlds (El1El0, El2E2h) enforce it.
+    ///
+    /// Made `pub(crate)` so the SMMU TLB fast path (BUG-3 fix) can consult the live
+    /// STRW value when deciding whether to enforce the `privileged_only` bit on a
+    /// TLB cache hit, matching the slow-path privilege check in `translate_stage1_only`,
+    /// `translate_stage2_only`, and `translate_two_stage`.
     #[inline]
-    fn strw_suppresses_priv(&self) -> bool {
+    pub(crate) fn strw_suppresses_priv(&self) -> bool {
         matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
     }
 

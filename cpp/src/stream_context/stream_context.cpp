@@ -1030,9 +1030,13 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
 
     // §5.2 GAP-2: STRW=EL2/EL3 suppresses AP[1] privilege checks.
     // Convert the caller's access type to its privileged variant when EL2 or EL3.
+    // BUG-1 fix: §5.2 states STRW is IGNORED when stage-2 is enabled for Non-secure
+    // streams (STE.Config==0b11x).  Guard the promotion with !stage2Enabled to match
+    // the TLB fast path in smmu.cpp which already carries this guard.
     AccessType effectiveAccessType = accessType;
-    if (currentConfiguration.strw == StreamWorld::EL2 ||
-        currentConfiguration.strw == StreamWorld::EL3) {
+    if (!stage2Enabled &&
+        (currentConfiguration.strw == StreamWorld::EL2 ||
+         currentConfiguration.strw == StreamWorld::EL3)) {
         switch (accessType) {
             case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged; break;
             case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged; break;

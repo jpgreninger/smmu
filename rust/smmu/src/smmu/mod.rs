@@ -323,6 +323,14 @@ pub struct SMMU {
     /// Software may write this register directly via `set_cr0()` to control
     /// individual queue gates without toggling the global enable.
     cr0: AtomicU32,
+
+    /// Atomic stream count for TOCTOU-safe limit enforcement (BUG-6 fix).
+    ///
+    /// Incremented with `fetch_add` BEFORE the DashMap insert and decremented
+    /// with `fetch_sub` on failure (limit exceeded or duplicate stream).
+    /// This eliminates the race window between the `streams.len()` read and
+    /// the subsequent insert that existed in the previous implementation.
+    stream_count: std::sync::atomic::AtomicUsize,
 }
 
 impl SMMU {
@@ -542,6 +550,9 @@ impl SMMU {
             // Software must explicitly set the required bits via set_cr0() or
             // call enable() before using queues or translations.
             cr0: AtomicU32::new(0),
+            // BUG-6 fix: atomic stream counter starts at zero; incremented
+            // before each insert, decremented on rollback.
+            stream_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -955,16 +966,26 @@ impl SMMU {
 
         let stream_value = stream_id.as_u32();
 
-        // Check stream limit BEFORE entry API to avoid holding entry lock
-        // Note: This creates a minor TOCTOU race on the limit check in extreme
-        // concurrent scenarios, but the entry API still prevents duplicate streams.
-        // In the worst case, we might allow max_streams+N where N is the number of
-        // concurrent configure_stream calls, but this is bounded and won't cause corruption.
-        let current_count = self.streams.len();
+        // BUG-6 fix: atomically reserve a slot BEFORE the DashMap insert.
+        //
+        // Increment the counter first.  If the resulting value (post-increment)
+        // exceeds `max_streams`, roll back immediately and return an error.
+        // This eliminates the TOCTOU window that previously existed between
+        // the `streams.len()` read and the subsequent DashMap insert.
+        //
+        // Ordering rationale:
+        //   - AcqRel on the fetch_add: the acquire half ensures we see all
+        //     prior decrements; the release half makes our increment visible
+        //     to concurrent readers before we attempt the insert.
+        //   - Release on the fetch_sub rollback: ensures the freed slot is
+        //     visible to the next waiter.
         let max_streams = self.config.read().unwrap().max_streams();
+        let prev_count = self.stream_count.fetch_add(1, Ordering::AcqRel);
 
-        if current_count >= max_streams {
-            return Err(SMMUError::stream_limit_exceeded(current_count, max_streams));
+        if prev_count >= max_streams {
+            // Roll back — we must not consume the slot.
+            self.stream_count.fetch_sub(1, Ordering::Release);
+            return Err(SMMUError::stream_limit_exceeded(prev_count, max_streams));
         }
 
         // Create new StreamContext and apply the full configuration via
@@ -992,7 +1013,11 @@ impl SMMU {
                 entry.insert(Arc::new(stream_context));
                 Ok(())
             },
-            Entry::Occupied(_) => Err(SMMUError::stream_already_exists(stream_id)),
+            Entry::Occupied(_) => {
+                // Duplicate stream: roll back the slot we pre-reserved.
+                self.stream_count.fetch_sub(1, Ordering::Release);
+                Err(SMMUError::stream_already_exists(stream_id))
+            },
         }
     }
 
@@ -1022,6 +1047,60 @@ impl SMMU {
         self.check_shutdown()?;
         let ctx = self.get_stream_context(stream_id)?;
         ctx.enable();
+        Ok(())
+    }
+
+    /// Update the configuration of an existing stream without invalidating TLB entries.
+    ///
+    /// Per ARM IHI0070G.b §4.4, updating an STE does NOT automatically invalidate
+    /// cached TLB entries; software must issue explicit `CMD_TLBI_*` commands to
+    /// invalidate stale translations.  This method faithfully models that behaviour:
+    /// the stream context atomics are updated (STRW, output-attribute fields, etc.)
+    /// but any TLB entries cached for this stream remain live until explicitly
+    /// invalidated.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier to reconfigure
+    /// * `config`    - New stream configuration to apply
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - Stream not found (`StreamNotFound`)
+    /// - New configuration fails validation (`InvalidConfiguration`)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, StreamConfig, StreamWorld};
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.enable().unwrap();
+    /// let stream_id = StreamID::new(42).unwrap();
+    ///
+    /// smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
+    ///
+    /// // Update STRW without clearing TLB (caller must issue CMD_TLBI_* separately).
+    /// let new_cfg = StreamConfig::builder()
+    ///     .stage1_enabled(true)
+    ///     .translation_enabled(true)
+    ///     .strw(StreamWorld::El1El0)
+    ///     .build()
+    ///     .unwrap();
+    /// smmu.reconfigure_stream(stream_id, new_cfg).unwrap();
+    /// ```
+    pub fn reconfigure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+
+        config
+            .validate()
+            .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
+
+        let ctx = self.get_stream_context(stream_id)?;
+        ctx.update_configuration(config);
         Ok(())
     }
 
@@ -1063,6 +1142,9 @@ impl SMMU {
         self.streams
             .remove(&stream_value)
             .ok_or_else(|| SMMUError::stream_not_found(stream_id))?;
+
+        // BUG-6 fix: decrement atomic counter to match the removed stream slot.
+        self.stream_count.fetch_sub(1, Ordering::Release);
 
         // Invalidate all TLB cache entries for this stream
         self.tlb_cache.invalidate_by_stream(stream_id);
@@ -1778,8 +1860,29 @@ impl SMMU {
         // Fast path: TLB cache lookup (only reached when SMMU is enabled and not shut down).
         let cache_key = CacheKey::new(stream_id, pasid, iova, security_state);
         if let Some(cached) = self.tlb_cache.lookup(&cache_key) {
-            // Verify cached entry allows the requested access type
+            // Verify cached entry allows the requested access type.
+            // NOTE: `allows()` does NOT check the `privileged_only` bit (bit 3 of
+            // PagePermissions) — that check is separate, per ARM §5.2 STE.STRW semantics.
             if cached.permissions.allows(access) {
+                // Use the raw u32 key to match the DashMap key type.
+                let stream_value = stream_id.as_u32();
+
+                // BUG-3 fix: §5.2 GAP-2 — The `privileged_only` bit must be checked on the
+                // TLB fast path, not only in the slow-path translate().  When a page has
+                // `privileged_only` set and the stream's STRW does NOT suppress the privilege
+                // check (i.e., STRW is not El2 or El3), a non-privileged access must be
+                // denied even on a TLB hit.  Without this check, a transaction that populated
+                // the TLB under a suppressing STRW (El2/El3) would bypass the priv check
+                // after a subsequent STRW change to a non-suppressing value (El1El0/El2E2h).
+                if cached.permissions.privileged_only() {
+                    if let Some(stream_ref) = self.streams.get(&stream_value) {
+                        if !stream_ref.value().strw_suppresses_priv() {
+                            // privileged_only page and STRW enforces the check: deny access.
+                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                            return Err(TranslationError::PermissionViolation { access });
+                        }
+                    }
+                }
                 self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
                 // BUG-RUST-DBGR-1 fix: re-apply STE output-attribute overrides from the
                 // live stream configuration. CacheEntry does not store the six GAP-1 fields
@@ -1792,8 +1895,6 @@ impl SMMU {
                     cached.security_state,
                 );
                 // Look up the stream context to apply its output-attribute configuration.
-                // Use the raw u32 key to match the DashMap key type.
-                let stream_value = stream_id.as_u32();
                 if let Some(stream_ref) = self.streams.get(&stream_value) {
                     data = stream_ref.value().apply_output_attrs(data);
                 }

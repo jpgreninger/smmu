@@ -1228,21 +1228,31 @@ TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, I
 
 void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const {
     // Generate a unique cache key combining StreamID, PASID, IOVA, and SecurityState.
-    // BUG-CPP-06 fix: the previous layout captured only the low 10 bits of the IOVA,
-    // causing false cache hits for addresses that share the same low 10 bits but differ
-    // in page number.  Use XOR with the page-aligned IOVA (iova >> 12) so that every
-    // distinct page number produces a distinct contribution to the key.
     //
-    // Layout (XOR composition — no strict bit-field constraints needed for a hash key):
-    //   base : bits [63:32] = streamID (32 bits)
-    //          bits [31:12] = pasid & 0xFFFFF (20 bits)
-    //          bits [11: 0] = 0
-    //   XOR  : securityState (2-bit enum value, sits in low bits)
-    //   XOR  : iova >> 12   (page-frame number, up to 52 bits for a 64-bit address)
-    cacheKey = (static_cast<uint64_t>(streamID) << 32) ^
-               (static_cast<uint64_t>(pasid & 0xFFFFFu) << 12) ^
-               static_cast<uint64_t>(securityState) ^
-               (iova >> 12);
+    // BUG-5 fix: the previous XOR layout placed (pasid & 0xFFFFF) in bits [31:12]
+    // and (iova >> 12) also in overlapping bits [31:12], causing XOR cancellation.
+    // For example, (PASID=1, IOVA=0x1000) and (PASID=0, IOVA=0x1001000) produced
+    // identical keys because (1<<12)^(0x1) == (0<<12)^(0x1001) == 0x1001.
+    //
+    // The fix uses the Boost hash_combine pattern which mixes bits multiplicatively,
+    // ensuring no component can silently cancel another through XOR.  Each call to
+    // hashCombine avalanches all bits so that a single-bit difference in any input
+    // propagates throughout the output.
+    //
+    // NOTE: generateCacheKey() is a utility method; the active TLB cache path uses
+    // CacheKey structs with a full operator== comparison of (streamID, pasid, iova,
+    // securityState).  This function is provided for potential use by secondary
+    // lookup tables or diagnostic tools.
+    auto hashCombine = [](uint64_t seed, uint64_t val) -> uint64_t {
+        // 0x9e3779b97f4a7c15 is the 64-bit fractional part of the golden ratio,
+        // chosen for good avalanche behavior (equivalent to Boost hash_combine).
+        return seed ^ (val + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+    };
+    uint64_t key = static_cast<uint64_t>(streamID);
+    key = hashCombine(key, static_cast<uint64_t>(pasid));
+    key = hashCombine(key, static_cast<uint64_t>(securityState));
+    key = hashCombine(key, iova >> 12);
+    cacheKey = key;
 }
 
 // Task 5.2: Enhanced stage-specific translation methods
