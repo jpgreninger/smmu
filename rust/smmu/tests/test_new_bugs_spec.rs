@@ -97,10 +97,11 @@ fn test_map_page_succeeds_when_stream_disabled() {
     );
 
     // translate() must still reject an abort-mode stream.
+    // BUG-R-05 fix: abort mode now returns AbortMode (distinct from StreamDisabled).
     let translate_result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
-        matches!(translate_result, Err(TranslationError::StreamDisabled)),
-        "translate() must still return StreamDisabled for an abort-mode stream; got: {translate_result:?}"
+        matches!(translate_result, Err(TranslationError::AbortMode)),
+        "translate() must return AbortMode (§5.2 silent termination) for an abort-mode stream; got: {translate_result:?}"
     );
 }
 

@@ -362,12 +362,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             StallRecord record(0, streamID, pasid, iova, accessType, securityState, currentTime);
             {
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
-                static constexpr int MAX_STAG_TRIES = 65535;
-                int tries = 0;
-                do {
+                // Skip STAG==0 (reserved), then attempt a single allocation.
+                // Burning up to 65535 counter values on queue-full wasted the
+                // 16-bit STAG counter space and accelerated wrap-around.
+                // A single attempt is sufficient: if the slot is occupied the
+                // stall queue is full and we fall back to terminate mode below.
+                stag = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
+                while (stag == 0) {
                     stag = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
-                    ++tries;
-                } while ((stag == 0 || stallQueue_.count(stag) != 0) && tries < MAX_STAG_TRIES);
+                }
                 // BUG-NEW2-03 fix: only write to stallQueue_ when a valid unique
                 // non-zero slot was found.  If the queue is exhausted, fall back
                 // to terminate-mode fault handling instead of corrupting the queue.
@@ -389,6 +392,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             EventType stallEventType;
             switch (result.getError()) {
                 case SMMUError::PagePermissionViolation:
+                    stallEventType = EventType::F_PERMISSION;
+                    break;
+                case SMMUError::InvalidSecurityState:
+                    // ARM §7.3.16: security violations classify as F_PERMISSION,
+                    // matching the non-stall path in handleTranslationFailure().
                     stallEventType = EventType::F_PERMISSION;
                     break;
                 case SMMUError::InvalidAddress:

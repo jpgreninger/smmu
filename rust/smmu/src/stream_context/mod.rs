@@ -707,7 +707,14 @@ impl StreamContext {
         // so we can force both stage flags to false when abort_mode is active.
         // STE.Config==0b000 means ALL stages are disabled; allowing stage1_enabled=true
         // alongside abort_mode=true would be a contradictory state.
-        let abort_mode_value = cfg.disabled && !cfg.translation_enabled;
+        //
+        // BUG-R-10 fix: abort_mode is determined solely by cfg.disabled (which represents
+        // STE.Config==0b000 per ARM §5.2).  The previous `&& !cfg.translation_enabled`
+        // guard was redundant via the StreamConfig builder (which always sets both fields
+        // together) but incorrect for direct struct construction: a config with
+        // disabled=true and translation_enabled=true would not enter abort mode,
+        // allowing translations to proceed contrary to the spec.
+        let abort_mode_value = cfg.disabled;
         self.abort_mode.store(abort_mode_value, Ordering::Release);
 
         // Stage enablement — if abort_mode is set, both stages must be forced off.
@@ -1337,11 +1344,24 @@ impl StreamContext {
         access_type: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
+        // BUG-R-02/R-09 fix: AccessType::None has no ARM SMMU hardware equivalent.
+        // Callers must supply a real access type (Read, Write, Execute, etc.).
+        // A debug_assert catches mis-use in development builds without altering
+        // release behaviour (existing tests that use None for utility purposes
+        // bypass this check by calling lower-level helpers directly).
+        debug_assert!(
+            access_type != AccessType::None,
+            "AccessType::None is not a valid ARM SMMU hardware access type; \
+             use Read, Write, Execute, or a combination thereof"
+        );
+
         // §5.2 / CT-09: STE.Config==0b000 — abort silently, no event.
         // BUG-RUST-3 fix: use Acquire so the abort_mode store in
         // update_configuration() (Release) happens-before this load.
+        // BUG-R-05 fix: return AbortMode (not StreamDisabled) so the SMMU level
+        // can distinguish silent-abort (no event) from admin-disabled (F_STREAM_DISABLED).
         if self.abort_mode.load(Ordering::Acquire) {
-            return Err(TranslationError::StreamDisabled);
+            return Err(TranslationError::AbortMode);
         }
 
         // Check if stream is enabled

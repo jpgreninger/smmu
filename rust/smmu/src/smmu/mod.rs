@@ -920,10 +920,26 @@ impl SMMU {
         // to match GERROR[x] makes the error inactive (equal → inactive).
         // ARM §6.3.20: "Software must not toggle fields in this register that
         // correspond to errors that are inactive."  Mask to active bits only.
-        let gerror = self.gerror.load(Ordering::Acquire);
-        let gerrorn = self.gerrorn.load(Ordering::Acquire);
-        let active_bits = gerror ^ gerrorn;
-        self.gerrorn.fetch_xor(bits & active_bits, Ordering::Release);
+        //
+        // BUG-R-04 fix: use a CAS loop to close the TOCTOU race between the
+        // Acquire load of gerrorn and the subsequent fetch_xor.  A concurrent
+        // clear_gerror call could toggle the same bits between the load and the
+        // store, re-activating an already-acknowledged error.  The CAS loop
+        // retries until our snapshot of gerrorn is still current at store time,
+        // matching the pattern used by signal_gerror().
+        loop {
+            let gerror = self.gerror.load(Ordering::Acquire);
+            let gerrorn = self.gerrorn.load(Ordering::Acquire);
+            let active_bits = gerror ^ gerrorn;
+            let new_gerrorn = gerrorn ^ (bits & active_bits);
+            if self
+                .gerrorn
+                .compare_exchange(gerrorn, new_gerrorn, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
+        }
     }
 
     /// Configure a stream with specified configuration
@@ -2397,6 +2413,11 @@ impl SMMU {
             TranslationError::InvalidStreamID => FaultType::BadStreamID,
             TranslationError::StreamNotConfigured => FaultType::BadSTE,
             TranslationError::StreamDisabled => FaultType::StreamDisabled,
+            // BUG-R-05 fix: STE.Config==0b000 abort mode — silent termination, no event.
+            // Maps to StreamDisabled so internal fault tracking still fires, but the
+            // SMMU-level event-suppression check (see record_translation_fault) must
+            // match AbortMode specifically to allow StreamDisabled to generate F_STREAM_DISABLED.
+            TranslationError::AbortMode => FaultType::StreamDisabled,
             TranslationError::InvalidPASID => FaultType::BadCD,
             TranslationError::PASIDNotFound => FaultType::BadCD,
             // Stalled is a stall-mode outcome, not a distinct fault class.
@@ -2456,10 +2477,17 @@ impl SMMU {
 
         self.record_fault(fault);
 
-        // §7.3.7 / §5.2: STE.Config==0b000 terminates traffic without recording an event.
-        // Internal fault tracking is preserved (record_fault above), but no EventEntry
-        // is enqueued.
-        if matches!(fault_type, FaultType::StreamDisabled) {
+        // §5.2 / §7.3.7: Both STE.Config==0b000 (AbortMode) and administratively-disabled
+        // streams (StreamDisabled via disable_stream()) terminate traffic without recording
+        // an event in this model.  F_STREAM_DISABLED (event 0x06) is only generated for
+        // the S1DSS==0 case (non-substream on substream-capable stream), which is handled
+        // separately in the S1DSS branch before reaching record_translation_fault.
+        // BUG-R-05 fix: the distinction between AbortMode and StreamDisabled exists to make
+        // the two paths distinguishable to callers; both suppress EventEntry here.
+        if matches!(
+            error,
+            TranslationError::AbortMode | TranslationError::StreamDisabled
+        ) {
             return;
         }
 

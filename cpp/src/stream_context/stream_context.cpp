@@ -1069,9 +1069,15 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         return makeSuccess(applyOutputAttrs(TranslationData(iova, bypassPerms, securityState)));
     }
 
-    // ARM SMMU v3: Check stream enabled state only for active translation contexts
-    // Stream must be enabled if translation is configured and requested
-    if ((stage1Enabled || stage2Enabled) && currentConfiguration.translationEnabled && !streamEnabled) {
+    // ARM SMMU v3 §5.2 / §7.3.7: stream-enabled check must fire whenever any
+    // translation stage is spec-configured, regardless of the translationEnabled flag.
+    // Use currentConfiguration.stage1Enabled (the spec-level field) rather than the
+    // internal stage1Enabled bool, which defaults true for backward-compat with
+    // direct-StreamContext tests (see constructor comment).  A stream explicitly
+    // configured with stage1Enabled=true must be rejected when streamEnabled=false,
+    // even if translationEnabled=false — the extraneous && translationEnabled guard
+    // allowed disabled-but-configured streams to translate via Stage-1.
+    if ((currentConfiguration.stage1Enabled || currentConfiguration.stage2Enabled) && !streamEnabled) {
         // Translation is configured but stream is disabled - fail translation
         streamStatistics.faultCount++;  // Track fault
         return makeTranslationError(SMMUError::StreamDisabled);

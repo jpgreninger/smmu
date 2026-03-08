@@ -38,7 +38,8 @@ fn dbgr4_abort_mode_forces_stages_disabled() {
     );
 }
 
-/// Translation on an abort_mode stream must return StreamDisabled.
+/// Translation on an abort_mode stream must return AbortMode (ARM §5.2: silent, no event).
+/// BUG-R-05 fix: abort mode is distinct from administrative stream-disabled (§7.3.7).
 #[test]
 fn dbgr4_abort_mode_translation_returns_stream_disabled() {
     let ctx = StreamContext::new();
@@ -50,13 +51,14 @@ fn dbgr4_abort_mode_translation_returns_stream_disabled() {
     let pasid = PASID::new(0).unwrap();
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
-        matches!(result, Err(TranslationError::StreamDisabled)),
-        "abort_mode stream must return StreamDisabled; got: {result:?}"
+        matches!(result, Err(TranslationError::AbortMode)),
+        "abort_mode stream must return AbortMode (§5.2 silent termination); got: {result:?}"
     );
 }
 
 /// abort_mode set via builder (translation_enabled=false) produces disabled=true,
-/// and translation returns StreamDisabled.
+/// and translation returns AbortMode (ARM §5.2 silent termination, no event).
+/// BUG-R-05 fix: AbortMode is distinct from StreamDisabled (§7.3.7).
 #[test]
 fn dbgr4_abort_mode_via_builder_translation_enabled_false() {
     let ctx = StreamContext::new();
@@ -71,8 +73,8 @@ fn dbgr4_abort_mode_via_builder_translation_enabled_false() {
     let pasid = PASID::new(0).unwrap();
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(
-        matches!(result, Err(TranslationError::StreamDisabled)),
-        "builder-disabled stream must return StreamDisabled; got: {result:?}"
+        matches!(result, Err(TranslationError::AbortMode)),
+        "builder-disabled stream must return AbortMode (§5.2 silent termination); got: {result:?}"
     );
 }
 

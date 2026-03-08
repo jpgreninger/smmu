@@ -56,9 +56,18 @@ pub enum TranslationError {
     #[error("Stream not configured")]
     StreamNotConfigured,
 
-    /// Stream disabled
+    /// Stream disabled (administrative) — generates F_STREAM_DISABLED event (ARM §7.3.7)
     #[error("Stream disabled")]
     StreamDisabled,
+
+    /// STE.Config==0b000 abort mode — traffic silently terminated, no event (ARM §5.2)
+    ///
+    /// Distinct from [`StreamDisabled`](TranslationError::StreamDisabled): per ARM §5.2,
+    /// STE.Config==0b000 terminates all incoming traffic **without** recording an event.
+    /// Administratively-disabled streams generate `F_STREAM_DISABLED` (event 0x06);
+    /// abort-mode streams do not generate any event at all.
+    #[error("STE abort mode (STE.Config==0b000) — transaction silently terminated")]
+    AbortMode,
 
     /// Address size error
     #[error("Address size error - address exceeds supported size")]
