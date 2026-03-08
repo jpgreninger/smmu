@@ -1914,8 +1914,9 @@ void SMMU::processCommandQueue() {
                 // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
                 // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive
                 // (gerrorStatus[x] == gerrorNStatus[x]).  ARM IHI0070G.b §6.3.19.
-                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
-                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
+                    (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
+                    gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
                 }
                 break;
             }
@@ -2501,8 +2502,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
                 // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
                 // error is already active."
-                if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
-                    gerrorStatus ^= GERROR_CMDQ_ERR;
+                if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
+                    (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
+                    gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
                 }
                 break;
             }
@@ -2619,8 +2621,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
             // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
             // error is already active."
-            if ((gerrorStatus & GERROR_CMDQ_ERR) == (gerrorNStatus & GERROR_CMDQ_ERR)) {
-                gerrorStatus ^= GERROR_CMDQ_ERR;
+            if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
+                (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
+                gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
             }
             break;
     }

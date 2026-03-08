@@ -313,12 +313,12 @@ pub struct SMMU {
 
     /// SMMU_CR0 register (§6.3.9).
     ///
-    /// Bit-field controlling global SMMU queue enable gates:
+    /// Bit-field controlling global SMMU queue enable gates (ARM §6.3.9):
     ///   Bit 0: SMMUEN   — global enable (mirrors `enabled`)
-    ///   Bit 1: INTEN    — interrupt enable
-    ///   Bit 2: PRIQEN   — PRI queue enable gate
-    ///   Bit 3: EVENTQEN — Event queue enable gate
-    ///   Bit 4: CMDQEN   — Command queue enable gate
+    ///   Bit 1: PRIQEN   — PRI queue enable gate
+    ///   Bit 2: EVENTQEN — Event queue enable gate
+    ///   Bit 3: CMDQEN   — Command queue enable gate
+    ///   Bit 4: ATSCHK   — ATS behavior control
     ///
     /// Software may write this register directly via `set_cr0()` to control
     /// individual queue gates without toggling the global enable.
@@ -918,7 +918,12 @@ impl SMMU {
         // which is a read-only hardware register.  Per the spec, software must
         // write GERRORN; the SMMU uses XOR-toggle semantics: toggling GERRORN[x]
         // to match GERROR[x] makes the error inactive (equal → inactive).
-        self.gerrorn.fetch_xor(bits, Ordering::Release);
+        // ARM §6.3.20: "Software must not toggle fields in this register that
+        // correspond to errors that are inactive."  Mask to active bits only.
+        let gerror = self.gerror.load(Ordering::Acquire);
+        let gerrorn = self.gerrorn.load(Ordering::Acquire);
+        let active_bits = gerror ^ gerrorn;
+        self.gerrorn.fetch_xor(bits & active_bits, Ordering::Release);
     }
 
     /// Configure a stream with specified configuration

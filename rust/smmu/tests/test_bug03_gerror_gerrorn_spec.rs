@@ -266,26 +266,25 @@ fn bug03_get_gerrorn_accessible() {
 
 /// §6.3.20: clear_gerror with a bit that is not active is a no-op.
 ///
-/// At reset GERROR=0, GERRORN=0 (both 0).
-/// clear_gerror(CMDQ_ERR) toggles GERRORN.CMDQ_ERR from 0→1.
-/// After this: GERROR=0, GERRORN=1. The bit is now "negatively active" — but
-/// the signal is toggled, not set, so GERROR XOR GERRORN = 1.
-/// Subsequent signal will toggle GERROR (0→1), making GERROR=1, GERRORN=1 → inactive.
+/// ARM IHI0070G.b §6.3.20: "Software must not toggle fields in this register
+/// that correspond to errors that are inactive. It is CONSTRAINED UNPREDICTABLE
+/// whether or not an SMMU activates errors if this is done."
 ///
-/// This verifies that clear_gerror on unset GERROR still toggles GERRORN.
+/// At reset GERROR=0, GERRORN=0 — the CMDQ_ERR bit is inactive (equal).
+/// Calling clear_gerror(CMDQ_ERR) on an inactive bit must be a no-op:
+/// GERRORN must remain 0.
 #[test]
-fn bug03_clear_gerror_on_unset_bit_toggles_gerrorn() {
+fn bug03_clear_gerror_on_unset_bit_is_noop() {
     let smmu = make_smmu();
-    // GERROR=0, GERRORN=0 at reset.
+    // GERROR=0, GERRORN=0 at reset — CMDQ_ERR is inactive.
     assert_eq!(smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR, 0);
     assert_eq!(smmu.get_gerrorn() & SMMU::GERROR_CMDQ_ERR, 0);
 
-    // clear_gerror toggles GERRORN (this is valid software behavior — it
-    // effectively pre-acknowledges the error bit).
+    // clear_gerror on an inactive bit must be a no-op (ARM §6.3.20).
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     assert_eq!(
         smmu.get_gerrorn() & SMMU::GERROR_CMDQ_ERR,
-        SMMU::GERROR_CMDQ_ERR,
-        "clear_gerror must toggle GERRORN even when GERROR bit is not set"
+        0,
+        "clear_gerror on inactive bit must be a no-op per ARM §6.3.20"
     );
 }
