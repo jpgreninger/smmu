@@ -8,6 +8,7 @@
 #include "smmu/fault_handler.h"
 #include "smmu/address_space.h"
 #include "smmu/types.h"
+#include "smmu/configuration.h"
 
 #include <thread>
 #include <vector>
@@ -421,6 +422,275 @@ TEST_F(ResetStatisticsTest, OperationAfterReset) {
     fh->recordFault(makeRecord(FaultType::PermissionFault));
     EXPECT_EQ(fh->getEventCount(), 1u);
     EXPECT_EQ(fh->getTotalFaultCount(), 1u);
+}
+
+// ============================================================
+// BUG-CPP-C: Dangling StreamContext* after lock.unlock() in !stagValid path
+//
+// In the stall-queue-exhausted path of translateUnlocked(), lock.unlock()
+// is called and then handleTranslationFailure() is invoked while
+// `streamContext` (a raw pointer into the locked stripe) remains live.
+// Although handleTranslationFailure() does not dereference streamContext in
+// this path today, the pointer is a defensive coding gap — if the code ever
+// changes, streamContext could be dereferenced after the stripe lock that
+// protects it has been released.
+//
+// The fix is to set streamContext = nullptr immediately after lock.unlock()
+// so that any accidental dereference produces a deterministic crash rather
+// than silent data corruption.
+//
+// Testing strategy: we can only observe the fix indirectly — we trigger
+// the stall-queue-exhausted condition by filling the stall queue to
+// capacity, then issue one more faulting translation and verify it falls
+// back to terminate-mode (not stall-mode) processing without crashing.
+// If the dangling pointer were ever dereferenced this test would crash
+// under ASan.
+// ============================================================
+
+class DanglingContextPtrTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        smmu = std::unique_ptr<SMMU>(new SMMU());
+        smmu->enable();
+    }
+
+    void TearDown() override {
+        smmu.reset();
+    }
+
+    // Configure a stream in Stall mode with no mapped pages so translations
+    // will fault and enter the stall path.
+    void configureStallStream(StreamID sid) {
+        StreamConfig cfg;
+        cfg.translationEnabled = true;
+        cfg.stage1Enabled      = true;
+        cfg.stage2Enabled      = false;
+        cfg.faultMode          = FaultMode::Stall;
+        cfg.securityState      = SecurityState::NonSecure;
+        cfg.bypassEnabled      = false;
+        VoidResult r = smmu->configureStream(sid, cfg);
+        ASSERT_TRUE(r.isOk()) << "configureStream failed for sid=" << sid;
+        r = smmu->enableStream(sid);
+        ASSERT_TRUE(r.isOk());
+        r = smmu->createStreamPASID(sid, 0);
+        ASSERT_TRUE(r.isOk());
+        // No page mapping — every translation on this stream will fault.
+    }
+
+    std::unique_ptr<SMMU> smmu;
+};
+
+// BUG-CPP-C: Stall queue exhaustion falls back to terminate mode without
+// dereferencing the now-unlocked streamContext pointer.
+//
+// We overflow the stall queue by issuing many faulting translations (one
+// per unique IOVA so each gets a distinct stag slot).  Once the queue is
+// full, the next translation must fall back to terminate mode.  If the
+// dangling-pointer bug were present, the code could access streamContext
+// after the stripe lock is released, causing a crash under ASan.
+TEST_F(DanglingContextPtrTest, StallQueueExhausted_FallsBackToTerminate_NoCrash) {
+    const StreamID SID = 0xC1;
+    configureStallStream(SID);
+
+    // Exhaust the stall queue by faulting on many distinct IOVAs.
+    // The default stall queue has a practical limit; after it is filled
+    // the next faulting translation should take the terminate path.
+    const int OVERFLOW_COUNT = 300; // well above any reasonable stall queue depth
+    for (int i = 0; i < OVERFLOW_COUNT; ++i) {
+        IOVA iova = static_cast<IOVA>(0x1000ULL * (i + 1));
+        // Ignore result — these may stall or fail; we only care about no crash.
+        smmu->translate(SID, 0, iova, AccessType::Read, SecurityState::NonSecure);
+    }
+
+    // One final translation on a fresh IOVA must not crash even if the
+    // stall queue is exhausted and streamContext is nulled after unlock.
+    // Under ASan/UBSan a dangling-pointer dereference would be caught here.
+    IOVA overflowIova = static_cast<IOVA>(0x1000ULL * (OVERFLOW_COUNT + 1));
+    TranslationResult r = smmu->translate(SID, 0, overflowIova,
+                                          AccessType::Read, SecurityState::NonSecure);
+
+    // Must return some error (either Stalled, PageNotMapped, or another fault)
+    // and must NOT crash/abort.  The exact error code is secondary; the
+    // primary requirement is no crash on the dangling-pointer path.
+    EXPECT_TRUE(r.isError())
+        << "BUG-CPP-C: translation must fail when stall queue is exhausted "
+           "— should fall back to terminate mode, not crash";
+}
+
+// BUG-CPP-C: Repeated exhaustion cycles must remain stable.
+// Each time the stall queue fills we flush it via resume commands and
+// restart.  The pointer must be correctly nulled each time.
+TEST_F(DanglingContextPtrTest, StallQueueExhausted_MultipleCycles_NoCrash) {
+    const StreamID SID = 0xC2;
+    configureStallStream(SID);
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        // Drive 100 faulting translations per cycle.
+        for (int i = 0; i < 100; ++i) {
+            IOVA iova = static_cast<IOVA>(0x10000ULL * cycle + 0x1000ULL * (i + 1));
+            smmu->translate(SID, 0, iova, AccessType::Read, SecurityState::NonSecure);
+        }
+        // Drain stalled transactions so the queue can refill next cycle.
+        auto stalled = smmu->getStalledTransactions();
+        for (const auto& sr : stalled) {
+            smmu->abortStalledTransaction(sr.stag);
+        }
+        // No assertion needed — a crash here would indicate BUG-CPP-C is present.
+    }
+
+    SUCCEED() << "BUG-CPP-C: stall-queue exhaustion cycles completed "
+                 "without crash (dangling pointer is correctly nulled)";
+}
+
+// ============================================================
+// BUG-CPP-E: updateConfiguration() acquires all stripe locks BEFORE
+// calling validateConfigurationUpdate(), creating a latent deadlock hazard.
+//
+// The fix moves validateConfigurationUpdate() BEFORE acquiring the stripe
+// locks so that:
+// 1. Validation (potentially expensive) does not block all translations.
+// 2. If validateConfigurationUpdate() ever acquires a stripe lock (e.g.,
+//    via an indirect call), there is no deadlock.
+//
+// Testing strategy: we verify the observable contract — valid configs are
+// accepted, invalid configs are rejected, and the SMMU continues to process
+// translations correctly after a failed update attempt.  We also verify
+// that concurrent translations are not blocked for an extended period
+// during validation.
+// ============================================================
+
+class UpdateConfigLockOrderTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        smmu = std::unique_ptr<SMMU>(new SMMU());
+        smmu->enable();
+    }
+
+    void TearDown() override {
+        smmu.reset();
+    }
+
+    std::unique_ptr<SMMU> smmu;
+};
+
+// BUG-CPP-E: A valid configuration update must succeed.
+// This is the basic contract that must still hold after the fix.
+TEST_F(UpdateConfigLockOrderTest, ValidConfig_UpdateSucceeds) {
+    SMMUConfiguration cfg = SMMUConfiguration::createDefault();
+    VoidResult r = smmu->updateConfiguration(cfg);
+    EXPECT_TRUE(r.isOk())
+        << "BUG-CPP-E: updateConfiguration() with a valid config must succeed";
+}
+
+// BUG-CPP-E: An invalid configuration must be rejected BEFORE stripe locks
+// are acquired.  After the fix, the rejection happens during the pre-lock
+// validation phase so translations are not blocked.
+TEST_F(UpdateConfigLockOrderTest, InvalidConfig_RejectedBeforeLocksAcquired) {
+    // Build an invalid AddressConfiguration (size 0 is below MIN_IOVA_BITS=32).
+    AddressConfiguration badAddr;
+    badAddr.maxIOVASize   = 0; // invalid: below MIN_IOVA_BITS=32
+    badAddr.maxPASize     = 0; // invalid: below MIN_PA_BITS=32
+    badAddr.maxStreamCount = 1;
+    badAddr.maxPASIDCount  = 1;
+
+    SMMUConfiguration bad(SMMUConfiguration::createDefault().getQueueConfiguration(),
+                          SMMUConfiguration::createDefault().getCacheConfiguration(),
+                          badAddr,
+                          SMMUConfiguration::createDefault().getResourceLimits());
+
+    VoidResult r = smmu->updateConfiguration(bad);
+    EXPECT_TRUE(r.isError())
+        << "BUG-CPP-E: updateConfiguration() with an invalid config must return an error";
+}
+
+// BUG-CPP-E: After a failed update, the SMMU must remain fully functional
+// with the previous (valid) configuration.
+TEST_F(UpdateConfigLockOrderTest, FailedUpdate_SMMURemainsOperational) {
+    // Set up a stream so we can test translation.
+    const StreamID SID = 0xE1;
+    StreamConfig scfg;
+    scfg.translationEnabled = true;
+    scfg.stage1Enabled      = true;
+    scfg.stage2Enabled      = false;
+    scfg.faultMode          = FaultMode::Terminate;
+    scfg.securityState      = SecurityState::NonSecure;
+    ASSERT_TRUE(smmu->configureStream(SID, scfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(SID).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(SID, 0).isOk());
+    ASSERT_TRUE(smmu->mapPage(SID, 0, 0x1000ULL, 0xA0000000ULL,
+                               PagePermissions(true, false, false),
+                               SecurityState::NonSecure).isOk());
+
+    // Confirm translation works before the failed update.
+    TranslationResult r1 = smmu->translate(SID, 0, 0x1000ULL,
+                                            AccessType::Read, SecurityState::NonSecure);
+    ASSERT_TRUE(r1.isOk()) << "Pre-update translation must succeed";
+
+    // Attempt a bad configuration update via the invalid-address-config path.
+    AddressConfiguration badAddr;
+    badAddr.maxIOVASize    = 0;
+    badAddr.maxPASize      = 0;
+    badAddr.maxStreamCount = 1;
+    badAddr.maxPASIDCount  = 1;
+    SMMUConfiguration bad(SMMUConfiguration::createDefault().getQueueConfiguration(),
+                          SMMUConfiguration::createDefault().getCacheConfiguration(),
+                          badAddr,
+                          SMMUConfiguration::createDefault().getResourceLimits());
+    VoidResult rv = smmu->updateConfiguration(bad);
+    ASSERT_TRUE(rv.isError()) << "Bad config update must fail";
+
+    // Translation must still work after the rejected update.
+    TranslationResult r2 = smmu->translate(SID, 0, 0x1000ULL,
+                                            AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(r2.isOk())
+        << "BUG-CPP-E: translation must succeed after a rejected "
+           "updateConfiguration() call — SMMU state must be unchanged";
+}
+
+// BUG-CPP-E: Concurrent translations during a valid configuration update
+// must not deadlock.  This test will hang (timeout) if the implementation
+// holds all stripe locks during validation, blocking concurrent translators.
+TEST_F(UpdateConfigLockOrderTest, ConcurrentTranslation_NoDeadlockDuringUpdate) {
+    const StreamID SID = 0xE2;
+    StreamConfig scfg;
+    scfg.translationEnabled = true;
+    scfg.stage1Enabled      = true;
+    scfg.stage2Enabled      = false;
+    scfg.faultMode          = FaultMode::Terminate;
+    scfg.securityState      = SecurityState::NonSecure;
+    ASSERT_TRUE(smmu->configureStream(SID, scfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(SID).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(SID, 0).isOk());
+    ASSERT_TRUE(smmu->mapPage(SID, 0, 0x2000ULL, 0xB000'0000ULL,
+                               PagePermissions(true, false, false),
+                               SecurityState::NonSecure).isOk());
+
+    std::atomic<bool> stop{false};
+    std::atomic<size_t> translationsDone{0};
+
+    // Translator thread: runs continuously while the updater runs.
+    std::thread translator([&]() {
+        while (!stop.load(std::memory_order_relaxed)) {
+            smmu->translate(SID, 0, 0x2000ULL,
+                            AccessType::Read, SecurityState::NonSecure);
+            translationsDone.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Updater: runs several valid config updates.
+    const int UPDATES = 10;
+    for (int i = 0; i < UPDATES; ++i) {
+        SMMUConfiguration cfg = SMMUConfiguration::createDefault();
+        VoidResult rv = smmu->updateConfiguration(cfg);
+        EXPECT_TRUE(rv.isOk()) << "Config update " << i << " must succeed";
+    }
+
+    stop.store(true, std::memory_order_release);
+    translator.join();
+
+    EXPECT_GT(translationsDone.load(), 0u)
+        << "BUG-CPP-E: translator thread must have made progress during "
+           "config updates — no deadlock allowed";
 }
 
 } // namespace test

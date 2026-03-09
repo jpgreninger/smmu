@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include "smmu/smmu.h"
 #include "smmu/types.h"
+#include "smmu/configuration.h"
 #include <memory>
 
 namespace smmu {
@@ -356,6 +357,151 @@ TEST_F(AddrSizeFaultTest, GbpaBypass_IOVAWithinOAS_IdentityMapping) {
         EXPECT_EQ(r.getValue().physicalAddress, WITHIN_OAS)
             << "GBPA bypass must produce PA == IOVA (identity mapping)";
     }
+}
+
+// ── BUG-CPP-F Tests: hardcoded 48-bit constant in classifyDetailedTranslationFault ──
+
+// BUG-CPP-F: classifyDetailedTranslationFault uses a hardcoded
+// MAX_48BIT_ADDRESS = 0x0000FFFFFFFFFFFFULL constant in its default branch.
+// On systems configured with 52-bit OAS, addresses in the range
+// [2^48, 2^52-1] are valid but are incorrectly classified as AddressSizeFault.
+//
+// The fix derives the threshold from configuration.addressConfig.maxPASize
+// (a bit-count) as (1ULL << maxPASize) - 1.
+//
+// ARM IHI0070G.b §3.4 / §STE.S2PS.
+
+// Helper fixture for BUG-CPP-F tests.
+class BugCppFTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        smmu = std::make_unique<SMMU>();
+        smmu->enable();
+    }
+
+    std::unique_ptr<SMMU> smmu;
+
+    // Configure the SMMU with the given OAS bit-count (e.g., 48 or 52).
+    void setOAS(uint64_t pasBits) {
+        AddressConfiguration addrCfg;
+        addrCfg.maxPASize      = pasBits;
+        addrCfg.maxIOVASize    = pasBits; // keep consistent
+        addrCfg.maxStreamCount = 65536;
+        addrCfg.maxPASIDCount  = 1048576;
+        VoidResult r = smmu->updateAddressConfiguration(addrCfg);
+        ASSERT_TRUE(r.isOk())
+            << "updateAddressConfiguration() for OAS=" << pasBits << " must succeed";
+    }
+
+    // Configure a stage-1 stream with a page at 'iova' -> 'pa'.
+    void configureStreamWithPage(StreamID sid, IOVA iova, PA pa) {
+        StreamConfig scfg;
+        scfg.translationEnabled = true;
+        scfg.stage1Enabled      = true;
+        scfg.stage2Enabled      = false;
+        scfg.faultMode          = FaultMode::Terminate;
+        scfg.securityState      = SecurityState::NonSecure;
+        scfg.bypassEnabled      = false;
+        ASSERT_TRUE(smmu->configureStream(sid, scfg).isOk());
+        ASSERT_TRUE(smmu->enableStream(sid).isOk());
+        ASSERT_TRUE(smmu->createStreamPASID(sid, 0).isOk());
+        ASSERT_TRUE(smmu->mapPage(sid, 0, iova, pa,
+                                  PagePermissions(true, false, false),
+                                  SecurityState::NonSecure).isOk());
+    }
+};
+
+// BUG-CPP-F test 1: with 48-bit OAS, an address just ABOVE 48 bits (bit 48 set)
+// must be classified as AddressSizeFault.  This is the pre-existing correct
+// behaviour that must not regress.
+TEST_F(BugCppFTest, OAS48_AddressAbove48Bits_ClassifiedAsAddressSizeFault) {
+    setOAS(48);
+
+    const StreamID SID = 0xF1;
+    // Map a page well within 48-bit range.
+    configureStreamWithPage(SID, 0x1000ULL, 0x8000'0000ULL);
+
+    // Translate to an address at exactly 2^48 (one beyond 48-bit OAS).
+    const IOVA ABOVE_48BIT = (1ULL << 48);
+    TranslationResult r = smmu->translate(SID, 0, ABOVE_48BIT,
+                                          AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(r.isError())
+        << "BUG-CPP-F: address >= 2^48 on a 48-bit OAS system must fault";
+}
+
+// BUG-CPP-F test 2: with 52-bit OAS, an address in the range [2^48, 2^52-1]
+// is VALID and must NOT be classified as AddressSizeFault.
+//
+// BEFORE the fix: classifyDetailedTranslationFault uses the hardcoded constant
+// 0x0000FFFFFFFFFFFF (= 2^48-1) and incorrectly returns AddressSizeFault for
+// any address with bit 48 set — even on a 52-bit OAS system.
+//
+// AFTER the fix: the threshold is (1ULL << 52) - 1, so addresses up to
+// 2^52-1 are accepted as in-range.
+//
+// We test this by mapping a page at an IOVA above 2^48 on a 52-bit system
+// and verifying that translation succeeds (or fails only because no mapping
+// exists at that address — NOT because of an AddressSizeFault classification).
+TEST_F(BugCppFTest, OAS52_AddressBetween48And52Bits_NotAddressSizeFault) {
+    setOAS(52);
+
+    const StreamID SID = 0xF2;
+    // Map a page at an IOVA that has bit 48 set — valid in 52-bit OAS.
+    const IOVA IOVA_49BIT = (1ULL << 48); // 2^48 — within 52-bit OAS
+    const PA   PA_VAL     = 0x1'0000'0000ULL; // 4 GiB physical address
+    configureStreamWithPage(SID, IOVA_49BIT, PA_VAL);
+
+    // Translation must succeed because the page is mapped and the IOVA
+    // is within the 52-bit OAS.
+    // BEFORE fix: classifyDetailedTranslationFault returns AddressSizeFault
+    //             (SMMUError::InvalidAddress) because IOVA_49BIT > 0x0000FFFFFFFFFFFF.
+    // AFTER fix:  threshold = (1ULL<<52)-1; IOVA_49BIT is within range, so
+    //             the lookup proceeds to the page table and finds the mapping.
+    TranslationResult r = smmu->translate(SID, 0, IOVA_49BIT,
+                                          AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(r.isOk())
+        << "BUG-CPP-F: address 2^48 must be valid on a 52-bit OAS system — "
+           "classifyDetailedTranslationFault must use configured maxPASize, "
+           "not a hardcoded 48-bit constant";
+
+    if (r.isOk()) {
+        EXPECT_EQ(r.getValue().physicalAddress, PA_VAL)
+            << "BUG-CPP-F: translated PA must match the mapped value";
+    }
+}
+
+// BUG-CPP-F test 3: with 52-bit OAS, an address at exactly 2^52 (one beyond
+// the OAS) must still be classified as AddressSizeFault.
+TEST_F(BugCppFTest, OAS52_AddressExactlyAt2Pow52_IsAddressSizeFault) {
+    setOAS(52);
+
+    const StreamID SID = 0xF3;
+    // Map a page within the 52-bit range.
+    configureStreamWithPage(SID, 0x1000ULL, 0x8000'0000ULL);
+
+    // 2^52 is one beyond the 52-bit OAS — must fault.
+    const IOVA ABOVE_52BIT = (1ULL << 52);
+    TranslationResult r = smmu->translate(SID, 0, ABOVE_52BIT,
+                                          AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(r.isError())
+        << "BUG-CPP-F: address 2^52 must fault on a 52-bit OAS system";
+}
+
+// BUG-CPP-F test 4: address just below 2^52 must be in-range on a 52-bit system.
+TEST_F(BugCppFTest, OAS52_AddressJustBelow2Pow52_NotAddressSizeFault) {
+    setOAS(52);
+
+    const StreamID SID = 0xF4;
+    // Map a page at the highest valid 52-bit IOVA (page-aligned).
+    const IOVA TOP_IOVA = ((1ULL << 52) - 1) & ~0xFFFULL; // round down to page boundary
+    const PA   PA_VAL   = 0xC000'0000ULL;
+    configureStreamWithPage(SID, TOP_IOVA, PA_VAL);
+
+    TranslationResult r = smmu->translate(SID, 0, TOP_IOVA,
+                                          AccessType::Read, SecurityState::NonSecure);
+    EXPECT_TRUE(r.isOk())
+        << "BUG-CPP-F: the highest valid 52-bit IOVA (" << std::hex << TOP_IOVA
+        << ") must translate successfully on a 52-bit OAS system";
 }
 
 } // namespace test

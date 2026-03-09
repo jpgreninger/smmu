@@ -386,6 +386,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             if (!stagValid) {
                 // Stall queue exhausted — fall back to terminate-mode fault handling.
                 lock.unlock();
+                streamContext = nullptr; // BUG-CPP-C fix: null out dangling pointer after lock release
                 handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
                 return result;
             }
@@ -2733,15 +2734,22 @@ bool SMMU::isEnabled() const {
     // single authoritative source for the global enable state.  Reading smmuen_
     // instead of cr0_ created a potential split-brain: the shadow bool and the
     // register could diverge in concurrent code.  Always derive from cr0_.
-    return (cr0_ & CR0_SMMUEN) != 0u;
+    // BUG-CPP-B fix: use explicit acquire ordering to pair with the release
+    // stores in enable(), disable(), and setCR0(), establishing a
+    // happens-before relationship for all concurrent readers.
+    return (cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u;
 }
 
 void SMMU::setGbpaAbort(bool abort) {
-    gbpaAbort_ = abort;
+    // BUG-CPP-A fix: use explicit release ordering so that any preceding writes
+    // are visible to threads that subsequently acquire-load gbpaAbort_.
+    gbpaAbort_.store(abort, std::memory_order_release);
 }
 
 bool SMMU::isGbpaAbort() const {
-    return gbpaAbort_;
+    // BUG-CPP-A fix: use explicit acquire ordering to pair with the release
+    // store in setGbpaAbort(), establishing a happens-before relationship.
+    return gbpaAbort_.load(std::memory_order_acquire);
 }
 
 // ARM §3.12.2: Stall queue management (FINDING-NEW-08)
@@ -3102,10 +3110,17 @@ FaultType SMMU::classifyDetailedTranslationFault(IOVA iova, uint8_t tableLevel, 
         case 3:
             return FaultType::Level3TranslationFault;
         default:
-            // Check for address size constraints
-            const uint64_t MAX_48BIT_ADDRESS = 0x0000FFFFFFFFFFFFULL;
-            if (iova > MAX_48BIT_ADDRESS) {
-                return FaultType::AddressSizeFault;
+            // BUG-CPP-F fix: Derive threshold from configured maxPASize (ARM §3.4 / §STE.S2PS)
+            // instead of hardcoded 48-bit constant. Valid addresses on systems with 52-bit OAS
+            // (maxPASize = 52 bits) would be incorrectly classified as AddressSizeFault otherwise.
+            {
+                const uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+                const uint64_t maxValidAddr = (oasBits < 64u)
+                    ? ((static_cast<uint64_t>(1) << oasBits) - 1u)
+                    : UINT64_MAX;
+                if (iova > maxValidAddr) {
+                    return FaultType::AddressSizeFault;
+                }
             }
             return FaultType::TranslationFault;
     }
@@ -3118,16 +3133,19 @@ const SMMUConfiguration& SMMU::getConfiguration() const {
 }
 
 VoidResult SMMU::updateConfiguration(const SMMUConfiguration& config) {
-    // Lock all stripes in order to prevent deadlock when updating global configuration
-    std::vector<std::unique_lock<std::mutex>> locks;
-    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
-        locks.emplace_back(streamLockStripes[i]);
-    }
-
-    // Validate the configuration
+    // BUG-CPP-E fix: validate before acquiring stripe locks to avoid latent
+    // deadlock hazard and reduce lock hold time during expensive validation.
+    // validateConfigurationUpdate() is a const operation on the passed-in
+    // config object and requires no stripe lock protection.
     VoidResult validationResult = validateConfigurationUpdate(config);
     if (!validationResult.isOk()) {
         return validationResult;
+    }
+
+    // Lock all stripes to atomically swap the configuration
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (size_t i = 0; i < NUM_STREAM_STRIPES; ++i) {
+        locks.emplace_back(streamLockStripes[i]);
     }
     
     // Store old configuration for potential rollback

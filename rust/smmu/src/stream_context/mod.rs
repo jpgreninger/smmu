@@ -321,6 +321,16 @@ impl StreamContext {
         let pasid_value = pasid.as_u32();
         let max_pasids = self.max_pasids_per_stream.load(Ordering::Acquire);
 
+        // BUG-RUST-G fix: Reserve a slot atomically BEFORE acquiring the shard lock.
+        // Two threads inserting different PASIDs would each see a different shard lock
+        // and could both pass "count < max_pasids" simultaneously.  By doing fetch_add
+        // first (under no shard lock), only one of them can claim the Nth slot.
+        let prev_count = self.pasid_count.fetch_add(1, Ordering::AcqRel);
+        if prev_count >= max_pasids {
+            self.pasid_count.fetch_sub(1, Ordering::Release);
+            return Err(StreamContextError::PASIDLimitExceeded(prev_count, max_pasids));
+        }
+
         // Use DashMap::entry() to make the duplicate-check and insert atomic within
         // the shard lock.  This eliminates the TOCTOU window that existed between
         // the previous separate contains_key() check and insert() call (BUG-RUST-M04).
@@ -331,15 +341,14 @@ impl StreamContext {
         // deadlocks.  We use pasid_count (AtomicUsize) instead to avoid the re-entrant
         // lock (deadlock fix for the Rust test hang).
         match self.pasid_map.entry(pasid_value) {
-            Entry::Occupied(_) => Err(StreamContextError::PASIDAlreadyExists(pasid_value)),
+            Entry::Occupied(_) => {
+                // Roll back: PASID already exists, slot was pre-reserved unnecessarily.
+                self.pasid_count.fetch_sub(1, Ordering::Release);
+                Err(StreamContextError::PASIDAlreadyExists(pasid_value))
+            }
             Entry::Vacant(slot) => {
-                let current_count = self.pasid_count.load(Ordering::Acquire);
-                if current_count >= max_pasids {
-                    return Err(StreamContextError::PASIDLimitExceeded(current_count, max_pasids));
-                }
                 let address_space = Arc::new(AddressSpace::new());
                 slot.insert(address_space);
-                self.pasid_count.fetch_add(1, Ordering::Release);
                 Ok(())
             }
         }
@@ -2550,5 +2559,80 @@ mod tests {
         );
         assert!(!ctx.has_pasid(p3), "PASID 3 must NOT have been inserted");
         assert_eq!(ctx.pasid_count(), 2, "pasid_count must remain 2 after failed add_pasid");
+    }
+
+    // ── BUG-RUST-G: create_pasid() must atomically reserve slot via fetch_add ─
+
+    /// BUG-RUST-G: The old code checked pasid_count INSIDE the shard lock,
+    /// which means two threads inserting different PASIDs (different shards) can
+    /// both pass the count < max_pasids check before either increments the atomic.
+    ///
+    /// This single-threaded test verifies the structural correctness of the fix:
+    /// after a duplicate PASID is rejected, pasid_count must not have increased.
+    ///
+    /// With the BUG-RUST-G fix, fetch_add runs BEFORE the entry() check.
+    /// When at capacity, a duplicate returns PASIDLimitExceeded (the limit
+    /// check fires first).  When NOT at capacity, a duplicate returns
+    /// PASIDAlreadyExists.  We test the not-at-capacity case here.
+    #[test]
+    fn bug_rust_g_create_pasid_duplicate_does_not_leak_count() {
+        let ctx = StreamContext::new();
+        // Set limit to 3 so we have room — the duplicate is p1 at count=1 (not at limit).
+        ctx.set_max_pasids_per_stream(3);
+
+        let p1 = PASID::new(1).unwrap();
+        let p2 = PASID::new(2).unwrap();
+
+        ctx.create_pasid(p1).unwrap();
+        ctx.create_pasid(p2).unwrap();
+        assert_eq!(ctx.pasid_count(), 2, "pre-condition: count must be 2");
+
+        // Attempt to insert PASID 1 again — below limit so the entry check fires.
+        // With BUG-RUST-G fix: fetch_add (count=3, prev=2 < 3), then entry() finds
+        // Occupied, rolls back, returns PASIDAlreadyExists.
+        let result = ctx.create_pasid(p1);
+        assert!(
+            matches!(result, Err(StreamContextError::PASIDAlreadyExists(1))),
+            "BUG-RUST-G: duplicate create_pasid (below limit) must return PASIDAlreadyExists; got {result:?}"
+        );
+        // Count must roll back to 2 after the duplicate attempt.
+        assert_eq!(
+            ctx.pasid_count(),
+            2,
+            "BUG-RUST-G: pasid_count must not increase after duplicate create_pasid"
+        );
+    }
+
+    /// BUG-RUST-G: When the limit is exceeded, create_pasid must roll back the
+    /// pre-reserved atomic slot so pasid_count remains at the limit.
+    #[test]
+    fn bug_rust_g_create_pasid_limit_rolls_back_atomic() {
+        let ctx = StreamContext::new();
+        ctx.set_max_pasids_per_stream(2);
+
+        let p1 = PASID::new(1).unwrap();
+        let p2 = PASID::new(2).unwrap();
+        let p3 = PASID::new(3).unwrap();
+
+        ctx.create_pasid(p1).unwrap();
+        ctx.create_pasid(p2).unwrap();
+        assert_eq!(ctx.pasid_count(), 2, "pre-condition: count must be 2");
+
+        // Third PASID must be rejected by the limit check.
+        let result = ctx.create_pasid(p3);
+        assert!(
+            result.is_err(),
+            "BUG-RUST-G: create_pasid beyond limit must fail; got {result:?}"
+        );
+        assert!(
+            !ctx.has_pasid(p3),
+            "BUG-RUST-G: PASID 3 must not have been inserted"
+        );
+        // Count must remain at 2 — the pre-reserved slot must have been rolled back.
+        assert_eq!(
+            ctx.pasid_count(),
+            2,
+            "BUG-RUST-G: pasid_count must roll back to 2 after limit-exceeded create_pasid"
+        );
     }
 }

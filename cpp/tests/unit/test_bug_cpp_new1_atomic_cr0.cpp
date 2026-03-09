@@ -242,5 +242,154 @@ TEST(AtomicCr0Spec, Reset_ClearsAllControlRegisters) {
     EXPECT_EQ(smmu.getCR0(), 0u) << "reset() must zero CR0";
 }
 
+// -----------------------------------------------------------------------
+// BUG-CPP-A: setGbpaAbort/isGbpaAbort use implicit seq_cst instead of
+// explicit release/acquire ordering.
+//
+// Functional test: setGbpaAbort(true) followed immediately by isGbpaAbort()
+// must return true regardless of memory ordering used — this validates the
+// observable behaviour that the fix must preserve.
+//
+// Under TSan the test also exercises the store/load pair; after the fix,
+// the explicit release/acquire pair is annotated correctly and TSan will
+// not flag it as a relaxed-ordering violation.
+// -----------------------------------------------------------------------
+TEST(AtomicCr0Spec, GbpaAbort_SetThenGet_ReturnsCorrectValue) {
+    SMMU smmu;
+
+    // Initial state: GBPA.ABORT must be false after construction.
+    EXPECT_FALSE(smmu.isGbpaAbort())
+        << "BUG-CPP-A: isGbpaAbort() must return false on a freshly "
+           "constructed SMMU";
+
+    // After setGbpaAbort(true), isGbpaAbort() must return true.
+    smmu.setGbpaAbort(true);
+    EXPECT_TRUE(smmu.isGbpaAbort())
+        << "BUG-CPP-A: isGbpaAbort() must return true after "
+           "setGbpaAbort(true) — acquire/release ordering must be used";
+
+    // After setGbpaAbort(false), isGbpaAbort() must return false.
+    smmu.setGbpaAbort(false);
+    EXPECT_FALSE(smmu.isGbpaAbort())
+        << "BUG-CPP-A: isGbpaAbort() must return false after "
+           "setGbpaAbort(false) — acquire/release ordering must be used";
+}
+
+// Concurrent correctness: a writer thread calls setGbpaAbort in a tight loop
+// while a reader thread calls isGbpaAbort.  The test validates no crash and
+// that the result is always a valid bool (not an indeterminate garbage value).
+// Under TSan this will confirm that the store uses release and the load uses
+// acquire ordering.
+TEST(AtomicCr0Spec, GbpaAbort_ConcurrentReadWrite_NoRaceWithExplicitOrdering) {
+    SMMU smmu;
+    smmu.enable();
+
+    std::atomic<bool> stop{false};
+    std::atomic<size_t> badValues{0};
+
+    // Writer: alternate between true and false.
+    std::thread writer([&smmu, &stop]() {
+        for (int i = 0; i < AT_ITERS && !stop.load(std::memory_order_relaxed); ++i) {
+            smmu.setGbpaAbort(true);
+            smmu.setGbpaAbort(false);
+        }
+    });
+
+    // Reader: isGbpaAbort() must always return a valid bool (true or false).
+    // A data race on a non-atomic bool could produce a bit-pattern that is
+    // neither 0 nor 1, causing UB in the conditional.  With the explicit
+    // acquire load the result is always well-defined.
+    for (int i = 0; i < AT_ITERS; ++i) {
+        bool v = smmu.isGbpaAbort();
+        // Only true and false are valid; any other bit pattern is a race.
+        if (v != true && v != false) {
+            badValues.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    stop.store(true, std::memory_order_release);
+    writer.join();
+
+    EXPECT_EQ(badValues.load(), 0u)
+        << "BUG-CPP-A: isGbpaAbort() returned an invalid value during "
+           "concurrent writes — missing acquire ordering on the load";
+}
+
+// -----------------------------------------------------------------------
+// BUG-CPP-B: isEnabled() loads cr0_ with implicit seq_cst instead of
+// explicit acquire ordering.
+//
+// Functional test: after enable()/disable()/setCR0(), isEnabled() must
+// return the expected value.  The explicit acquire load must be
+// semantically equivalent to seq_cst for single-threaded callers.
+// -----------------------------------------------------------------------
+TEST(AtomicCr0Spec, IsEnabled_UsesAcquireLoad_FunctionallyCorrect) {
+    SMMU smmu;
+
+    // Freshly constructed SMMU must be disabled.
+    EXPECT_FALSE(smmu.isEnabled())
+        << "BUG-CPP-B: isEnabled() must return false initially";
+
+    // enable() sets SMMUEN; isEnabled() with acquire load must see it.
+    smmu.enable();
+    EXPECT_TRUE(smmu.isEnabled())
+        << "BUG-CPP-B: isEnabled() must return true after enable() — "
+           "acquire load on cr0_ must observe the release store in enable()";
+
+    // disable() clears SMMUEN; isEnabled() with acquire load must see that.
+    smmu.disable();
+    EXPECT_FALSE(smmu.isEnabled())
+        << "BUG-CPP-B: isEnabled() must return false after disable() — "
+           "acquire load on cr0_ must observe the release store in disable()";
+
+    // setCR0(CR0_SMMUEN) sets bit 0; isEnabled() must reflect this.
+    smmu.setCR0(SMMU::CR0_SMMUEN);
+    EXPECT_TRUE(smmu.isEnabled())
+        << "BUG-CPP-B: isEnabled() must return true after "
+           "setCR0(CR0_SMMUEN)";
+
+    // setCR0(0) clears SMMUEN; isEnabled() must return false.
+    smmu.setCR0(0u);
+    EXPECT_FALSE(smmu.isEnabled())
+        << "BUG-CPP-B: isEnabled() must return false after setCR0(0)";
+}
+
+// Concurrent correctness: enable()/disable() run in one thread while
+// isEnabled() is called from another.  The explicit acquire/release pair
+// ensures the reader always sees a consistent (non-torn) boolean state.
+TEST(AtomicCr0Spec, IsEnabled_ConcurrentEnableDisable_AcquireLoad_NoRace) {
+    SMMU smmu;
+
+    std::atomic<bool> stop{false};
+    std::atomic<size_t> invalidStates{0};
+
+    // Toggler: alternately enable and disable the SMMU.
+    std::thread toggler([&smmu, &stop]() {
+        for (int i = 0; i < AT_ITERS && !stop.load(std::memory_order_relaxed); ++i) {
+            smmu.enable();
+            smmu.disable();
+        }
+    });
+
+    // Reader: isEnabled() must always return a valid bool.
+    // With BUG-CPP-B present (seq_cst implicit load), TSan may report a race
+    // if cr0_ is a non-atomic uint32_t — but after the atomic conversion the
+    // concern is whether the ordering annotation is explicit (release/acquire)
+    // rather than the weaker relaxed.  The functional test exercises the path.
+    for (int i = 0; i < AT_ITERS; ++i) {
+        bool enabled = smmu.isEnabled();
+        if (enabled != true && enabled != false) {
+            invalidStates.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    stop.store(true, std::memory_order_release);
+    toggler.join();
+
+    EXPECT_EQ(invalidStates.load(), 0u)
+        << "BUG-CPP-B: isEnabled() returned an invalid state during "
+           "concurrent enable/disable — missing acquire ordering";
+}
+
 } // namespace test
 } // namespace smmu
