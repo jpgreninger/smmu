@@ -86,6 +86,7 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp_dbgr12_bad_streamid_error.cpp
     test_bug1_strw_slowpath_stage2.cpp
     test_bug5_cache_key_collision.cpp
+    test_bug_cpp_f1_f2.cpp
     ../test_thread_safety.cpp
 )
 

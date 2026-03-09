@@ -342,6 +342,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // never stall — keep StreamNotConfigured for other callers that still use it.
         bool isConfigFault = (result.getError() == SMMUError::InvalidPASID           ||
                               result.getError() == SMMUError::StreamDisabled          ||
+                              // BUG-CPP-F2 fix: SubstreamDisabled (S1DSS==0b00) is
+                              // also a config fault — it must never enter stall mode.
+                              result.getError() == SMMUError::SubstreamDisabled       ||
                               result.getError() == SMMUError::ConfigurationError      ||
                               result.getError() == SMMUError::InvalidConfiguration    ||
                               result.getError() == SMMUError::StreamNotConfigured     ||
@@ -1056,7 +1059,10 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             s1dssFault.timestamp = currentTime;
             recordFault(s1dssFault);
             generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
-            return makeTranslationError(SMMUError::StreamDisabled);
+            // BUG-CPP-F2 fix: return SubstreamDisabled (not StreamDisabled) so
+            // callers can distinguish S1DSS==0b00 (abort + event) from
+            // STE.Config==0b000 (silent abort, no event).  §5.2 / §7.3.7.
+            return makeTranslationError(SMMUError::SubstreamDisabled);
         }
         if (config.s1dss == 0x01u) {
             // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
@@ -1556,6 +1562,13 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 // recording an event. Abort is silent — no EventEntry is enqueued.
                 faultType = FaultType::StreamDisabled;
                 break;
+            case SMMUError::SubstreamDisabled:
+                // BUG-CPP-F2 fix: S1DSS==0b00 abort — event (F_STREAM_DISABLED) was
+                // already generated in translateUnlocked() before returning this error.
+                // Map to StreamDisabled FaultType so the switch below takes the
+                // no-op case and does not re-emit a duplicate event.
+                faultType = FaultType::StreamDisabled;
+                break;
             case SMMUError::InvalidStreamID:
                 // BUG-CPP-DBGR-12 fix: §7.3.3 — C_BAD_STREAMID event was already generated
                 // in translate() before reaching here.  Map to BadStreamID so the switch
@@ -1604,9 +1617,16 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             break;
 
         case FaultType::SecurityFault: {
-            // Security fault - log violation and notify security subsystem
-            SecurityState expectedState = determineContextSecurityState(streamID, pasid);
-            recordSecurityFault(streamID, pasid, iova, accessType, expectedState, securityState);
+            // Security fault - log violation and notify security subsystem.
+            // BUG-CPP-F1 fix: use the securityState parameter captured at
+            // translation time rather than re-deriving it via
+            // determineContextSecurityState().  The re-derive does a second
+            // streamMap lookup that may return SecurityState::NonSecure as a
+            // default if the stream was removed between translate() and here,
+            // producing a stale/wrong expectedState in the fault record
+            // (§7.3 fault record accuracy).  The caller already holds the
+            // correct security state from when the stream was held.
+            recordSecurityFault(streamID, pasid, iova, accessType, securityState, securityState);
             break;
         }
 

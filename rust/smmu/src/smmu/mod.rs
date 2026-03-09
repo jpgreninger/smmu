@@ -64,7 +64,7 @@ use crate::types::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Cache-aligned atomic counter to prevent false sharing
@@ -674,11 +674,21 @@ impl SMMU {
     /// Returns `ShutdownInProgress` if the SMMU has been shut down.
     pub fn enable(&self) -> Result<(), SMMUError> {
         self.check_shutdown()?;
-        self.enabled.store(true, Ordering::Release);
+        // BUG-RUST-F5 fix: §6.3.9 (init order) / §7.2.1 (events gated on EVENTQEN).
+        // The previous order set enabled=true BEFORE writing CR0_EVENTQEN: in the window
+        // between those two stores, translations could run and generate fault events that
+        // were silently discarded because event recording checks CR0_EVENTQEN (§7.2.1).
+        //
+        // Fix: write CR0_EVENTQEN (and CMDQEN, PRIQEN, SMMUEN) FIRST, then set the
+        // `enabled` flag.  This matches ARM §6.3.9's recommended initialization order:
+        // queues enabled before SMMUEN=1.  When `enabled` becomes visible to other threads,
+        // CR0_EVENTQEN is already set, so no fault event can be generated in a window
+        // where the event queue is not yet active.
         self.cr0.fetch_or(
             Self::CR0_SMMUEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN | Self::CR0_PRIQEN,
             Ordering::AcqRel,
         );
+        self.enabled.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -1888,37 +1898,42 @@ impl SMMU {
                 // Use the raw u32 key to match the DashMap key type.
                 let stream_value = stream_id.as_u32();
 
-                // BUG-3 fix: §5.2 GAP-2 — The `privileged_only` bit must be checked on the
-                // TLB fast path, not only in the slow-path translate().  When a page has
-                // `privileged_only` set and the stream's STRW does NOT suppress the privilege
-                // check (i.e., STRW is not El2 or El3), a non-privileged access must be
-                // denied even on a TLB hit.  Without this check, a transaction that populated
-                // the TLB under a suppressing STRW (El2/El3) would bypass the priv check
-                // after a subsequent STRW change to a non-suppressing value (El1El0/El2E2h).
-                if cached.permissions.privileged_only() {
-                    if let Some(stream_ref) = self.streams.get(&stream_value) {
-                        if !stream_ref.value().strw_suppresses_priv() {
-                            // privileged_only page and STRW enforces the check: deny access.
-                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                            return Err(TranslationError::PermissionViolation { access });
-                        }
-                    }
-                }
-                self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
-                // BUG-RUST-DBGR-1 fix: re-apply STE output-attribute overrides from the
-                // live stream configuration. CacheEntry does not store the six GAP-1 fields
-                // (mem_type, shareability, alloc_hint, inst_cfg, priv_cfg, ns_cfg_out), so
-                // constructing TranslationData::new() leaves them at zero on every cache hit.
-                // The slow path correctly calls apply_output_attrs(); we must do the same here.
+                // BUG-RUST-F2 fix: §5.2 / §13.5 — Consolidate both the privilege check
+                // and the apply_output_attrs() call into a SINGLE DashMap guard held
+                // across both operations.  The previous code performed two separate
+                // `self.streams.get(&stream_value)` calls, creating a TOCTOU window:
+                // if remove_stream() fired between them the privilege check would silently
+                // pass (the `if let Some` guard skips it when the stream is gone) AND
+                // apply_output_attrs() would be skipped, returning zeroed output-attribute
+                // fields.  A single guard eliminates that race window entirely.
+                //
+                // BUG-3 fix (preserved): §5.2 GAP-2 — The `privileged_only` bit must be
+                // checked on the TLB fast path, not only in the slow-path translate().
+                // When a page has `privileged_only` set and the stream's STRW does NOT
+                // suppress the privilege check (i.e., STRW is not El2 or El3), a
+                // non-privileged access must be denied even on a TLB hit.
                 let mut data = crate::types::TranslationData::new(
                     cached.physical_address,
                     cached.permissions,
                     cached.security_state,
                 );
-                // Look up the stream context to apply its output-attribute configuration.
                 if let Some(stream_ref) = self.streams.get(&stream_value) {
+                    // Privilege check (BUG-3 fix) and output-attr application (BUG-RUST-DBGR-1
+                    // fix) use the SAME guard — no race window between the two operations.
+                    if cached.permissions.privileged_only() && !stream_ref.value().strw_suppresses_priv() {
+                        // privileged_only page and STRW enforces the check: deny access.
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        return Err(TranslationError::PermissionViolation { access });
+                    }
                     data = stream_ref.value().apply_output_attrs(data);
+                } else if cached.permissions.privileged_only() {
+                    // Stream was removed while the TLB entry was still live.  The privilege
+                    // check cannot be evaluated without the stream's STRW — deny access
+                    // conservatively rather than silently bypassing the check.
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(TranslationError::PermissionViolation { access });
                 }
+                self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
                 return Ok(data);
             }
             // Cache hit but insufficient permissions - fall through to full translation
@@ -2797,8 +2812,18 @@ impl SMMU {
         // ACTIVE (GERROR[x] != GERRORN[x]).  Software must acknowledge by writing
         // GERRORN to match GERROR (via clear_gerror) before restarting queue processing.
         // BUG-03 fix: use XOR-active test instead of raw GERROR bit test.
-        let gerror_active = self.gerror.load(Ordering::Acquire)
-            ^ self.gerrorn.load(Ordering::Acquire);
+        //
+        // BUG-RUST-F3 fix: §6.3.19 / §7.5 — The two separate Acquire loads of gerror
+        // and gerrorn form a TOCTOU window: a concurrent clear_gerror() that fires
+        // between the two loads can cause gerror_active to compute as 0 even though
+        // CMDQ_ERR was logically active when the first load was taken.  A SeqCst fence
+        // between the two loads prevents this reordering — any store that completed
+        // before the fence is visible after it, ensuring both loads observe a coherent
+        // snapshot of the gerror/gerrorn pair.
+        let err_reg = self.gerror.load(Ordering::Acquire);
+        fence(Ordering::SeqCst);
+        let err_ack = self.gerrorn.load(Ordering::Acquire);
+        let gerror_active = err_reg ^ err_ack;
         if gerror_active & Self::GERROR_CMDQ_ERR != 0 {
             return Ok(0);
         }

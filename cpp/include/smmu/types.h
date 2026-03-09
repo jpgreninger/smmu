@@ -150,7 +150,14 @@ enum class SMMUError {
     /// @brief Transaction stalled, awaiting CMD_RESUME (§3.12.2, §4.6).
     ///        Returned when FaultMode::Stall is active and a fault occurs.
     ///        The caller must issue CMD_RESUME with the STAG returned in the event.
-    Stalled
+    Stalled,
+
+    /// @brief S1DSS==0b00 abort: non-substream (PASID==0) transaction on a
+    ///        substream-capable stream (S1CDMax > 0) when STE.S1DSS==0b00.
+    ///        §5.2 / §7.3.7: transaction aborts AND F_STREAM_DISABLED (0x06)
+    ///        is recorded.  Distinct from SMMUError::StreamDisabled which is
+    ///        the STE.Config==0b000 silent-abort with NO event.
+    SubstreamDisabled
 };
 
 /**
