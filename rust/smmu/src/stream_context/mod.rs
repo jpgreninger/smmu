@@ -469,7 +469,9 @@ impl StreamContext {
     /// Default is 2 (use CD\[0\]).
     #[inline]
     pub fn get_s1dss(&self) -> u8 {
-        self.s1dss.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_s1dss()
+        // and update_configuration() to establish happens-before on non-TSO hardware.
+        self.s1dss.load(Ordering::Acquire)
     }
 
     /// Sets the STE.S1DSS field value (ARM §5.2).
@@ -484,7 +486,8 @@ impl StreamContext {
     /// When > 0, the stream supports up to `2^s1cd_max` substreams.
     #[inline]
     pub fn get_s1cd_max(&self) -> u8 {
-        self.s1cd_max.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_s1cd_max().
+        self.s1cd_max.load(Ordering::Acquire)
     }
 
     /// Sets the STE.S1CDMax field value (ARM §5.2).
@@ -497,7 +500,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_t0sz(&self) -> u8 {
-        self.t0sz.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_t0sz().
+        self.t0sz.load(Ordering::Acquire)
     }
 
     /// Sets the CD.T0SZ value (ARM §5.4).
@@ -510,7 +514,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_t1sz(&self) -> u8 {
-        self.t1sz.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_t1sz().
+        self.t1sz.load(Ordering::Acquire)
     }
 
     /// Sets the CD.T1SZ value (ARM §5.4).
@@ -523,7 +528,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_aa64(&self) -> bool {
-        self.aa64.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_aa64().
+        self.aa64.load(Ordering::Acquire)
     }
 
     /// Sets the CD.AA64 flag (ARM §5.4).
@@ -558,7 +564,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_sh_cfg(&self) -> u8 {
-        self.sh_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_sh_cfg().
+        self.sh_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.SHCFG shareability override (ARM §5.2, GAP-1).
@@ -571,7 +578,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_alloc_cfg(&self) -> u8 {
-        self.alloc_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_alloc_cfg().
+        self.alloc_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.ALLOCCFG allocation hint override (ARM §5.2, GAP-1).
@@ -584,7 +592,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_mem_attr(&self) -> u8 {
-        self.mem_attr.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_mem_attr().
+        self.mem_attr.load(Ordering::Acquire)
     }
 
     /// Sets the STE.MemAttr memory type attribute (ARM §5.2, GAP-1).
@@ -597,7 +606,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_inst_cfg(&self) -> u8 {
-        self.inst_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_inst_cfg().
+        self.inst_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.INSTCFG instruction/data attribute override (ARM §5.2, GAP-1).
@@ -610,7 +620,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_priv_cfg(&self) -> u8 {
-        self.priv_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_priv_cfg().
+        self.priv_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.PRIVCFG privilege attribute override (ARM §5.2, GAP-1).
@@ -623,7 +634,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn get_ns_cfg(&self) -> u8 {
-        self.ns_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_ns_cfg().
+        self.ns_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
@@ -636,7 +648,8 @@ impl StreamContext {
     #[inline]
     #[must_use]
     pub fn is_mt_cfg_enabled(&self) -> bool {
-        self.mt_cfg.load(Ordering::Relaxed)
+        // BUG-NEW-RUST-4 fix: Acquire pairs with the Release store in set_mt_cfg().
+        self.mt_cfg.load(Ordering::Acquire)
     }
 
     /// Sets the STE.MTCFG memory type override enable flag (ARM §5.2, GAP-1).

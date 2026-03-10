@@ -3412,7 +3412,9 @@ TEST(SMMUPRGIndexTest, PRIRespNonMatchingIndexDoesNotClear) {
 
 TEST(SMMUPRGIndexTest, ProcessPRIQueueEchesPRGIndexInResponse) {
     smmu::SMMU s;
-    s.enable(); // CT-33: PRIQEN requires enable() to process PRI queue
+    // BUG-NEW-CPP-4 fix: enable() no longer sets PRIQEN (it only sets SMMUEN|EVENTQEN|CMDQEN).
+    // Use setCR0() to explicitly enable PRIQEN per ARM §6.3.9.
+    s.setCR0(smmu::SMMU::CR0_SMMUEN | smmu::SMMU::CR0_EVENTQEN | smmu::SMMU::CR0_CMDQEN | smmu::SMMU::CR0_PRIQEN);
 
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     req.prgIndex = 5;

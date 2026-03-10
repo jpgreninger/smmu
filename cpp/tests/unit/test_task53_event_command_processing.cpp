@@ -21,7 +21,9 @@ protected:
         smmu = std::unique_ptr<SMMU>(new SMMU());
 
         // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
-        smmu->enable();
+        // BUG-NEW-CPP-4 fix: enable() no longer sets PRIQEN (only SMMUEN|EVENTQEN|CMDQEN).
+        // Use setCR0() to explicitly set all required bits including PRIQEN.
+        smmu->setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN);
 
         // Configure a basic stream for testing
         StreamConfig config;

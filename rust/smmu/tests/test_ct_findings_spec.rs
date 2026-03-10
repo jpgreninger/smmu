@@ -437,11 +437,14 @@ fn test_command_queue_processed_when_cmdqen_set() {
 fn test_event_recorded_when_eventqen_set() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    // §6.3.12 / BUG-NEW-RUST-2: RECINVSID=1 required for C_BAD_STREAMID events
+    // to be recorded for unknown-stream translate() calls.
+    smmu.set_cr2(SMMU::CR2_RECINVSID);
 
     // Trigger an event by translating with unknown stream
     let _ = smmu.translate(sid(8888), pasid(0), iova(0x1000), AccessType::Read, SecurityState::NonSecure);
 
-    // Event must be recorded since EVENTQEN=1
+    // Event must be recorded since EVENTQEN=1 and RECINVSID=1
     assert!(
         !smmu.get_events().is_empty(),
         "Events must be recorded when EVENTQEN=1"

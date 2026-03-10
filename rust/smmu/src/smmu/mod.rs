@@ -64,7 +64,7 @@ use crate::types::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{fence, AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Cache-aligned atomic counter to prevent false sharing
@@ -342,6 +342,16 @@ pub struct SMMU {
     /// This eliminates the race window between the `streams.len()` read and
     /// the subsequent insert that existed in the previous implementation.
     stream_count: std::sync::atomic::AtomicUsize,
+
+    /// Stream Table log2 size (ARM §6.3.4, §7.3.3 / BUG-NEW-RUST-1).
+    ///
+    /// When less than 32, the Stream Table has `2^log2size` entries and any
+    /// StreamID at or above `2^log2size` is out-of-range — the SMMU must
+    /// generate C_BAD_STREAMID (§7.3.3) and signal GERROR.CMDQ_ERR.
+    ///
+    /// The value 32 is a sentinel meaning "no table-size limit" (default).
+    /// ARM IHI0070G.b §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE field.
+    strtab_log2size: AtomicU8,
 }
 
 impl SMMU {
@@ -579,6 +589,9 @@ impl SMMU {
             // BUG-6 fix: atomic stream counter starts at zero; incremented
             // before each insert, decremented on rollback.
             stream_count: std::sync::atomic::AtomicUsize::new(0),
+            // BUG-NEW-RUST-1 fix: 32 = sentinel "no table-size limit" (default).
+            // Software must call set_strtab_log2size() to enable range checking.
+            strtab_log2size: AtomicU8::new(32),
         }
     }
 
@@ -813,6 +826,32 @@ impl SMMU {
         self.cr2.load(Ordering::Acquire)
     }
 
+    // ========================================================================
+    // ARM §6.3.4: SMMU_STRTAB_BASE_CFG.LOG2SIZE — stream table size limit
+    // ========================================================================
+
+    /// Set the Stream Table log2 size (ARM §6.3.4 / BUG-NEW-RUST-1).
+    ///
+    /// When `v < 32`, any StreamID >= 2^v is out-of-range and will be rejected
+    /// with `TranslationError::InvalidStreamID` in `translate()`, as mandated
+    /// by ARM IHI0070G.b §7.3.3 (C_BAD_STREAMID).
+    ///
+    /// The sentinel value `32` (default) means "no table-size limit" — all
+    /// StreamIDs are accepted and looked up in the DashMap as normal.
+    ///
+    /// Valid hardware range per ARM §6.3.4: 1–20 (model accepts 0–31; 32 = disabled).
+    pub fn set_strtab_log2size(&self, v: u8) {
+        self.strtab_log2size.store(v, Ordering::Release);
+    }
+
+    /// Read the Stream Table log2 size (ARM §6.3.4 / BUG-NEW-RUST-1).
+    ///
+    /// Returns the configured log2 size.  Value 32 means "no limit" (default).
+    #[must_use]
+    pub fn get_strtab_log2size(&self) -> u8 {
+        self.strtab_log2size.load(Ordering::Acquire)
+    }
+
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
     ///
     /// When SMMUEN=0 and this flag is true, all transactions are aborted
@@ -895,16 +934,25 @@ impl SMMU {
         loop {
             let current_gerror  = self.gerror.load(Ordering::Acquire);
             let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
-            // BUG-RUST-E fix: re-read gerrorn after gerror to detect concurrent
-            // clear_gerror() between the two loads.  clear_gerror() only modifies
-            // gerrorn, so re-reading gerror (the previous approach) would not detect
-            // it and caused unnecessary retries on concurrent signal_gerror() calls.
-            // If gerrorn changed between the two loads, our snapshot is inconsistent —
-            // retry from the top to get a coherent pair.
-            let gerrorn_reread = self.gerrorn.load(Ordering::Acquire);
-            if gerrorn_reread != current_gerrorn {
+            // BUG-NEW-RUST-3 fix: full seqlock — re-read BOTH gerrorn and gerror
+            // to detect concurrent modification of either register between the two
+            // initial loads.
+            //
+            // BUG-RUST-E fix (preserved): re-read gerrorn after gerror to detect
+            // concurrent clear_gerror() between the two loads.  If gerrorn changed,
+            // our snapshot is inconsistent — retry.
+            let reread_gerrorn = self.gerrorn.load(Ordering::Acquire);
+            if reread_gerrorn != current_gerrorn {
                 continue; // gerrorn changed — clear_gerror ran concurrently, retry
             }
+            // Also re-read gerror to detect concurrent signal_gerror() modifying
+            // gerror between our initial load and the gerrorn read.  If gerror
+            // changed, our snapshot is stale — retry.
+            let reread_gerror = self.gerror.load(Ordering::Acquire);
+            if reread_gerror != current_gerror {
+                continue; // gerror changed — concurrent signal_gerror(), retry
+            }
+            // Consistent snapshot — compute inactive bits.
             // Bits that are currently ACTIVE (GERROR[x] != GERRORN[x]): skip.
             // Bits that are currently INACTIVE (GERROR[x] == GERRORN[x]): toggle.
             let active   = current_gerror ^ current_gerrorn;
@@ -1317,8 +1365,21 @@ impl SMMU {
     /// ```
     #[must_use]
     pub fn get_stream_count(&self) -> usize {
-        // BUG-RUST-A fix: return the authoritative atomic counter rather than
-        // streams.len() (DashMap), which diverges after shutdown().
+        // BUG-NEW-RUST-6 fix: §6.3 — shutdown guard eliminates the TOCTOU window
+        // between streams.clear() and stream_count.store(0) in shutdown().
+        //
+        // shutdown() clears the DashMap first, then stores 0 to stream_count.
+        // A concurrent caller arriving between those two operations would see
+        // stream_count > 0 even though the map is already empty.  By returning
+        // 0 immediately when the shutdown flag is set, we guarantee the caller
+        // sees a consistent view: once shutdown() has set the flag (AcqRel swap),
+        // any subsequent Acquire load of the flag will see `true` and return 0.
+        //
+        // BUG-RUST-A fix (preserved): use the authoritative atomic counter rather
+        // than streams.len() (DashMap), which diverges after shutdown().
+        if self.is_shutdown() {
+            return 0;
+        }
         self.stream_count.load(Ordering::Acquire)
     }
 
@@ -1977,6 +2038,22 @@ impl SMMU {
                 crate::types::PagePermissions::all(),
                 security_state,
             ));
+        }
+
+        // BUG-NEW-RUST-1 fix: §6.3.4 / §7.3.3 — StreamID range check.
+        // When strtab_log2size < 32 (table-size limit configured), any StreamID
+        // >= 2^log2size is out-of-range.  The SMMU must return C_BAD_STREAMID and
+        // signal GERROR.CMDQ_ERR rather than falling through to the DashMap lookup.
+        {
+            let log2size = self.strtab_log2size.load(Ordering::Acquire);
+            if log2size < 32 {
+                let limit = 1u32 << log2size;
+                if stream_id.as_u32() >= limit {
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
+                    return Err(TranslationError::InvalidStreamID);
+                }
+            }
         }
 
         // BUG-NEW-10 fix: TLB cache must only be consulted when SMMUEN=1; per ARM §6.3.9
@@ -2691,6 +2768,14 @@ impl SMMU {
 
         // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
         if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+
+        // BUG-NEW-RUST-2 fix: §6.3.12 / §7.3.3 — RECINVSID gate.
+        // When CR2.RECINVSID=0 (reset default), C_BAD_STREAMID events triggered
+        // by an unknown StreamID must NOT be written to the event queue.
+        // GERROR.CMDQ_ERR is still signalled unconditionally (§7.3.3).
+        if (self.cr2.load(Ordering::Acquire) & Self::CR2_RECINVSID) == 0 {
             return;
         }
 

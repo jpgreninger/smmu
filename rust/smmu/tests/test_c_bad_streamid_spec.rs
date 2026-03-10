@@ -14,6 +14,9 @@ use smmu::SMMU;
 fn make_smmu() -> SMMU {
     let smmu = SMMU::new();
     smmu.enable().unwrap();
+    // §6.3.12 / BUG-NEW-RUST-2: CR2.RECINVSID=1 is required for C_BAD_STREAMID events
+    // to be written to the event queue on invalid-stream translate() calls.
+    smmu.set_cr2(SMMU::CR2_RECINVSID);
     smmu
 }
 

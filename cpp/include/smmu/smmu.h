@@ -210,8 +210,14 @@ public:
     void reset();
     
 private:
-    // StreamID to StreamContext mapping
-    std::unordered_map<StreamID, std::unique_ptr<StreamContext>> streamMap;
+    // StreamID to StreamContext mapping.
+    // BUG-NEW-CPP-3 fix: use shared_ptr so that translate() can take a reference-counted
+    // copy of the StreamContext under the stripe lock, then release the stripe lock before
+    // calling performTwoStageTranslation(). Without this, generateEvent() calls inside
+    // performTwoStageTranslation() would acquire queueMutex while the stripe lock is still
+    // held, creating an ABBA deadlock with processCommandQueue() which holds queueMutex and
+    // then acquires stripe locks (CFGI_STE path).
+    std::unordered_map<StreamID, std::shared_ptr<StreamContext>> streamMap;
     
     // Event handling
     std::shared_ptr<FaultHandler> faultHandler;
@@ -224,7 +230,10 @@ private:
     
     // Global configuration
     FaultMode globalFaultMode;
-    bool cachingEnabled;
+    // BUG-NEW-CPP-2 fix: std::atomic<bool> eliminates the data race between
+    // translate() (reader, no lock) and enableCaching()/reset()/applyConfiguration()
+    // (writers).  Acquire/release ordering ensures visibility across threads.
+    std::atomic<bool> cachingEnabled;
     
     // Statistics - Thread-safe atomic counters
     mutable std::atomic<uint64_t> translationCount;
@@ -284,7 +293,9 @@ private:
     // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
     // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
     // Default 32 (all 32-bit StreamIDs accepted).
-    uint8_t strtabLog2Size_;   // 0-32; default 32
+    // BUG-NEW-CPP-1 fix: std::atomic<uint8_t> eliminates the data race between
+    // translate() (reader, no lock) and setStrtabLog2Size() (writer).
+    std::atomic<uint8_t> strtabLog2Size_;   // 0-32; default 32
 
     // ARM §3.12.2: Stall queue for stalled transactions (FINDING-NEW-08)
     std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map

@@ -181,27 +181,32 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // When strtabLog2Size_ < 32, reject StreamIDs >= 2^strtabLog2Size_.
     // BUG-CPP-01 fix: use 64-bit shift to avoid UB when log2size approaches 32;
     // compare against uint64_t to safely accommodate all uint32_t StreamID values.
-    if (strtabLog2Size_ < 32u) {
-        uint64_t limit = (uint64_t)1u << strtabLog2Size_;
-        if (static_cast<uint64_t>(streamID) >= limit) {
-            // BUG-NEW-01 fix: record fault so getTotalFaultCount() stays consistent.
-            // recordFault() is internal accounting and is always updated regardless of RECINVSID.
-            FaultRecord fault;
-            fault.streamID = streamID;
-            fault.pasid = pasid;
-            fault.address = iova;
-            fault.faultType = FaultType::BadStreamID;
-            fault.accessType = accessType;
-            fault.securityState = securityState;
-            fault.timestamp = currentTime;
-            recordFault(fault);
-            // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
-            // event queue when RECINVSID==1.  The fault record and translation error are
-            // always produced unconditionally regardless of the RECINVSID setting.
-            if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+    // BUG-NEW-CPP-1 fix: load once with acquire ordering so that a concurrent
+    // setStrtabLog2Size() write (release store) is visible to this reader.
+    {
+        uint8_t log2sz = strtabLog2Size_.load(std::memory_order_acquire);
+        if (log2sz < 32u) {
+            uint64_t limit = (uint64_t)1u << log2sz;
+            if (static_cast<uint64_t>(streamID) >= limit) {
+                // BUG-NEW-01 fix: record fault so getTotalFaultCount() stays consistent.
+                // recordFault() is internal accounting and is always updated regardless of RECINVSID.
+                FaultRecord fault;
+                fault.streamID = streamID;
+                fault.pasid = pasid;
+                fault.address = iova;
+                fault.faultType = FaultType::BadStreamID;
+                fault.accessType = accessType;
+                fault.securityState = securityState;
+                fault.timestamp = currentTime;
+                recordFault(fault);
+                // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
+                // event queue when RECINVSID==1.  The fault record and translation error are
+                // always produced unconditionally regardless of the RECINVSID setting.
+                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+                    generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+                }
+                return makeTranslationError(SMMUError::InvalidStreamID);
             }
-            return makeTranslationError(SMMUError::InvalidStreamID);
         }
     }
 
@@ -240,16 +245,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         return makeTranslationError(SMMUError::InvalidStreamID);
     }
 
-    StreamContext* streamContext = streamIt->second.get();
-
-    // BUG-CPP-02 fix: Do NOT release the stripe lock before performTwoStageTranslation.
-    // A concurrent reset() acquires ALL stripe locks before clearing streamMap; keeping
-    // our stripe lock held prevents reset() from destroying the StreamContext while we
-    // still hold a raw pointer to it.  The lock is released only after all accesses to
-    // streamContext are complete (before handleTranslationFailure, which would re-acquire
-    // the same stripe lock via determineContextSecurityState and deadlock).
-    // Note: performTwoStageTranslation and the cache/stall result code below do NOT
-    // attempt to re-acquire this stripe lock, so there is no self-deadlock risk here.
+    // BUG-NEW-CPP-3 fix: take a shared_ptr copy of the StreamContext while the stripe
+    // lock is held.  This keeps the StreamContext alive even after the stripe lock is
+    // released (a concurrent reset() can clear streamMap, but the shared_ptr ref-count
+    // prevents destruction while we still hold a reference).  We release the stripe lock
+    // before calling performTwoStageTranslation() so that the generateEvent() calls
+    // inside that function can acquire queueMutex without creating the ABBA deadlock
+    // with processCommandQueue() which holds queueMutex and then acquires stripe locks.
+    std::shared_ptr<StreamContext> streamContextPtr = streamIt->second;
+    StreamContext* streamContext = streamContextPtr.get();
 
     // TLB fast path — now performed after streamContext is obtained so that the stream's
     // STE output-attribute overrides (memType, shareability, allocHint, instCfg, privCfg,
@@ -264,7 +268,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // STRW==EL2 (non-VHE) and STRW==EL3 suppress privilege checks by treating
     // AP[1] as 1.  EL2_E2H (VHE) maintains privileged/non-privileged checks
     // like EL1 and therefore must NOT be included here.
-    if (cachingEnabled && tlbCache) {
+    // BUG-NEW-CPP-2 fix: acquire load pairs with the release stores in enableCaching(),
+    // reset(), and applyConfiguration() so concurrent writes are safely observed.
+    if (cachingEnabled.load(std::memory_order_acquire) && tlbCache) {
         StreamConfig streamCfgForTlb = streamContext->getStreamConfiguration();
         // Derive effective access type for the privilege-aware permission check.
         // BUG-CPP-DBGR-5 fix: §5.2 says STRW is IGNORED when stage-2 is enabled for
@@ -317,6 +323,14 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // Cache miss — fall through to the full translation slow path.
     }
 
+    // BUG-NEW-CPP-3 fix: Release the stripe lock BEFORE calling performTwoStageTranslation().
+    // performTwoStageTranslation() (and its callees) call generateEvent(), which acquires
+    // queueMutex.  Holding the stripe lock across that call creates an ABBA deadlock with
+    // processCommandQueue(), which holds queueMutex and then acquires stripe locks.
+    // The streamContextPtr shared_ptr (captured above) keeps the StreamContext alive after
+    // the stripe lock is released, so accessing streamContext via the raw pointer is safe.
+    lock.unlock();
+
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
 
@@ -328,7 +342,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // Guard: skip TLB insert when s1dss == 0x01 AND pasid == 0 (the bypass condition).
     // s1dss == 0x02 ("use CD[0]") is NOT a bypass and MUST still be cached normally.
     // Only applies when the stream is substream-capable (s1cdMax > 0).
-    if (result.isOk() && isTranslationCacheable(result) && cachingEnabled && tlbCache) {
+    if (result.isOk() && isTranslationCacheable(result) && cachingEnabled.load(std::memory_order_acquire) && tlbCache) {
         StreamConfig streamCfg = streamContext->getStreamConfiguration();
         bool s1dssIsBypass = (streamCfg.s1cdMax > 0 && pasid == 0 && streamCfg.s1dss == 0x01u);
         if (!s1dssIsBypass) {
@@ -398,8 +412,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             }
             if (!stagValid) {
                 // Stall queue exhausted — fall back to terminate-mode fault handling.
-                lock.unlock();
-                streamContext = nullptr; // BUG-CPP-C fix: null out dangling pointer after lock release
+                // BUG-NEW-CPP-3 fix: the stripe lock was already released before
+                // performTwoStageTranslation(); do NOT call lock.unlock() again.
+                streamContext = nullptr; // Defensive: no further accesses via this pointer
                 handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
                 return result;
             }
@@ -424,28 +439,19 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     stallEventType = EventType::F_TRANSLATION;
                     break;
             }
-            // BUG-CPP-3 fix: Release the stripe lock BEFORE calling generateEvent().
-            // generateEvent() acquires queueMutex.  The lock-ordering invariant is:
-            // stripe lock must NEVER be held when queueMutex is acquired.  Violating
-            // this order creates an ABBA deadlock with any other thread that holds
-            // queueMutex and then attempts to acquire a stripe lock (e.g. the
-            // CMD_SYNC path in processCommandQueue).  The stall metadata
-            // (stallEventType, stag) was already captured above, so releasing the
-            // stripe lock here is safe — all accesses to streamContext are complete.
-            lock.unlock();
-            // BUG-CPP-DBGR-4 fix: null out the raw pointer after unlock to make it
-            // explicit that no further accesses to streamContext are allowed.
-            streamContext = nullptr;
+            // BUG-NEW-CPP-3 fix: the stripe lock was already released before
+            // performTwoStageTranslation(); no need to release it again here.
+            // generateEvent() acquires queueMutex — this is safe because the
+            // stripe lock is no longer held, eliminating the ABBA deadlock.
+            streamContext = nullptr; // Defensive: no further accesses via this pointer
             generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
             return makeTranslationError(SMMUError::Stalled);
         }
-        // BUG-CPP-02 fix: Release the stripe lock before calling handleTranslationFailure.
-        // That function may call determineContextSecurityState which tries to acquire the
-        // same stripe lock, which would deadlock.  All accesses to streamContext are
-        // complete at this point.
-        lock.unlock();
-        // BUG-CPP-DBGR-4 fix: null out the raw pointer after unlock (defensive clarity).
-        streamContext = nullptr;
+        // BUG-NEW-CPP-3 fix: the stripe lock was already released before
+        // performTwoStageTranslation(); do NOT call lock.unlock() again.
+        // handleTranslationFailure() may call determineContextSecurityState() which
+        // acquires the stripe lock — this is safe because we no longer hold it.
+        streamContext = nullptr; // Defensive: no further accesses via this pointer
         handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
         return result;
     }
@@ -470,23 +476,25 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         // first.  Reject direct reconfiguration; caller must removeStream first.
         return makeVoidError(SMMUError::StreamAlreadyConfigured);
     } else {
-        // Create new StreamContext
-        std::unique_ptr<StreamContext> streamContext(new StreamContext());
-        
+        // Create new StreamContext.
+        // BUG-NEW-CPP-3 fix: use shared_ptr so translate() can take a reference-counted
+        // copy under the stripe lock, then release the lock before performTwoStageTranslation().
+        std::shared_ptr<StreamContext> streamContext(new StreamContext());
+
         // Configure the stream context with provided configuration
         VoidResult configResult = streamContext->updateConfiguration(config);
         if (configResult.isError()) {
             return configResult;
         }
-        
+
         // Note: Stream enable/disable is managed separately from configuration
         // ARM SMMU v3 spec: Configuration and stream enabling are separate operations
-        
+
         // Set fault handler for the stream
         streamContext->setFaultHandler(faultHandler);
-        
+
         // Add to stream map
-        streamMap[streamID] = std::move(streamContext);
+        streamMap[streamID] = streamContext;
     }
     
     return makeVoidSuccess();
@@ -726,7 +734,9 @@ VoidResult SMMU::enableCaching(bool enable) {
         locks.emplace_back(streamLockStripes[i]);
     }
 
-    cachingEnabled = enable;
+    // BUG-NEW-CPP-2 fix: release store so that concurrent translate() readers
+    // that use acquire loads observe the new value without a data race.
+    cachingEnabled.store(enable, std::memory_order_release);
     // ARM SMMU v3 spec: Caching policy affects TLB behavior
     if (!enable && tlbCache) {
         try {
@@ -806,7 +816,8 @@ void SMMU::reset() {
     resetStatistics();
     faultHandler->reset();
     globalFaultMode = FaultMode::Terminate;
-    cachingEnabled = true;
+    // BUG-NEW-CPP-2 fix: release store for atomic<bool> cachingEnabled.
+    cachingEnabled.store(true, std::memory_order_release);
     
     // Task 5.2: Reset TLB cache
     if (tlbCache) {
@@ -1197,7 +1208,7 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
 void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                  const TranslationResult& result, uint64_t currentTime,
                                  uint16_t asid, uint16_t vmid) {
-    if (!tlbCache || result.isError() || !cachingEnabled) {
+    if (!tlbCache || result.isError() || !cachingEnabled.load(std::memory_order_acquire)) {
         return; // Caching disabled or invalid result
     }
 
@@ -1230,7 +1241,7 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
 }
 
 TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    if (!tlbCache || !cachingEnabled) {
+    if (!tlbCache || !cachingEnabled.load(std::memory_order_acquire)) {
         return makeTranslationError(SMMUError::CacheOperationFailed); // Failed result - caching disabled
     }
     
@@ -2746,25 +2757,34 @@ void SMMU::setStrtabLog2Size(uint8_t log2size) {
     if (log2size > 32u) {
         log2size = 32u;
     }
-    strtabLog2Size_ = log2size;
+    // BUG-NEW-CPP-1 fix: use release store so that concurrent translate() readers
+    // that use acquire loads observe the updated value without a data race.
+    strtabLog2Size_.store(log2size, std::memory_order_release);
 }
 
 uint8_t SMMU::getStrtabLog2Size() const {
-    return strtabLog2Size_;
+    // BUG-NEW-CPP-1 fix: acquire load pairs with the release store in setStrtabLog2Size().
+    return strtabLog2Size_.load(std::memory_order_acquire);
 }
 
 void SMMU::enable() {
-    // BUG-CPP-DBGR-1 fix: use atomic load/store with release ordering so that
-    // concurrent translate() threads that read cr0_/smmuen_ see the updated state.
-    uint32_t newCr0 = cr0_.load(std::memory_order_relaxed) | CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN | CR0_PRIQEN;
-    cr0_.store(newCr0, std::memory_order_release);
+    // BUG-NEW-CPP-4 fix: use fetch_or (atomic read-modify-write) instead of
+    // the previous non-atomic load-then-store.  The old pattern allowed a
+    // concurrent setCR0() write between the load and store to be silently lost.
+    // Sets SMMUEN | EVENTQEN | CMDQEN atomically (PRIQEN deliberately excluded:
+    // the old implementation incorrectly added PRIQEN, causing any bits set via
+    // setCR0() to be permanently augmented after an enable()+disable() cycle).
+    // acquire/release ordering ensures visibility to concurrent translate() readers.
+    cr0_.fetch_or(CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel);
     smmuen_.store(true, std::memory_order_release);
 }
 
 void SMMU::disable() {
-    // BUG-CPP-DBGR-1 fix: use atomic store with release ordering.
-    uint32_t newCr0 = cr0_.load(std::memory_order_relaxed) & ~CR0_SMMUEN;
-    cr0_.store(newCr0, std::memory_order_release);
+    // BUG-NEW-CPP-4 fix: use fetch_and (atomic read-modify-write) to clear only
+    // CR0_SMMUEN without touching any other bits.  The previous load-then-store
+    // pattern allowed a concurrent setCR0() write between the load and store to
+    // be silently lost.
+    cr0_.fetch_and(~static_cast<uint32_t>(CR0_SMMUEN), std::memory_order_acq_rel);
     smmuen_.store(false, std::memory_order_release);
 }
 
@@ -3278,7 +3298,8 @@ VoidResult SMMU::updateCacheConfiguration(const CacheConfiguration& cacheConfig)
     VoidResult result = configuration.setCacheConfiguration(cacheConfig);
     if (result.isOk()) {
         // Update cache settings
-        cachingEnabled = cacheConfig.enableCaching;
+        // BUG-NEW-CPP-2 fix: release store for atomic<bool> cachingEnabled.
+        cachingEnabled.store(cacheConfig.enableCaching, std::memory_order_release);
         
         // Update TLB cache size if changed
         if (tlbCache->getCapacity() != cacheConfig.tlbCacheSize) {
@@ -3327,7 +3348,8 @@ void SMMU::applyConfiguration() {
     // by callers (updateConfiguration) under queueMutex after releasing stripe locks.
     // Only cache / TLB settings are applied here.
     const CacheConfiguration& cacheConfig = configuration.getCacheConfiguration();
-    cachingEnabled = cacheConfig.enableCaching;
+    // BUG-NEW-CPP-2 fix: release store for atomic<bool> cachingEnabled.
+    cachingEnabled.store(cacheConfig.enableCaching, std::memory_order_release);
 
     // Update TLB cache size if changed
     if (tlbCache->getCapacity() != cacheConfig.tlbCacheSize) {
