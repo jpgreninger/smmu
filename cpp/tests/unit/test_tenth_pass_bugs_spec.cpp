@@ -20,6 +20,9 @@ namespace test {
 static std::unique_ptr<SMMU> makeSmmu() {
     auto s = std::unique_ptr<SMMU>(new SMMU());
     s->enable();
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording for tests
+    // that verify event generation via CMD_CFGI_STE with unknown StreamIDs.
+    s->setCR2(SMMU::CR2_RECINVSID);
     return s;
 }
 

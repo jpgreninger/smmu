@@ -453,6 +453,8 @@ TEST(CompletionEventSecurityStateTest, SyncCompletionUsesStreamSecurityState) {
 TEST(CfgiSteTest, UnknownStreamIDGeneratesCBadStreamid) {
     SMMU smmu;
     enableSMMU(smmu);
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    smmu.setCR2(SMMU::CR2_RECINVSID);
 
     // StreamID 0xDEAD is not configured
     constexpr StreamID UNKNOWN_STREAM = 0xDEAD;

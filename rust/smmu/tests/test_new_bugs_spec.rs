@@ -27,6 +27,8 @@ fn test_cfgi_ste_bad_stream_event_carries_command_security_state() {
 
     let smmu = SMMU::new();
     smmu.enable().unwrap();
+    // §6.3.12: set RECINVSID so C_BAD_STREAMID events from CMD_CFGI_STE are recorded.
+    smmu.set_cr2(SMMU::CR2_RECINVSID);
 
     // Build a CfgiSte command with a non-default security state (SecureEL2 == Secure)
     // targeting a stream that has never been configured.

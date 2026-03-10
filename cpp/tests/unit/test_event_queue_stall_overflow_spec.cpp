@@ -27,6 +27,9 @@ static std::unique_ptr<SMMU> makeSmallQueueSMMU() {
     auto smmu = std::make_unique<SMMU>(cfg);
     // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
     smmu->enable();
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording so that
+    // queue-overflow tests can fill the queue via unknown-stream faults.
+    smmu->setCR2(SMMU::CR2_RECINVSID);
     return smmu;
 }
 

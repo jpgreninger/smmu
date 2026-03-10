@@ -66,6 +66,8 @@ TEST(Ct04Strtab, StreamIdOutOfRangeGeneratesCBadStreamID) {
     smmu.enable();
     // Set stream table to only 4 entries (2^4 = 16)
     smmu.setStrtabLog2Size(4);
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    smmu.setCR2(SMMU::CR2_RECINVSID);
 
     // StreamID 16 is out of range (>= 2^4 = 16)
     auto result = smmu.translate(16, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);

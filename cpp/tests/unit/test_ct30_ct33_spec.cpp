@@ -133,6 +133,8 @@ TEST(Ct33Cr0, EventRecordedWhenEventqenSet) {
     // CR0.SMMUEN=1 (bit 0), CR0.EVENTQEN=1 (bit 2) → value = 0x05 = 0b00000101 (§6.3.9)
     smmu.setCR0(0x05u);
     EXPECT_TRUE(smmu.isEnabled());
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    smmu.setCR2(SMMU::CR2_RECINVSID);
 
     // Translate to non-existent stream to trigger C_BAD_STREAMID
     smmu.translate(9999, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);

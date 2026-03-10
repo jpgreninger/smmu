@@ -41,6 +41,8 @@ TEST(BadStreamIdSpec, UnconfiguredStream_GeneratesCBadStreamIDEvent) {
     SMMU smmu;
     smmu.enable();
     smmu.setStrtabLog2Size(16);
+    // §6.3.12 CR2.RECINVSID=1: must be set for C_BAD_STREAMID events to be recorded.
+    smmu.setCR2(SMMU::CR2_RECINVSID);
 
     smmu.translate(0x5678, 0, 0x2000ULL, AccessType::Read, SecurityState::NonSecure);
 

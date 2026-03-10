@@ -147,6 +147,8 @@ TEST_F(SMMUPriority2Phase2Test, EventHandling_ConfigurationError) {
     // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE on an unknown (unconfigured) StreamID
     // must generate a C_BAD_STREAMID event and set GERROR.CMDQ_ERR.
     // STREAM1 is not configured in this test's SetUp(), so it is unknown.
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    smmuController->setCR2(SMMU::CR2_RECINVSID);
     CommandEntry cmd;
     cmd.type = CommandType::CFGI_STE;
     cmd.streamID = STREAM1;

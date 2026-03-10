@@ -30,6 +30,12 @@ public:
     static constexpr uint32_t CR0_CMDQEN   = (1u << 3); ///< bit 3: Command queue enable (§6.3.9)
     static constexpr uint32_t CR0_ATSCHK   = (1u << 4); ///< bit 4: ATS CHK enable (§6.3.9)
 
+    // §6.3.12 SMMU_CR2 register bit constants — ARM IHI0070G.b §6.3.12.
+    // RECINVSID (bit 1): when 1, C_BAD_STREAMID events are recorded in the event queue.
+    // When 0 (reset default), C_BAD_STREAMID events are suppressed (not recorded).
+    // GERROR.CMDQ_ERR is always toggled unconditionally for CMD_CFGI_STE with bad StreamID.
+    static constexpr uint32_t CR2_RECINVSID = (1u << 1); ///< bit 1: Record invalid StreamID events
+
     // Default constructor with default configuration
     SMMU();
     
@@ -169,6 +175,12 @@ public:
     /// Get the current SMMU_CR0 register value.
     uint32_t getCR0() const;
 
+    // §6.3.12 SMMU_CR2 register.
+    /// Set the SMMU_CR2 register value.  Bit 1 = RECINVSID.
+    void setCR2(uint32_t value);
+    /// Get the current SMMU_CR2 register value.
+    uint32_t getCR2() const;
+
     // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
     /// Set the number of stream table entries as 2^log2size.
     /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
@@ -258,6 +270,10 @@ private:
     // without holding any lock (hot path); enable()/disable()/reset()/setCR0() write it.
     // Acquire/Release ordering ensures the SMMUEN bit is visible across threads.
     std::atomic<uint32_t> cr0_;           // SMMU_CR0 register value; bit0=SMMUEN, bit1=PRIQEN, bit2=EVENTQEN, bit3=CMDQEN
+
+    // §6.3.12 SMMU_CR2 register.  RECINVSID (bit 1) gates C_BAD_STREAMID event recording.
+    // Reset value is 0 (RECINVSID=0: events suppressed) per ARM IHI0070G.b §6.3.12.
+    std::atomic<uint32_t> cr2_;           // SMMU_CR2 register value; bit1=RECINVSID
 
     // ARM §6.3.9 SMMU_CR0.SMMUEN (FINDING-NEW-09) and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01)
     // Note: smmuen_ is derived from cr0_ bit 0, kept for backward compatibility.

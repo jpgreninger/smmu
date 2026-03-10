@@ -112,10 +112,14 @@ fn test_cmdq_err_set_on_cfgi_ste_unknown_stream() {
     );
 }
 
-/// §7.3.3: C_BAD_STREAMID event must appear in the event queue when CMDQ_ERR fires.
+/// §7.3.3 / §6.3.12: C_BAD_STREAMID event must appear in the event queue when
+/// CMDQ_ERR fires AND CR2.RECINVSID == 1.  Per §6.3.12, C_BAD_STREAMID events
+/// from CMD_CFGI_STE are only recorded when RECINVSID is set.
 #[test]
 fn test_c_bad_streamid_event_generated_on_cmdq_err() {
     let smmu = make_smmu();
+    // §6.3.12: set RECINVSID so C_BAD_STREAMID events are recorded in the event queue.
+    smmu.set_cr2(SMMU::CR2_RECINVSID);
     smmu.submit_command(cfgi_ste_cmd(99)).unwrap();
     let _ = smmu.process_command_queue();
     let events = smmu.get_events();

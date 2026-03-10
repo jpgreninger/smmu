@@ -421,6 +421,8 @@ TEST(SMMUenSpec, Disabled_BypassGeneratesNoFaultEvents) {
 TEST(SMMUenSpec, Enabled_UnknownStream_GeneratesFaultEvent) {
     auto smmu = std::make_unique<SMMU>();
     smmu->enable();
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    smmu->setCR2(SMMU::CR2_RECINVSID);
 
     smmu->translate(SMMUEN_STREAM_A, SMMUEN_PASID_0, SMMUEN_IOVA,
                     AccessType::Read, SecurityState::NonSecure);

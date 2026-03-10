@@ -324,6 +324,17 @@ pub struct SMMU {
     /// individual queue gates without toggling the global enable.
     cr0: AtomicU32,
 
+    /// SMMU_CR2 register (§6.3.12).
+    ///
+    /// Bit-field controlling miscellaneous SMMU behaviour (ARM §6.3.12):
+    ///   Bit 1: RECINVSID — Record C_BAD_STREAMID events in the event queue.
+    ///
+    /// When RECINVSID=0 (reset default), C_BAD_STREAMID events are NOT written
+    /// to the event queue.  GERROR.CMDQ_ERR is still signalled unconditionally.
+    /// When RECINVSID=1, C_BAD_STREAMID events are written to the event queue
+    /// as specified in §7.3.3.
+    cr2: AtomicU32,
+
     /// Atomic stream count for TOCTOU-safe limit enforcement (BUG-6 fix).
     ///
     /// Incremented with `fetch_add` BEFORE the DashMap insert and decremented
@@ -390,6 +401,18 @@ impl SMMU {
     pub const CR0_CMDQEN: u32   = 1 << 3;
     /// CR0 bit 4: ATSCHK — ATS CHK enable (§6.3.9)
     pub const CR0_ATSCHK: u32   = 1 << 4;
+
+    // ========================================================================
+    // ARM §6.3.12: SMMU_CR2 bit constants (public for downstream testing)
+    // ========================================================================
+
+    /// CR2 bit 1: RECINVSID — Record C_BAD_STREAMID events in the event queue (§6.3.12 / §7.3.3).
+    ///
+    /// When 0 (reset default), C_BAD_STREAMID events triggered by CMD_CFGI_STE
+    /// for an unknown StreamID are NOT written to the event queue.  GERROR.CMDQ_ERR
+    /// is still signalled unconditionally.
+    /// When 1, C_BAD_STREAMID events are recorded in the event queue as per §7.3.3.
+    pub const CR2_RECINVSID: u32 = 1 << 1;
 
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
@@ -550,6 +573,9 @@ impl SMMU {
             // Software must explicitly set the required bits via set_cr0() or
             // call enable() before using queues or translations.
             cr0: AtomicU32::new(0),
+            // CR2 reset: ARM IHI0070G.b §6.3.12 — resets to 0.
+            // RECINVSID=0 means C_BAD_STREAMID events are not recorded by default.
+            cr2: AtomicU32::new(0),
             // BUG-6 fix: atomic stream counter starts at zero; incremented
             // before each insert, decremented on rollback.
             stream_count: std::sync::atomic::AtomicUsize::new(0),
@@ -750,6 +776,43 @@ impl SMMU {
         self.cr0.load(Ordering::Acquire)
     }
 
+    /// Write SMMU_CR2 (§6.3.12).
+    ///
+    /// Controls miscellaneous SMMU behaviour.  Notable bit:
+    /// - `CR2_RECINVSID` (bit 1): when set, C_BAD_STREAMID events are recorded
+    ///   in the event queue.  When clear (reset default), they are suppressed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert_eq!(smmu.get_cr2(), 0, "CR2 resets to 0 (§6.3.12)");
+    /// smmu.set_cr2(SMMU::CR2_RECINVSID);
+    /// assert_eq!(smmu.get_cr2() & SMMU::CR2_RECINVSID, SMMU::CR2_RECINVSID);
+    /// ```
+    pub fn set_cr2(&self, value: u32) {
+        self.cr2.store(value, Ordering::Release);
+    }
+
+    /// Read SMMU_CR2 (§6.3.12).
+    ///
+    /// Returns the current CR2 register value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// assert_eq!(smmu.get_cr2(), 0, "CR2 must be 0 after reset (§6.3.12)");
+    /// ```
+    #[must_use]
+    pub fn get_cr2(&self) -> u32 {
+        self.cr2.load(Ordering::Acquire)
+    }
+
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
     ///
     /// When SMMUEN=0 and this flag is true, all transactions are aborted
@@ -832,12 +895,15 @@ impl SMMU {
         loop {
             let current_gerror  = self.gerror.load(Ordering::Acquire);
             let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
-            // BUG-RUST-E fix: re-read gerror after gerrorn to detect concurrent
-            // clear_gerror() between the two loads.  If gerror changed, the
-            // snapshot is inconsistent — retry from the top.
-            let gerror_reread = self.gerror.load(Ordering::Acquire);
-            if gerror_reread != current_gerror {
-                continue; // snapshot inconsistent — retry
+            // BUG-RUST-E fix: re-read gerrorn after gerror to detect concurrent
+            // clear_gerror() between the two loads.  clear_gerror() only modifies
+            // gerrorn, so re-reading gerror (the previous approach) would not detect
+            // it and caused unnecessary retries on concurrent signal_gerror() calls.
+            // If gerrorn changed between the two loads, our snapshot is inconsistent —
+            // retry from the top to get a coherent pair.
+            let gerrorn_reread = self.gerrorn.load(Ordering::Acquire);
+            if gerrorn_reread != current_gerrorn {
+                continue; // gerrorn changed — clear_gerror ran concurrently, retry
             }
             // Bits that are currently ACTIVE (GERROR[x] != GERRORN[x]): skip.
             // Bits that are currently INACTIVE (GERROR[x] == GERRORN[x]): toggle.
@@ -1026,12 +1092,13 @@ impl SMMU {
         //     to concurrent readers before we attempt the insert.
         //   - Release on the fetch_sub rollback: ensures the freed slot is
         //     visible to the next waiter.
-        // BUG-RUST-C fix: fetch_add first, then read max_streams so we use the
-        // most-current config value after the atomic reservation.  This eliminates
-        // the TOCTOU window where config.max_streams() could change between reading
-        // it and performing the atomic increment.
-        let prev_count = self.stream_count.fetch_add(1, Ordering::AcqRel);
+        // BUG-RUST-C fix: snapshot max_streams BEFORE fetch_add so the limit in effect
+        // at decision time is used.  If max_streams is reduced between the fetch_add and
+        // a subsequent config re-read, a valid reservation (prev_count < old max_streams)
+        // would be spuriously rejected.  Reading max_streams first and then atomically
+        // reserving a slot honours the limit that was in effect when the decision was made.
         let max_streams = self.config.read().unwrap().max_streams();
+        let prev_count = self.stream_count.fetch_add(1, Ordering::AcqRel);
 
         if prev_count >= max_streams {
             // Roll back — we must not consume the slot.
@@ -3238,7 +3305,12 @@ impl SMMU {
                         stall: false,
                         stag: 0,
                     };
-                    let _ = self.submit_event(event);
+                    // §6.3.12 / §7.3.3: only record C_BAD_STREAMID in the event queue
+                    // when CR2.RECINVSID == 1.  GERROR.CMDQ_ERR is still signalled
+                    // unconditionally (via the Err return caught in process_command_queue).
+                    if (self.cr2.load(Ordering::Acquire) & Self::CR2_RECINVSID) != 0 {
+                        let _ = self.submit_event(event);
+                    }
                     return Err(SMMUError::InvalidCommandParameters(format!(
                         "CMD_CFGI_STE: unknown stream_id {}", command.stream_id
                     )));
@@ -4816,10 +4888,13 @@ mod tests {
 
     /// BUG-RUST-D: Structural correctness test — CfgiSte for unknown stream
     /// must still produce C_BAD_STREAMID after replacing contains_key with get().
+    /// CR2.RECINVSID must be set so the event is recorded in the event queue.
     #[test]
     fn bug_rust_d_cfgi_ste_unknown_stream_uses_get() {
         let smmu = SMMU::new();
         smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+        // §6.3.12: set RECINVSID so C_BAD_STREAMID events are recorded.
+        smmu.set_cr2(SMMU::CR2_RECINVSID);
 
         // Submit CfgiSte for unknown stream — must fail with InvalidCommandParameters.
         let cmd = CommandEntry::new(CommandType::CfgiSte, 0xBEEF, 0);
@@ -4913,6 +4988,10 @@ mod tests {
         }));
         // Enable SMMU and event queue so faults generate events.
         smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+        // §6.3.12: set RECINVSID so C_BAD_STREAMID events (from unknown-stream
+        // translate calls) are recorded — without this the event queue never
+        // fills and toggle_ovflg_once() is never exercised.
+        smmu.set_cr2(SMMU::CR2_RECINVSID);
 
         let make_event = |n: u32| EventEntry {
             event_type: EventType::FTranslation,

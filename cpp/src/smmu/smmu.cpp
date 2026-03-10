@@ -69,6 +69,7 @@ SMMU::SMMU()
       gerrorStatus(0),
       gerrorNStatus(0),
       cr0_(0),
+      cr2_(0),
       smmuen_(false),
       gbpaAbort_(false),
       strtabLog2Size_(32),
@@ -110,6 +111,7 @@ SMMU::SMMU(const SMMUConfiguration& config)
       gerrorStatus(0),
       gerrorNStatus(0),
       cr0_(0),
+      cr2_(0),
       smmuen_(false),
       gbpaAbort_(false),
       strtabLog2Size_(32),
@@ -182,8 +184,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if (strtabLog2Size_ < 32u) {
         uint64_t limit = (uint64_t)1u << strtabLog2Size_;
         if (static_cast<uint64_t>(streamID) >= limit) {
-            // BUG-NEW-01 fix: record fault so getTotalFaultCount() stays consistent
-            // with the C_BAD_STREAMID event, mirroring the streamMap-miss path below.
+            // BUG-NEW-01 fix: record fault so getTotalFaultCount() stays consistent.
+            // recordFault() is internal accounting and is always updated regardless of RECINVSID.
             FaultRecord fault;
             fault.streamID = streamID;
             fault.pasid = pasid;
@@ -193,7 +195,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             fault.securityState = securityState;
             fault.timestamp = currentTime;
             recordFault(fault);
-            generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
+            // event queue when RECINVSID==1.  The fault record and translation error are
+            // always produced unconditionally regardless of the RECINVSID setting.
+            if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            }
             return makeTranslationError(SMMUError::InvalidStreamID);
         }
     }
@@ -212,6 +219,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if (streamIt == streamMap.end()) {
         lock.unlock();
         // §7.3.3: StreamID not in stream table → C_BAD_STREAMID (0x02), not F_TRANSLATION.
+        // recordFault() is internal accounting and is always updated regardless of RECINVSID.
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
@@ -221,7 +229,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.securityState = securityState;
         fault.timestamp = currentTime;
         recordFault(fault);
-        generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+        // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
+        // event queue when RECINVSID==1.  The fault record and translation error are
+        // always produced unconditionally regardless of the RECINVSID setting.
+        if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+            generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+        }
         // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID,
         // not StreamNotConfigured (which would imply the stream exists but is disabled).
         return makeTranslationError(SMMUError::InvalidStreamID);
@@ -437,6 +450,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         return result;
     }
 
+    // BUG-CPP-C fix: null out the raw streamContext pointer before returning on the
+    // success path.  The stripe lock `lock` is still held here (RAII releases it on
+    // function exit), so streamContext is technically still valid — but nulling it
+    // makes it explicit that no further dereferences should occur after this point
+    // and prevents any future code from accidentally accessing the pointer after the
+    // lock releases.
+    streamContext = nullptr;
     return result;
 }
 
@@ -2131,8 +2151,12 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                 // BUG-14 fix / ARM §7.3.3: use command.securityState, not hardcoded
                 // NonSecure.  §7.3 requires the event to be recorded in the Event queue
                 // matching the security state of the StreamID causing the event.
-                generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                              command.startAddress, command.securityState);
+                // §6.3.12 SMMU_CR2.RECINVSID: only record the C_BAD_STREAMID event when
+                // RECINVSID==1.  GERROR.CMDQ_ERR is always toggled unconditionally.
+                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
+                                  command.startAddress, command.securityState);
+                }
                 // BUG-CPP-DBGR-2 fix: wrap the GERROR XOR-toggle in queueMutex.
                 // The toggle reads and writes gerrorStatus/gerrorNStatus, which are
                 // also written by other paths (processCommandQueue, clearGerror) while
@@ -2526,8 +2550,12 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             }
             if (!streamFound) {
                 // BUG-14 fix / ARM §7.3.3: use command.securityState (second call site).
-                generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                              command.startAddress, command.securityState);
+                // §6.3.12 SMMU_CR2.RECINVSID: only record the C_BAD_STREAMID event when
+                // RECINVSID==1.  GERROR.CMDQ_ERR is always toggled unconditionally.
+                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
+                                  command.startAddress, command.securityState);
+                }
                 // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
                 // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
                 // error is already active."
@@ -2698,6 +2726,17 @@ void SMMU::setCR0(uint32_t value) {
 
 uint32_t SMMU::getCR0() const {
     return cr0_;
+}
+
+// §6.3.12 SMMU_CR2 register (RECINVSID).
+// RECINVSID (bit 1): gates C_BAD_STREAMID event recording in the event queue.
+// Reset value is 0 (events suppressed) per ARM IHI0070G.b §6.3.12.
+void SMMU::setCR2(uint32_t value) {
+    cr2_.store(value, std::memory_order_release);
+}
+
+uint32_t SMMU::getCR2() const {
+    return cr2_.load(std::memory_order_acquire);
 }
 
 // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
