@@ -743,8 +743,19 @@ impl SMMU {
     /// Returns `ShutdownInProgress` if the SMMU has been shut down.
     pub fn disable(&self) -> Result<(), SMMUError> {
         self.check_shutdown()?;
-        self.enabled.store(false, Ordering::Release);
+        // BUG-R2-RUST-2 fix: §6.3.9 (disable ordering) — match the ordering used by
+        // enable(), which writes CR0 FIRST then sets the `enabled` flag.
+        //
+        // The previous order stored `enabled=false` BEFORE clearing CR0.SMMUEN via
+        // fetch_and.  This created a window where `is_enabled()` returned false while
+        // `get_cr0()` still showed SMMUEN=1 — an observable inconsistency between the
+        // two views of SMMU enable state on weakly-ordered hardware.
+        //
+        // Fix: clear CR0.SMMUEN first, then store enabled=false.  When `enabled`
+        // becomes visible to other threads (Release store), CR0.SMMUEN has already
+        // been cleared (AcqRel fetch_and), so the two views are consistent.
         self.cr0.fetch_and(!Self::CR0_SMMUEN, Ordering::AcqRel);
+        self.enabled.store(false, Ordering::Release);
         Ok(())
     }
 
@@ -943,6 +954,9 @@ impl SMMU {
             // our snapshot is inconsistent — retry.
             let reread_gerrorn = self.gerrorn.load(Ordering::Acquire);
             if reread_gerrorn != current_gerrorn {
+                // BUG-R2-RUST-7 fix: yield CPU hint to reduce memory-bus contention
+                // under adversarial concurrent load and avoid a busy-spin livelock.
+                std::hint::spin_loop();
                 continue; // gerrorn changed — clear_gerror ran concurrently, retry
             }
             // Also re-read gerror to detect concurrent signal_gerror() modifying
@@ -950,6 +964,8 @@ impl SMMU {
             // changed, our snapshot is stale — retry.
             let reread_gerror = self.gerror.load(Ordering::Acquire);
             if reread_gerror != current_gerror {
+                // BUG-R2-RUST-7 fix: yield CPU hint at each retry point.
+                std::hint::spin_loop();
                 continue; // gerror changed — concurrent signal_gerror(), retry
             }
             // Consistent snapshot — compute inactive bits.
@@ -969,7 +985,9 @@ impl SMMU {
             ).is_ok() {
                 break; // success — CAS applied
             }
-            // CAS failed: GERROR changed concurrently — retry loop
+            // CAS failed: GERROR changed concurrently — retry loop.
+            // BUG-R2-RUST-7 fix: yield CPU hint to reduce contention on retry.
+            std::hint::spin_loop();
         }
     }
 
@@ -1365,21 +1383,23 @@ impl SMMU {
     /// ```
     #[must_use]
     pub fn get_stream_count(&self) -> usize {
-        // BUG-NEW-RUST-6 fix: §6.3 — shutdown guard eliminates the TOCTOU window
-        // between streams.clear() and stream_count.store(0) in shutdown().
+        // BUG-R2-RUST-6 fix (Option A): remove the `is_shutdown()` early-return
+        // guard and rely solely on the authoritative `stream_count` atomic.
         //
-        // shutdown() clears the DashMap first, then stores 0 to stream_count.
-        // A concurrent caller arriving between those two operations would see
-        // stream_count > 0 even though the map is already empty.  By returning
-        // 0 immediately when the shutdown flag is set, we guarantee the caller
-        // sees a consistent view: once shutdown() has set the flag (AcqRel swap),
-        // any subsequent Acquire load of the flag will see `true` and return 0.
+        // The previous guard returned 0 immediately when `is_shutdown()` was true,
+        // which pre-empted the DashMap state.  This over-compensated: callers that
+        // check `get_stream_count() > 0` to verify stream registration could be
+        // misled into thinking streams were never registered during the window
+        // between `shutdown.swap(true)` and `streams.clear()`.
         //
-        // BUG-RUST-A fix (preserved): use the authoritative atomic counter rather
-        // than streams.len() (DashMap), which diverges after shutdown().
-        if self.is_shutdown() {
-            return 0;
-        }
+        // `shutdown()` already atomically stores 0 to `stream_count` after
+        // `streams.clear()`, so once `shutdown()` has completed, this method
+        // correctly returns 0 via the `stream_count` load alone.  During a
+        // concurrent `shutdown()`, the count is not guaranteed to be consistent
+        // (by design — shutdown is a tear-down path), but that window is benign.
+        //
+        // BUG-RUST-A fix (preserved): use `stream_count` rather than
+        // `streams.len()` (DashMap), which diverges during concurrent mutation.
         self.stream_count.load(Ordering::Acquire)
     }
 

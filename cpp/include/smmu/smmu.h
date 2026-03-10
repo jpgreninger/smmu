@@ -229,7 +229,11 @@ private:
     SMMUConfiguration configuration;
     
     // Global configuration
-    FaultMode globalFaultMode;
+    // BUG-R2-CPP-3 fix: std::atomic<FaultMode> eliminates the data race between
+    // reset() (writer, after releasing stripe locks) and concurrent calls to
+    // setGlobalFaultMode() (writer, under all stripe locks).  Both paths write
+    // globalFaultMode; without atomics the concurrent writes are C++11 UB.
+    std::atomic<FaultMode> globalFaultMode;
     // BUG-NEW-CPP-2 fix: std::atomic<bool> eliminates the data race between
     // translate() (reader, no lock) and enableCaching()/reset()/applyConfiguration()
     // (writers).  Acquire/release ordering ensures visibility across threads.

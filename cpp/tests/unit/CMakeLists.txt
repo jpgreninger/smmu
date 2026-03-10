@@ -89,6 +89,7 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp_f1_f2.cpp
     test_new_gaps_cpp.cpp
     test_new_bugs_mar2026.cpp
+    test_bug_r2_bugs_cpp.cpp
     ../test_thread_safety.cpp
 )
 

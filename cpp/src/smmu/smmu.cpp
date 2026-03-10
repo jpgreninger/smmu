@@ -268,10 +268,17 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // STRW==EL2 (non-VHE) and STRW==EL3 suppress privilege checks by treating
     // AP[1] as 1.  EL2_E2H (VHE) maintains privileged/non-privileged checks
     // like EL1 and therefore must NOT be included here.
+    // BUG-R2-CPP-4 fix: snapshot StreamConfig under the stripe lock so the same
+    // consistent value is used for both the TLB fast path (below) and the
+    // post-translation TLB insert guard (after lock.unlock()).  The previous
+    // code called getStreamConfiguration() a second time after lock.unlock(),
+    // racing with concurrent configureStream()/removeStream()+configureStream().
+    StreamConfig streamCfgSnapshot = streamContext->getStreamConfiguration();
+
     // BUG-NEW-CPP-2 fix: acquire load pairs with the release stores in enableCaching(),
     // reset(), and applyConfiguration() so concurrent writes are safely observed.
     if (cachingEnabled.load(std::memory_order_acquire) && tlbCache) {
-        StreamConfig streamCfgForTlb = streamContext->getStreamConfiguration();
+        const StreamConfig& streamCfgForTlb = streamCfgSnapshot;
         // Derive effective access type for the privilege-aware permission check.
         // BUG-CPP-DBGR-5 fix: §5.2 says STRW is IGNORED when stage-2 is enabled for
         // Non-secure streams.  Only apply STRW promotion for single-stage (stage-1-only) streams.
@@ -343,7 +350,10 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // s1dss == 0x02 ("use CD[0]") is NOT a bypass and MUST still be cached normally.
     // Only applies when the stream is substream-capable (s1cdMax > 0).
     if (result.isOk() && isTranslationCacheable(result) && cachingEnabled.load(std::memory_order_acquire) && tlbCache) {
-        StreamConfig streamCfg = streamContext->getStreamConfiguration();
+        // BUG-R2-CPP-4 fix: use the pre-lock-release snapshot instead of a
+        // post-lock getStreamConfiguration() call (which would race with
+        // concurrent reconfigureStream()).
+        const StreamConfig& streamCfg = streamCfgSnapshot;
         bool s1dssIsBypass = (streamCfg.s1cdMax > 0 && pasid == 0 && streamCfg.s1dss == 0x01u);
         if (!s1dssIsBypass) {
             cacheTranslationResult(streamID, pasid, iova, result, currentTime, streamCfg.asid, streamCfg.vmid);
@@ -712,7 +722,9 @@ VoidResult SMMU::setGlobalFaultMode(FaultMode mode) {
         locks.emplace_back(streamLockStripes[i]);
     }
 
-    globalFaultMode = mode;
+    // BUG-R2-CPP-3 fix: use release store to pair with acquire loads and
+    // eliminate the C++11 data race with concurrent reset() writes.
+    globalFaultMode.store(mode, std::memory_order_release);
 
     // Apply to all configured streams
     VoidResult firstError = makeVoidSuccess();
@@ -815,7 +827,8 @@ void SMMU::reset() {
     }
     resetStatistics();
     faultHandler->reset();
-    globalFaultMode = FaultMode::Terminate;
+    // BUG-R2-CPP-3 fix: release store for atomic<FaultMode> globalFaultMode.
+    globalFaultMode.store(FaultMode::Terminate, std::memory_order_release);
     // BUG-NEW-CPP-2 fix: release store for atomic<bool> cachingEnabled.
     cachingEnabled.store(true, std::memory_order_release);
     
@@ -843,6 +856,12 @@ void SMMU::reset() {
     smmuen_.store(false, std::memory_order_release);
     gbpaAbort_.store(false, std::memory_order_release);
     cr0_.store(0, std::memory_order_release);
+
+    // BUG-R2-CPP-1 fix: restore strtabLog2Size_ to 32 (accept all 32-bit
+    // StreamIDs) and cr2_ to 0 (RECINVSID=0 — events suppressed) per ARM
+    // IHI0070G.b §6.3.4 and §6.3.12 reset-value requirements.
+    strtabLog2Size_.store(32u, std::memory_order_release);
+    cr2_.store(0u, std::memory_order_release);
 
     // ARM §3.12.2: Clear stall queue on reset.
     {
@@ -2736,7 +2755,11 @@ void SMMU::setCR0(uint32_t value) {
 }
 
 uint32_t SMMU::getCR0() const {
-    return cr0_;
+    // BUG-R2-CPP-2 fix: use explicit acquire load to match the release stores
+    // in setCR0()/enable()/disable()/reset() and to be consistent with all
+    // other atomic reads in this class.  The previous implicit conversion used
+    // seq_cst, which is semantically correct but unnecessarily expensive.
+    return cr0_.load(std::memory_order_acquire);
 }
 
 // §6.3.12 SMMU_CR2 register (RECINVSID).
