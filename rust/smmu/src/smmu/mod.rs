@@ -64,7 +64,7 @@ use crate::types::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use std::collections::VecDeque;
-use std::sync::atomic::{fence, AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Cache-aligned atomic counter to prevent false sharing
@@ -661,10 +661,16 @@ impl SMMU {
             return Err(SMMUError::ShutdownInProgress);
         }
 
+        // BUG-NEW-RUST-5 fix: zero stream_count BEFORE clearing streams.
+        // The previous order (streams.clear() then stream_count.store(0)) created a
+        // window where a concurrent get_stream_count() could observe count > 0 while
+        // streams is already empty.  Zeroing the count first closes that window:
+        // any observer after this store sees count == 0 regardless of whether
+        // streams.clear() has completed yet.  The Release ordering pairs with the
+        // Acquire load in get_stream_count(), establishing happens-before.
+        self.stream_count.store(0, Ordering::Release);
         // Clear all streams (automatic cleanup via Arc/Drop)
         self.streams.clear();
-        // BUG-RUST-B fix: reset stream_count to match cleared streams map.
-        self.stream_count.store(0, Ordering::Release);
 
         // Flush fault queue
         if let Ok(mut queue) = self.fault_queue.lock() {
@@ -2107,24 +2113,42 @@ impl SMMU {
                     cached.permissions,
                     cached.security_state,
                 );
-                if let Some(stream_ref) = self.streams.get(&stream_value) {
-                    // Privilege check (BUG-3 fix) and output-attr application (BUG-RUST-DBGR-1
-                    // fix) use the SAME guard — no race window between the two operations.
-                    if cached.permissions.privileged_only() && !stream_ref.value().strw_suppresses_priv() {
-                        // privileged_only page and STRW enforces the check: deny access.
+                // BUG-NEW-RUST-1 fix (TLB fast path): skip the TLB entry when
+                // S1DSS routing will override it.  A cached CD[0] result for
+                // PASID==0 on a substream-capable stream (s1cd_max > 0) is only
+                // valid when s1dss == 0x02 (use CD[0]).  If s1dss was changed to
+                // 0x00 or 0x01 after the entry was cached, using it would return
+                // a stale result instead of applying the new S1DSS routing rule.
+                // Fall through to the slow path so the S1DSS block can apply the
+                // correct behaviour.
+                let s1dss_overrides_tlb = if pasid.as_u32() == 0 {
+                    self.streams.get(&stream_value).map_or(false, |r| {
+                        r.value().get_s1cd_max() > 0 && r.value().get_s1dss() != 2
+                    })
+                } else {
+                    false
+                };
+                if !s1dss_overrides_tlb {
+                    if let Some(stream_ref) = self.streams.get(&stream_value) {
+                        // Privilege check (BUG-3 fix) and output-attr application (BUG-RUST-DBGR-1
+                        // fix) use the SAME guard — no race window between the two operations.
+                        if cached.permissions.privileged_only() && !stream_ref.value().strw_suppresses_priv() {
+                            // privileged_only page and STRW enforces the check: deny access.
+                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                            return Err(TranslationError::PermissionViolation { access });
+                        }
+                        data = stream_ref.value().apply_output_attrs(data);
+                    } else if cached.permissions.privileged_only() {
+                        // Stream was removed while the TLB entry was still live.  The privilege
+                        // check cannot be evaluated without the stream's STRW — deny access
+                        // conservatively rather than silently bypassing the check.
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                         return Err(TranslationError::PermissionViolation { access });
                     }
-                    data = stream_ref.value().apply_output_attrs(data);
-                } else if cached.permissions.privileged_only() {
-                    // Stream was removed while the TLB entry was still live.  The privilege
-                    // check cannot be evaluated without the stream's STRW — deny access
-                    // conservatively rather than silently bypassing the check.
-                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                    return Err(TranslationError::PermissionViolation { access });
+                    self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Ok(data);
                 }
-                self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
-                return Ok(data);
+                // s1dss_overrides_tlb == true: fall through to slow path below
             }
             // Cache hit but insufficient permissions - fall through to full translation
         }
@@ -2260,8 +2284,24 @@ impl SMMU {
         // and STE.S2VMID so that ASID-targeted and VMID-targeted invalidation work.
         // Skip caching when S1DSS routing will override the result (s1cd_max > 0,
         // pasid == 0, and s1dss != 0b10) to avoid stale entries bypassing S1DSS.
+        //
+        // BUG-NEW-RUST-1 fix: re-read s1dss from the stream's atomic field
+        // immediately before the TLB insert decision.  The `stream_s1dss` captured
+        // earlier (while the stream guard was held) may be stale if a concurrent
+        // reconfigure_stream() changed s1dss between the guard release and here.
+        // A fresh Acquire load is sufficient because StreamContext.update_configuration()
+        // stores s1dss with Release ordering, so this Acquire load observes the most
+        // recent value.  If the stream was removed concurrently, fall back to the
+        // original snapshot (safe: the stream no longer routing traffic).
+        let current_s1dss = if stream_s1cd_max > 0 && pasid.as_u32() == 0 && !is_bypass {
+            self.streams
+                .get(&stream_id.as_u32())
+                .map_or(stream_s1dss, |r| r.value().get_s1dss())
+        } else {
+            stream_s1dss
+        };
         let s1dss_will_override =
-            !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 && stream_s1dss != 2;
+            !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 && current_s1dss != 2;
         if let Ok(ref data) = result {
             if !s1dss_will_override {
                 let entry = CacheEntry::new_with_tags(
@@ -2288,8 +2328,11 @@ impl SMMU {
         // For s1dss == 0b00: always abort (override any Ok result).
         // For s1dss == 0b01: always return identity mapping (override any result).
         // For s1dss == 0b10: use CD[0] — the result already computed is correct.
+        //
+        // BUG-NEW-RUST-1 fix: use `current_s1dss` (the fresh re-read value) for the
+        // routing decision so that a concurrent reconfigure_stream() is observed here.
         if !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 {
-            match stream_s1dss {
+            match current_s1dss {
                 0x00 => {
                     // §7.3.7: S1DSS==0b00 — non-substream transaction on a substream-capable
                     // stream aborts with F_STREAM_DISABLED (event 0x06).
@@ -2855,12 +2898,33 @@ impl SMMU {
     pub fn submit_event(&self, event: EventEntry) -> Result<(), SMMUError> {
         let mut queue = self.event_queue.write().unwrap();
         if queue.len() >= self.event_queue_capacity {
+            // BUG-NEW-RUST-4 fix: ARM §7.4 — when the event queue is full and a
+            // non-stall event is dropped, OVFLG must be toggled (provided no overflow
+            // condition is already active).  Stall events must be redirected to
+            // stall_pending rather than dropped, and must NOT trigger OVFLG.
+            // The public submit_event() previously returned EventQueueFull without
+            // implementing these §7.4 semantics; the internal record_translation_fault()
+            // path already implements them correctly via the same helpers.
+            if event.stall {
+                // Stall events: redirect to stall_pending (ARM §7.4: not discarded).
+                // Must NOT trigger OVFLG.
+                drop(queue); // release write lock before acquiring stall_pending
+                if let Ok(mut pending) = self.stall_pending.lock() {
+                    pending.push_back(event);
+                }
+            } else {
+                // Non-stall event dropped due to full queue: toggle OVFLG once.
+                // Release write lock first so toggle_ovflg_once() can acquire it
+                // independently if needed (it only touches atomics, so this is safe).
+                drop(queue);
+                self.toggle_ovflg_once();
+            }
             return Err(SMMUError::EventQueueFull);
         }
         queue.push_back(event);
         self.event_count.fetch_add(1, Ordering::Relaxed);
         // Safety (BUG-RUST-08): the write lock on `event_queue` is held for the entire
-        // method body, so no two callers can execute this load+store concurrently.
+        // push_back path, so no two callers can execute this load+store concurrently.
         // A plain read-modify-write is therefore race-free and correct here.
         let prod = self.eventq_prod.load(Ordering::Relaxed);
         self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
@@ -3011,17 +3075,23 @@ impl SMMU {
         // GERRORN to match GERROR (via clear_gerror) before restarting queue processing.
         // BUG-03 fix: use XOR-active test instead of raw GERROR bit test.
         //
-        // BUG-RUST-F3 fix: §6.3.19 / §7.5 — The two separate Acquire loads of gerror
-        // and gerrorn form a TOCTOU window: a concurrent clear_gerror() that fires
-        // between the two loads can cause gerror_active to compute as 0 even though
-        // CMDQ_ERR was logically active when the first load was taken.  A SeqCst fence
-        // between the two loads prevents this reordering — any store that completed
-        // before the fence is visible after it, ensuring both loads observe a coherent
-        // snapshot of the gerror/gerrorn pair.
-        let err_reg = self.gerror.load(Ordering::Acquire);
-        fence(Ordering::SeqCst);
-        let err_ack = self.gerrorn.load(Ordering::Acquire);
-        let gerror_active = err_reg ^ err_ack;
+        // BUG-NEW-RUST-2 fix: replace the SeqCst fence with a double-load seqlock.
+        // A SeqCst fence between the two loads PREVENTS REORDERING but does NOT
+        // prevent a concurrent signal_gerror() write from landing between the two
+        // loads — the fence is an ordering guarantee, not a mutual-exclusion barrier.
+        // The correct fix mirrors the seqlock pattern used in signal_gerror(): re-read
+        // gerror after gerrorn and retry if it changed.  This ensures both loads
+        // see a coherent snapshot of the gerror/gerrorn pair.
+        let gerror_active = loop {
+            let err_reg  = self.gerror.load(Ordering::Acquire);
+            let err_ack  = self.gerrorn.load(Ordering::Acquire);
+            let reread   = self.gerror.load(Ordering::Acquire);
+            if reread != err_reg {
+                std::hint::spin_loop();
+                continue; // gerror changed between the two reads — retry
+            }
+            break err_reg ^ err_ack;
+        };
         if gerror_active & Self::GERROR_CMDQ_ERR != 0 {
             return Ok(0);
         }
@@ -3376,16 +3446,25 @@ impl SMMU {
                 // (stream_id, prg_index) matches this response command.
                 // If no match is found the command is a software usage error;
                 // the SMMU generates no fault for this condition (ARM §8.3).
+                //
+                // BUG-NEW-RUST-3 fix: ARM §3.5.1 defines CONS as the index of the
+                // NEXT entry to be consumed from the HEAD of the queue.  CONS must
+                // only advance when the HEAD entry (pos == 0) is retired; removing
+                // an interior entry leaves the head unchanged, so CONS must not move.
                 let mut queue = self.pri_queue.write().unwrap();
                 if let Some(pos) = queue.iter().position(|entry| {
                     entry.stream_id == command.stream_id
                         && entry.prg_index == command.prg_index
                 }) {
                     queue.remove(pos);
-                    // ARM §3.5.1: advance PRIQ_CONS to reflect the removal.
-                    let cons = self.priq_cons.load(Ordering::Relaxed);
-                    self.priq_cons
-                        .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                    // Only advance PRIQ_CONS when the entry at the front (pos==0)
+                    // was the one removed — that is the only case where the circular
+                    // consumer index has logically moved forward.
+                    if pos == 0 {
+                        let cons = self.priq_cons.load(Ordering::Relaxed);
+                        self.priq_cons
+                            .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                    }
                 }
             },
             // CMD_CFGI_STE (§4.3.1): invalidate STE for a specific stream.
