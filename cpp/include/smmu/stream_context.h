@@ -57,7 +57,10 @@ public:
     bool isStage1Enabled() const;
     bool isStage2Enabled() const;
     size_t getPASIDCount() const;
-    AddressSpace* getPASIDAddressSpace(PASID pasid);
+    // BUG-NEW-CPP-5 fix: return shared_ptr instead of raw pointer so that the
+    // AddressSpace object remains alive even if a concurrent removeStreamPASID()
+    // erases the PASID from the map while the caller still holds the pointer.
+    std::shared_ptr<AddressSpace> getPASIDAddressSpace(PASID pasid);
     AddressSpace* getStage2AddressSpace();
     
     // Management operations

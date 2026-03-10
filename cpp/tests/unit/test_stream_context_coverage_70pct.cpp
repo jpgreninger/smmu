@@ -567,7 +567,7 @@ TEST_F(StreamContextCoverage70Test, GetPASIDCount) {
 TEST_F(StreamContextCoverage70Test, GetPASIDAddressSpaceInvalid) {
     PASID invalidPASID = MAX_PASID + 1;
 
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(invalidPASID);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(invalidPASID);
     EXPECT_EQ(addressSpace, nullptr);
 }
 
@@ -576,7 +576,7 @@ TEST_F(StreamContextCoverage70Test, GetPASIDAddressSpaceNotFound) {
     PASID pasid = TEST_PASID;
 
     // Don't create the PASID
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(pasid);
     EXPECT_EQ(addressSpace, nullptr);
 }
 
@@ -588,7 +588,7 @@ TEST_F(StreamContextCoverage70Test, GetPASIDAddressSpaceValid) {
     EXPECT_TRUE(streamContext->createPASID(pasid));
 
     // Get AddressSpace
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(pasid);
     EXPECT_NE(addressSpace, nullptr);
 }
 

@@ -191,7 +191,7 @@ TEST_F(StreamContextPhase5ErrorTest, Translate_UnmappedAddress_ReturnsError) {
 
 TEST_F(StreamContextPhase5ErrorTest, GetPASIDAddressSpace_InvalidPASID_ReturnsNull) {
     // Target: Get address space for non-existent PASID
-    AddressSpace* as = streamContext->getPASIDAddressSpace(VALID_PASID);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(VALID_PASID);
 
     EXPECT_EQ(as, nullptr);
 }

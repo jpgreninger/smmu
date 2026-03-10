@@ -1042,7 +1042,7 @@ TEST_F(StreamContextCoverageTest, ApplyConfigChangesInvalidMerged) {
 
 // Test getPASIDAddressSpace with invalid PASID (line 396)
 TEST_F(StreamContextCoverageTest, GetPASIDAddressSpaceInvalidPASID) {
-    AddressSpace* as = streamContext->getPASIDAddressSpace(INVALID_PASID);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(INVALID_PASID);
     EXPECT_EQ(as, nullptr);
 }
 

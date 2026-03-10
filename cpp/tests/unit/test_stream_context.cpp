@@ -268,20 +268,20 @@ TEST_F(StreamContextTest, GetPASIDAddressSpace) {
     EXPECT_TRUE(streamContext->createPASID(TEST_PASID_1));
     
     // Get address space for the PASID
-    AddressSpace* addrSpace = streamContext->getPASIDAddressSpace(TEST_PASID_1);
+    std::shared_ptr<AddressSpace> addrSpace = streamContext->getPASIDAddressSpace(TEST_PASID_1);
     EXPECT_NE(addrSpace, nullptr);
-    
+
     // Verify we can use the address space directly
     PagePermissions perms(true, false, false);
     addrSpace->mapPage(TEST_IOVA, TEST_PA, perms);
-    
+
     // Verify mapping works through StreamContext
     TranslationResult result = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isOk());
     EXPECT_EQ(result.getValue().physicalAddress, TEST_PA);
-    
+
     // Test non-existent PASID returns nullptr
-    AddressSpace* nullSpace = streamContext->getPASIDAddressSpace(TEST_PASID_2);
+    std::shared_ptr<AddressSpace> nullSpace = streamContext->getPASIDAddressSpace(TEST_PASID_2);
     EXPECT_EQ(nullSpace, nullptr);
 }
 
@@ -2268,7 +2268,7 @@ TEST_F(StreamContextTest, HardwareAccessFlagSetAfterTranslate) {
     streamContext->mapPage(pasid, iova, pa, perms);
 
     // Before translate: AF should be false
-    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_FALSE(as->getPageAccessFlag(iova));
 
@@ -2301,7 +2301,7 @@ TEST_F(StreamContextTest, HardwareDirtyStateSetAfterWriteTranslate) {
     TranslationResult result = streamContext->translate(pasid, iova, AccessType::Write);
     EXPECT_TRUE(result.isOk());
 
-    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_TRUE(as->getPageDirty(iova));
     // AF was NOT enabled, so should remain false
@@ -2326,7 +2326,7 @@ TEST_F(StreamContextTest, NoFlagUpdateWhenHaHdDisabled) {
     streamContext->mapPage(pasid, iova, pa, perms);
     streamContext->translate(pasid, iova, AccessType::Write);
 
-    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_FALSE(as->getPageAccessFlag(iova));
     EXPECT_FALSE(as->getPageDirty(iova));
@@ -2349,7 +2349,7 @@ TEST_F(StreamContextTest, ReadTranslateDoesNotSetDirtyWithHdEnabled) {
     streamContext->mapPage(pasid, iova, pa, perms);
     streamContext->translate(pasid, iova, AccessType::Read);
 
-    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_FALSE(as->getPageDirty(iova));
 }
@@ -2373,7 +2373,7 @@ TEST_F(StreamContextTest, BothHaHdEnabledWriteSetsAfAndDirty) {
     TranslationResult result = streamContext->translate(pasid, iova, AccessType::Write);
     EXPECT_TRUE(result.isOk());
 
-    AddressSpace* as = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_TRUE(as->getPageAccessFlag(iova));
     EXPECT_TRUE(as->getPageDirty(iova));

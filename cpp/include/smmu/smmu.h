@@ -260,12 +260,18 @@ private:
     uint32_t priqLog2Size;     // log2(priQueue capacity)
 
     // PROD/CONS index pairs per queue (declaration order must match constructor init list)
-    uint32_t cmdqProd;         // CMDQ_PROD register equivalent
-    uint32_t cmdqCons;         // CMDQ_CONS register equivalent
-    uint32_t eventqProd;       // EVENTQ_PROD register equivalent
-    uint32_t eventqCons;       // EVENTQ_CONS register equivalent
-    uint32_t priqProd;         // PRIQ_PROD register equivalent
-    uint32_t priqCons;         // PRIQ_CONS register equivalent
+    // BUG-NEW-CPP-2 fix: converted from plain uint32_t to std::atomic<uint32_t>.
+    // const accessor methods (getCmdqProdIndex, getEventqProdIndex, etc.) read these
+    // without holding queueMutex; concurrent writes (generateEvent, processCommandQueue)
+    // write them under queueMutex.  The plain uint32_t creates C++11 undefined behavior
+    // on the read side.  std::atomic<uint32_t> eliminates the UB and makes every read
+    // well-defined.  Acquire/release ordering ensures visibility across threads.
+    std::atomic<uint32_t> cmdqProd;    // CMDQ_PROD register equivalent
+    std::atomic<uint32_t> cmdqCons;    // CMDQ_CONS register equivalent
+    std::atomic<uint32_t> eventqProd;  // EVENTQ_PROD register equivalent
+    std::atomic<uint32_t> eventqCons;  // EVENTQ_CONS register equivalent
+    std::atomic<uint32_t> priqProd;    // PRIQ_PROD register equivalent
+    std::atomic<uint32_t> priqCons;    // PRIQ_CONS register equivalent
 
     // ARM §6.3.17: SMMU_GERROR / §6.3.18: SMMU_GERRORN register pair (BUG-03/SPEC-09)
     // GERROR is the hardware register toggled by the SMMU to signal errors.
@@ -317,6 +323,13 @@ private:
     // streamLockStripe is held.
     mutable std::recursive_mutex queueMutex;
     
+    // BUG-NEW-CPP-1 fix: CAS-loop GERROR toggle helper.
+    // Atomically signals the given error bits in SMMU_GERROR, toggling only bits
+    // that are currently inactive (GERROR[x] == GERRORN[x]).  Eliminates the
+    // TOCTOU race in the previous load-compare-fetch_xor pattern.
+    // ARM IHI0070G.b §6.3.19: "SMMU does not toggle bit[x] if already active."
+    void signalGerror(uint32_t bits);
+
     // Helper methods
     void recordFault(const FaultRecord& fault);
     void recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState expectedState, SecurityState actualState);

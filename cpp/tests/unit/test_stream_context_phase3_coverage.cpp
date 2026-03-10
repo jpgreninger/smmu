@@ -588,20 +588,20 @@ TEST_F(StreamContextPhase3Test, HasPASID_PASID0) {
 
 TEST_F(StreamContextPhase3Test, GetPASIDAddressSpace_InvalidPASID) {
     // Line 408: Test getPASIDAddressSpace with invalid PASID
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(INVALID_PASID);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(INVALID_PASID);
     EXPECT_EQ(addressSpace, nullptr);
 }
 
 TEST_F(StreamContextPhase3Test, GetPASIDAddressSpace_PASIDNotFound) {
     // Line 414: Test getPASIDAddressSpace with non-existent PASID
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(TEST_PASID);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(TEST_PASID);
     EXPECT_EQ(addressSpace, nullptr);
 }
 
 TEST_F(StreamContextPhase3Test, GetPASIDAddressSpace_ValidPASID) {
     // Line 419: Test getPASIDAddressSpace returning raw pointer
     ASSERT_TRUE(streamContext->createPASID(TEST_PASID));
-    AddressSpace* addressSpace = streamContext->getPASIDAddressSpace(TEST_PASID);
+    std::shared_ptr<AddressSpace> addressSpace = streamContext->getPASIDAddressSpace(TEST_PASID);
     EXPECT_NE(addressSpace, nullptr);
 }
 

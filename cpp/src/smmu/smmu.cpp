@@ -1340,8 +1340,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // Issue 2 fix: Use getPASIDAddressSpaceUnlocked via the public getPASIDAddressSpace
     // since we don't hold contextMutex here. The stage methods use translate() which
     // acquires contextMutex internally, so we use the locked variant for safety.
+    // BUG-NEW-CPP-5 fix: getPASIDAddressSpace() now returns shared_ptr so the
+    // AddressSpace stays alive even if a concurrent removeStreamPASID() destroys
+    // the pasidMap entry between this call and the translatePage() call below.
     // Stage 1: IOVA -> IPA translation (using per-PASID address space)
-    AddressSpace* stage1AddressSpace = streamContext->getPASIDAddressSpace(pasid);
+    std::shared_ptr<AddressSpace> stage1AddressSpace = streamContext->getPASIDAddressSpace(pasid);
     if (!stage1AddressSpace) {
         // PASID not configured - Stage-1 translation fault
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
@@ -1402,7 +1405,7 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
     // PASID-0 auto-link), the IPA from stage-1 cannot be looked up in stage-2 (IOVA→IPA mapping,
     // not IPA→PA).  Treat stage-1 result as the final translation (identity stage-2 semantics).
-    if (stage2AddressSpace == stage1AddressSpace) {
+    if (stage2AddressSpace == stage1AddressSpace.get()) {
         return stage1Result;
     }
     
@@ -1875,7 +1878,7 @@ void SMMU::processEventQueue() {
         // Remove processed event
         eventQueue.pop_front();
         // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
-        eventqCons = advanceQueueIndex(eventqCons, eventqLog2Size);
+        eventqCons.store(advanceQueueIndex(eventqCons.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
     }
 }
 
@@ -1904,8 +1907,8 @@ void SMMU::clearEventQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     eventQueue.clear();
     // ARM §3.5.1: Reset PROD/CONS indices on clear (FINDING-M-01)
-    eventqProd = 0;
-    eventqCons = 0;
+    eventqProd.store(0, std::memory_order_release);
+    eventqCons.store(0, std::memory_order_release);
 }
 
 size_t SMMU::getEventQueueSize() const {
@@ -1930,7 +1933,7 @@ VoidResult SMMU::submitCommand(const CommandEntry& command) {
     timestampedCommand.timestamp = getCurrentTimestamp();
     commandQueue.push_back(timestampedCommand);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)
-    cmdqProd = advanceQueueIndex(cmdqProd, cmdqLog2Size);
+    cmdqProd.store(advanceQueueIndex(cmdqProd.load(std::memory_order_relaxed), cmdqLog2Size), std::memory_order_release);
     return makeVoidSuccess();
 }
 
@@ -1967,7 +1970,7 @@ void SMMU::processCommandQueue() {
         CommandEntry command = commandQueue.front();
         commandQueue.pop_front();
         // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
-        cmdqCons = advanceQueueIndex(cmdqCons, cmdqLog2Size);
+        cmdqCons.store(advanceQueueIndex(cmdqCons.load(std::memory_order_relaxed), cmdqLog2Size), std::memory_order_release);
 
         // Process the command based on type
         processCommand(command, lock);
@@ -1991,12 +1994,9 @@ void SMMU::processCommandQueue() {
                 recordFault(illFault);
                 // BUG-NEW-04 fix: set GERROR.CMDQ_ERR so software can detect
                 // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
-                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive
-                // (gerrorStatus[x] == gerrorNStatus[x]).  ARM IHI0070G.b §6.3.19.
-                if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
-                    (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
-                    gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
-                }
+                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
+                // the TOCTOU load-compare-fetch_xor pattern.
+                signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
@@ -2059,8 +2059,8 @@ void SMMU::clearCommandQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     commandQueue.clear();
     // ARM §3.5.1: Reset PROD/CONS indices on clear (FINDING-M-01)
-    cmdqProd = 0;
-    cmdqCons = 0;
+    cmdqProd.store(0, std::memory_order_release);
+    cmdqCons.store(0, std::memory_order_release);
 }
 
 // Task 5.3: PRI Queue for Page Requests (Task 5.3.3)
@@ -2075,9 +2075,11 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         // priqCons (analogous to the EVENTQ OVFLG / OVACKFLG mechanism).
         // While overflow is active, new entries are inhibited — the oldest entries
         // must NOT be evicted.  The old pop_front() eviction was incorrect.
-        if (((priqProd >> 31) & 1u) == ((priqCons >> 31) & 1u)) {
+        uint32_t priqProdVal = priqProd.load(std::memory_order_relaxed);
+        uint32_t priqConsVal = priqCons.load(std::memory_order_relaxed);
+        if (((priqProdVal >> 31) & 1u) == ((priqConsVal >> 31) & 1u)) {
             // Not yet overflowed: transition to overflow state by toggling OVFLG.
-            priqProd ^= (1u << 31);
+            priqProd.store(priqProdVal ^ (1u << 31), std::memory_order_release);
         }
         // If already overflowed (OVFLG != OVACKFLG bit in priqCons), leave
         // OVFLG unchanged and inhibit the new entry (do not push_back).
@@ -2088,7 +2090,7 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     timestampedRequest.timestamp = getCurrentTimestamp();
     priQueue.push_back(timestampedRequest);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08)
-    priqProd = advanceQueueIndex(priqProd, priqLog2Size);
+    priqProd.store(advanceQueueIndex(priqProd.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
     // §7.3.19 / FINDING-NEW-32: carry the request's security state, not a hardcoded NonSecure.
     // Only generate the E_PAGE_REQUEST event when the entry was actually enqueued.
     generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, request.securityState);
@@ -2130,7 +2132,7 @@ void SMMU::processPRIQueue() {
             // Successfully submitted response
             priQueue.pop_front();
             // BUG-NEW-03 fix: advance consumer index to match the dequeue.
-            priqCons = advanceQueueIndex(priqCons, priqLog2Size);
+            priqCons.store(advanceQueueIndex(priqCons.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
         } else {
             // Command queue full - retry later
             break;
@@ -2154,8 +2156,8 @@ void SMMU::clearPRIQueue() {
     priQueue.clear();
     // BUG-NEW2-02 fix: reset PROD/CONS indices to match the empty queue,
     // mirroring clearCommandQueue() and clearEventQueue() per ARM §3.5.1.
-    priqProd = 0;
-    priqCons = 0;
+    priqProd.store(0, std::memory_order_release);
+    priqCons.store(0, std::memory_order_release);
 }
 
 size_t SMMU::getPRIQueueSize() const {
@@ -2188,20 +2190,13 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
                                   command.startAddress, command.securityState);
                 }
                 // BUG-CPP-DBGR-2 fix: wrap the GERROR XOR-toggle in queueMutex.
-                // The toggle reads and writes gerrorStatus/gerrorNStatus, which are
-                // also written by other paths (processCommandQueue, clearGerror) while
-                // holding queueMutex.  Not holding the lock here is a data race.
-                // queueMutex is a std::recursive_mutex, so this is safe even if called
-                // from a context that already holds it.
-                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
-                // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
-                // error is already active."
+                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
+                // the TOCTOU load-compare-fetch_xor pattern.  signalGerror() is
+                // safe to call with or without queueMutex held; the CAS loop
+                // handles concurrent modifications from clearGerror().
                 {
                     std::lock_guard<std::recursive_mutex> qLock(queueMutex);
-                    if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
-                        (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
-                        gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
-                    }
+                    signalGerror(GERROR_CMDQ_ERR);
                 }
                 break;
             }
@@ -2586,13 +2581,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                     generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
                                   command.startAddress, command.securityState);
                 }
-                // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
-                // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
-                // error is already active."
-                if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
-                    (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
-                    gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
-                }
+                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
+                // the TOCTOU load-compare-fetch_xor pattern.
+                signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
             // Known StreamID — proceed with normal STE cache invalidation.
@@ -2628,7 +2619,7 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             for (auto it = priQueue.begin(); it != priQueue.end(); ++it) {
                 if (it->streamID == command.streamID && it->prgIndex == command.prgIndex) {
                     priQueue.erase(it);
-                    priqCons = advanceQueueIndex(priqCons, priqLog2Size);
+                    priqCons.store(advanceQueueIndex(priqCons.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
                     break;
                 }
             }
@@ -2705,13 +2696,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-NEW-05 fix: do not generate C_BAD_STE — the spec defines no
             // event type for "unknown command opcode".  GERROR.CMDQ_ERR is the
             // correct signal to software.
-            // BUG-03/SPEC-09: XOR-toggle only when error is currently inactive.
-            // ARM IHI0070G.b §6.3.19: "The SMMU does not toggle a bit when an
-            // error is already active."
-            if ((gerrorStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR) ==
-                (gerrorNStatus.load(std::memory_order_relaxed) & GERROR_CMDQ_ERR)) {
-                gerrorStatus.fetch_xor(GERROR_CMDQ_ERR, std::memory_order_relaxed);
-            }
+            // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
+            // the TOCTOU load-compare-fetch_xor pattern.
+            signalGerror(GERROR_CMDQ_ERR);
             break;
     }
 }
@@ -2742,6 +2729,43 @@ void SMMU::clearGerror(uint32_t bits) {
     // Restrict the toggle to bits that are currently active.
     uint32_t activeBits = gerrorStatus ^ gerrorNStatus;
     gerrorNStatus ^= (bits & activeBits);
+}
+
+// BUG-NEW-CPP-1 fix: CAS-loop GERROR toggle.
+// Atomically toggles the GERROR bits specified by `bits` only when they are
+// currently inactive (GERROR[x] == GERRORN[x]).  Uses a CAS retry loop so that
+// a concurrent clearGerror() cannot change gerrorNStatus between the comparison
+// and the fetch_xor, eliminating the TOCTOU window in the previous pattern.
+// ARM IHI0070G.b §6.3.19: "SMMU does not toggle bit[x] if already active."
+// Must be called while queueMutex is held (or not needed — the CAS loop is
+// safe with or without the external lock).
+void SMMU::signalGerror(uint32_t bits) {
+    while (true) {
+        uint32_t cur_gerror  = gerrorStatus.load(std::memory_order_acquire);
+        uint32_t cur_gerrorn = gerrorNStatus.load(std::memory_order_acquire);
+        // Re-read gerrorNStatus to detect concurrent clearGerror() modifications.
+        uint32_t reread_gerrorn = gerrorNStatus.load(std::memory_order_acquire);
+        if (reread_gerrorn != cur_gerrorn) {
+            continue;  // gerrorNStatus changed between reads — retry
+        }
+        uint32_t reread_gerror = gerrorStatus.load(std::memory_order_acquire);
+        if (reread_gerror != cur_gerror) {
+            continue;  // gerrorStatus changed between reads — retry
+        }
+        // active bits: those where GERROR[x] != GERRORN[x]
+        uint32_t active   = cur_gerror ^ cur_gerrorn;
+        // Only toggle bits that are currently inactive
+        uint32_t inactive = bits & ~active;
+        if (inactive == 0) {
+            break;  // all requested bits already active — no-op per ARM §6.3.19
+        }
+        uint32_t new_gerror = cur_gerror ^ inactive;
+        if (gerrorStatus.compare_exchange_weak(cur_gerror, new_gerror,
+                std::memory_order_acq_rel, std::memory_order_acquire)) {
+            break;
+        }
+        // CAS failed — another thread modified gerrorStatus; retry
+    }
 }
 
 // ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
@@ -2889,9 +2913,13 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             // eventqCons).  If overflow is already active, further dropped events must
             // NOT toggle OVFLG again — doing so would clear the bit and hide the
             // overflow condition from software (ARM §7.4).
-            if (((eventqProd >> 31) & 1u) == ((eventqCons >> 31) & 1u)) {
-                // Not yet overflowed: transition to overflow state by toggling OVFLG.
-                eventqProd ^= (1u << 31);
+            {
+                uint32_t eqProdVal = eventqProd.load(std::memory_order_relaxed);
+                uint32_t eqConsVal = eventqCons.load(std::memory_order_relaxed);
+                if (((eqProdVal >> 31) & 1u) == ((eqConsVal >> 31) & 1u)) {
+                    // Not yet overflowed: transition to overflow state by toggling OVFLG.
+                    eventqProd.store(eqProdVal ^ (1u << 31), std::memory_order_release);
+                }
             }
             // If already overflowed (OVFLG != OVACKFLG), leave OVFLG unchanged.
             return;
@@ -2920,7 +2948,7 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // Add to event queue
     eventQueue.push_back(event);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)
-    eventqProd = advanceQueueIndex(eventqProd, eventqLog2Size);
+    eventqProd.store(advanceQueueIndex(eventqProd.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
 }
 
 uint64_t SMMU::getCurrentTimestamp() const {
@@ -3397,53 +3425,48 @@ VoidResult SMMU::validateConfigurationUpdate(const SMMUConfiguration& config) co
 // FINDING-M-01: ARM §3.5.1 Circular Queue PROD/CONS register accessor implementations
 
 uint32_t SMMU::getCmdqProdIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return cmdqProd;
+    // BUG-NEW-CPP-2 fix: use acquire load now that cmdqProd is std::atomic<uint32_t>.
+    return cmdqProd.load(std::memory_order_acquire);
 }
 
 uint32_t SMMU::getCmdqConsIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return cmdqCons;
+    return cmdqCons.load(std::memory_order_acquire);
 }
 
 uint32_t SMMU::getEventqProdIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return eventqProd;
+    return eventqProd.load(std::memory_order_acquire);
 }
 
 uint32_t SMMU::getEventqConsIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return eventqCons;
+    return eventqCons.load(std::memory_order_acquire);
 }
 
 uint32_t SMMU::getPriqProdIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return priqProd;
+    return priqProd.load(std::memory_order_acquire);
 }
 
 uint32_t SMMU::getPriqConsIndex() const {
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return priqCons;
+    return priqCons.load(std::memory_order_acquire);
 }
 
 bool SMMU::isCmdqEmptyByIndex() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return cmdqProd == cmdqCons;
+    return cmdqProd.load(std::memory_order_relaxed) == cmdqCons.load(std::memory_order_relaxed);
 }
 
 bool SMMU::isEventqEmptyByIndex() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return eventqProd == eventqCons;
+    return eventqProd.load(std::memory_order_relaxed) == eventqCons.load(std::memory_order_relaxed);
 }
 
 uint32_t SMMU::getCmdqOccupiedEntries() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return queueOccupied(cmdqProd, cmdqCons, cmdqLog2Size);
+    return queueOccupied(cmdqProd.load(std::memory_order_relaxed), cmdqCons.load(std::memory_order_relaxed), cmdqLog2Size);
 }
 
 uint32_t SMMU::getEventqOccupiedEntries() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return queueOccupied(eventqProd, eventqCons, eventqLog2Size);
+    return queueOccupied(eventqProd.load(std::memory_order_relaxed), eventqCons.load(std::memory_order_relaxed), eventqLog2Size);
 }
 
 uint32_t SMMU::getCmdqLog2Size() const {

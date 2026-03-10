@@ -379,11 +379,22 @@ size_t StreamContext::getPASIDCount() const {
     return pasidMap.size();
 }
 
-// Get AddressSpace for specific PASID (raw pointer for performance)
-// ARM SMMU v3 spec: Direct access to PASID address space for efficiency
-AddressSpace* StreamContext::getPASIDAddressSpace(PASID pasid) {
+// Get AddressSpace for specific PASID.
+// BUG-NEW-CPP-5 fix: return shared_ptr instead of raw pointer.  The shared_ptr
+// keeps the AddressSpace alive for the duration of the caller's use even if a
+// concurrent removeStreamPASID() erases the entry from pasidMap.  Previously
+// the raw pointer could become a dangling pointer once the lock was released
+// and removePASID() destroyed the AddressSpace.
+std::shared_ptr<AddressSpace> StreamContext::getPASIDAddressSpace(PASID pasid) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    return getPASIDAddressSpaceUnlocked(pasid);
+    if (pasid > MAX_PASID) {
+        return nullptr;
+    }
+    auto it = pasidMap.find(pasid);
+    if (it == pasidMap.end()) {
+        return nullptr;
+    }
+    return it->second;
 }
 
 // Get Stage-2 AddressSpace for two-stage translation coordination
