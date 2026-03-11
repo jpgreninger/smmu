@@ -330,7 +330,8 @@ pub struct SMMU {
     ///   Bit 1: RECINVSID — Record C_BAD_STREAMID events in the event queue.
     ///
     /// When RECINVSID=0 (reset default), C_BAD_STREAMID events are NOT written
-    /// to the event queue.  GERROR.CMDQ_ERR is still signalled unconditionally.
+    /// to the event queue.  GERROR.CMDQ_ERR is only signalled for command-queue
+    /// errors (§7.1), not for transaction-path StreamID faults (§7.3.3).
     /// When RECINVSID=1, C_BAD_STREAMID events are written to the event queue
     /// as specified in §7.3.3.
     cr2: AtomicU32,
@@ -347,7 +348,7 @@ pub struct SMMU {
     ///
     /// When less than 32, the Stream Table has `2^log2size` entries and any
     /// StreamID at or above `2^log2size` is out-of-range — the SMMU must
-    /// generate C_BAD_STREAMID (§7.3.3) and signal GERROR.CMDQ_ERR.
+    /// generate C_BAD_STREAMID (§7.3.3) and abort the transaction.
     ///
     /// The value 32 is a sentinel meaning "no table-size limit" (default).
     /// ARM IHI0070G.b §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE field.
@@ -419,8 +420,9 @@ impl SMMU {
     /// CR2 bit 1: RECINVSID — Record C_BAD_STREAMID events in the event queue (§6.3.12 / §7.3.3).
     ///
     /// When 0 (reset default), C_BAD_STREAMID events triggered by CMD_CFGI_STE
-    /// for an unknown StreamID are NOT written to the event queue.  GERROR.CMDQ_ERR
-    /// is still signalled unconditionally.
+    /// for an unknown StreamID are NOT written to the event queue.  Note: GERROR.CMDQ_ERR
+    /// is only toggled for command-queue processing errors (§7.1), not for
+    /// transaction-path StreamID range faults (§7.3.3).
     /// When 1, C_BAD_STREAMID events are recorded in the event queue as per §7.3.3.
     pub const CR2_RECINVSID: u32 = 1 << 1;
 
@@ -2069,7 +2071,8 @@ impl SMMU {
         // BUG-NEW-RUST-1 fix: §6.3.4 / §7.3.3 — StreamID range check.
         // When strtab_log2size < 32 (table-size limit configured), any StreamID
         // >= 2^log2size is out-of-range.  The SMMU must return C_BAD_STREAMID and
-        // signal GERROR.CMDQ_ERR rather than falling through to the DashMap lookup.
+        // abort the transaction; GERROR.CMDQ_ERR is not toggled for transaction-path
+        // StreamID faults (only for command-queue errors per §7.1).
         {
             let log2size = self.strtab_log2size.load(Ordering::Acquire);
             if log2size < 32 {
@@ -2837,7 +2840,8 @@ impl SMMU {
         // BUG-NEW-RUST-2 fix: §6.3.12 / §7.3.3 — RECINVSID gate.
         // When CR2.RECINVSID=0 (reset default), C_BAD_STREAMID events triggered
         // by an unknown StreamID must NOT be written to the event queue.
-        // GERROR.CMDQ_ERR is still signalled unconditionally (§7.3.3).
+        // Per §7.3.3, RECINVSID only gates the event queue write; GERROR.CMDQ_ERR
+        // is NOT toggled for transaction-path StreamID faults (only command-queue errors §7.1).
         if (self.cr2.load(Ordering::Acquire) & Self::CR2_RECINVSID) == 0 {
             return;
         }

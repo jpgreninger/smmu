@@ -91,6 +91,8 @@ set(UNIT_TEST_SOURCES
     test_new_bugs_mar2026.cpp
     test_bug_r2_bugs_cpp.cpp
     test_new_cpp_bugs_mar2026b.cpp
+    test_gerror_concurrency.cpp
+    test_stall_queue.cpp
     ../test_thread_safety.cpp
 )
 

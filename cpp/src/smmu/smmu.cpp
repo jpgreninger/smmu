@@ -1906,6 +1906,9 @@ std::vector<EventEntry> SMMU::getEventQueue() const {
 void SMMU::clearEventQueue() {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     eventQueue.clear();
+    // BUG-ANALYSIS-5 fix: also clear the stall-pending buffer on explicit
+    // eventQueue clear so the two containers stay in sync.
+    stallPending_.clear();
     // ARM §3.5.1: Reset PROD/CONS indices on clear (FINDING-M-01)
     eventqProd.store(0, std::memory_order_release);
     eventqCons.store(0, std::memory_order_release);
@@ -2731,41 +2734,28 @@ void SMMU::clearGerror(uint32_t bits) {
     gerrorNStatus ^= (bits & activeBits);
 }
 
-// BUG-NEW-CPP-1 fix: CAS-loop GERROR toggle.
-// Atomically toggles the GERROR bits specified by `bits` only when they are
-// currently inactive (GERROR[x] == GERRORN[x]).  Uses a CAS retry loop so that
-// a concurrent clearGerror() cannot change gerrorNStatus between the comparison
-// and the fetch_xor, eliminating the TOCTOU window in the previous pattern.
+// BUG-ANALYSIS-1 fix: acquire queueMutex before reading/modifying the GERROR pair.
+// The previous CAS-loop implementation was lockless while clearGerror() held
+// queueMutex, creating a TOCTOU race: clearGerror() could read gerrorStatus and
+// gerrorNStatus, then signalGerror() could modify gerrorStatus between those two
+// loads, causing clearGerror() to compute activeBits from a stale snapshot and
+// subsequently toggle GERRORN for an already-inactive error — the CONSTRAINED
+// UNPREDICTABLE behavior prohibited by ARM IHI0070G.b §6.3.20.
+// Using the same mutex for both functions provides the necessary mutual exclusion
+// without requiring any CAS retry logic.
 // ARM IHI0070G.b §6.3.19: "SMMU does not toggle bit[x] if already active."
-// Must be called while queueMutex is held (or not needed — the CAS loop is
-// safe with or without the external lock).
 void SMMU::signalGerror(uint32_t bits) {
-    while (true) {
-        uint32_t cur_gerror  = gerrorStatus.load(std::memory_order_acquire);
-        uint32_t cur_gerrorn = gerrorNStatus.load(std::memory_order_acquire);
-        // Re-read gerrorNStatus to detect concurrent clearGerror() modifications.
-        uint32_t reread_gerrorn = gerrorNStatus.load(std::memory_order_acquire);
-        if (reread_gerrorn != cur_gerrorn) {
-            continue;  // gerrorNStatus changed between reads — retry
-        }
-        uint32_t reread_gerror = gerrorStatus.load(std::memory_order_acquire);
-        if (reread_gerror != cur_gerror) {
-            continue;  // gerrorStatus changed between reads — retry
-        }
-        // active bits: those where GERROR[x] != GERRORN[x]
-        uint32_t active   = cur_gerror ^ cur_gerrorn;
-        // Only toggle bits that are currently inactive
-        uint32_t inactive = bits & ~active;
-        if (inactive == 0) {
-            break;  // all requested bits already active — no-op per ARM §6.3.19
-        }
-        uint32_t new_gerror = cur_gerror ^ inactive;
-        if (gerrorStatus.compare_exchange_weak(cur_gerror, new_gerror,
-                std::memory_order_acq_rel, std::memory_order_acquire)) {
-            break;
-        }
-        // CAS failed — another thread modified gerrorStatus; retry
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    uint32_t cur_gerror  = gerrorStatus.load(std::memory_order_relaxed);
+    uint32_t cur_gerrorn = gerrorNStatus.load(std::memory_order_relaxed);
+    // active bits: those where GERROR[x] != GERRORN[x]
+    uint32_t active   = cur_gerror ^ cur_gerrorn;
+    // Only toggle bits that are currently inactive
+    uint32_t inactive = bits & ~active;
+    if (inactive == 0) {
+        return;  // all requested bits already active — no-op per ARM §6.3.19
     }
+    gerrorStatus.store(cur_gerror ^ inactive, std::memory_order_relaxed);
 }
 
 // ARM §6.3.9 SMMU_CR0.SMMUEN and §3.11 SMMU_GBPA.ABORT (FINDING-NEW-01, FINDING-NEW-09)
@@ -2899,6 +2889,17 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // that callers already holding queueMutex (e.g. processCommandQueue) can
     // safely call this without deadlocking.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
+
+    // BUG-ANALYSIS-5 fix: Drain any previously-pending stall events into the
+    // main queue first (FIFO order) before inserting the new event, provided
+    // space is available.  This ensures stall events are delivered in order once
+    // the queue drains, per ARM §7.4.
+    while (!stallPending_.empty() && eventQueue.size() < maxEventQueueSize) {
+        eventQueue.push_back(stallPending_.front());
+        stallPending_.pop_front();
+        eventqProd.store(advanceQueueIndex(eventqProd.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
+    }
+
     if (eventQueue.size() >= maxEventQueueSize) {
         if (!isStall) {
             // §3.5.3 / ARM §7.4: Non-stall events may be discarded when queue is full.
@@ -2924,8 +2925,24 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             // If already overflowed (OVFLG != OVACKFLG), leave OVFLG unchanged.
             return;
         }
-        // Stall event: must not be lost even if it exceeds soft capacity.
-        // Fall through to push_back without evicting the oldest entry.
+        // BUG-ANALYSIS-5 fix: Stall event and queue is full — redirect to
+        // stallPending_ instead of growing eventQueue beyond maxEventQueueSize.
+        // ARM §7.4: stall fault records must not be discarded; they are reported
+        // when the queue is next writable.  Stall-pending events do NOT trigger
+        // OVFLG (stall faults never cause an overflow condition per §7.4).
+        // Build the EventEntry and park it in the pending buffer.
+        EventEntry pendingEvent;
+        pendingEvent.type = type;
+        pendingEvent.streamID = streamID;
+        pendingEvent.pasid = pasid;
+        pendingEvent.address = address;
+        pendingEvent.securityState = securityState;
+        pendingEvent.timestamp = getCurrentTimestamp();
+        pendingEvent.stall = isStall;
+        pendingEvent.stag = stag;
+        pendingEvent.errorCode = 0;
+        stallPending_.push_back(pendingEvent);
+        return;
     }
 
     // Create new event
@@ -2944,7 +2961,7 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // §7.3 / FINDING-NEW-28: errorCode has no spec-defined meaning; set to 0.
     // The event type (EventEntry.type) is the authoritative fault identifier.
     event.errorCode = 0;
-    
+
     // Add to event queue
     eventQueue.push_back(event);
     // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)

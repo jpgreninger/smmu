@@ -312,6 +312,16 @@ private:
     std::atomic<uint16_t> stagCounter_;                       ///< Monotonically incrementing STAG generator
     mutable std::mutex stallQueueMutex_;                      ///< Protects stallQueue_
 
+    // BUG-ANALYSIS-5 fix: Stall-event pending buffer (ARM IHI0070G.b §7.4).
+    // When the main event queue is full and a stall event arrives, the event is
+    // placed here instead of growing eventQueue beyond maxEventQueueSize.
+    // ARM §7.4: "a fault record from a stalled transaction is not discarded — an
+    // event is reported for the stalled transaction when the queue is next
+    // writable."  Stall-pending events do NOT trigger OVFLG.  The buffer is
+    // drained into eventQueue (FIFO) whenever space becomes available.
+    // Protected by queueMutex (same lock as eventQueue).
+    std::deque<EventEntry> stallPending_;
+
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;
     mutable std::array<std::mutex, NUM_STREAM_STRIPES> streamLockStripes;
