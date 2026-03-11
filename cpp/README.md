@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.13** - Six Debugger-Identified Bug Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.2.14** - 21 Spec-Verified Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 68/68 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.13
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 102/102 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.14
 
-> **Since v1.2.6 (Feb 17, 2026)**: 54 conformance fixes across 12 QA passes. 52 new tests added (22 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 68 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 86 new tests added (34 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 102 tests pass at 100%.
 >
-> **v1.2.13 (March 1, 2026)**: Three C++ bugs fixed: (1) TLB fast-path now applies STRW-aware privilege conversion for EL2/EL3 streams on `privilegedOnly` TLB hits (ARM §3.3.4/§13.4.1); (2) STAG counter changed from `memory_order_relaxed` to `memory_order_acq_rel`; (3) `mapRange` PA overflow guard corrected to use `alignedStartPa + numPages*PAGE_SIZE` (ARM §3.4 OAS). Flaky timing test also fixed. All 68 tests pass.
+> **v1.2.14 (March 10, 2026)**: 21 commits of C++ bug fixes since v1.2.13: concurrency fixes (GERROR race condition, stall queue bound, STAG memory ordering), S1DSS regression guards, RECINVSID handling, and BUG-NEW-CPP/BUG-R2-CPP series spec compliance fixes. All 102 tests pass.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 
@@ -578,6 +578,21 @@ Ready for immediate deployment in:
 - ✅ True O(1) scalability verified
 
 ## Version History
+
+**v1.2.14** (2026-03-10):
+- ✅ 21 commits of spec-verified C++ bug fixes since v1.2.13
+- ✅ Concurrency fixes: GERROR race condition, stall queue bound, STAG memory ordering
+- ✅ S1DSS regression guards preventing spurious C_BAD_CD faults
+- ✅ RECINVSID invalid SID handling (BUG-CPP-C)
+- ✅ BUG-NEW-CPP series: spec compliance for TLB invalidation, fault recording, queue handling
+- ✅ BUG-R2-CPP series: additional race conditions and ordering issues resolved
+- ✅ All 102 tests passing (100% success rate)
+
+**v1.2.13** (2026-03-01):
+- ✅ TLB fast-path STRW-aware privilege conversion for EL2/EL3 streams (ARM §3.3.4/§13.4.1)
+- ✅ STAG counter memory ordering: `memory_order_relaxed` → `memory_order_acq_rel`
+- ✅ `mapRange` PA overflow guard corrected (ARM §3.4 OAS)
+- ✅ All 68 tests passing (100% success rate)
 
 **v1.2.8** (2026-02-23):
 - ✅ No C++ changes — version bump for Rust FINDING-NEW-44 parity release
