@@ -3446,13 +3446,15 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::PriResp => {
-                // ARM §8.3 / BUG-RUST-Q4 fix: The PRI queue is STRICT FIFO.
+                // ARM §3.5.1 / §6.3.98 / BUG-RUST-Q4 fix: The PRI queue is STRICT FIFO.
+                // §3.5.1: CONS may only advance forward; §6.3.98: CONS is updated to
+                // point at the entry after the one just consumed — i.e. the head.
                 // CMD_PRI_RESP may only retire the HEAD entry whose
                 // (stream_id, prg_index) matches the command.  If the head does
-                // not match, this is a software usage error; the SMMU generates
-                // no fault for this condition (ARM §8.3) and the command is
-                // treated as a no-op.  Searching and removing an interior entry
-                // (any pos > 0) is incorrect per ARM §3.5.1 and §6.3.98.
+                // not match, this is a software usage error per §4.5.2 (CMD_PRI_RESP
+                // command definition); the SMMU treats the command as a no-op.
+                // Searching and removing an interior entry (any pos > 0) violates
+                // the strict FIFO guarantee of §3.5.1 and §6.3.98.
                 let mut queue = self.pri_queue.write().unwrap();
                 if let Some(head) = queue.front() {
                     if head.stream_id == command.stream_id && head.prg_index == command.prg_index {
@@ -3722,15 +3724,18 @@ impl SMMU {
     ///
     /// Clears all event, command, and PRI queues.
     ///
-    /// Per ARM §3.5.1, initialization must produce a consistent empty state.
-    /// This includes the internal `stall_pending` buffer that holds stall events
-    /// which overflowed the main event queue (ARM §7.4 / BUG-RUST-Q2 fix).
+    /// Per ARM §3.12.2 (stall model) and the powerdown/reset requirement that
+    /// stalled transactions must be terminated on reset, all state — including
+    /// the internal `stall_pending` buffer that holds stall events which
+    /// overflowed the main event queue (ARM §7.4) — must be cleared so that
+    /// pre-reset events cannot leak into the post-reset session.
     pub fn reset_queues(&self) {
         self.clear_event_queue();
         self.clear_command_queue();
         self.clear_pri_queue();
         // BUG-RUST-Q2 fix: clear_event_queue() does NOT drain stall_pending.
-        // A reset must produce a fully empty state per ARM §3.5.1.
+        // ARM §3.12.2: stalled transactions must not survive a reset; clearing
+        // stall_pending prevents pre-reset stall events from leaking post-reset.
         if let Ok(mut pending) = self.stall_pending.lock() {
             pending.clear();
         }
