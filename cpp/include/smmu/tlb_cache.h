@@ -121,6 +121,10 @@ public:
     void insert(StreamID streamID, PASID pasid, const CacheEntry& entry);
     
     // Legacy interfaces for backward compatibility - deprecated
+    // Use lookupEntry() instead: the raw pointer is unsafe under concurrent insert/evict.
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((deprecated("Use lookupEntry() instead")))
+#endif
     TLBEntry* lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
     // Deprecated: prefer lookupCacheEntry(). The securityState parameter defaults to NonSecure
     // for backward compatibility; pass SecurityState::Secure for Secure transactions.
@@ -198,6 +202,7 @@ private:
 
     std::array<CacheStripe, NUM_LOCK_STRIPES> stripes;
     size_t maxSize;
+    size_t effectiveStripes;  // Number of active stripes (1..NUM_LOCK_STRIPES)
 
     // Statistics - atomic for thread safety
     mutable std::atomic<uint64_t> hitCount;

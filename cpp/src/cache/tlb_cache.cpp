@@ -11,10 +11,12 @@ namespace smmu {
 
 // Constructor
 TLBCache::TLBCache(size_t maxSize)
-    : maxSize(maxSize > 0 ? maxSize : 1024), hitCount(0), missCount(0) {
-    // For small caches, use fewer effective stripes to ensure each stripe can hold multiple entries
-    // Minimum 4 entries per active stripe for reasonable LRU behavior
-    size_t effectiveStripes = NUM_LOCK_STRIPES;
+    : maxSize(maxSize > 0 ? maxSize : 1024), effectiveStripes(NUM_LOCK_STRIPES),
+      hitCount(0), missCount(0) {
+    // For small caches, use fewer effective stripes to ensure each stripe can hold
+    // multiple entries.  Minimum 4 entries per active stripe for reasonable LRU behavior.
+    // BUG-NEW-B fix: only provision effectiveStripes active stripes so that LRU eviction
+    // fires at the correct threshold and getSize() never silently exceeds getCapacity().
     if (this->maxSize < NUM_LOCK_STRIPES * 4) {
         effectiveStripes = (this->maxSize + 3) / 4;  // At least 4 entries per stripe
         if (effectiveStripes < 1) {
@@ -22,11 +24,9 @@ TLBCache::TLBCache(size_t maxSize)
         }
     }
 
-    // Initialize per-stripe max sizes
-    // BUG-NEW-B fix: only provision the effectiveStripes active stripes; leave the
-    // remaining stripes with maxEntriesPerStripe=0 so they never accept entries.
-    // Previously all NUM_LOCK_STRIPES stripes were set to entriesPerStripe, causing
-    // getCapacity() to report maxSize=8 while LRU eviction didn't trigger until 64.
+    // Initialize per-stripe max sizes.  Inactive stripes retain maxEntriesPerStripe=0
+    // but are never targeted by getLockStripeIndex() (which routes via effectiveStripes),
+    // so they will remain empty.
     size_t entriesPerStripe = (this->maxSize + effectiveStripes - 1) / effectiveStripes;
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
         stripes[i].maxEntriesPerStripe = (i < effectiveStripes) ? entriesPerStripe : 0;
@@ -573,10 +573,22 @@ void TLBCache::setMaxSize(size_t newMaxSize) {
         }
     }
 
-    // Recalculate per-stripe max sizes
-    size_t entriesPerStripe = (maxSize + NUM_LOCK_STRIPES - 1) / NUM_LOCK_STRIPES;
+    // Recalculate effectiveStripes and per-stripe max sizes using the same logic
+    // as the constructor.  Updating the member is required so getLockStripeIndex()
+    // routes new insertions to the correct (active) stripes after the resize.
+    // BUG-1 fix: previously setMaxSize() blindly assigned to all NUM_LOCK_STRIPES
+    // stripes, doubling effective capacity for small sizes vs. what getCapacity() reports.
+    effectiveStripes = NUM_LOCK_STRIPES;
+    if (maxSize < NUM_LOCK_STRIPES * 4) {
+        effectiveStripes = (maxSize + 3) / 4;  // At least 4 entries per stripe
+        if (effectiveStripes < 1) {
+            effectiveStripes = 1;
+        }
+    }
+
+    size_t entriesPerStripe = (maxSize + effectiveStripes - 1) / effectiveStripes;
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
-        stripes[i].maxEntriesPerStripe = entriesPerStripe;
+        stripes[i].maxEntriesPerStripe = (i < effectiveStripes) ? entriesPerStripe : 0;
     }
 }
 
@@ -620,10 +632,12 @@ TLBCache::CacheStatistics TLBCache::getAtomicStatistics() const {
 
 // Lock striping helper methods
 size_t TLBCache::getLockStripeIndex(const CacheKey& key) const {
-    // Use the existing CacheKeyHash for consistent hashing
+    // Use the existing CacheKeyHash for consistent hashing.
+    // Route to hash % effectiveStripes so that all entries land in active stripes
+    // when the cache uses fewer than NUM_LOCK_STRIPES active stripes (small sizes).
     CacheKeyHash hasher;
     size_t hash = hasher(key);
-    return hash % NUM_LOCK_STRIPES;
+    return hash % effectiveStripes;
 }
 
 std::mutex& TLBCache::getLockStripe(const CacheKey& key) const {

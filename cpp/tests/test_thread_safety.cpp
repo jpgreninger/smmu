@@ -151,9 +151,10 @@ TEST_F(ThreadSafetyTest, TLBCache_ConcurrentLookupInsert) {
                 
                 // Alternate between lookup and insert operations
                 if (totalOperations.load() % 2 == 0) {
-                    // Lookup operation
-                    TLBEntry* result = tlbCache->lookup(entry.streamID, entry.pasid, entry.iova);
-                    // Result may be null if entry hasn't been inserted yet - this is expected
+                    // Lookup operation - use safe value-returning overload to avoid
+                    // use-after-free from raw pointer returned after lock release
+                    Result<TLBEntry> result = tlbCache->lookupEntry(entry.streamID, entry.pasid, entry.iova);
+                    // Result may be an error if entry hasn't been inserted yet - this is expected
                     (void)result; // Suppress unused warning
                 } else {
                     // Insert operation
@@ -215,8 +216,8 @@ TEST_F(ThreadSafetyTest, TLBCache_ConcurrentInvalidation) {
                 size_t idx = dist(rng);
                 const auto& entry = testEntries[idx];
                 
-                TLBEntry* result = tlbCache->lookup(entry.streamID, entry.pasid, entry.iova);
-                // Result may be null due to concurrent invalidation - this is expected
+                Result<TLBEntry> result = tlbCache->lookupEntry(entry.streamID, entry.pasid, entry.iova);
+                // Result may be an error due to concurrent invalidation - this is expected
                 (void)result; // Suppress unused warning
                 
                 totalOperations.fetch_add(1);
@@ -304,8 +305,8 @@ TEST_F(ThreadSafetyTest, TLBCache_StatisticsIntegrity) {
                     tlbCache->insert(entry);
                     insertCount.fetch_add(1);
                 } else {
-                    // Lookup operation
-                    TLBEntry* result = tlbCache->lookup(entry.streamID, entry.pasid, entry.iova);
+                    // Lookup operation - use safe value-returning overload
+                    Result<TLBEntry> result = tlbCache->lookupEntry(entry.streamID, entry.pasid, entry.iova);
                     (void)result; // Suppress unused warning
                     lookupCount.fetch_add(1);
                 }
@@ -606,9 +607,9 @@ TEST_F(ThreadSafetyTest, Combined_SMSTranslationWithCaching) {
                 AccessType access = static_cast<AccessType>(accessDist(rng));
                 StreamID streamID = streamDist(rng);
                 
-                // Check TLB cache first
-                TLBEntry* cacheEntry = tlbCache->lookup(streamID, pasid, iova);
-                if (cacheEntry) {
+                // Check TLB cache first using safe value-returning overload
+                Result<TLBEntry> cacheResult = tlbCache->lookupEntry(streamID, pasid, iova);
+                if (cacheResult.isOk()) {
                     cacheHits.fetch_add(1);
                 } else {
                     cacheMisses.fetch_add(1);
@@ -688,11 +689,11 @@ TEST_F(ThreadSafetyTest, StressTest_HighConcurrency) {
                 try {
                     switch (operation) {
                         case 0: case 1: case 2: {
-                            // TLB Cache lookup (30%)
+                            // TLB Cache lookup (30%) - use safe value-returning overload
                             StreamID sid = streamDist(rng);
                             PASID pid = pasidDist(rng);
                             IOVA va = iovaDist(rng) & ~0xFFFULL;
-                            TLBEntry* entry = tlbCache->lookup(sid, pid, va);
+                            Result<TLBEntry> entry = tlbCache->lookupEntry(sid, pid, va);
                             (void)entry; // Suppress unused warning
                             break;
                         }

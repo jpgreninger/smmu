@@ -3775,9 +3775,10 @@ impl SMMU {
         self.clear_event_queue();
         self.clear_command_queue();
         self.clear_pri_queue();
-        // BUG-RUST-Q2 fix: clear_event_queue() does NOT drain stall_pending.
-        // ARM §3.12.2: stalled transactions must not survive a reset; clearing
-        // stall_pending prevents pre-reset stall events from leaking post-reset.
+        // clear_event_queue() already clears stall_pending (BUG-1 fix).
+        // The explicit clear below is a redundant safety measure to guarantee
+        // ARM §3.12.2 compliance: stalled transactions must not survive a reset,
+        // so pre-reset stall events cannot leak post-reset under any code path.
         if let Ok(mut pending) = self.stall_pending.lock() {
             pending.clear();
         }

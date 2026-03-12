@@ -716,5 +716,43 @@ TEST_F(TLBCacheCoverageTest, InvalidatePage_Alias) {
     EXPECT_EQ(tlbCache->getSize(), 0);
 }
 
+// ============================================================================
+// TC-CACHE-BUG1: setMaxSize effectiveStripes fix
+// Verify that after setMaxSize(N) with N < NUM_LOCK_STRIPES*4, the cache
+// enforces eviction at exactly getCapacity() entries (not at N*NUM_LOCK_STRIPES).
+// ============================================================================
+
+TEST_F(TLBCacheCoverageTest, SetMaxSize_EvictionFiresAtCapacity) {
+    // Start with a large cache, then resize to a small value that triggers the
+    // effectiveStripes path (8 < 16*4 = 64).
+    tlbCache = std::unique_ptr<TLBCache>(new TLBCache(256));
+    tlbCache->setMaxSize(8);
+
+    // After resize, reported capacity must equal the new max size.
+    EXPECT_EQ(tlbCache->getCapacity(), 8u);
+
+    size_t capacity = tlbCache->getCapacity();
+
+    // Insert 4x the declared capacity with distinct keys to ensure many entries
+    // land in each active stripe.  The cache must never hold more than capacity
+    // entries in any individual stripe, and the global count must not exceed
+    // the total per-stripe budget (effectiveStripes * entriesPerStripe).
+    for (size_t i = 0; i < capacity * 4; ++i) {
+        TLBEntry entry = createTLBEntry(
+            TEST_STREAM_ID,
+            static_cast<PASID>(i % 256),
+            TEST_IOVA_1 + static_cast<IOVA>(i * 0x1000),
+            TEST_PA_1 + static_cast<PA>(i * 0x1000),
+            PagePermissions(true, true, false));
+        entry.timestamp = static_cast<uint64_t>(i);
+        tlbCache->insert(entry);
+    }
+
+    // After inserting 4x capacity, the total retained must not exceed capacity.
+    // Before the fix, setMaxSize() set all 16 stripes to entriesPerStripe=1,
+    // so 16 entries would be retained despite getCapacity()==8 (double).
+    EXPECT_LE(tlbCache->getSize(), capacity);
+}
+
 } // namespace test
 } // namespace smmu
