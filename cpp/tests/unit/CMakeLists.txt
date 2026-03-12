@@ -93,6 +93,8 @@ set(UNIT_TEST_SOURCES
     test_new_cpp_bugs_mar2026b.cpp
     test_gerror_concurrency.cpp
     test_stall_queue.cpp
+    test_bug2_bug4_classify_tlb.cpp
+    test_bug_cpp_s1_double_translation.cpp
     ../test_thread_safety.cpp
 )
 

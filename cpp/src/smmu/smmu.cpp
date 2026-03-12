@@ -1397,9 +1397,10 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         // (F_TRANSLATION), not a configuration fault (C_BAD_STE / AddressSpaceExhausted).
         // BUG-CPP-DBGR-9 fix: return PageNotMapped so translate() routes to F_TRANSLATION;
         // AddressSpaceExhausted was incorrectly treated as a config fault by the stall guard.
+        // BUG-CPP-S1 fix: do NOT emit F_TRANSLATION here; handleTranslationFailure() will
+        // emit it exactly once, per §3.12.2 (one fault per transaction).
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
-        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
         return makeTranslationError(SMMUError::PageNotMapped);
     }
     // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
@@ -3192,15 +3193,22 @@ PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityStat
 }
 
 AccessClassification SMMU::classifyAccess(AccessType accessType) const {
-    // Classify access type for syndrome generation
+    // Classify access type for syndrome generation.
+    // ARM IHI0070G.b §7.3: the InD field in fault syndrome is 1-bit
+    // (0=Data, 1=Instruction). There is no "Unknown" encoding.
     switch (accessType) {
         case AccessType::Execute:
+        case AccessType::ExecutePrivileged:
             return AccessClassification::InstructionFetch;
         case AccessType::Read:
         case AccessType::Write:
+        case AccessType::ReadWrite:
+        case AccessType::ReadPrivileged:
+        case AccessType::WritePrivileged:
+        case AccessType::ReadWritePrivileged:
             return AccessClassification::DataAccess;
         default:
-            return AccessClassification::Unknown;
+            return AccessClassification::DataAccess;
     }
 }
 

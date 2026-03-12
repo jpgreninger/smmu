@@ -190,8 +190,10 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
 
 // ─── BUG-NEW-RUST-3 ───────────────────────────────────────────────────────────
 
-/// BUG-NEW-RUST-3: PriResp must NOT advance priq_cons when the matched entry is
-/// not the front entry of the queue (pos != 0).
+/// BUG-NEW-RUST-3 / BUG-RUST-Q4: PriResp must be strict FIFO — it may only
+/// retire the HEAD entry of the PRI queue.  A PriResp whose (stream_id,
+/// prg_index) matches an interior entry (pos > 0) is a software usage error;
+/// the SMMU treats it as a no-op and generates no fault (ARM §8.3).
 ///
 /// Scenario:
 /// 1. Enable PRI queue (CR0.PRIQEN).
@@ -199,9 +201,9 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
 ///    with distinct prg_index values (1, 2, 3).
 /// 3. Record priq_cons BEFORE issuing PriResp.
 /// 4. Issue CMD_PRI_RESP for the MIDDLE entry (stream_id=2, prg_index=2).
-///    After removal, two entries remain (positions 0 and 1 in VecDeque).
-/// 5. priq_cons must NOT have advanced (the front entry was NOT consumed).
-///    Only consuming the front entry should advance CONS.
+///    Per strict FIFO semantics, no entry must be removed (software error).
+/// 5. priq_cons must NOT have advanced.
+/// 6. Queue size must still be 3.
 #[test]
 fn rust3_pri_resp_middle_entry_does_not_advance_priq_cons() {
     let smmu = SMMU::new();
@@ -222,25 +224,26 @@ fn rust3_pri_resp_middle_entry_does_not_advance_priq_cons() {
     // Record CONS before PriResp
     let cons_before = smmu.priq_cons_index();
 
-    // Issue CMD_PRI_RESP for the middle entry (stream_id=2, prg_index=2)
+    // Issue CMD_PRI_RESP for the middle entry (stream_id=2, prg_index=2).
+    // Per ARM §8.3 strict FIFO: this is a software error — no entry is removed.
     let mut cmd = CommandEntry::new(CommandType::PriResp, 2, 0);
     cmd.prg_index = 2;
     smmu.submit_command(cmd).unwrap();
     smmu.process_command_queue().unwrap();
 
-    // The middle entry must be removed
+    // Strict FIFO: interior PriResp is a no-op — all 3 entries must remain.
     assert_eq!(
         smmu.get_pri_queue_size(),
-        2,
-        "one PRI entry must be removed by PriResp"
+        3,
+        "BUG-RUST-Q4: PriResp for interior entry must not remove any entry (strict FIFO per ARM §8.3)"
     );
 
-    // CONS must NOT have advanced — stream_id=1 is still at the front
+    // CONS must NOT have advanced — stream_id=1 is still at the front.
     let cons_after = smmu.priq_cons_index();
     assert_eq!(
         cons_after,
         cons_before,
-        "BUG-NEW-RUST-3: priq_cons must NOT advance when a non-front PRI entry is retired"
+        "BUG-NEW-RUST-3/Q4: priq_cons must NOT advance when a non-front PRI entry is addressed"
     );
 }
 

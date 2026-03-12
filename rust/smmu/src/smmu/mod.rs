@@ -3446,25 +3446,17 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::PriResp => {
-                // ARM §8.3: Find and retire the pending PRIEntry whose
-                // (stream_id, prg_index) matches this response command.
-                // If no match is found the command is a software usage error;
-                // the SMMU generates no fault for this condition (ARM §8.3).
-                //
-                // BUG-NEW-RUST-3 fix: ARM §3.5.1 defines CONS as the index of the
-                // NEXT entry to be consumed from the HEAD of the queue.  CONS must
-                // only advance when the HEAD entry (pos == 0) is retired; removing
-                // an interior entry leaves the head unchanged, so CONS must not move.
+                // ARM §8.3 / BUG-RUST-Q4 fix: The PRI queue is STRICT FIFO.
+                // CMD_PRI_RESP may only retire the HEAD entry whose
+                // (stream_id, prg_index) matches the command.  If the head does
+                // not match, this is a software usage error; the SMMU generates
+                // no fault for this condition (ARM §8.3) and the command is
+                // treated as a no-op.  Searching and removing an interior entry
+                // (any pos > 0) is incorrect per ARM §3.5.1 and §6.3.98.
                 let mut queue = self.pri_queue.write().unwrap();
-                if let Some(pos) = queue.iter().position(|entry| {
-                    entry.stream_id == command.stream_id
-                        && entry.prg_index == command.prg_index
-                }) {
-                    queue.remove(pos);
-                    // Only advance PRIQ_CONS when the entry at the front (pos==0)
-                    // was the one removed — that is the only case where the circular
-                    // consumer index has logically moved forward.
-                    if pos == 0 {
+                if let Some(head) = queue.front() {
+                    if head.stream_id == command.stream_id && head.prg_index == command.prg_index {
+                        queue.pop_front();
                         let cons = self.priq_cons.load(Ordering::Relaxed);
                         self.priq_cons
                             .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
@@ -3698,10 +3690,13 @@ impl SMMU {
 
     /// Clear all page requests from the queue
     ///
-    /// Removes all pending page requests atomically.
+    /// Removes all pending page requests atomically and resets PROD/CONS indices to 0
+    /// so that PROD == CONS (empty condition, ARM §3.5.1).
     pub fn clear_pri_queue(&self) {
         let mut queue = self.pri_queue.write().unwrap();
         queue.clear();
+        self.priq_prod.store(0, Ordering::Release);
+        self.priq_cons.store(0, Ordering::Release);
     }
 
     // ========================================================================
@@ -3726,10 +3721,19 @@ impl SMMU {
     /// Reset all queues atomically
     ///
     /// Clears all event, command, and PRI queues.
+    ///
+    /// Per ARM §3.5.1, initialization must produce a consistent empty state.
+    /// This includes the internal `stall_pending` buffer that holds stall events
+    /// which overflowed the main event queue (ARM §7.4 / BUG-RUST-Q2 fix).
     pub fn reset_queues(&self) {
         self.clear_event_queue();
         self.clear_command_queue();
         self.clear_pri_queue();
+        // BUG-RUST-Q2 fix: clear_event_queue() does NOT drain stall_pending.
+        // A reset must produce a fully empty state per ARM §3.5.1.
+        if let Ok(mut pending) = self.stall_pending.lock() {
+            pending.clear();
+        }
     }
 
     /// Get cache statistics
