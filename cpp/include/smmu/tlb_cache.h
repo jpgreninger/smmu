@@ -122,9 +122,12 @@ public:
     
     // Legacy interfaces for backward compatibility - deprecated
     TLBEntry* lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
-    bool lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry);
+    // Deprecated: prefer lookupCacheEntry(). The securityState parameter defaults to NonSecure
+    // for backward compatibility; pass SecurityState::Secure for Secure transactions.
+    bool lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry,
+                SecurityState securityState = SecurityState::NonSecure);
     void remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
-    
+
     // Invalidation operations
     void invalidate(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
     void invalidateBySecurityState(SecurityState securityState);
@@ -135,7 +138,10 @@ public:
     void invalidateAll();
     void invalidateStream(StreamID streamID);  // Alias
     void invalidatePASID(StreamID streamID, PASID pasid);  // Alias
-    void invalidatePage(StreamID streamID, PASID pasid, IOVA iova);  // Alias
+    // Deprecated: prefer invalidate(). The securityState parameter defaults to NonSecure
+    // for backward compatibility; pass SecurityState::Secure for Secure transactions.
+    void invalidatePage(StreamID streamID, PASID pasid, IOVA iova,
+                        SecurityState securityState = SecurityState::NonSecure);  // Alias
     void clear();  // Clear all entries
     
     // Statistics
