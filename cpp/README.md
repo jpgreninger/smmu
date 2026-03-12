@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.14** - 21 Spec-Verified Bug Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.2.15** - 7 Additional Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 102/102 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.14
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 105/105 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.15
 
-> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 86 new tests added (34 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 102 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 89 new tests added (36 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (~99%). All critical/high/medium/low severity bugs resolved. All 105 tests pass at 100%.
 >
-> **v1.2.14 (March 10, 2026)**: 21 commits of C++ bug fixes since v1.2.13: concurrency fixes (GERROR race condition, stall queue bound, STAG memory ordering), S1DSS regression guards, RECINVSID handling, and BUG-NEW-CPP/BUG-R2-CPP series spec compliance fixes. All 102 tests pass.
+> **v1.2.15 (March 11, 2026)**: 7 bug fixes: TLBCache dangling-pointer eliminated (BUG-NEW-A), TLBCache constructor effective-stripe fix (BUG-NEW-B), spurious F_TRANSLATION after C_BAD_CD suppressed (BUG-NEW-C, ARM §3.12.2), CFGI range>31 clamped to CFGI_ALL (BUG-3, ARM §4.3.2). 13 new C++ tests added. All 105 tests pass.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 

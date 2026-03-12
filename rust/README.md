@@ -1,28 +1,41 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.14)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.15)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-2752%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-2777%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-94.72%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.14** - 21 Spec-Verified Bug Fixes ⚡
+## ✅ **PRODUCTION READY v1.2.15** - 7 Additional Bug Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,752 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,777 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 10, 2026)**: Version 1.2.14 — 21 commits of spec-verified bug fixes since v1.2.13: concurrency fixes (GERROR race, stall queue bound, memory ordering), S1DSS regression guards, RECINVSID handling, and BUG-NEW-RUST/BUG-R2-RUST series spec compliance fixes. All 2,752 tests passing (100%), 1 ignored (intentional stress test), zero clippy warnings.
+**🎯 Latest Update (March 11, 2026)**: Version 1.2.15 — 7 spec-verified and implementation bug fixes: eventq_prod advancement in all event-record paths (BUG-2/BUG-5, ARM §3.5.4), stall_pending cleared on clear_event_queue (BUG-1), CFGI range>31 clamped to CFGI_ALL (BUG-3, ARM §4.3.2), TLBCache dangling-pointer eliminated (BUG-NEW-A), TLBCache constructor effective-stripe fix (BUG-NEW-B), spurious F_TRANSLATION after C_BAD_CD suppressed (BUG-NEW-C, ARM §3.12.2). 26 new tests. All 2,777 tests passing (100%), 1 ignored, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.2.15 (March 11, 2026)
+
+**7 Spec-Verified Bug Fixes (C++ + Rust)**
+
+- ✅ BUG-1: `clear_event_queue()` now clears `stall_pending` to match C++ and prevent stale event re-delivery
+- ✅ BUG-2: `eventq_prod` advanced after every `push_back` in `record_translation_fault()`, `record_stream_not_found_fault()`, and inline C_BAD_CD/FStreamDisabled paths (ARM §3.5.4)
+- ✅ BUG-3: `CMD_CFGI_STE_RANGE` with `range > 31` clamped to CFGI_ALL in both C++ and Rust — prevents C++11 §5.8 UB shift and Rust debug panic (ARM §4.3.2)
+- ✅ BUG-5: `get_events()` stall-drain loop advances `eventq_prod` per drained entry (ARM §3.5.4)
+- ✅ BUG-NEW-A: `TLBCache::bool lookup()` uses `lookupEntry()` — eliminates dangling pointer / use-after-free
+- ✅ BUG-NEW-B: `TLBCache` constructor provisions only `effectiveStripes` active stripes; eviction now triggers at `maxSize`, not 8×maxSize
+- ✅ BUG-NEW-C: `handleTranslationFailure()` maps `InvalidConfiguration` to no-op, suppressing spurious F_TRANSLATION after C_BAD_CD (ARM §3.12.2)
+- ✅ 26 new tests added (13 C++ + 13 Rust); all 2,777 Rust tests passing (100%), 1 ignored, zero clippy warnings
 
 ### 🚀 Release v1.2.14 (March 10, 2026)
 

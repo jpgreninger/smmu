@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.2.14 (C++ + Rust)** - 21 Spec-Verified Bug Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.2.15 (C++ + Rust)** - 7 Additional Bug Fixes ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (102 tests), Rust 94.72% lines / 93.53% functions (2,752 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (105 tests), Rust 94.72% lines / 93.53% functions (2,777 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (March 10, 2026)**: v1.2.14 — 21 commits of spec-verified bug fixes since v1.2.13 across C++ and Rust: concurrency bugs (GERROR race, stall queue bound, memory ordering), S1DSS regression guards, RECINVSID handling, and numerous spec compliance fixes (BUG-NEW-CPP/RUST series, BUG-R2 series, BUG-CPP/RUST debugger series). All tests passing (102 C++, 2,752 Rust), zero warnings.
+**Latest Update (March 11, 2026)**: v1.2.15 — 7 spec-verified and implementation bug fixes: eventq_prod advancement in all Rust event-record paths (BUG-2/BUG-5, ARM §3.5.4), stall_pending cleared on clear_event_queue (BUG-1), CFGI range>31 clamped to CFGI_ALL in C++ and Rust (BUG-3, ARM §4.3.2), TLBCache dangling-pointer eliminated (BUG-NEW-A), TLBCache constructor effective-stripe fix (BUG-NEW-B), spurious F_TRANSLATION after C_BAD_CD suppressed (BUG-NEW-C, ARM §3.12.2). 26 new tests added. All tests passing (105 C++, 2,777 Rust), zero warnings.
 
 ## Production Features
 
