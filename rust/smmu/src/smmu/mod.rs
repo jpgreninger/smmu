@@ -2215,6 +2215,9 @@ impl SMMU {
                                 if queue.len() < self.event_queue_capacity {
                                     queue.push_back(event);
                                     self.event_count.fetch_add(1, Ordering::Relaxed);
+                                    // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
+                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                    self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
                                 }
                             }
                         }
@@ -2371,6 +2374,9 @@ impl SMMU {
                         if queue.len() < self.event_queue_capacity {
                             queue.push_back(event);
                             self.event_count.fetch_add(1, Ordering::Relaxed);
+                            // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
+                            let prod = self.eventq_prod.load(Ordering::Relaxed);
+                            self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
                         }
                     }
                     return Err(TranslationError::StreamDisabled);
@@ -2779,6 +2785,11 @@ impl SMMU {
                             Some(p) => {
                                 queue.push_back(p);
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
+                                // BUG-2 fix: ARM §3.5.4 — PROD.WR must be updated to
+                                // publish each record; entries are invisible until the
+                                // write index covers them.
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
                             }
                             None => break,
                         }
@@ -2790,6 +2801,9 @@ impl SMMU {
                 // Main queue has space — insert directly.
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+                // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish the new record.
+                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
             } else if event.stall {
                 // BUG-13 fix: stall event and queue is full — redirect to stall_pending
                 // instead of dropping.  Must NOT trigger OVFLG (ARM §7.4: stall fault
@@ -2863,6 +2877,9 @@ impl SMMU {
             if queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+                // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
+                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
             } else {
                 // BUG-05 / ARM §7.4 / BUG-RUST-DBGR-8 fix: Toggle OVFLG atomically
                 // via CAS loop — see toggle_ovflg_once() for details.
@@ -2951,6 +2968,10 @@ impl SMMU {
                             Some(p) => {
                                 queue.push_back(p);
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
+                                // BUG-5 fix: ARM §3.5.4 — PROD.WR must be updated so
+                                // drained events are visible to software polling the index.
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
                             }
                             None => break,
                         }
@@ -2988,6 +3009,13 @@ impl SMMU {
     pub fn clear_event_queue(&self) {
         let mut queue = self.event_queue.write().unwrap();
         queue.clear();
+        // BUG-1 fix: also clear stall_pending so the two containers stay in sync,
+        // matching C++ clearEventQueue() which calls stallPending_.clear().
+        // ARM §3.5.3/§3.12.2 (spirit): clearing the event queue must include any
+        // overflow buffer, otherwise stale stall events can re-surface after a clear.
+        if let Ok(mut pending) = self.stall_pending.lock() {
+            pending.clear();
+        }
         self.eventq_prod.store(0, Ordering::Release);
         self.eventq_cons.store(0, Ordering::Release);
     }
@@ -3506,18 +3534,32 @@ impl SMMU {
             //                  upper-bit prefix: (sid >> (range+1)) == (cmd.stream_id >> (range+1)).
             // NOTE: shifting a u32 by 32 bits is UB/panic, so range==31 is handled separately.
             CommandType::CfgiAll => {
-                if command.range == 31 {
-                    // CMD_CFGI_ALL — full global TLB invalidation
-                    self.tlb_cache.invalidate_all();
-                } else {
-                    // CMD_CFGI_STE_RANGE — prefix-matched stream invalidation
-                    let prefix_bits = u32::from(command.range) + 1;
-                    let cmd_prefix = command.stream_id >> prefix_bits;
-                    for entry in &self.streams {
-                        let raw_sid = *entry.key();
-                        if (raw_sid >> prefix_bits) == cmd_prefix {
-                            if let Ok(stream_id) = StreamID::new(raw_sid) {
-                                self.tlb_cache.invalidate_by_stream(stream_id);
+                // ARM §4.3.2: range is a 5-bit field (0–31).
+                //   range == 31: CMD_CFGI_ALL — global TLB invalidation.
+                //   range > 31:  reserved; clamp to CFGI_ALL (BUG-3 fix).
+                //   range < 31:  CMD_CFGI_STE_RANGE — prefix-matched invalidation.
+                match command.range.cmp(&31) {
+                    std::cmp::Ordering::Equal => {
+                        // CMD_CFGI_ALL — full global TLB invalidation
+                        self.tlb_cache.invalidate_all();
+                    }
+                    std::cmp::Ordering::Greater => {
+                        // BUG-3 fix: ARM §4.3.2 — range field is 5 bits (0–31); values > 31
+                        // are architecturally impossible on the wire.  Clamp to CFGI_ALL to
+                        // avoid shifting u32 by 33+ bits, which panics in debug and wraps
+                        // silently in release (both incorrect per ARM §4.3.2).
+                        self.tlb_cache.invalidate_all();
+                    }
+                    std::cmp::Ordering::Less => {
+                        // CMD_CFGI_STE_RANGE — prefix-matched stream invalidation
+                        let prefix_bits = u32::from(command.range) + 1;
+                        let cmd_prefix = command.stream_id >> prefix_bits;
+                        for entry in &self.streams {
+                            let raw_sid = *entry.key();
+                            if (raw_sid >> prefix_bits) == cmd_prefix {
+                                if let Ok(stream_id) = StreamID::new(raw_sid) {
+                                    self.tlb_cache.invalidate_by_stream(stream_id);
+                                }
                             }
                         }
                     }

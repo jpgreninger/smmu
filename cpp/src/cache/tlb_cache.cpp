@@ -23,9 +23,13 @@ TLBCache::TLBCache(size_t maxSize)
     }
 
     // Initialize per-stripe max sizes
+    // BUG-NEW-B fix: only provision the effectiveStripes active stripes; leave the
+    // remaining stripes with maxEntriesPerStripe=0 so they never accept entries.
+    // Previously all NUM_LOCK_STRIPES stripes were set to entriesPerStripe, causing
+    // getCapacity() to report maxSize=8 while LRU eviction didn't trigger until 64.
     size_t entriesPerStripe = (this->maxSize + effectiveStripes - 1) / effectiveStripes;
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
-        stripes[i].maxEntriesPerStripe = entriesPerStripe;
+        stripes[i].maxEntriesPerStripe = (i < effectiveStripes) ? entriesPerStripe : 0;
     }
 }
 
@@ -188,14 +192,20 @@ void TLBCache::insert(const TLBEntry& entry) {
     stripe.pasidIndex[spKey].insert(key);
 }
 
-bool TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry) {
-    TLBEntry* tlbEntry = lookup(streamID, pasid, iova);
-    if (tlbEntry) {
-        entry.iova = tlbEntry->iova;
-        entry.physicalAddress = tlbEntry->physicalAddress;
-        entry.permissions = tlbEntry->permissions;
-        entry.securityState = tlbEntry->securityState;
-        entry.timestamp = tlbEntry->timestamp;
+bool TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry,
+                      SecurityState securityState) {
+    // ARM §3.13: TLB lookups must be keyed on (StreamID, PASID, IOVA, SecurityState).
+    // Forward the security state so Secure entries are not missed.
+    // BUG-NEW-A fix: use lookupEntry() which copies the TLBEntry before releasing the
+    // stripe lock, avoiding a use-after-free via the raw pointer returned by lookup().
+    Result<TLBEntry> result = lookupEntry(streamID, pasid, iova, securityState);
+    if (result.isOk()) {
+        const TLBEntry& tlbEntry = result.getValue();
+        entry.iova = tlbEntry.iova;
+        entry.physicalAddress = tlbEntry.physicalAddress;
+        entry.permissions = tlbEntry.permissions;
+        entry.securityState = tlbEntry.securityState;
+        entry.timestamp = tlbEntry.timestamp;
         return true;
     }
     return false;
@@ -208,6 +218,7 @@ void TLBCache::insert(StreamID streamID, PASID pasid, const CacheEntry& entry) {
     tlbEntry.iova = entry.iova;
     tlbEntry.physicalAddress = entry.physicalAddress;
     tlbEntry.permissions = entry.permissions;
+    tlbEntry.securityState = entry.securityState;
     tlbEntry.valid = true;
     tlbEntry.timestamp = entry.timestamp;
 
@@ -423,8 +434,10 @@ void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
     }
 }
 
-void TLBCache::invalidatePage(StreamID streamID, PASID pasid, IOVA iova) {
-    invalidate(streamID, pasid, iova);
+void TLBCache::invalidatePage(StreamID streamID, PASID pasid, IOVA iova,
+                              SecurityState securityState) {
+    // ARM §3.13: invalidation must match the security state of the entry.
+    invalidate(streamID, pasid, iova, securityState);
 }
 
 void TLBCache::clear() {

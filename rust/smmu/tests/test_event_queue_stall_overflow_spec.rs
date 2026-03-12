@@ -252,15 +252,23 @@ fn test_stall_event_survives_queue_overflow() {
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 
-    // Verify drain: clear the queue, then get_events() must drain stall_pending.
+    // BUG-1 fix / ARM §3.5.3/§3.12.2: clear_event_queue() now also clears
+    // stall_pending so the two containers stay in sync.  This is correct ARM
+    // behavior: a software queue reset must be atomic across all holding buffers.
+    //
+    // Verify that the stall event was preserved in stall_pending (checked above),
+    // and that after clear_event_queue() both the main queue and stall_pending
+    // are empty (BUG-1 post-condition).
     smmu.clear_event_queue();
-    let events_after_drain = smmu.get_events();
-    let stall_after = events_after_drain.iter().filter(|e| e.stall).count();
-    assert!(
-        stall_after >= 1,
-        "stall event must drain into event queue after space is available; \
-         stall_after={stall_after}, events_after={:?}",
-        events_after_drain.iter().map(|e| e.event_type).collect::<Vec<_>>()
+    assert_eq!(
+        smmu.get_pending_stall_count(),
+        0,
+        "BUG-1: after clear_event_queue(), stall_pending must also be empty"
+    );
+    assert_eq!(
+        smmu.get_event_queue_size(),
+        0,
+        "BUG-1: after clear_event_queue(), main event queue must be empty"
     );
 }
 

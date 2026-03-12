@@ -1630,6 +1630,14 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 // below takes the explicit no-op case and does not emit a wrong event.
                 faultType = FaultType::BadStreamID;
                 break;
+            case SMMUError::InvalidConfiguration:
+                // BUG-NEW-C fix: §3.12.2 / §7.2 — "The SMMU does not record more than one
+                // fault for each incoming transaction."  C_BAD_CD was already emitted by
+                // translateUnlocked() for AA64=0 / T0SZ/T1SZ violations.  Map to
+                // StreamDisabled (a no-op in the recovery switch below) so no secondary
+                // F_TRANSLATION event is generated.
+                faultType = FaultType::StreamDisabled;
+                break;
             default:
                 faultType = classifyTranslationFault(streamID, pasid, iova, accessType, securityState);
                 break;
@@ -2214,6 +2222,11 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             if (command.range == 31) {
                 // CMD_CFGI_ALL — full global STE-cache / TLB invalidation
                 invalidateTranslationCache();
+            } else if (command.range > 31) {
+                // BUG-3 fix: ARM §4.3.2 range field is 5 bits (0–31); values > 31 are
+                // architecturally impossible.  Clamp to CFGI_ALL to avoid shifting
+                // uint32_t by 33+ bits, which is undefined behaviour per C++11 §5.8.
+                invalidateTranslationCache();
             } else {
                 // CMD_CFGI_STE_RANGE — invalidate only streams matching the upper-bit prefix:
                 // match condition: (sid >> (range+1)) == (command.streamID >> (range+1))
@@ -2443,6 +2456,11 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
             // NOTE: shifting uint32_t by 32 bits is UB, so range==31 is handled separately.
             if (command.range == 31) {
                 // CMD_CFGI_ALL — full global STE-cache / TLB invalidation
+                invalidateTranslationCache();
+            } else if (command.range > 31) {
+                // BUG-3 fix: ARM §4.3.2 range field is 5 bits (0–31); values > 31 are
+                // architecturally impossible.  Clamp to CFGI_ALL to avoid shifting
+                // uint32_t by 33+ bits, which is undefined behaviour per C++11 §5.8.
                 invalidateTranslationCache();
             } else {
                 // CMD_CFGI_STE_RANGE — invalidate only streams matching the upper-bit prefix.
