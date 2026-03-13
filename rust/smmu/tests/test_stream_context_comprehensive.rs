@@ -161,8 +161,9 @@ fn test_two_stage_translation_stage1_fault() {
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 
-    // Should have recorded fault
-    assert!(ctx.get_fault_count() > 0);
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; fault recording is the SMMU caller's responsibility.
+    assert_eq!(ctx.get_fault_count(), 0);
 }
 
 #[test]
@@ -185,8 +186,9 @@ fn test_two_stage_translation_stage2_fault() {
     let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 
-    // Should have recorded fault
-    assert!(ctx.get_fault_count() > 0);
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; SMMU caller is responsible.
+    assert_eq!(ctx.get_fault_count(), 0);
 }
 
 #[test]
@@ -262,8 +264,9 @@ fn test_stage2_only_translation_fault() {
     let result = ctx.translate(pasid, ipa, AccessType::Read, SecurityState::NonSecure);
     assert!(result.is_err());
 
-    // Should have recorded fault
-    assert!(ctx.get_fault_count() > 0);
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; SMMU caller is responsible (§3.12.2).
+    assert_eq!(ctx.get_fault_count(), 0);
 }
 
 #[test]
@@ -334,12 +337,17 @@ fn test_fault_recording_on_translation_error() {
 
     // Trigger translation fault
     let iova = IOVA::new(0x1000).unwrap();
-    let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
+    let result = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
-    assert_eq!(ctx.get_fault_count(), 1);
+    // Error must be returned to the caller.
+    assert!(result.is_err(), "PageNotMapped must produce an error");
+
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally — fault recording is the SMMU caller's responsibility
+    // (§3.12.2: "a single fault record per transaction").
+    assert_eq!(ctx.get_fault_count(), 0);
     let records = ctx.get_fault_records();
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].fault_type(), FaultType::TranslationFault);
+    assert_eq!(records.len(), 0);
 }
 
 #[test]
@@ -350,13 +358,19 @@ fn test_fault_rate_limiting() {
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
-    // Generate 5 faults, only 2 should be recorded
+    // Generate 5 faults — all must return errors to the caller.
+    let mut error_count = 0usize;
     for i in 0..5 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
-        let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
+        if ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure).is_err() {
+            error_count += 1;
+        }
     }
+    assert_eq!(error_count, 5, "All 5 faults must be returned to the caller");
 
-    assert_eq!(ctx.get_fault_count(), 2);
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; set_fault_rate_limit has no effect on recording.
+    assert_eq!(ctx.get_fault_count(), 0);
 }
 
 #[test]
@@ -371,8 +385,10 @@ fn test_fault_statistics_total_faults() {
         let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; statistics remain at 0.
     let stats = ctx.get_fault_statistics();
-    assert_eq!(stats.total_faults, 3);
+    assert_eq!(stats.total_faults, 0);
 }
 
 #[test]
@@ -387,9 +403,11 @@ fn test_fault_statistics_by_type() {
         let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; statistics remain at 0.
     let stats = ctx.get_fault_statistics();
-    assert_eq!(stats.page_not_mapped_count, 2);
-    assert!(stats.faults_by_type.contains_key(&FaultType::TranslationFault));
+    assert_eq!(stats.page_not_mapped_count, 0);
+    assert!(!stats.faults_by_type.contains_key(&FaultType::TranslationFault));
 }
 
 #[test]
@@ -406,9 +424,11 @@ fn test_fault_statistics_by_pasid() {
     let _ = ctx.translate(pasid2, iova, AccessType::Read, SecurityState::NonSecure);
     let _ = ctx.translate(pasid2, iova, AccessType::Read, SecurityState::NonSecure);
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; faults_by_pasid remains empty.
     let stats = ctx.get_fault_statistics();
-    assert_eq!(*stats.faults_by_pasid.get(&1).unwrap(), 1);
-    assert_eq!(*stats.faults_by_pasid.get(&2).unwrap(), 2);
+    assert!(!stats.faults_by_pasid.contains_key(&1));
+    assert!(!stats.faults_by_pasid.contains_key(&2));
 }
 
 #[test]
@@ -425,8 +445,10 @@ fn test_fault_statistics_rate_limited_flag() {
         let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
     }
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; rate_limited flag is never set.
     let stats = ctx.get_fault_statistics();
-    assert!(stats.rate_limited);
+    assert!(!stats.rate_limited);
 }
 
 #[test]
@@ -435,12 +457,14 @@ fn test_clear_fault_records() {
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
-    // Generate faults
+    // Generate faults — StreamContext no longer records them internally.
     let iova = IOVA::new(0x1000).unwrap();
     let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
-    assert_eq!(ctx.get_fault_count(), 1);
 
-    // Clear
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: fault_count stays 0.
+    assert_eq!(ctx.get_fault_count(), 0);
+
+    // clear_fault_records() must still be callable without panic.
     ctx.clear_fault_records();
     assert_eq!(ctx.get_fault_count(), 0);
 }
@@ -451,12 +475,14 @@ fn test_reset_fault_statistics() {
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
-    // Generate faults
+    // Generate faults — StreamContext no longer records them internally.
     let iova = IOVA::new(0x1000).unwrap();
     let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
-    assert!(ctx.get_fault_count() > 0);
 
-    // Reset
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: fault_count stays 0.
+    assert_eq!(ctx.get_fault_count(), 0);
+
+    // reset_fault_statistics() must still be callable without panic.
     ctx.reset_fault_statistics();
     assert_eq!(ctx.get_fault_count(), 0);
 }
@@ -746,13 +772,14 @@ fn test_query_get_stats() {
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
-    // Generate a fault
+    // Generate a fault — StreamContext no longer records it internally.
     let iova = IOVA::new(0x1000).unwrap();
     let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: statistics remain at 0.
     let query = ctx.query();
     let stats = query.get_stats();
-    assert_eq!(stats.total_faults, 1);
+    assert_eq!(stats.total_faults, 0);
 }
 
 #[test]
@@ -844,15 +871,17 @@ fn test_fault_statistics_last_fault_time() {
     let pasid = PASID::new(1).unwrap();
     ctx.create_pasid(pasid).unwrap();
 
-    // Generate faults
+    // Generate faults — StreamContext no longer records them internally.
     for i in 0..2 {
         let iova = IOVA::new(0x1000 + i * 0x1000).unwrap();
         let _ = ctx.translate(pasid, iova, AccessType::Read, SecurityState::NonSecure);
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: last_fault_time stays None
+    // (no internal fault recording).
     let stats = ctx.get_fault_statistics();
-    assert!(stats.last_fault_time.is_some());
+    assert!(stats.last_fault_time.is_none());
 }
 
 #[test]
@@ -896,10 +925,12 @@ fn test_permission_violation_fault_type() {
     let perms = PagePermissions::read_only();
     ctx.map_page(pasid, iova, pa, perms, SecurityState::NonSecure).unwrap();
 
-    // Try to write to a read-only page
-    let _ = ctx.translate(pasid, iova, AccessType::Write, SecurityState::NonSecure);
+    // Try to write to a read-only page — must return PermissionViolation.
+    let result = ctx.translate(pasid, iova, AccessType::Write, SecurityState::NonSecure);
+    assert!(result.is_err(), "Write to read-only page must fail");
 
-    // Should have a permission fault
+    // BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: StreamContext no longer records
+    // faults internally; permission_violation_count stays 0.
     let stats = ctx.get_fault_statistics();
-    assert!(stats.permission_violation_count > 0);
+    assert_eq!(stats.permission_violation_count, 0);
 }

@@ -504,5 +504,87 @@ TEST_F(BugCppFTest, OAS52_AddressJustBelow2Pow52_NotAddressSizeFault) {
         << ") must translate successfully on a 52-bit OAS system";
 }
 
+// ── BUG-CPP-TWOSTAGE-1: F_ADDR_SIZE missing in two-stage path ───────────────
+//
+// ARM IHI0070G.b §7.3.14 + §7.3 fault ordering table step 3c:
+// F_ADDR_SIZE must be emitted on address-size faults during any stage of
+// translation, including two-stage.  performBothStagesTranslation() was not
+// calling generateEvent(EventType::F_ADDR_SIZE, ...) when Stage-1 returned
+// SMMUError::InvalidAddress, while the single-stage paths (performStage1Only
+// TranslationTranslation and performStage2OnlyTranslation) correctly do so.
+
+class TwoStageAddrSizeFaultTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        smmu = std::make_unique<SMMU>();
+        smmu->enable();
+    }
+
+    void TearDown() override {
+        smmu.reset();
+    }
+
+    // Configure a stream for two-stage translation.
+    // Stage-1 address space uses PASID=1 (guest), Stage-2 uses PASID=0 (hypervisor).
+    void configureTwoStageStream(StreamID sid) {
+        StreamConfig cfg;
+        cfg.translationEnabled = true;
+        cfg.stage1Enabled      = true;
+        cfg.stage2Enabled      = true;
+        ASSERT_TRUE(smmu->configureStream(sid, cfg).isOk());
+        ASSERT_TRUE(smmu->enableStream(sid).isOk());
+        ASSERT_TRUE(smmu->createStreamPASID(sid, 0).isOk());
+        ASSERT_TRUE(smmu->createStreamPASID(sid, 1).isOk());
+
+        // Map Stage-2: IPA -> PA (use address safe within 48-bit range)
+        PagePermissions perms(true, true, false);
+        ASSERT_TRUE(smmu->mapPage(sid, 0, 0x4000'0000ULL, 0x8000'0000ULL, perms).isOk());
+    }
+
+    std::unique_ptr<SMMU> smmu;
+};
+
+// BUG-CPP-TWOSTAGE-1: After a Stage-1 address-size fault in two-stage mode,
+// the event queue must contain an F_ADDR_SIZE event.
+//
+// Before the fix: performBothStagesTranslation() records the fault via
+// recordComprehensiveFault() but never calls generateEvent(F_ADDR_SIZE, ...),
+// so the event queue stays empty.
+//
+// After the fix: generateEvent(EventType::F_ADDR_SIZE, ...) is called in the
+// SMMUError::InvalidAddress branch, exactly mirroring the single-stage paths.
+TEST_F(TwoStageAddrSizeFaultTest, TwoStage_Stage1AddrSizeFault_GeneratesF_ADDR_SIZE_Event) {
+    constexpr StreamID SID = 0xB0;
+    constexpr PASID    GUEST_PASID = 1;
+    constexpr IOVA     ABOVE_32BIT = (1ULL << 32);  // 4 GiB — beyond 32-bit limit
+
+    configureTwoStageStream(SID);
+
+    // Map a Stage-1 page at the over-limit IOVA (mapping succeeds because the
+    // default input address size is 52 bits when the page is installed).
+    PagePermissions perms(true, true, false);
+    ASSERT_TRUE(smmu->mapPage(SID, GUEST_PASID, ABOVE_32BIT, 0x4000'0000ULL, perms).isOk());
+
+    // Restrict Stage-1 context to 32-bit input address size.
+    ASSERT_TRUE(smmu->setStreamInputAddressSize(SID, GUEST_PASID, 32).isOk());
+
+    // Trigger the two-stage translation — Stage-1 will return InvalidAddress.
+    smmu->translate(SID, GUEST_PASID, ABOVE_32BIT, AccessType::Read);
+
+    // §7.3.14: An F_ADDR_SIZE event must appear in the event queue.
+    std::vector<EventEntry> events = smmu->getEventQueue();
+    bool found = false;
+    for (const auto& e : events) {
+        if (e.type == EventType::F_ADDR_SIZE && e.streamID == SID) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found)
+        << "BUG-CPP-TWOSTAGE-1: F_ADDR_SIZE event (0x11) must be generated "
+           "after a Stage-1 address-size fault in two-stage translation "
+           "(ARM IHI0070G.b §7.3.14 + §7.3 fault ordering step 3c)";
+}
+
 } // namespace test
 } // namespace smmu

@@ -978,7 +978,7 @@ fn test_event_queue_clear() {
 #[test]
 fn test_pri_queue_submit_page_request() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     let pri_entry = PRIEntry {
         stream_id: 1,
@@ -998,7 +998,7 @@ fn test_pri_queue_submit_page_request() {
 #[test]
 fn test_pri_queue_submit_multiple_requests() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Submit multiple page requests
     for i in 0..5 {
@@ -1024,7 +1024,7 @@ fn test_pri_queue_overflow_with_small_queue() {
     let mut config = SMMUConfig::default();
     config.queue_config.pri_queue_size = 16;
     let smmu = SMMU::with_config(config);
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Fill the queue
     for i in 0..16 {
@@ -1066,7 +1066,7 @@ fn test_pri_queue_overflow_with_small_queue() {
 #[test]
 fn test_pri_queue_get_all_requests() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Submit requests
     for i in 0..3 {
@@ -1090,7 +1090,7 @@ fn test_pri_queue_get_all_requests() {
 #[test]
 fn test_pri_queue_process_generates_events() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Submit page request
     let pri_entry = PRIEntry {
@@ -1122,7 +1122,7 @@ fn test_pri_queue_process_generates_events() {
 #[test]
 fn test_pri_queue_process_multiple_requests() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Submit multiple requests
     for i in 0..5 {
@@ -1159,7 +1159,7 @@ fn test_pri_queue_process_empty_queue() {
 #[test]
 fn test_pri_queue_clear() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
 
     // Submit requests
     for i in 0..3 {
@@ -1276,7 +1276,7 @@ fn test_translation_stats_reset() {
 #[test]
 fn test_queue_statistics() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN); // BUG-04 fix
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN); // BUG-04 fix
 
     // Submit to all queues
     smmu.submit_event(EventEntry {
@@ -1372,7 +1372,7 @@ fn test_cache_statistics_invalidation_count() {
 #[test]
 fn test_reset_queues_atomically() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN); // BUG-04 fix
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN); // BUG-04 fix
 
     // Populate all queues
     smmu.submit_event(EventEntry {

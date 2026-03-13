@@ -1367,7 +1367,14 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
+                // ARM IHI0070G.b §7.3.14 + §7.3 fault ordering step 3c:
+                // F_ADDR_SIZE must be emitted on address-size faults in any
+                // stage of translation, including two-stage.
+                // BUG-CPP-TWOSTAGE-1 fix: emit the event here, matching the
+                // pattern used in performStage1OnlyTranslation (line 1526) and
+                // performStage2OnlyTranslation (line 1570).
                 faultType = FaultType::AddressSizeFault;
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;

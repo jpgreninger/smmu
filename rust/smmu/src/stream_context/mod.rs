@@ -1473,14 +1473,12 @@ impl StreamContext {
             }
         }
 
-        // Record fault on error
+        // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: do NOT record faults
+        // here.  Fault recording is the responsibility of the top-level
+        // `smmu/mod.rs::translate()` caller via `record_translation_fault()`.
+        // Recording here AND in the caller produces two fault records for a
+        // single transaction, violating §3.12.2.
         if let Err(ref error) = result {
-            let fault_type = match error {
-                TranslationError::PageNotMapped => FaultType::TranslationFault,
-                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-                _ => FaultType::TranslationFault,
-            };
-            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
             return Err(error.clone());
         }
 
@@ -1490,7 +1488,6 @@ impl StreamContext {
         // If the page is privileged-only AND STRW does not suppress (not EL2/EL3),
         // the access is denied with a PermissionFault.
         if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
-            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1501,7 +1498,7 @@ impl StreamContext {
     /// Stage-2 only translation: IPA → PA
     fn translate_stage2_only(
         &self,
-        pasid: PASID,
+        _pasid: PASID,
         ipa: IOVA,
         access_type: AccessType,
         security_state: SecurityState,
@@ -1513,22 +1510,17 @@ impl StreamContext {
             stage2.translate_page(ipa, access_type, security_state)
         };
 
-        // Record fault on error
+        // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: fault recording is
+        // handled exclusively by the SMMU-level caller to avoid double recording.
         if let Err(ref error) = result {
-            let fault_type = match error {
-                TranslationError::PageNotMapped => FaultType::TranslationFault,
-                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-                _ => FaultType::TranslationFault,
-            };
-            self.record_fault_internal(pasid, ipa, fault_type, access_type, security_state);
             return Err(error.clone());
         }
 
         let data = result.unwrap();
 
         // §5.2 GAP-2: Check privileged_only against STRW suppression.
+        // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
         if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
-            self.record_fault_internal(pasid, ipa, FaultType::PermissionFault, access_type, security_state);
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1571,12 +1563,13 @@ impl StreamContext {
                 data
             },
             Err(error) => {
-                let fault_type = match error {
-                    TranslationError::PageNotMapped => FaultType::TranslationFault,
-                    TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-                    _ => FaultType::TranslationFault,
-                };
-                self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
+                // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: do NOT call
+                // record_fault_internal here.  The top-level smmu/mod.rs caller
+                // records the fault via record_translation_fault() using the
+                // correct map_translation_error_to_fault_type() mapping (which
+                // also properly handles AddressSizeFault, SecurityFault, etc.).
+                // Recording here would create a second, potentially misclassified
+                // fault record for the same transaction.
                 return Err(error);
             },
         };
@@ -1608,22 +1601,16 @@ impl StreamContext {
             stage2.translate_page(ipa, AccessType::Read, stage1_result.security_state())
         }; // stage2_address_space read-lock released here
 
-        // Record Stage-2 fault if error (lock is no longer held)
-        if let Err(ref error) = stage2_result {
-            let fault_type = match error {
-                TranslationError::PageNotMapped => FaultType::TranslationFault,
-                TranslationError::PermissionViolation { .. } => FaultType::PermissionFault,
-                _ => FaultType::TranslationFault,
-            };
-            self.record_fault_internal(pasid, iova, fault_type, access_type, security_state);
-            return stage2_result;
-        }
-
+        // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: do NOT call
+        // record_fault_internal for the Stage-2 error either.  The top-level
+        // smmu/mod.rs caller records the single canonical fault record via
+        // record_translation_fault().  Recording here would produce a second
+        // record for the same transaction, violating §3.12.2.
         // §3.3.1 / FINDING-NEW-29: Effective permissions = intersection of Stage-1 and Stage-2.
         // Stage-2 translation succeeded; intersect its permissions with Stage-1 permissions to
         // derive the final access rights.  If the intersected permissions deny the requested
         // access type, record a PermissionFault and return PermissionViolation.
-        let s2_data = stage2_result.unwrap();
+        let s2_data = stage2_result?;
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
 
         let access_denied = match access_type {
@@ -1636,14 +1623,14 @@ impl StreamContext {
             AccessType::ReadWriteExecute => !final_perms.read() || !final_perms.write() || !final_perms.execute(),
             AccessType::None => false,
         };
+        // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
         if access_denied {
-            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
         // §5.2 GAP-2: Check final effective permissions for privileged_only.
+        // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
         if final_perms.privileged_only() && !self.strw_suppresses_priv() {
-            self.record_fault_internal(pasid, iova, FaultType::PermissionFault, access_type, security_state);
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1961,6 +1948,12 @@ impl StreamContext {
     /// * `fault_type` - Type of fault
     /// * `access_type` - Access type that caused the fault
     /// * `security_state` - Security state
+    // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: all translate_* methods
+    // no longer call this helper directly — fault recording is now handled
+    // exclusively by the top-level smmu/mod.rs::translate() caller.  The method
+    // is retained for the deprecated public `record_fault()` path and for any
+    // future internal use.
+    #[allow(dead_code)]
     #[inline]
     fn record_fault_internal(
         &self,

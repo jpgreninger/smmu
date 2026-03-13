@@ -3615,11 +3615,20 @@ impl SMMU {
     ///
     /// Implements Page Request Interface per Section 7.
     pub fn submit_page_request(&self, request: PRIEntry) -> Result<(), SMMUError> {
-        // §4.1.2 / CT-33: PRI queue submissions are gated by CR0.PRIQEN.
-        // When PRIQEN=0, page requests must be rejected.
-        if (self.cr0.load(Ordering::Acquire) & Self::CR0_PRIQEN) == 0 {
+        // §6.3.9.5 + §8.2: effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
+        // When SMMUEN==0 the SMMU is disabled; the PRI queue is inactive
+        // regardless of the raw PRIQEN bit.  All incoming PPRs must be
+        // rejected when the effective PRIQEN is 0.
+        //
+        // BUG-PRIQEN-ASYMMETRY fix: the previous check tested only the raw
+        // CR0.PRIQEN bit.  After enable()+disable(), PRIQEN remains 1 in the
+        // register while SMMUEN is cleared, so the old check incorrectly
+        // accepted requests on a disabled SMMU.
+        let cr0 = self.cr0.load(Ordering::Acquire);
+        let effective_priqen = (cr0 & Self::CR0_PRIQEN) != 0 && (cr0 & Self::CR0_SMMUEN) != 0;
+        if !effective_priqen {
             return Err(SMMUError::InvalidConfiguration(
-                "CR0.PRIQEN=0: PRI queue is not enabled".to_string(),
+                "effective CR0.PRIQEN=0: PRI queue is not enabled (SMMUEN or PRIQEN is clear)".to_string(),
             ));
         }
 
