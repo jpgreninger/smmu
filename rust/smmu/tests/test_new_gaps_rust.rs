@@ -33,8 +33,8 @@ fn recinvsid_default_no_event_for_cfgi_ste_unknown() {
     );
 }
 
-/// §6.3.12 / §7.3.3: With CR2.RECINVSID=1, a C_BAD_STREAMID event triggered
-/// by CMD_CFGI_STE for an unknown stream MUST be recorded in the event queue.
+/// CONF-GAP-2: CMD_CFGI_STE for unknown stream is a silent no-op (§4.3.1).
+/// Even with RECINVSID=1, no C_BAD_STREAMID event must be generated.
 #[test]
 fn recinvsid_set_event_recorded_for_cfgi_ste_unknown() {
     let smmu = SMMU::new();
@@ -42,29 +42,29 @@ fn recinvsid_set_event_recorded_for_cfgi_ste_unknown() {
     smmu.set_cr2(SMMU::CR2_RECINVSID);
     let cmd = CommandEntry::new(CommandType::CfgiSte, 0xDEAD, 0);
     smmu.submit_command(cmd).unwrap();
-    let _ = smmu.process_command_queue();
+    let result = smmu.process_command_queue();
+    assert!(result.is_ok(), "CONF-GAP-2: CMD_CFGI_STE for unknown stream must be a silent no-op (Ok)");
     let events = smmu.get_events();
     assert!(
-        events.iter().any(|e| e.stream_id == 0xDEAD),
-        "RECINVSID=1: C_BAD_STREAMID must be recorded; got: {events:?}"
+        !events.iter().any(|e| e.stream_id == 0xDEAD),
+        "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT record C_BAD_STREAMID (§4.3.1); got: {events:?}"
     );
 }
 
-/// §6.3.12: GERROR.CMDQ_ERR must be signalled unconditionally regardless of
-/// the RECINVSID setting — event recording and GERROR are independent.
+/// CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR.
+/// §4.3.1 defines no error condition for unknown StreamID in CMD_CFGI_STE.
 #[test]
 fn recinvsid_default_gerror_cmdq_err_still_set() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
-    // CR2.RECINVSID == 0 — no event, but GERROR must still be signalled
     let cmd = CommandEntry::new(CommandType::CfgiSte, 0xBEEF, 0);
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
     let active = smmu.get_gerror() ^ smmu.get_gerrorn();
-    assert_ne!(
+    assert_eq!(
         active & SMMU::GERROR_CMDQ_ERR,
         0,
-        "GERROR.CMDQ_ERR must be active even when RECINVSID=0"
+        "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR (§4.3.1 silent no-op)"
     );
 }
 
@@ -115,8 +115,10 @@ fn bug_rust_e_signal_gerror_uses_gerrorn_reread() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Trigger CMDQ_ERR once via a bad CfgiSte command
-    let cmd = CommandEntry::new(CommandType::CfgiSte, 0xAB01, 0);
+    // Trigger CMDQ_ERR once via CMD_SYNC CS=3 (CERROR_ILL per §4.7.3).
+    // (CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op per §4.3.1.)
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3;
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
@@ -130,17 +132,15 @@ fn bug_rust_e_signal_gerror_uses_gerrorn_reread() {
         "BUG-RUST-E setup: CMDQ_ERR must be active after first bad command"
     );
 
-    // Attempt a second bad command — CMDQ_ERR is already active so
-    // process_command_queue returns early (queue halted). Submit the command
-    // but the queue won't process it while CMDQ_ERR is set.
-    // Instead call signal_gerror directly via clear+re-trigger to verify
-    // idempotence: clear first, then trigger twice.
+    // Clear the error and re-arm with two bad commands to verify idempotence.
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
-    // Re-arm: submit two bad commands and process; only the first should activate
+    // Re-arm: submit two CMD_SYNC CS=3 commands; only the first should activate
     // CMDQ_ERR; processing halts before the second is consumed.
-    let cmd2 = CommandEntry::new(CommandType::CfgiSte, 0xAB02, 0);
-    let cmd3 = CommandEntry::new(CommandType::CfgiSte, 0xAB03, 0);
+    let mut cmd2 = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd2.cs = 3;
+    let mut cmd3 = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd3.cs = 3;
     smmu.submit_command(cmd2).unwrap();
     smmu.submit_command(cmd3).unwrap();
     let _ = smmu.process_command_queue(); // activates CMDQ_ERR on cmd2, halts before cmd3
@@ -172,5 +172,56 @@ fn bug_rust_e_signal_gerror_uses_gerrorn_reread() {
         active_final & SMMU::GERROR_CMDQ_ERR,
         0,
         "BUG-RUST-E: CMDQ_ERR must remain active (not cancelled by double-toggle)"
+    );
+}
+
+// ── Gap 4: CONF-GAP-4 CMD_DPTI_ALL / CMD_DPTI_PA ───────────────────────────
+
+/// §4.6.1: `CMD_DPTI_ALL` when `IDR3.DPT = 0` (no dirty-page tracking) must
+/// generate `CERROR_ILL` and set `GERROR.CMDQ_ERR`.  The current no-op
+/// silently swallows the command, violating §4.6.1.
+#[test]
+fn conf_gap4_dpti_all_sets_gerror_cmdq_err() {
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+
+    let cmd = CommandEntry::new(CommandType::DptiAll, 0, 0);
+    smmu.submit_command(cmd).unwrap();
+    let _ = smmu.process_command_queue();
+
+    let active = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
+    assert_ne!(
+        active, 0,
+        "CONF-GAP-4: CMD_DPTI_ALL must set GERROR.CMDQ_ERR when IDR3.DPT=0 (§4.6.1)"
+    );
+
+    assert_eq!(
+        smmu.get_cmdq_cons_err(),
+        SMMU::CERROR_ILL,
+        "CONF-GAP-4: CMDQ_CONS.ERR must be CERROR_ILL for CMD_DPTI_ALL when DPT not supported"
+    );
+}
+
+/// §4.6.1: `CMD_DPTI_PA` when `IDR3.DPT = 0` must also generate `CERROR_ILL`
+/// and set `GERROR.CMDQ_ERR`.
+#[test]
+fn conf_gap4_dpti_pa_sets_gerror_cmdq_err() {
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+
+    let cmd = CommandEntry::new(CommandType::DptiPa, 0, 0);
+    smmu.submit_command(cmd).unwrap();
+    let _ = smmu.process_command_queue();
+
+    let active = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
+    assert_ne!(
+        active, 0,
+        "CONF-GAP-4: CMD_DPTI_PA must set GERROR.CMDQ_ERR when IDR3.DPT=0 (§4.6.1)"
+    );
+
+    assert_eq!(
+        smmu.get_cmdq_cons_err(),
+        SMMU::CERROR_ILL,
+        "CONF-GAP-4: CMDQ_CONS.ERR must be CERROR_ILL for CMD_DPTI_PA when DPT not supported"
     );
 }

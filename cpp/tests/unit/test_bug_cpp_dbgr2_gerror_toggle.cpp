@@ -1,9 +1,7 @@
-// BUG-CPP-DBGR-2: gerrorStatus toggle in executeInvalidationCommand() not
-// protected by queueMutex (§6.3.19)
-// TDD: failing test written BEFORE the fix.
-// The GERROR XOR-toggle in executeInvalidationCommand() reads and writes
-// gerrorStatus/gerrorNStatus without holding queueMutex. The fix wraps the
-// toggle block(s) in a std::lock_guard<std::recursive_mutex>(queueMutex).
+// CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op (§4.3.1).
+// ARM §4.3.1 does NOT generate GERROR.CMDQ_ERR or C_BAD_STREAMID for unknown StreamIDs.
+// (BUG-CPP-DBGR-2 originally fixed the GERROR toggle's mutex protection; these
+//  tests now verify the correct spec-defined no-op behavior per CONF-GAP-2.)
 
 #include <gtest/gtest.h>
 #include "smmu/smmu.h"
@@ -25,33 +23,29 @@ static CommandEntry makeCfgiSteCommand(StreamID sid) {
 }
 
 // -----------------------------------------------------------------------
-// Calling executeInvalidationCommand() with an unknown streamID must toggle
-// CMDQ_ERR exactly once — not zero times, not twice.
+// CONF-GAP-2: CMD_CFGI_STE for an unknown StreamID must be a silent no-op.
+// GERROR.CMDQ_ERR must NOT be set (§4.3.1: no error for unknown StreamID).
 // -----------------------------------------------------------------------
 TEST(GerrorToggleSpec, UnknownStreamID_TogglesGerrorCmdqErrExactlyOnce) {
     SMMU smmu;
     smmu.enable();
-    // Configure the SMMU table large enough for stream 0x100
-    smmu.setStrtabLog2Size(10); // supports up to 2^10 = 1024 streams
+    smmu.setStrtabLog2Size(10);
 
-    // Before the command: GERROR active bits should be 0
     uint32_t gerrorBefore = smmu.getGerror();
     EXPECT_EQ(gerrorBefore & GERROR_CMDQ_ERR, 0u) << "No CMDQ_ERR should be active initially";
 
-    // Execute CFGI_STE for an unknown (not configured) stream
     CommandEntry cmd = makeCfgiSteCommand(0x999); // definitely not configured
     smmu.executeInvalidationCommand(cmd);
 
-    // After the command: CMDQ_ERR must be active (toggled once)
+    // CONF-GAP-2: must remain inactive — unknown StreamID is a silent no-op
     uint32_t gerrorAfter = smmu.getGerror();
-    EXPECT_NE(gerrorAfter & GERROR_CMDQ_ERR, 0u)
-        << "CMDQ_ERR must be active (toggled once) after CFGI_STE for unknown stream (BUG-CPP-DBGR-2)";
+    EXPECT_EQ(gerrorAfter & GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-2: CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR (§4.3.1 silent no-op)";
 }
 
 // -----------------------------------------------------------------------
-// Calling executeInvalidationCommand() twice for the same unknown stream
-// must toggle CMDQ_ERR twice (back to inactive after second call), because
-// §6.3.19 only toggles when the bit is inactive.
+// CONF-GAP-2: Two CFGI_STE calls for the same unknown stream — both are
+// silent no-ops, GERROR.CMDQ_ERR remains inactive throughout.
 // -----------------------------------------------------------------------
 TEST(GerrorToggleSpec, TwoCallsForUnknownStream_TogglesBackToInactive) {
     SMMU smmu;
@@ -60,18 +54,16 @@ TEST(GerrorToggleSpec, TwoCallsForUnknownStream_TogglesBackToInactive) {
 
     CommandEntry cmd = makeCfgiSteCommand(0x999);
 
-    // First call — should toggle CMDQ_ERR to active
+    // Both calls are silent no-ops — GERROR must remain inactive
     smmu.executeInvalidationCommand(cmd);
     uint32_t gerrorAfterFirst = smmu.getGerror();
-    EXPECT_NE(gerrorAfterFirst & GERROR_CMDQ_ERR, 0u)
-        << "First call: CMDQ_ERR should be active";
+    EXPECT_EQ(gerrorAfterFirst & GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-2: first call: CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR";
 
-    // Second call — error already active, §6.3.19 says do NOT toggle again
-    // (the bit is already signaling, software hasn't acknowledged it)
     smmu.executeInvalidationCommand(cmd);
     uint32_t gerrorAfterSecond = smmu.getGerror();
-    EXPECT_NE(gerrorAfterSecond & GERROR_CMDQ_ERR, 0u)
-        << "Second call: CMDQ_ERR should remain active (no double-toggle when already active)";
+    EXPECT_EQ(gerrorAfterSecond & GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-2: second call: CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR";
 }
 
 // -----------------------------------------------------------------------

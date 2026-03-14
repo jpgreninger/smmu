@@ -156,6 +156,11 @@ fn test_command_queue_submit_tlbi_nh_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -184,6 +189,11 @@ fn test_command_queue_submit_tlbi_el2_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -212,6 +222,11 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -240,6 +255,11 @@ fn test_command_queue_submit_atc_inv() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -269,6 +289,11 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -301,6 +326,11 @@ fn test_command_queue_submit_sync() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -329,6 +359,11 @@ fn test_command_queue_submit_prefetch_config() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -356,6 +391,11 @@ fn test_command_queue_submit_prefetch_addr() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -383,6 +423,11 @@ fn test_command_queue_submit_cfgi_ste() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -410,6 +455,11 @@ fn test_command_queue_submit_cfgi_all() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -437,6 +487,11 @@ fn test_command_queue_submit_pri_resp() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -464,6 +519,11 @@ fn test_command_queue_submit_resume() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -474,6 +534,7 @@ fn test_command_queue_submit_resume() {
 fn test_command_queue_process_single_tlbi() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr2(SMMU::CR2_PTM); // CONF-GAP-11: PTM must be set for NS TLBI to execute
 
     let command = CommandEntry {
         cmd_type: CommandType::TlbiNhAll,
@@ -492,6 +553,11 @@ fn test_command_queue_process_single_tlbi() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -511,6 +577,7 @@ fn test_command_queue_process_single_tlbi() {
 fn test_command_queue_process_multiple_commands() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr2(SMMU::CR2_PTM); // CONF-GAP-11: PTM must be set for NS TLBI to execute
 
     // Submit multiple commands
     for i in 0..5 {
@@ -531,6 +598,11 @@ fn test_command_queue_process_multiple_commands() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
@@ -569,6 +641,11 @@ fn test_command_queue_process_atc_inv_generates_event() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -606,6 +683,11 @@ fn test_command_queue_process_sync_generates_event() {
         range: 31,
         leaf: false,
         cs: 1, // SIG_IRQ — generate completion event
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
 
@@ -650,6 +732,11 @@ fn test_command_queue_clear() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
@@ -687,6 +774,11 @@ fn test_command_queue_is_full() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
         };
         smmu.submit_command(command).unwrap();
@@ -1309,6 +1401,11 @@ fn test_queue_statistics() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     })
     .unwrap();
@@ -1335,6 +1432,7 @@ fn test_queue_statistics() {
 fn test_cache_statistics_invalidation_count() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    smmu.set_cr2(SMMU::CR2_PTM); // CONF-GAP-11: PTM must be set for NS TLBI to execute
 
     let initial_stats = smmu.get_cache_statistics();
     assert_eq!(initial_stats.invalidation_count(), 0);
@@ -1358,6 +1456,11 @@ fn test_cache_statistics_invalidation_count() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
         })
         .unwrap();
@@ -1405,6 +1508,11 @@ fn test_reset_queues_atomically() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     })
     .unwrap();

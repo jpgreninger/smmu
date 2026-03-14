@@ -92,6 +92,11 @@ const fn cfgi_cd_cmd(stream_id: u32, pasid_val: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     }
 }
@@ -114,6 +119,11 @@ const fn cfgi_cd_all_cmd(stream_id: u32) -> CommandEntry {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     }
 }

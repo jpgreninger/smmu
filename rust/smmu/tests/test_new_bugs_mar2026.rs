@@ -171,8 +171,11 @@ fn rust3_signal_gerror_no_double_toggle_after_clear() {
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     smmu.set_cr2(SMMU::CR2_RECINVSID);
 
-    // Activate CMDQ_ERR: submit a command for an unknown stream.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, 0xAA01, 0)).unwrap();
+    // Activate CMDQ_ERR via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
+    // (CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op per §4.3.1.)
+    let mut bad1 = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad1.cs = 3;
+    smmu.submit_command(bad1).unwrap();
     let _ = smmu.process_command_queue();
 
     // CMDQ_ERR must be active now.
@@ -193,8 +196,10 @@ fn rust3_signal_gerror_no_double_toggle_after_clear() {
     // Capture GERROR before re-activation.
     let g_before = smmu.get_gerror();
 
-    // Re-activate: new error for a different unknown stream.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, 0xAA02, 0)).unwrap();
+    // Re-activate: another CMD_SYNC CS=3.
+    let mut bad2 = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad2.cs = 3;
+    smmu.submit_command(bad2).unwrap();
     let _ = smmu.process_command_queue();
 
     let g_after = smmu.get_gerror();

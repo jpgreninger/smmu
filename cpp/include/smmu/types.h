@@ -1165,6 +1165,11 @@ struct StreamConfig {
     // Default: NonSecure (0x00).
     SecurityState securityState;  ///< Stream security state; defaults to NonSecure
 
+    /// CONF-GAP-14: ARM §5.2 STE.MEV — merge (suppress duplicate) fault events.
+    /// When true, a fault event of the same type for this stream already in the
+    /// event queue will suppress a new identical event (merge/dedup).
+    bool mev;  ///< STE.MEV; defaults to false (no merging)
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1172,7 +1177,8 @@ struct StreamConfig {
                     nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
                     t0sz(16), t1sz(16), aa64(true),
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
-                    securityState(SecurityState::NonSecure) {
+                    securityState(SecurityState::NonSecure),
+                    mev(false) {
     }
 };
 
@@ -1268,6 +1274,42 @@ struct CacheStatistics {
     }
 };
 
+/// @brief CONF-GAP-13: GBPA output attribute fields (ARM §6.3.22).
+/// Populated from SMMU_GBPA register fields; applied on bypass (SMMUEN=0, ABORT=0).
+struct GbpaConfig {
+    bool abort;       ///< ABORT bit — abort transaction when set
+    uint8_t instCfg;  ///< 2-bit INSTCFG instruction/data override
+    uint8_t privCfg;  ///< 2-bit PRIVCFG privilege attribute override
+    bool mtCfg;       ///< MTCFG memory type override enable
+    uint8_t memAttr;  ///< 4-bit MemAttr memory type attribute
+    uint8_t shCfg;    ///< 2-bit SHCFG shareability override
+    uint8_t allocCfg; ///< 4-bit ALLOCCFG allocation hint override
+
+    GbpaConfig() : abort(false), instCfg(0), privCfg(0), mtCfg(false),
+                   memAttr(0), shCfg(0), allocCfg(0) {
+    }
+};
+
+/// @brief CONF-GAP-3: 2-level stream table format selection (ARM §3.3.1.2).
+enum class StreamTableFormat {
+    Linear  = 0, ///< Linear (flat) stream table — default
+    TwoLevel = 1 ///< 2-level stream table using L1+L2 index split
+};
+
+/// @brief CONF-GAP-18: CMD_SYNC completion signal type (ARM §4.7.3).
+enum class CmdSyncSignalType {
+    None = 0, ///< SIG_NONE: no completion signal (CS=0b00)
+    Irq  = 1, ///< SIG_IRQ: interrupt/MSI completion signal (CS=0b01)
+    Msi  = 2  ///< SIG_MSI: MSI write completion signal (CS=0b10)
+};
+
+// ARM §6.3.17: CMDQ_CONS.ERR field (CONF-GAP-17).
+static constexpr uint32_t CMDQ_CONS_ERR_SHIFT  = 24u;    ///< ERR field bit position
+static constexpr uint32_t CERROR_NONE           = 0u;    ///< No error
+static constexpr uint32_t CERROR_ILL            = 1u;    ///< Illegal command (CERROR_ILL)
+static constexpr uint32_t CERROR_ABT            = 2u;    ///< Command queue memory abort
+static constexpr uint32_t CERROR_ATC_INV_SYNC   = 3u;    ///< ATC invalidate sync error
+
 // ARM §6.3.17: SMMU_GERROR bit constants — spec-correct bit positions.
 // Set by hardware; cleared by software writing to SMMU_GERRORN.
 static constexpr uint32_t GERROR_CMDQ_ERR           = (1u << 0); ///< bit 0: Command queue processing error
@@ -1361,18 +1403,29 @@ struct CommandEntry {
     /// Defaults to NonSecure; Secure commands should set this to SecurityState::Secure.
     SecurityState securityState;  ///< defaults to NonSecure
 
+    /// CONF-GAP-8: ARM §4.4.1.1 RIL (Range Invalidation Leaf) fields.
+    /// Used by VA-targeted TLBI commands when ril=true.
+    /// startAddress serves as the VA operand; tg/num/scale define the range.
+    uint8_t tg;    ///< RIL Translation Granule: 0=4KB, 1=64KB, 2=16KB; default 0
+    uint8_t num;   ///< RIL number-1 of granule blocks (5-bit: 0-30); default 0
+    uint8_t scale; ///< RIL log2 scale factor (3-bit: 0-7); range=(num+1)*(1<<(5*scale)) granules; default 0
+    uint8_t ttl;   ///< RIL target TLB level hint (2-bit: 0=any,1=L1,2=L2,3=L3); default 0
+    bool    ril;   ///< RIL range invalidation leaf flag; true=use TG/NUM/SCALE range; default false
+
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
                     prgIndex(0), range(31), stag(0), action(false), abort(false),
                     asid(0), vmid(0), leaf(false), cs(0),
-                    securityState(SecurityState::NonSecure) {
+                    securityState(SecurityState::NonSecure),
+                    tg(0), num(0), scale(0), ttl(0), ril(false) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
         : type(cmdType), streamID(sid), pasid(p), startAddress(start), endAddress(end),
           flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
           asid(0), vmid(0), leaf(false), cs(0),
-          securityState(SecurityState::NonSecure) {
+          securityState(SecurityState::NonSecure),
+          tg(0), num(0), scale(0), ttl(0), ril(false) {
     }
 };
 

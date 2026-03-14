@@ -58,8 +58,8 @@ use crate::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
 use crate::stream_context::StreamContext;
 use crate::types::{
     AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
-    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, TranslationError, TranslationResult,
-    IOVA, PA, PASID,
+    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, StreamTableFormat,
+    TranslationError, TranslationResult, IOVA, PA, PASID,
 };
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -105,6 +105,29 @@ pub struct StallRecord {
     pub access: AccessType,
     /// Security state of the faulting transaction.
     pub security_state: SecurityState,
+}
+
+/// GBPA (Global Bypass/Abort) output attribute configuration (§6.3.22).
+///
+/// When SMMUEN=0 and GBPA.ABORT=0, these fields are applied to the identity-mapping
+/// bypass result to allow software to control the memory attributes of bypassed
+/// transactions.
+#[derive(Clone, Debug, Default)]
+pub struct GbpaConfig {
+    /// GBPA.ABORT: when true, bypass is replaced with an abort response.
+    pub abort: bool,
+    /// GBPA.INSTCFG: instruction/data override (2 bits).
+    pub inst_cfg: u8,
+    /// GBPA.PRIVCFG: privilege attribute override (2 bits).
+    pub priv_cfg: u8,
+    /// GBPA.MTCFG: memory type override enable.
+    pub mt_cfg: bool,
+    /// GBPA.MemAttr: memory attribute override (4 bits, only used when mt_cfg=true).
+    pub mem_attr: u8,
+    /// GBPA.SHCFG: shareability override (2 bits).
+    pub sh_cfg: u8,
+    /// GBPA.ALLOCCFG: allocation hint override (4 bits).
+    pub alloc_cfg: u8,
 }
 
 /// SMMU controller - Central coordination and translation engine
@@ -353,6 +376,73 @@ pub struct SMMU {
     /// The value 32 is a sentinel meaning "no table-size limit" (default).
     /// ARM IHI0070G.b §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE field.
     strtab_log2size: AtomicU8,
+
+    // ---- CONF-GAP-9: SMMU_CR0ACK handshake register (§6.3.10) ----
+
+    /// SMMU_CR0ACK register (§6.3.10).
+    ///
+    /// In a synchronous software model, CR0ACK mirrors CR0 immediately after
+    /// each write.  Hardware typically updates CR0ACK asynchronously; here it
+    /// is updated in the same call as `set_cr0()`, `enable()`, and `disable()`.
+    cr0ack: AtomicU32,
+
+    // ---- CONF-GAP-10: SMMU_CR1 register (§6.3.11) ----
+
+    /// SMMU_CR1 register (§6.3.11).
+    ///
+    /// Controls shareability and cacheability of SMMU table walks and queue
+    /// accesses:
+    ///   Bits [11:10]: TABLE_SH — shareability for table walks
+    ///   Bits  [9:8]:  TABLE_OC — outer cacheability for table walks
+    ///   Bits  [7:6]:  TABLE_IC — inner cacheability for table walks
+    ///   Bits  [5:4]:  QUEUE_SH — shareability for queue accesses
+    ///   Bits  [3:2]:  QUEUE_OC — outer cacheability for queue accesses
+    ///   Bits  [1:0]:  QUEUE_IC — inner cacheability for queue accesses
+    ///
+    /// Resets to 0 (ARM §6.3.11).
+    cr1: AtomicU32,
+
+    // ---- CONF-GAP-13: GBPA output attribute config (§6.3.22) ----
+
+    /// GBPA (Global Bypass/Abort) configuration — full output attributes (§6.3.22).
+    ///
+    /// Used when SMMUEN=0 and GBPA.ABORT=0: the GBPA output attributes are
+    /// applied to all bypass translation results.
+    gbpa_config: RwLock<GbpaConfig>,
+
+    // ---- CONF-GAP-17: CMDQ_CONS.ERR reason codes (§6.3.17) ----
+
+    /// CMDQ_CONS ERR field (bits [31:24]) — command error reason code (§6.3.17).
+    ///
+    /// Written atomically alongside `cmdq_cons`.  Software reads this to
+    /// determine *why* command processing halted:
+    ///   `CERROR_NONE`         (0) — no error
+    ///   `CERROR_ILL`          (1) — illegal command / reserved opcode
+    ///   `CERROR_ABT`          (2) — memory system abort
+    ///   `CERROR_ATC_INV_SYNC` (3) — ATC invalidation sync timeout
+    cmdq_cons_err: AtomicU32,
+
+    // ---- CONF-GAP-18: CMD_SYNC signal type tracking ----
+
+    /// MSI attributes register for CMD_SYNC MSI signalling (§4.7.3).
+    cmdq_sync_msi_attr: AtomicU32,
+
+    /// MSI data register for CMD_SYNC MSI signalling (§4.7.3).
+    cmdq_sync_msi_data: AtomicU32,
+
+    /// Last CMD_SYNC completion signal type used (0=none, 1=IRQ, 2=MSI).
+    cmd_sync_last_signal_type: AtomicU32,
+
+    // ---- CONF-GAP-3: 2-level stream table format (§3.3.1.2) ----
+
+    /// Stream table format: 0=Linear, 1=TwoLevel (§6.3.25 STRTAB_BASE_CFG.FMT).
+    strtab_fmt: AtomicU32,
+
+    /// Split point for two-level stream table (§6.3.25 STRTAB_BASE_CFG.SPLIT).
+    ///
+    /// StreamID is split at this bit: upper bits index L1, lower bits index L2.
+    /// Default: 6 (64-entry L2 pages).
+    strtab_split: AtomicU8,
 }
 
 impl SMMU {
@@ -425,6 +515,63 @@ impl SMMU {
     /// transaction-path StreamID range faults (§7.3.3).
     /// When 1, C_BAD_STREAMID events are recorded in the event queue as per §7.3.3.
     pub const CR2_RECINVSID: u32 = 1 << 1;
+
+    /// CR2 bit 2: PTM — Private TLB Maintenance (§6.3.12).
+    ///
+    /// When PTM=0, NS TLBI commands (TlbiNhAll, TlbiNhVa, etc.) are no-ops because the
+    /// SMMU's TLBs are treated as private and managed by the PE's TLB maintenance.
+    /// When PTM=1, the SMMU processes NS TLBI commands and invalidates its own TLBs.
+    pub const CR2_PTM: u32 = 1 << 2;
+
+    // ========================================================================
+    // ARM §6.3.9: SMMU_CR0 VMW constants (CONF-GAP-12)
+    // ========================================================================
+
+    /// CR0 bits [8:6]: VMW — VMID wildcard size (§6.3.9, ARM IHI0070G.b §6.3.9.1).
+    ///
+    /// Per ARM IHI0070G.b register map (§6.3.9): VMW occupies bits [8:6] of SMMU_CR0.
+    /// This field does NOT overlap with SMMUEN[0], PRIQEN[1], EVENTQEN[2], CMDQEN[3],
+    /// ATSCHK[4], or DPT_WALK_EN[5].
+    ///
+    /// `VMW` specifies the number of low-order VMID bits to wildcard during
+    /// VMID-targeted TLBI commands.  A mask is computed as:
+    ///   `vmid_mask = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 }`
+    /// Entries matching `(entry.vmid & vmid_mask) == (cmd.vmid & vmid_mask)` are invalidated.
+    pub const CR0_VMW_SHIFT: u32 = 6;
+    /// Mask for the CR0.VMW 3-bit field (bits [8:6]).
+    pub const CR0_VMW_MASK: u32 = 7 << 6;
+
+    // ========================================================================
+    // ARM §6.3.11: SMMU_CR1 bit constants (CONF-GAP-10)
+    // ========================================================================
+
+    /// CR1 bits [11:10]: TABLE_SH — shareability for translation table walks (§6.3.11).
+    pub const CR1_TABLE_SH: u32 = 0x3 << 10;
+    /// CR1 bits  [9:8]:  TABLE_OC — outer cacheability for table walks (§6.3.11).
+    pub const CR1_TABLE_OC: u32 = 0x3 << 8;
+    /// CR1 bits  [7:6]:  TABLE_IC — inner cacheability for table walks (§6.3.11).
+    pub const CR1_TABLE_IC: u32 = 0x3 << 6;
+    /// CR1 bits  [5:4]:  QUEUE_SH — shareability for queue accesses (§6.3.11).
+    pub const CR1_QUEUE_SH: u32 = 0x3 << 4;
+    /// CR1 bits  [3:2]:  QUEUE_OC — outer cacheability for queue accesses (§6.3.11).
+    pub const CR1_QUEUE_OC: u32 = 0x3 << 2;
+    /// CR1 bits  [1:0]:  QUEUE_IC — inner cacheability for queue accesses (§6.3.11).
+    pub const CR1_QUEUE_IC: u32 = 0x3;
+
+    // ========================================================================
+    // ARM §6.3.17: CMDQ_CONS.ERR reason codes (CONF-GAP-17)
+    // ========================================================================
+
+    /// Bit position of the ERR field in CMDQ_CONS (bits [31:24], §6.3.17).
+    pub const CMDQ_CONS_ERR_SHIFT: u32 = 24;
+    /// CERROR_NONE (0): no command queue error (§4.7.3).
+    pub const CERROR_NONE: u32 = 0;
+    /// CERROR_ILL (1): illegal command or reserved CS field (§4.7.3).
+    pub const CERROR_ILL: u32 = 1;
+    /// CERROR_ABT (2): memory system abort during command processing (§4.7.3).
+    pub const CERROR_ABT: u32 = 2;
+    /// CERROR_ATC_INV_SYNC (3): ATC invalidation synchronisation timeout (§4.7.3).
+    pub const CERROR_ATC_INV_SYNC: u32 = 3;
 
     // ========================================================================
     // ARM §3.5.1: Circular Queue Index Helpers (private)
@@ -594,6 +741,21 @@ impl SMMU {
             // BUG-NEW-RUST-1 fix: 32 = sentinel "no table-size limit" (default).
             // Software must call set_strtab_log2size() to enable range checking.
             strtab_log2size: AtomicU8::new(32),
+            // CONF-GAP-9: CR0ACK mirrors CR0; resets to 0 (§6.3.10).
+            cr0ack: AtomicU32::new(0),
+            // CONF-GAP-10: CR1 resets to 0 (§6.3.11).
+            cr1: AtomicU32::new(0),
+            // CONF-GAP-13: GBPA output attributes default to all-zero.
+            gbpa_config: RwLock::new(GbpaConfig::default()),
+            // CONF-GAP-17: CMDQ_CONS.ERR resets to CERROR_NONE=0.
+            cmdq_cons_err: AtomicU32::new(0),
+            // CONF-GAP-18: MSI registers reset to 0.
+            cmdq_sync_msi_attr: AtomicU32::new(0),
+            cmdq_sync_msi_data: AtomicU32::new(0),
+            cmd_sync_last_signal_type: AtomicU32::new(0),
+            // CONF-GAP-3: default Linear format, split=6.
+            strtab_fmt: AtomicU32::new(0),
+            strtab_split: AtomicU8::new(6),
         }
     }
 
@@ -738,6 +900,8 @@ impl SMMU {
             Ordering::AcqRel,
         );
         self.enabled.store(true, Ordering::Release);
+        // CONF-GAP-9: CR0ACK must mirror CR0 after enable() (§6.3.10).
+        self.cr0ack.store(self.cr0.load(Ordering::Acquire), Ordering::Release);
         Ok(())
     }
 
@@ -764,6 +928,8 @@ impl SMMU {
         // been cleared (AcqRel fetch_and), so the two views are consistent.
         self.cr0.fetch_and(!Self::CR0_SMMUEN, Ordering::AcqRel);
         self.enabled.store(false, Ordering::Release);
+        // CONF-GAP-9: CR0ACK mirrors CR0 after disable() (§6.3.10).
+        self.cr0ack.store(self.cr0.load(Ordering::Acquire), Ordering::Release);
         Ok(())
     }
 
@@ -785,6 +951,8 @@ impl SMMU {
     pub fn set_cr0(&self, value: u32) {
         self.cr0.store(value, Ordering::Release);
         self.enabled.store((value & Self::CR0_SMMUEN) != 0, Ordering::Release);
+        // CONF-GAP-9: CR0ACK mirrors CR0 synchronously in this software model (§6.3.10).
+        self.cr0ack.store(value, Ordering::Release);
     }
 
     /// Read SMMU_CR0 (§6.3.9).
@@ -843,6 +1011,177 @@ impl SMMU {
     #[must_use]
     pub fn get_cr2(&self) -> u32 {
         self.cr2.load(Ordering::Acquire)
+    }
+
+    // ========================================================================
+    // CONF-GAP-9: SMMU_CR0ACK handshake register (§6.3.10)
+    // ========================================================================
+
+    /// Read SMMU_CR0ACK — the CR0 acknowledgement register (§6.3.10).
+    ///
+    /// In this synchronous model, CR0ACK always mirrors CR0 immediately after
+    /// any write to CR0 (via `set_cr0()`, `enable()`, or `disable()`).
+    #[must_use]
+    pub fn get_cr0ack(&self) -> u32 {
+        self.cr0ack.load(Ordering::Acquire)
+    }
+
+    /// Reset CR0ACK to 0 (e.g., after a full SMMU reset sequence).
+    ///
+    /// Normally CR0ACK tracks CR0 automatically; this method is provided for
+    /// test scaffolding that needs to verify the reset state.
+    pub fn reset_cr0ack(&self) {
+        self.cr0ack.store(0, Ordering::Release);
+    }
+
+    // ========================================================================
+    // CONF-GAP-10: SMMU_CR1 register (§6.3.11)
+    // ========================================================================
+
+    /// Write SMMU_CR1 (§6.3.11).
+    ///
+    /// Controls shareability and cacheability of SMMU table walks and queue
+    /// accesses.  See `CR1_TABLE_SH`, `CR1_TABLE_OC`, etc. for bit definitions.
+    pub fn set_cr1(&self, value: u32) {
+        self.cr1.store(value, Ordering::Release);
+    }
+
+    /// Read SMMU_CR1 (§6.3.11).
+    ///
+    /// Returns the current CR1 register value.  Resets to 0.
+    #[must_use]
+    pub fn get_cr1(&self) -> u32 {
+        self.cr1.load(Ordering::Acquire)
+    }
+
+    // ========================================================================
+    // CONF-GAP-13: GBPA output attribute configuration (§6.3.22)
+    // ========================================================================
+
+    /// Set the GBPA (Global Bypass/Abort) full configuration (§6.3.22).
+    ///
+    /// All seven GBPA output attribute fields are stored atomically.  The
+    /// `abort` field also updates the existing `gbpa_abort` atomic for
+    /// backward compatibility with `is_gbpa_abort()`.
+    pub fn set_gbpa_config(&self, cfg: GbpaConfig) {
+        self.gbpa_abort.store(cfg.abort, Ordering::Release);
+        let mut guard = self.gbpa_config.write().unwrap();
+        *guard = cfg;
+    }
+
+    /// Read the current GBPA configuration (§6.3.22).
+    #[must_use]
+    pub fn get_gbpa_config(&self) -> GbpaConfig {
+        self.gbpa_config.read().unwrap().clone()
+    }
+
+    // ========================================================================
+    // CONF-GAP-17: CMDQ_CONS.ERR field accessors (§6.3.17)
+    // ========================================================================
+
+    /// Write the ERR field into CMDQ_CONS[31:24] atomically (§6.3.17).
+    ///
+    /// Clears the existing ERR bits and inserts `err` in one operation so that
+    /// software reading `cmdq_cons_index()` never sees a partial update.
+    fn write_cmdq_cons_err(&self, err: u32) {
+        // Store the error code separately (software reads via get_cmdq_cons_err).
+        self.cmdq_cons_err.store(err, Ordering::Release);
+    }
+
+    /// Read the ERR field from CMDQ_CONS (bits [31:24]) (§6.3.17).
+    ///
+    /// Returns one of: `CERROR_NONE`, `CERROR_ILL`, `CERROR_ABT`,
+    /// `CERROR_ATC_INV_SYNC`.
+    #[must_use]
+    pub fn get_cmdq_cons_err(&self) -> u32 {
+        self.cmdq_cons_err.load(Ordering::Acquire)
+    }
+
+    // ========================================================================
+    // CONF-GAP-18: CMD_SYNC SIG_IRQ vs SIG_MSI tracking (§4.7.3)
+    // ========================================================================
+
+    /// Write the CMDQ_SYNC MSI attribute register (§4.7.3).
+    pub fn set_cmdq_sync_msi_attr(&self, v: u32) {
+        self.cmdq_sync_msi_attr.store(v, Ordering::Release);
+    }
+
+    /// Read the CMDQ_SYNC MSI attribute register (§4.7.3).
+    #[must_use]
+    pub fn get_cmdq_sync_msi_attr(&self) -> u32 {
+        self.cmdq_sync_msi_attr.load(Ordering::Acquire)
+    }
+
+    /// Write the CMDQ_SYNC MSI data register (§4.7.3).
+    pub fn set_cmdq_sync_msi_data(&self, v: u32) {
+        self.cmdq_sync_msi_data.store(v, Ordering::Release);
+    }
+
+    /// Read the CMDQ_SYNC MSI data register (§4.7.3).
+    #[must_use]
+    pub fn get_cmdq_sync_msi_data(&self) -> u32 {
+        self.cmdq_sync_msi_data.load(Ordering::Acquire)
+    }
+
+    /// Return the last CMD_SYNC completion signal type used (§4.7.3).
+    ///
+    /// - `0` — no sync processed yet (or SIG_NONE used last)
+    /// - `1` — SIG_IRQ
+    /// - `2` — SIG_MSI
+    #[must_use]
+    pub fn get_cmd_sync_last_signal_type(&self) -> u8 {
+        self.cmd_sync_last_signal_type.load(Ordering::Acquire) as u8
+    }
+
+    // ========================================================================
+    // CONF-GAP-3: Two-level stream table (§3.3.1.2, §6.3.25)
+    // ========================================================================
+
+    /// Set the stream table format (§6.3.25 STRTAB_BASE_CFG.FMT).
+    ///
+    /// After changing the format, translate() will apply the appropriate
+    /// StreamID range validation.
+    pub fn set_strtab_format(&self, fmt: StreamTableFormat) {
+        self.strtab_fmt.store(fmt as u32, Ordering::Release);
+    }
+
+    /// Read the current stream table format.
+    #[must_use]
+    pub fn get_strtab_format(&self) -> StreamTableFormat {
+        match self.strtab_fmt.load(Ordering::Acquire) {
+            1 => StreamTableFormat::TwoLevel,
+            _ => StreamTableFormat::Linear,
+        }
+    }
+
+    /// Set the SPLIT field for two-level stream table (§6.3.25).
+    ///
+    /// The StreamID is split at bit `split`: upper bits index L1, lower bits
+    /// index L2.  Default is 6.
+    pub fn set_strtab_split(&self, split: u8) {
+        self.strtab_split.store(split, Ordering::Release);
+    }
+
+    /// Read the current SPLIT field.
+    #[must_use]
+    pub fn get_strtab_split(&self) -> u8 {
+        self.strtab_split.load(Ordering::Acquire)
+    }
+
+    /// Validate that a StreamID is within the two-level table bounds (§3.3.1.2).
+    ///
+    /// Returns `true` if the StreamID is addressable in the two-level table
+    /// defined by `log2size` and `split`.
+    fn validate_stream_id_2level(&self, stream_id: u32) -> bool {
+        let split = self.strtab_split.load(Ordering::Acquire) as u32;
+        let log2size = self.strtab_log2size.load(Ordering::Acquire) as u32;
+        // If log2size is the sentinel (32) — no limit, always valid.
+        if log2size >= 32 {
+            return true;
+        }
+        let l1_idx = stream_id >> split;
+        let l1_size = 1u32 << log2size.saturating_sub(split);
+        l1_idx < l1_size
     }
 
     // ========================================================================
@@ -1057,8 +1396,10 @@ impl SMMU {
     /// let smmu = SMMU::new();
     /// smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     ///
-    /// // Trigger CMDQ_ERR: submit a command for an unknown stream.
-    /// smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, 0xDEAD, 0)).unwrap();
+    /// // Trigger CMDQ_ERR: submit a CMD_SYNC with CS=3 (Reserved → CERROR_ILL per §4.7.3).
+    /// let mut sync_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    /// sync_cmd.cs = 3; // CS=0b11 is Reserved → CERROR_ILL
+    /// smmu.submit_command(sync_cmd).unwrap();
     /// let _ = smmu.process_command_queue();
     ///
     /// // Error is ACTIVE before acknowledge.
@@ -2061,10 +2402,21 @@ impl SMMU {
             let pa = crate::types::PA::new(iova.as_u64())
                 .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
             self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+            // CONF-GAP-13: apply GBPA output attributes to the bypass result (§6.3.22).
+            let gbpa = self.gbpa_config.read().unwrap();
+            let resolved_mem_type = if gbpa.mt_cfg { gbpa.mem_attr } else { 0 };
             return Ok(crate::types::TranslationData::new(
                 pa,
                 crate::types::PagePermissions::all(),
                 security_state,
+            )
+            .with_output_attrs(
+                resolved_mem_type,
+                gbpa.sh_cfg,
+                gbpa.alloc_cfg,
+                gbpa.inst_cfg,
+                gbpa.priv_cfg,
+                0,
             ));
         }
 
@@ -2083,6 +2435,16 @@ impl SMMU {
                     return Err(TranslationError::InvalidStreamID);
                 }
             }
+        }
+        // CONF-GAP-3: two-level stream table format validation (§3.3.1.2).
+        // When TwoLevel format is active, additionally validate that the StreamID
+        // fits within the L1/L2 table structure defined by log2size and split.
+        if self.strtab_fmt.load(Ordering::Acquire) == StreamTableFormat::TwoLevel as u32
+            && !self.validate_stream_id_2level(stream_id.as_u32())
+        {
+            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
+            return Err(TranslationError::InvalidStreamID);
         }
 
         // BUG-NEW-10 fix: TLB cache must only be consulted when SMMUEN=1; per ARM §6.3.9
@@ -2772,6 +3134,19 @@ impl SMMU {
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
+            // CONF-GAP-14: STE.MEV event merging (§5.2).
+            // If the stream has MEV=true, suppress duplicate events (same type + stream_id).
+            let stream_mev = self
+                .streams
+                .get(&stream_id.as_u32())
+                .map_or(false, |ctx| ctx.mev());
+            if stream_mev
+                && queue.iter().any(|e| e.event_type == event.event_type && e.stream_id == event.stream_id)
+            {
+                // Duplicate suppressed — drop the event without recording.
+                return;
+            }
+
             // BUG-13 fix / ARM §7.4: "a fault record from a stalled transaction is not
             // discarded and an event is reported for the stalled transaction when the
             // queue is next writable."
@@ -3313,23 +3688,52 @@ impl SMMU {
         match command.cmd_type {
             // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4)
             CommandType::TlbiNhAsid | CommandType::TlbiEl2Asid => {
-                self.tlb_cache.invalidate_by_asid(command.asid);
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                // CONF-GAP-11: NS ASID TLBI commands are gated by CR2.PTM (§6.3.12).
+                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
+                    self.tlb_cache.invalidate_by_asid(command.asid);
+                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                }
             },
-            CommandType::TlbiNhAll
-            | CommandType::TlbiNhVa
-            | CommandType::TlbiNhVaa
-            | CommandType::TlbiEl2All
-            | CommandType::TlbiEl2Va
-            | CommandType::TlbiEl2Vaa
-            | CommandType::TlbiNsnhAll => {
-                // Global TLB invalidation - clear entire cache
-                self.tlb_cache.invalidate_all();
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            // CONF-GAP-11: All NS TLBI commands are gated by CR2.PTM (§6.3.12).
+            CommandType::TlbiNhAll | CommandType::TlbiEl2All | CommandType::TlbiNsnhAll => {
+                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
+                    self.tlb_cache.invalidate_all();
+                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                }
             },
-            // VMID-targeted invalidation: remove only entries tagged with cmd.vmid (§4.4, §5.2)
-            CommandType::TlbiS12Vmall | CommandType::TlbiS2Ipa => {
-                self.tlb_cache.invalidate_by_vmid(command.vmid);
+            // CONF-GAP-6: VA-targeted invalidation — selective by VA+ASID (§4.4).
+            // CONF-GAP-8: RIL range-based invalidation (§4.4.1.1).
+            CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiEl3Va | CommandType::TlbiSEl2Va => {
+                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
+                    if command.ril {
+                        // Range invalidation: compute range from tg, num, scale
+                        let granule_size: u64 = match command.tg {
+                            1 => 65536,
+                            2 => 16384,
+                            _ => 4096,
+                        };
+                        let blocks = (command.num as u64 + 1) << (5 * command.scale as u64);
+                        let range_end = command.start_address.saturating_add(blocks * granule_size).saturating_sub(1);
+                        self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
+                    } else {
+                        self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
+                    }
+                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                }
+            },
+            // CONF-GAP-6: VAA-targeted invalidation — selective by VA, any ASID (§4.4).
+            CommandType::TlbiNhVaa | CommandType::TlbiEl2Vaa | CommandType::TlbiSEl2Vaa => {
+                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
+                    self.tlb_cache.invalidate_by_va(command.start_address);
+                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                }
+            },
+            // CONF-GAP-12: VMID-targeted invalidation with CR0.VMW wildcard masking (§6.3.9).
+            CommandType::TlbiS12Vmall | CommandType::TlbiS2Ipa | CommandType::TlbiSS12Vmall | CommandType::TlbiSS2Ipa => {
+                // CONF-GAP-12: apply CR0.VMW wildcard mask to VMID comparison.
+                let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
+                let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
+                self.tlb_cache.invalidate_by_vmid_with_mask(command.vmid, vmid_mask);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
@@ -3398,6 +3802,8 @@ impl SMMU {
                 // (§7.1 / §4.1.3 — command errors use SMMU_CMDQ_CONS.ERR + GERROR,
                 // not the Event queue).
                 if command.cs == 0b11 {
+                    // CONF-GAP-17: write CERROR_ILL to CMDQ_CONS.ERR before signalling GERROR (§6.3.17).
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
                     // BUG-09/15 fix: do NOT call fetch_xor here.  Per §6.3.19 / §7.5,
                     // GERROR bits use "activate-only-if-inactive" (OR) semantics —
                     // the SMMU must not toggle a bit when the error is already active.
@@ -3410,6 +3816,9 @@ impl SMMU {
                 }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
+                    // CONF-GAP-18: track last CMD_SYNC completion signal type (§4.7.3).
+                    // CS=1 = SIG_IRQ, CS=2 = SIG_MSI.
+                    self.cmd_sync_last_signal_type.store(command.cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     // FINDING-NEW-44: use the stream's configured security state
                     // instead of hardcoding NonSecure.
@@ -3493,39 +3902,15 @@ impl SMMU {
                     }
                 }
             },
-            // CMD_CFGI_STE (§4.3.1): invalidate STE for a specific stream.
-            // ARM §4.3.1: if the SID is unknown, this is a C_BAD_STREAMID error
-            // that sets CMDQ_ERR and halts command queue processing (FINDING-M-06).
+            // CMD_CFGI_STE (§4.3.1) — CONF-GAP-2 fix:
+            // Invalidate any cached STE for the given StreamID.  If the StreamID
+            // is unknown there is nothing cached to evict — this is a silent no-op.
+            // §4.3.1 defines no error condition for an unknown StreamID.
+            // C_BAD_STREAMID is a *transaction-path* fault (§7.3.3), not raised here.
             CommandType::CfgiSte => {
-                // BUG-RUST-D fix: use get() which atomically checks existence under the
-                // shard lock, eliminating the TOCTOU window of a separate contains_key() call.
-                if self.streams.get(&command.stream_id).is_none() {
-                    // Generate C_BAD_STREAMID event and set CMDQ_ERR
-                    // ARM §4.3.1: any unknown StreamID, including 0, must generate
-                    // C_BAD_STREAMID + GERROR_CMDQ_ERR (BUG-RUST-04).
-                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                    let event = EventEntry {
-                        event_type: EventType::CBadStreamid,
-                        stream_id: command.stream_id,
-                        pasid: command.pasid,
-                        address: 0,
-                        security_state: command.security_state,
-                        error_code: 0x02,  // C_BAD_STREAMID event number per §7.3.3 (0x03 = F_STE_FETCH §7.3.4)
-                        timestamp,
-                        stall: false,
-                        stag: 0,
-                    };
-                    // §6.3.12 / §7.3.3: only record C_BAD_STREAMID in the event queue
-                    // when CR2.RECINVSID == 1.  GERROR.CMDQ_ERR is still signalled
-                    // unconditionally (via the Err return caught in process_command_queue).
-                    if (self.cr2.load(Ordering::Acquire) & Self::CR2_RECINVSID) != 0 {
-                        let _ = self.submit_event(event);
-                    }
-                    return Err(SMMUError::InvalidCommandParameters(format!(
-                        "CMD_CFGI_STE: unknown stream_id {}", command.stream_id
-                    )));
-                }
-                // Known stream: no TLB state to flush in this model.
+                // Nothing to flush if the stream does not exist; no-op is correct.
+                // (For a real HW model with an STE cache, this would evict the cached
+                //  entry if present, and be a harmless no-op if not.)
             },
             // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (ARM §4.3.2):
             // Both use opcode 0x04 (CfgiAll); the `range` field distinguishes them.
@@ -3571,15 +3956,12 @@ impl SMMU {
             CommandType::PrefetchConfig
             | CommandType::PrefetchAddr => {},
             // §4.1.1: EL3 TLB invalidation commands — invalidate all entries globally.
-            CommandType::TlbiEl3All | CommandType::TlbiEl3Va => {
+            CommandType::TlbiEl3All => {
                 self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // §4.1.1: Secure EL2 TLB invalidation commands — invalidate all entries.
-            CommandType::TlbiSEl2All
-            | CommandType::TlbiSEl2Va
-            | CommandType::TlbiSEl2Vaa
-            | CommandType::TlbiSnhAll => {
+            // §4.1.1: Secure EL2 ALL/SNH all — invalidate all entries.
+            CommandType::TlbiSEl2All | CommandType::TlbiSnhAll => {
                 self.tlb_cache.invalidate_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -3588,15 +3970,17 @@ impl SMMU {
                 self.tlb_cache.invalidate_by_asid(command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // §4.1.1: Secure S12 / S2 VMID-targeted TLB invalidation.
-            CommandType::TlbiSS12Vmall | CommandType::TlbiSS2Ipa => {
-                self.tlb_cache.invalidate_by_vmid(command.vmid);
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-            },
             // §4.1.1: CMD_CFGI_VMS_PIDM — no TLB state to flush in this model.
             CommandType::CfgiVmsPidm => {},
-            // §4.1.1: DPTI commands — no dirty-tracking state in this model.
-            CommandType::DptiAll | CommandType::DptiPa => {},
+            // §4.6.1 (CONF-GAP-4 fix): DPTI commands require IDR3.DPT=1.
+            // This model does not implement DPT (IDR3.DPT=0), so CMD_DPTI_ALL
+            // and CMD_DPTI_PA must result in CERROR_ILL per §4.6.1.
+            CommandType::DptiAll | CommandType::DptiPa => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_DPTI_ALL/DPTI_PA: IDR3.DPT=0, dirty page tracking not supported — CERROR_ILL (§4.6.1)".to_string(),
+                ));
+            },
         }
 
         Ok(())
@@ -5133,32 +5517,40 @@ mod tests {
         );
     }
 
-    // ── BUG-RUST-D: CfgiSte must use get() not contains_key() ───────────────
+    // ── CONF-GAP-2 / BUG-RUST-D: CfgiSte for unknown stream is a silent no-op ──
 
-    /// BUG-RUST-D: Structural correctness test — CfgiSte for unknown stream
-    /// must still produce C_BAD_STREAMID after replacing contains_key with get().
-    /// CR2.RECINVSID must be set so the event is recorded in the event queue.
+    /// CONF-GAP-2: CMD_CFGI_STE for an unknown StreamID must be a silent no-op
+    /// per ARM §4.3.1.  process_command_queue() must return Ok, no C_BAD_STREAMID
+    /// event must be recorded, and GERROR.CMDQ_ERR must remain inactive.
     #[test]
     fn bug_rust_d_cfgi_ste_unknown_stream_uses_get() {
         let smmu = SMMU::new();
         smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
-        // §6.3.12: set RECINVSID so C_BAD_STREAMID events are recorded.
+        // Set RECINVSID=1 to maximise sensitivity — should still produce no event.
         smmu.set_cr2(SMMU::CR2_RECINVSID);
 
-        // Submit CfgiSte for unknown stream — must fail with InvalidCommandParameters.
+        // Submit CfgiSte for unknown stream — must be a silent no-op.
         let cmd = CommandEntry::new(CommandType::CfgiSte, 0xBEEF, 0);
         smmu.submit_command(cmd).unwrap();
         let result = smmu.process_command_queue();
         assert!(
-            result.is_err(),
-            "BUG-RUST-D: CfgiSte for unknown stream must return error; got {result:?}"
+            result.is_ok(),
+            "CONF-GAP-2: CfgiSte for unknown stream must be a silent no-op (Ok), got {result:?}"
         );
 
-        // Event queue must contain C_BAD_STREAMID event.
+        // No C_BAD_STREAMID event must be generated.
         let events = smmu.get_events();
         assert!(
-            events.iter().any(|e| e.stream_id == 0xBEEF),
-            "BUG-RUST-D: C_BAD_STREAMID event for stream 0xBEEF must be in event queue"
+            !events.iter().any(|e| e.stream_id == 0xBEEF),
+            "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT generate C_BAD_STREAMID event (§4.3.1)"
+        );
+
+        // GERROR.CMDQ_ERR must remain inactive.
+        let active = smmu.get_gerror() ^ smmu.get_gerrorn();
+        assert_eq!(
+            active & SMMU::GERROR_CMDQ_ERR,
+            0,
+            "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR"
         );
     }
 
@@ -5172,8 +5564,9 @@ mod tests {
         let smmu = SMMU::new();
         smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-        // Trigger CMDQ_ERR by submitting a bad command.
-        let cmd = CommandEntry::new(CommandType::CfgiSte, 0xDEAD, 0);
+        // Trigger CMDQ_ERR: CMD_SYNC with CS=3 (Reserved → CERROR_ILL per §4.7.3).
+        let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+        cmd.cs = 3;
         smmu.submit_command(cmd).unwrap();
         let _ = smmu.process_command_queue();
 
@@ -5182,12 +5575,13 @@ mod tests {
         assert_ne!(
             active & SMMU::GERROR_CMDQ_ERR,
             0,
-            "BUG-RUST-E: CMDQ_ERR must be active after bad command"
+            "BUG-RUST-E: CMDQ_ERR must be active after CMD_SYNC CS=3 (CERROR_ILL)"
         );
 
         // signal_gerror() with already-active bit must NOT double-toggle.
         // Calling signal_gerror indirectly by triggering another bad command.
-        let cmd2 = CommandEntry::new(CommandType::CfgiSte, 0xDEAD2, 0);
+        let mut cmd2 = CommandEntry::new(CommandType::Sync, 0, 0);
+        cmd2.cs = 3;
         smmu.submit_command(cmd2).unwrap();
         let _ = smmu.process_command_queue();
 
@@ -5195,7 +5589,7 @@ mod tests {
         assert_ne!(
             active2 & SMMU::GERROR_CMDQ_ERR,
             0,
-            "BUG-RUST-E: CMDQ_ERR must remain active (not double-toggled) after second bad command"
+            "BUG-RUST-E: CMDQ_ERR must remain active (not double-toggled) after second CMD_SYNC CS=3"
         );
     }
 

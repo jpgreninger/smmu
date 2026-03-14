@@ -29,12 +29,25 @@ public:
     static constexpr uint32_t CR0_EVENTQEN = (1u << 2); ///< bit 2: Event queue enable (§6.3.9)
     static constexpr uint32_t CR0_CMDQEN   = (1u << 3); ///< bit 3: Command queue enable (§6.3.9)
     static constexpr uint32_t CR0_ATSCHK   = (1u << 4); ///< bit 4: ATS CHK enable (§6.3.9)
+    // CONF-GAP-12: SMMU_CR0.VMW VMID wildcard matching (§6.3.9)
+    static constexpr uint32_t CR0_VMW_SHIFT = 6u;            ///< VMW field starts at bit 6 (ARM IHI0070G.b §6.3.9.1: bits[8:6])
+    static constexpr uint32_t CR0_VMW_MASK  = (7u << 6);     ///< bits[8:6]: VMW field
 
     // §6.3.12 SMMU_CR2 register bit constants — ARM IHI0070G.b §6.3.12.
     // RECINVSID (bit 1): when 1, C_BAD_STREAMID events are recorded in the event queue.
     // When 0 (reset default), C_BAD_STREAMID events are suppressed (not recorded).
     // GERROR.CMDQ_ERR is always toggled unconditionally for CMD_CFGI_STE with bad StreamID.
     static constexpr uint32_t CR2_RECINVSID = (1u << 1); ///< bit 1: Record invalid StreamID events
+    // CONF-GAP-11: CR2.PTM — broadcast TLB maintenance participation (§6.3.12)
+    static constexpr uint32_t CR2_PTM       = (1u << 2); ///< bit 2: Participate in TLB maintenance
+
+    // CONF-GAP-10: SMMU_CR1 register bit constants — ARM IHI0070G.b §6.3.11.
+    static constexpr uint32_t CR1_TABLE_SH = (0x3u << 10); ///< bits[11:10]: table walk shareability
+    static constexpr uint32_t CR1_TABLE_OC = (0x3u << 8);  ///< bits[9:8]: table walk outer cache
+    static constexpr uint32_t CR1_TABLE_IC = (0x3u << 6);  ///< bits[7:6]: table walk inner cache
+    static constexpr uint32_t CR1_QUEUE_SH = (0x3u << 4);  ///< bits[5:4]: queue shareability
+    static constexpr uint32_t CR1_QUEUE_OC = (0x3u << 2);  ///< bits[3:2]: queue outer cache
+    static constexpr uint32_t CR1_QUEUE_IC = (0x3u << 0);  ///< bits[1:0]: queue inner cache
 
     // Default constructor with default configuration
     SMMU();
@@ -140,7 +153,17 @@ public:
 
     // Cache invalidation command handling (Task 5.3.4)
     void executeInvalidationCommand(const CommandEntry& command);
-    void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid);
+    // CONF-GAP-6: Added iova parameter for VA-targeted selective TLBI (§4.4)
+    // CONF-GAP-8: Added ril/tg/num/scale for range invalidation (§4.4.1.1)
+    void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid, IOVA iova = 0, bool ril = false, uint8_t tg = 0, uint8_t num = 0, uint8_t scale = 0);
+
+    // CONF-GAP-11: §6.3.12 CR2.PTM — broadcast TLB maintenance participation.
+    // This method models the hardware path where a PE broadcast TLB invalidation
+    // propagates to attached SMMUs.  When CR2.PTM=0 the SMMU does NOT participate
+    // (request is silently ignored).  When CR2.PTM=1 the SMMU executes the
+    // invalidation.  Command-queue TLBI commands are NOT gated by PTM — only
+    // this broadcast path is.
+    void receiveBroadcastTLBI(CommandType type, uint16_t asid = 0, uint16_t vmid = 0, IOVA va = 0);
     void executeATCInvalidationCommand(StreamID streamID, PASID pasid, IOVA startAddr, IOVA endAddr, SecurityState securityState);
     
     // ARM §6.3.17: SMMU_GERROR / SMMU_GERRORN register model (FINDING-M-06)
@@ -168,12 +191,28 @@ public:
     void setGbpaAbort(bool abort);
     /// Returns the current value of SMMU_GBPA.ABORT.
     bool isGbpaAbort() const;
+    // CONF-GAP-13: Full GBPA output attribute configuration (§6.3.22)
+    /// Set all SMMU_GBPA fields including output attributes.
+    void setGbpaConfig(const GbpaConfig& cfg);
+    /// Get the current SMMU_GBPA configuration.
+    GbpaConfig getGbpaConfig() const;
 
     // §6.3.9 SMMU_CR0 register (CT-33)
     /// Set the SMMU_CR0 register value.  Bit 0 = SMMUEN, bit 2 = EVENTQEN, bit 3 = CMDQEN.
     void setCR0(uint32_t value);
     /// Get the current SMMU_CR0 register value.
     uint32_t getCR0() const;
+    // CONF-GAP-9: SMMU_CR0ACK register — mirrors CR0 after write (§6.3.10)
+    /// Get the current SMMU_CR0ACK register value (read-only hardware echo of CR0).
+    uint32_t getCR0ACK() const;
+    /// Set the SMMU_CR0ACK register value (software-model synchronous update).
+    void setCR0ACK(uint32_t v);
+
+    // CONF-GAP-10: SMMU_CR1 register (§6.3.11)
+    /// Set the SMMU_CR1 register value.
+    void setCR1(uint32_t value);
+    /// Get the current SMMU_CR1 register value.
+    uint32_t getCR1() const;
 
     // §6.3.12 SMMU_CR2 register.
     /// Set the SMMU_CR2 register value.  Bit 1 = RECINVSID.
@@ -188,6 +227,32 @@ public:
     void setStrtabLog2Size(uint8_t log2size);
     /// Get the current LOG2SIZE value.
     uint8_t getStrtabLog2Size() const;
+    // CONF-GAP-3: 2-level stream table format (§3.3.1.2, §6.3.25)
+    /// Set the stream table format (linear or 2-level).
+    void setStrtabFormat(StreamTableFormat fmt);
+    /// Get the current stream table format.
+    StreamTableFormat getStrtabFormat() const;
+    /// Set the SPLIT value (number of StreamID bits used for L2 index; default 6, range 1-15).
+    void setStrtabSplit(uint8_t split);
+    /// Get the current SPLIT value.
+    uint8_t getStrtabSplit() const;
+
+    // CONF-GAP-17: CMDQ_CONS.ERR field accessor (§6.3.17)
+    /// Get the current CMDQ_CONS.ERR field value (CERROR_NONE=0, CERROR_ILL=1, etc.).
+    uint32_t getCmdqConsErr() const;
+
+    // CONF-GAP-18: CMD_SYNC MSI signalling registers (§4.7.3)
+    /// Set/get CMD_SYNC MSI attribute register.
+    void setCmdqSyncMsiAttr(uint32_t v);
+    uint32_t getCmdqSyncMsiAttr() const;
+    /// Set/get CMD_SYNC MSI address register (64-bit).
+    void setCmdqSyncMsiAddr(uint64_t v);
+    uint64_t getCmdqSyncMsiAddr() const;
+    /// Set/get CMD_SYNC MSI data register.
+    void setCmdqSyncMsiData(uint32_t v);
+    uint32_t getCmdqSyncMsiData() const;
+    /// Get the last CMD_SYNC completion signal type used.
+    CmdSyncSignalType getCmdSyncLastSignalType() const;
 
     // ARM §3.12.2: Stall queue management (FINDING-NEW-08)
     /// Returns a snapshot of all currently stalled transactions.
@@ -299,6 +364,20 @@ private:
     // BUG-CPP-NEW-1 fix: converted to std::atomic<bool> to eliminate the data race.
     std::atomic<bool> smmuen_;            // SMMUEN bit — false (disabled) at reset
     std::atomic<bool> gbpaAbort_;         // GBPA.ABORT bit — false (bypass) at reset
+    // CONF-GAP-9: CR0ACK register — synchronous mirror of CR0 (§6.3.10)
+    std::atomic<uint32_t> cr0ack_;        // SMMU_CR0ACK register; mirrors cr0_ on write
+    // CONF-GAP-10: CR1 register — table/queue memory attribute fields (§6.3.11)
+    std::atomic<uint32_t> cr1_;           // SMMU_CR1 register; bits[11:0] for table/queue attrs
+    // CONF-GAP-13: GBPA full config (protected by queueMutex for consistency)
+    GbpaConfig gbpaConfig_;               // SMMU_GBPA register fields; abort mirrors gbpaAbort_
+    // CONF-GAP-3: 2-level stream table configuration (atomic uint8_t for lock-free reads)
+    std::atomic<uint8_t> strtabFmt_;      // StreamTableFormat encoded as uint8_t (0=linear,1=2level)
+    std::atomic<uint8_t> strtabSplit_;    // SPLIT: number of L2 index bits (default 6)
+    // CONF-GAP-18: CMD_SYNC MSI signalling registers
+    std::atomic<uint32_t> cmdqSyncMsiAttr_;  // CMDQ_SYNC_MSI_ATTR
+    std::atomic<uint64_t> cmdqSyncMsiAddr_;  // CMDQ_SYNC_MSI_ADDR (64-bit)
+    std::atomic<uint32_t> cmdqSyncMsiData_;  // CMDQ_SYNC_MSI_DATA
+    std::atomic<uint8_t>  cmdSyncLastSig_;   // Last CMD_SYNC signal type (as CmdSyncSignalType)
 
     // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
     // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
@@ -339,6 +418,10 @@ private:
     // TOCTOU race in the previous load-compare-fetch_xor pattern.
     // ARM IHI0070G.b §6.3.19: "SMMU does not toggle bit[x] if already active."
     void signalGerror(uint32_t bits);
+    // CONF-GAP-17: Write ERR field of CMDQ_CONS atomically (§6.3.17)
+    void writeCmdqConsErr(uint32_t errCode);
+    // CONF-GAP-3: Validate StreamID against 2-level table bounds
+    bool validateStreamID2Level(StreamID streamID) const;
 
     // Helper methods
     void recordFault(const FaultRecord& fault);

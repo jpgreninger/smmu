@@ -25,10 +25,12 @@ fn make_smmu() -> SMMU {
     smmu
 }
 
-/// Trigger a CMDQ_ERR by submitting a command for an unknown stream.
-fn trigger_cmdq_err(smmu: &SMMU, stream_id: u32) {
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, stream_id, 0))
-        .unwrap();
+/// Trigger a CMDQ_ERR by submitting a CMD_SYNC with CS=3 (Reserved → CERROR_ILL per §4.7.3).
+/// (CONF-GAP-2 fix: CMD_CFGI_STE for unknown StreamID is now a silent no-op per §4.3.1.)
+fn trigger_cmdq_err(smmu: &SMMU, _stream_id: u32) {
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3; // CS=0b11 is Reserved → CERROR_ILL per §4.7.3
+    smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 }
 

@@ -73,6 +73,11 @@ fn test_atc_completion_uses_stream_security_state() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
     smmu.submit_command(cmd).expect("submit_command must succeed");
@@ -163,6 +168,11 @@ fn test_atc_completion_nonsecure_stream_stays_nonsecure() {
         range: 31,
         leaf: false,
         cs: 0,
+        tg: 0,
+        num: 0,
+        scale: 0,
+        ttl: 0,
+        ril: false,
         security_state: SecurityState::NonSecure,
     };
     smmu.submit_command(cmd).expect("submit_command must succeed");

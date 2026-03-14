@@ -448,7 +448,7 @@ pub mod types;
 pub mod prelude;
 
 // Re-export main types for convenience
-pub use smmu::{StallRecord, SMMU};
+pub use smmu::{GbpaConfig, StallRecord, SMMU};
 
 // Re-export core types
 pub use types::{
@@ -501,6 +501,9 @@ pub use types::{
 
     PASID,
     PASID_MAX,
+
+    // Stream table format
+    StreamTableFormat,
 };
 
 // Re-export builder types for ergonomic API

@@ -96,6 +96,7 @@ set(UNIT_TEST_SOURCES
     test_bug2_bug4_classify_tlb.cpp
     test_bug_cpp_s1_double_translation.cpp
     test_bugs_11mar2026.cpp
+    test_conf_gaps_11_fixes.cpp
     ../test_thread_safety.cpp
 )
 

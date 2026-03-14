@@ -72,6 +72,15 @@ SMMU::SMMU()
       cr2_(0),
       smmuen_(false),
       gbpaAbort_(false),
+      cr0ack_(0),
+      cr1_(0),
+      gbpaConfig_(),
+      strtabFmt_(static_cast<uint8_t>(StreamTableFormat::Linear)),
+      strtabSplit_(6u),
+      cmdqSyncMsiAttr_(0),
+      cmdqSyncMsiAddr_(0),
+      cmdqSyncMsiData_(0),
+      cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1) {
@@ -114,6 +123,15 @@ SMMU::SMMU(const SMMUConfiguration& config)
       cr2_(0),
       smmuen_(false),
       gbpaAbort_(false),
+      cr0ack_(0),
+      cr1_(0),
+      gbpaConfig_(),
+      strtabFmt_(static_cast<uint8_t>(StreamTableFormat::Linear)),
+      strtabSplit_(6u),
+      cmdqSyncMsiAttr_(0),
+      cmdqSyncMsiAddr_(0),
+      cmdqSyncMsiData_(0),
+      cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1) {
@@ -171,7 +189,43 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         allPerms.read = true;
         allPerms.write = true;
         allPerms.execute = true;
-        return makeTranslationSuccess(static_cast<PA>(iova), allPerms, securityState);
+        {
+            TranslationData td(static_cast<PA>(iova), allPerms, securityState);
+            // CONF-GAP-13: Apply GBPA output attributes to bypass result (§6.3.22).
+            GbpaConfig gbpa;
+            {
+                std::lock_guard<std::recursive_mutex> glock(queueMutex);
+                gbpa = gbpaConfig_;
+            }
+            if (gbpa.mtCfg) {
+                td.memType = gbpa.memAttr;
+            }
+            td.shareability = gbpa.shCfg;
+            td.allocHint    = gbpa.allocCfg;
+            td.instCfg      = gbpa.instCfg;
+            td.privCfg      = gbpa.privCfg;
+            return TranslationResult(td);
+        }
+    }
+
+    // CONF-GAP-3: 2-level stream table StreamID validation.
+    // When format is TwoLevel, validate L1 index is in bounds.
+    if (static_cast<StreamTableFormat>(strtabFmt_.load(std::memory_order_acquire)) == StreamTableFormat::TwoLevel) {
+        if (!validateStreamID2Level(streamID)) {
+            FaultRecord fault;
+            fault.streamID = streamID;
+            fault.pasid = pasid;
+            fault.address = iova;
+            fault.faultType = FaultType::BadStreamID;
+            fault.accessType = accessType;
+            fault.securityState = securityState;
+            fault.timestamp = getCurrentTimestamp();
+            recordFault(fault);
+            if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
+                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            }
+            return makeTranslationError(SMMUError::InvalidStreamID);
+        }
     }
 
     // BUG-15: StreamID is uint32_t and MAX_STREAM_ID is 0xFFFFFFFF, so
@@ -856,6 +910,23 @@ void SMMU::reset() {
     smmuen_.store(false, std::memory_order_release);
     gbpaAbort_.store(false, std::memory_order_release);
     cr0_.store(0, std::memory_order_release);
+    // CONF-GAP-9: Reset CR0ACK to 0 (mirrors CR0 reset value)
+    cr0ack_.store(0, std::memory_order_release);
+    // CONF-GAP-10: Reset CR1 to 0
+    cr1_.store(0, std::memory_order_release);
+    // CONF-GAP-13: Reset GBPA config to default (all zeros, no abort)
+    {
+        std::lock_guard<std::recursive_mutex> glock(queueMutex);
+        gbpaConfig_ = GbpaConfig();
+    }
+    // CONF-GAP-3: Reset stream table format to linear with default split
+    strtabFmt_.store(static_cast<uint8_t>(StreamTableFormat::Linear), std::memory_order_release);
+    strtabSplit_.store(6u, std::memory_order_release);
+    // CONF-GAP-18: Reset CMD_SYNC MSI registers to 0
+    cmdqSyncMsiAttr_.store(0, std::memory_order_release);
+    cmdqSyncMsiAddr_.store(0, std::memory_order_release);
+    cmdqSyncMsiData_.store(0, std::memory_order_release);
+    cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::None), std::memory_order_release);
 
     // BUG-R2-CPP-1 fix: restore strtabLog2Size_ to 32 (accept all 32-bit
     // StreamIDs) and cr2_ to 0 (RECINVSID=0 — events suppressed) per ARM
@@ -2013,12 +2084,20 @@ void SMMU::processCommandQueue() {
                 recordFault(illFault);
                 // BUG-NEW-04 fix: set GERROR.CMDQ_ERR so software can detect
                 // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
+                // CONF-GAP-17: Write CERROR_ILL to CMDQ_CONS.ERR before signalling GERROR.
+                writeCmdqConsErr(CERROR_ILL);
                 // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
                 // the TOCTOU load-compare-fetch_xor pattern.
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
+            // CONF-GAP-18: Record the signal type for CS=1 (IRQ) and CS=2 (MSI).
+            if (command.cs == 1u) {
+                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Irq), std::memory_order_release);
+            } else if (command.cs == 2u) {
+                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Msi), std::memory_order_release);
+            }
             if (command.cs != 0) {
                 // FINDING-NEW-39: derive security state from the stream config rather than
                 // hardcoding NonSecure, per ARM §4.8.
@@ -2188,40 +2267,13 @@ size_t SMMU::getPRIQueueSize() const {
 void SMMU::executeInvalidationCommand(const CommandEntry& command) {
     // ARM SMMU v3 spec: Execute cache invalidation commands
     switch (command.type) {
-        case CommandType::CFGI_STE: {
-            // BUG-NEW2-04 fix: check stream existence before invalidating.
-            // ARM §4.3.1: CMD_CFGI_STE with an unknown StreamID must generate
-            // C_BAD_STREAMID and set GERROR.CMDQ_ERR.
-            size_t cfgiStripe = getStreamStripe(command.streamID);
-            bool streamFound = false;
-            {
-                std::lock_guard<std::mutex> stripeLock(streamLockStripes[cfgiStripe]);
-                streamFound = (streamMap.find(command.streamID) != streamMap.end());
-            }
-            if (!streamFound) {
-                // BUG-14 fix / ARM §7.3.3: use command.securityState, not hardcoded
-                // NonSecure.  §7.3 requires the event to be recorded in the Event queue
-                // matching the security state of the StreamID causing the event.
-                // §6.3.12 SMMU_CR2.RECINVSID: only record the C_BAD_STREAMID event when
-                // RECINVSID==1.  GERROR.CMDQ_ERR is always toggled unconditionally.
-                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                                  command.startAddress, command.securityState);
-                }
-                // BUG-CPP-DBGR-2 fix: wrap the GERROR XOR-toggle in queueMutex.
-                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
-                // the TOCTOU load-compare-fetch_xor pattern.  signalGerror() is
-                // safe to call with or without queueMutex held; the CAS loop
-                // handles concurrent modifications from clearGerror().
-                {
-                    std::lock_guard<std::recursive_mutex> qLock(queueMutex);
-                    signalGerror(GERROR_CMDQ_ERR);
-                }
-                break;
-            }
+        case CommandType::CFGI_STE:
+            // ARM §4.3.1 (CONF-GAP-2 fix): CMD_CFGI_STE is a cache invalidation command.
+            // If the StreamID is unknown there is nothing cached to invalidate — this is a
+            // silent no-op.  §4.3.1 defines no error condition for an unknown StreamID;
+            // C_BAD_STREAMID is raised only on the *translation* path (§7.3.3), not here.
             invalidateStreamCache(command.streamID);
             break;
-        }
 
         case CommandType::CFGI_ALL:
             // ARM §4.3.2: CMD_CFGI_ALL (range==31) or CMD_CFGI_STE_RANGE (range<31).
@@ -2284,7 +2336,7 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
         case CommandType::TLBI_S2_IPA:
         case CommandType::TLBI_NSNH_ALL:
             // TLB invalidation commands
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
             break;
             
         case CommandType::ATC_INV: {
@@ -2319,7 +2371,7 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
         case CommandType::TLBI_S_S12_VMALL:
         case CommandType::TLBI_S_S2_IPA:
         case CommandType::TLBI_SNH_ALL:
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
             break;
 
         default:
@@ -2329,15 +2381,73 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
     }
 }
 
-void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid) {
+void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid, IOVA iova, bool ril, uint8_t tg, uint8_t num, uint8_t scale) {
+    // CONF-GAP-11: CR2.PTM controls *broadcast* TLB maintenance participation
+    // (§6.3.12): when PTM=0 the SMMU ignores OS-level broadcast TLB invalidations
+    // propagated by hardware.  Command-queue TLBI commands are explicit software
+    // commands sent directly to the SMMU — they are NOT broadcast operations and
+    // MUST NOT be gated by PTM.  PTM only affects the receiveBroadcastTLBI() path.
+
+    // CONF-GAP-8: Helper to compute range end for RIL TLBI.
+    // Granule size in bytes: tg=0→4KB, tg=1→64KB, tg=2→16KB
+    // Range covers (num+1) * (1 << (5*scale)) granules starting at iova.
+    auto computeRILRangeEnd = [](IOVA start, uint8_t tg_, uint8_t num_, uint8_t scale_) -> IOVA {
+        uint64_t granule;
+        switch (tg_) {
+            case 1:  granule = 64u * 1024u; break;
+            case 2:  granule = 16u * 1024u; break;
+            default: granule = 4u  * 1024u; break;
+        }
+        // scale_ clamped to 0-7 per spec; 5*scale_ max = 35 which fits uint64_t
+        uint64_t scaleShift = (scale_ > 7u) ? 35u : (static_cast<uint64_t>(5u) * scale_);
+        uint64_t blocks = static_cast<uint64_t>(num_) + 1u;
+        uint64_t rangeBytes = blocks * (static_cast<uint64_t>(1u) << scaleShift) * granule;
+        if (rangeBytes == 0 || start > UINT64_MAX - rangeBytes + 1u) {
+            return UINT64_MAX; // saturate
+        }
+        return start + rangeBytes - 1u;
+    };
+
+    // CONF-GAP-12: VMID wildcard masking helper.
+    auto getVmidMask = [this]() -> uint16_t {
+        uint8_t vmw = static_cast<uint8_t>((cr0_.load(std::memory_order_acquire) >> CR0_VMW_SHIFT) & 7u);
+        if (vmw >= 16u) return 0u; // mask all bits (wildcard = all VMIDs)
+        return static_cast<uint16_t>((0xFFFFu << vmw) & 0xFFFFu);
+    };
+
     // ARM SMMU v3 spec: Execute TLB-specific invalidation commands
     switch (type) {
         case CommandType::TLBI_NH_ALL:
-        case CommandType::TLBI_NH_VA:
-        case CommandType::TLBI_NH_VAA:
         case CommandType::TLBI_NSNH_ALL:
-            // Non-secure Hyp / VA / VAA TLB invalidation — global flush
+            // Non-secure all TLB invalidation — global flush
             invalidateTranslationCache();
+            break;
+
+        case CommandType::TLBI_NH_VA:
+            // CONF-GAP-6: VA+ASID targeted invalidation (or RIL range)
+            if (ril) {
+                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+            } else {
+                tlbCache->invalidateByVAAndASID(iova, asid);
+            }
+            break;
+
+        case CommandType::TLBI_NH_VAA:
+            // CONF-GAP-6: VAA = VA all-ASID invalidation (or RIL range, all ASIDs)
+            if (ril) {
+                // For VAA, invalidate the range for all ASIDs (pass 0 and use VA-only for each page)
+                IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
+                // invalidateByVARange with wildcard asid: use invalidateByVA for the range
+                // Approximate: scan page-by-page (small ranges expected)
+                IOVA cur = iova & ~PAGE_MASK;
+                while (cur <= rangeEnd) {
+                    tlbCache->invalidateByVA(cur);
+                    if (cur > UINT64_MAX - PAGE_SIZE) break;
+                    cur += PAGE_SIZE;
+                }
+            } else {
+                tlbCache->invalidateByVA(iova);
+            }
             break;
 
         case CommandType::TLBI_NH_ASID:
@@ -2346,10 +2456,32 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_EL2_ALL:
-        case CommandType::TLBI_EL2_VA:
-        case CommandType::TLBI_EL2_VAA:
             // EL2 TLB invalidation — global flush
             invalidateTranslationCache();
+            break;
+
+        case CommandType::TLBI_EL2_VA:
+            // CONF-GAP-6: VA+ASID targeted invalidation
+            if (ril) {
+                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+            } else {
+                tlbCache->invalidateByVAAndASID(iova, asid);
+            }
+            break;
+
+        case CommandType::TLBI_EL2_VAA:
+            // CONF-GAP-6: VAA EL2 — VA all-ASID invalidation
+            if (ril) {
+                IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
+                IOVA cur = iova & ~PAGE_MASK;
+                while (cur <= rangeEnd) {
+                    tlbCache->invalidateByVA(cur);
+                    if (cur > UINT64_MAX - PAGE_SIZE) break;
+                    cur += PAGE_SIZE;
+                }
+            } else {
+                tlbCache->invalidateByVA(iova);
+            }
             break;
 
         case CommandType::TLBI_EL2_ASID:
@@ -2359,34 +2491,64 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
 
         case CommandType::TLBI_S12_VMALL:
         case CommandType::TLBI_S2_IPA:
-            // ARM §4.4: VMID-targeted invalidation (CMD_TLBI_S12_VMALL 0x28, CMD_TLBI_S2_IPA 0x2A)
-            tlbCache->invalidateByVMID(vmid);
+            // ARM §4.4: VMID-targeted invalidation — CONF-GAP-12: apply VMW mask
+            tlbCache->invalidateByVMIDWithMask(vmid, getVmidMask());
+            break;
+
+        case CommandType::TLBI_S_S12_VMALL:
+        case CommandType::TLBI_S_S2_IPA:
+            // Secure Stage-1+2 / Stage-2 IPA VMID-targeted invalidation — apply VMW mask
+            tlbCache->invalidateByVMIDWithMask(vmid, getVmidMask());
             break;
 
         // §4.1.1 / CT-30: EL3 and Secure EL2 TLB invalidation
         case CommandType::TLBI_EL3_ALL:
-        case CommandType::TLBI_EL3_VA:
         case CommandType::TLBI_SNH_ALL:
             // EL3 / Secure NH TLB invalidation — global flush in SW model
             invalidateTranslationCache();
             break;
 
+        case CommandType::TLBI_EL3_VA:
+            // EL3 VA targeted invalidation
+            if (ril) {
+                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+            } else {
+                tlbCache->invalidateByVAAndASID(iova, asid);
+            }
+            break;
+
         case CommandType::TLBI_S_EL2_ALL:
-        case CommandType::TLBI_S_EL2_VA:
-        case CommandType::TLBI_S_EL2_VAA:
             // Secure EL2 TLB invalidation — global flush in SW model
             invalidateTranslationCache();
+            break;
+
+        case CommandType::TLBI_S_EL2_VA:
+            // Secure EL2 VA targeted invalidation
+            if (ril) {
+                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+            } else {
+                tlbCache->invalidateByVAAndASID(iova, asid);
+            }
+            break;
+
+        case CommandType::TLBI_S_EL2_VAA:
+            // Secure EL2 VAA invalidation
+            if (ril) {
+                IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
+                IOVA cur = iova & ~PAGE_MASK;
+                while (cur <= rangeEnd) {
+                    tlbCache->invalidateByVA(cur);
+                    if (cur > UINT64_MAX - PAGE_SIZE) break;
+                    cur += PAGE_SIZE;
+                }
+            } else {
+                tlbCache->invalidateByVA(iova);
+            }
             break;
 
         case CommandType::TLBI_S_EL2_ASID:
             // Secure EL2 ASID-targeted invalidation
             tlbCache->invalidateByASID(asid);
-            break;
-
-        case CommandType::TLBI_S_S12_VMALL:
-        case CommandType::TLBI_S_S2_IPA:
-            // Secure Stage-1+2 / Stage-2 IPA VMID-targeted invalidation
-            tlbCache->invalidateByVMID(vmid);
             break;
 
         default:
@@ -2448,13 +2610,8 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
     // ARM SMMU v3 spec: Execute cache invalidation commands (called with queueMutex held)
     switch (command.type) {
         case CommandType::CFGI_STE:
-            // Stream Table Entry invalidation — invalidate specific stream.
-            // PRE-CONDITION: callers must have already verified that command.streamID
-            // is a known StreamID (generating C_BAD_STREAMID + GERROR_CMDQ_ERR if
-            // not found) before calling this function.  ARM §4.3.1 does not define
-            // any error condition for a CFGI_STE targeting a non-existent stream
-            // (it is effectively a no-op); the stream-existence check is a model-
-            // internal safety gate applied upstream in processCommand().
+            // ARM §4.3.1 (CONF-GAP-2): CMD_CFGI_STE is a cache invalidation command.
+            // Unknown StreamID → silent no-op (nothing cached to evict).
             invalidateStreamCache(command.streamID);
             break;
 
@@ -2516,7 +2673,7 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
         case CommandType::TLBI_S2_IPA:
         case CommandType::TLBI_NSNH_ALL:
             // TLB invalidation commands
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
             break;
 
         case CommandType::ATC_INV: {
@@ -2557,7 +2714,7 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
         case CommandType::TLBI_S_S12_VMALL:
         case CommandType::TLBI_S_S2_IPA:
         case CommandType::TLBI_SNH_ALL:
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid);
+            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
             break;
 
         default:
@@ -2584,41 +2741,12 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // Could implement translation prefetching for specific addresses
             break;
 
-        case CommandType::CFGI_STE: {
-            // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE with an unknown StreamID
-            // (not present in the stream table) must generate C_BAD_STREAMID and
-            // set GERROR.CMDQ_ERR, per §4.3.1.
-            // BUG-NEW-08 fix: release queueMutex before acquiring the stripe lock.
-            // Lock ordering invariant: stripe_lock must never be acquired while
-            // queueMutex is held (translate() holds stripe_lock and then acquires
-            // queueMutex via generateEvent(), creating an ABBA deadlock otherwise).
-            bool streamFound = false;
-            {
-                size_t cfgiStripe = getStreamStripe(command.streamID);
-                queueLock.unlock();
-                {
-                    std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
-                    streamFound = (streamMap.find(command.streamID) != streamMap.end());
-                }
-                queueLock.lock();
-            }
-            if (!streamFound) {
-                // BUG-14 fix / ARM §7.3.3: use command.securityState (second call site).
-                // §6.3.12 SMMU_CR2.RECINVSID: only record the C_BAD_STREAMID event when
-                // RECINVSID==1.  GERROR.CMDQ_ERR is always toggled unconditionally.
-                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-                    generateEvent(EventType::C_BAD_STREAMID, command.streamID, command.pasid,
-                                  command.startAddress, command.securityState);
-                }
-                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
-                // the TOCTOU load-compare-fetch_xor pattern.
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
-            // Known StreamID — proceed with normal STE cache invalidation.
+        case CommandType::CFGI_STE:
+            // CONF-GAP-2 fix / ARM §4.3.1: CMD_CFGI_STE is a pure cache invalidation.
+            // Unknown StreamID → silent no-op (nothing cached to evict).
+            // C_BAD_STREAMID is a *transaction-path* error (§7.3.3), not raised here.
             executeInvalidationCommandLocked(command, queueLock);
             break;
-        }
 
         case CommandType::CFGI_ALL:
         case CommandType::CFGI_CD:
@@ -2717,7 +2845,11 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
 
         case CommandType::DPTI_ALL:
         case CommandType::DPTI_PA:
-            // Dirty page tracking invalidation — software model: no-op (log only).
+            // §4.6.1 (CONF-GAP-4 fix): DPTI commands require IDR3.DPT=1.
+            // This model does not implement DPT (IDR3.DPT=0), so DPTI_ALL and
+            // DPTI_PA must result in CERROR_ILL per §4.6.1.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
             break;
 
         default:
@@ -2725,6 +2857,8 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-NEW-05 fix: do not generate C_BAD_STE — the spec defines no
             // event type for "unknown command opcode".  GERROR.CMDQ_ERR is the
             // correct signal to software.
+            // CONF-GAP-17: Write CERROR_ILL to CMDQ_CONS.ERR for illegal commands.
+            writeCmdqConsErr(CERROR_ILL);
             // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
             // the TOCTOU load-compare-fetch_xor pattern.
             signalGerror(GERROR_CMDQ_ERR);
@@ -2792,6 +2926,8 @@ void SMMU::setCR0(uint32_t value) {
     // any thread that observes smmuen_==true is also guaranteed to see the updated cr0_.
     cr0_.store(value, std::memory_order_release);
     smmuen_.store((value & CR0_SMMUEN) != 0u, std::memory_order_release);
+    // CONF-GAP-9: CR0ACK mirrors CR0 synchronously (software model of §6.3.10)
+    cr0ack_.store(value, std::memory_order_release);
 }
 
 uint32_t SMMU::getCR0() const {
@@ -2811,6 +2947,125 @@ void SMMU::setCR2(uint32_t value) {
 
 uint32_t SMMU::getCR2() const {
     return cr2_.load(std::memory_order_acquire);
+}
+
+// CONF-GAP-9: SMMU_CR0ACK register (§6.3.10) — synchronous mirror of CR0.
+uint32_t SMMU::getCR0ACK() const {
+    return cr0ack_.load(std::memory_order_acquire);
+}
+
+void SMMU::setCR0ACK(uint32_t v) {
+    cr0ack_.store(v, std::memory_order_release);
+}
+
+// CONF-GAP-10: SMMU_CR1 register (§6.3.11) — table/queue memory attributes.
+void SMMU::setCR1(uint32_t value) {
+    cr1_.store(value, std::memory_order_release);
+}
+
+uint32_t SMMU::getCR1() const {
+    return cr1_.load(std::memory_order_acquire);
+}
+
+// CONF-GAP-13: GBPA full configuration (§6.3.22).
+void SMMU::setGbpaConfig(const GbpaConfig& cfg) {
+    {
+        std::lock_guard<std::recursive_mutex> glock(queueMutex);
+        gbpaConfig_ = cfg;
+    }
+    // Keep backward-compat gbpaAbort_ in sync with cfg.abort.
+    gbpaAbort_.store(cfg.abort, std::memory_order_release);
+}
+
+GbpaConfig SMMU::getGbpaConfig() const {
+    std::lock_guard<std::recursive_mutex> glock(queueMutex);
+    return gbpaConfig_;
+}
+
+// CONF-GAP-3: 2-level stream table format (§3.3.1.2).
+void SMMU::setStrtabFormat(StreamTableFormat fmt) {
+    strtabFmt_.store(static_cast<uint8_t>(fmt), std::memory_order_release);
+}
+
+StreamTableFormat SMMU::getStrtabFormat() const {
+    return static_cast<StreamTableFormat>(strtabFmt_.load(std::memory_order_acquire));
+}
+
+void SMMU::setStrtabSplit(uint8_t split) {
+    // Clamp to valid range 1-15 per ARM §6.3.25.
+    if (split < 1u) split = 1u;
+    if (split > 15u) split = 15u;
+    strtabSplit_.store(split, std::memory_order_release);
+}
+
+uint8_t SMMU::getStrtabSplit() const {
+    return strtabSplit_.load(std::memory_order_acquire);
+}
+
+bool SMMU::validateStreamID2Level(StreamID streamID) const {
+    // 2-level validation: L1 index = streamID >> split, L2 index = streamID & ((1<<split)-1)
+    // L1 table size = 2^(log2size - split), L2 table size = 2^split
+    uint8_t log2sz = strtabLog2Size_.load(std::memory_order_acquire);
+    uint8_t split  = strtabSplit_.load(std::memory_order_acquire);
+    if (split >= log2sz) {
+        // All StreamIDs map to a single L2 table — only check upper log2sz bits
+        uint64_t limit = (uint64_t)1u << log2sz;
+        return static_cast<uint64_t>(streamID) < limit;
+    }
+    // L1 index range: 0 .. 2^(log2sz - split) - 1
+    uint32_t l1Bits = log2sz - split;
+    uint64_t l1Limit = (uint64_t)1u << l1Bits;
+    uint32_t l1Index = streamID >> split;
+    if (static_cast<uint64_t>(l1Index) >= l1Limit) {
+        return false;
+    }
+    return true;
+}
+
+// CONF-GAP-17: CMDQ_CONS.ERR field accessor and writer (§6.3.17).
+uint32_t SMMU::getCmdqConsErr() const {
+    return (cmdqCons.load(std::memory_order_acquire) >> CMDQ_CONS_ERR_SHIFT) & 0xFFu;
+}
+
+void SMMU::writeCmdqConsErr(uint32_t errCode) {
+    // Atomic CAS loop: update only the ERR[31:24] field without touching other bits.
+    uint32_t expected = cmdqCons.load(std::memory_order_relaxed);
+    uint32_t desired;
+    do {
+        desired = (expected & ~(0xFFu << CMDQ_CONS_ERR_SHIFT)) |
+                  ((errCode & 0xFFu) << CMDQ_CONS_ERR_SHIFT);
+    } while (!cmdqCons.compare_exchange_weak(expected, desired,
+                                              std::memory_order_release,
+                                              std::memory_order_relaxed));
+}
+
+// CONF-GAP-18: CMD_SYNC MSI signalling registers and signal type accessor.
+void SMMU::setCmdqSyncMsiAttr(uint32_t v) {
+    cmdqSyncMsiAttr_.store(v, std::memory_order_release);
+}
+
+uint32_t SMMU::getCmdqSyncMsiAttr() const {
+    return cmdqSyncMsiAttr_.load(std::memory_order_acquire);
+}
+
+void SMMU::setCmdqSyncMsiAddr(uint64_t v) {
+    cmdqSyncMsiAddr_.store(v, std::memory_order_release);
+}
+
+uint64_t SMMU::getCmdqSyncMsiAddr() const {
+    return cmdqSyncMsiAddr_.load(std::memory_order_acquire);
+}
+
+void SMMU::setCmdqSyncMsiData(uint32_t v) {
+    cmdqSyncMsiData_.store(v, std::memory_order_release);
+}
+
+uint32_t SMMU::getCmdqSyncMsiData() const {
+    return cmdqSyncMsiData_.load(std::memory_order_acquire);
+}
+
+CmdSyncSignalType SMMU::getCmdSyncLastSignalType() const {
+    return static_cast<CmdSyncSignalType>(cmdSyncLastSig_.load(std::memory_order_acquire));
 }
 
 // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
@@ -2838,8 +3093,11 @@ void SMMU::enable() {
     // the old implementation incorrectly added PRIQEN, causing any bits set via
     // setCR0() to be permanently augmented after an enable()+disable() cycle).
     // acquire/release ordering ensures visibility to concurrent translate() readers.
-    cr0_.fetch_or(CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel);
+    uint32_t newVal = cr0_.fetch_or(CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel)
+                      | CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN;
     smmuen_.store(true, std::memory_order_release);
+    // CONF-GAP-9: sync CR0ACK to match updated CR0
+    cr0ack_.store(newVal, std::memory_order_release);
 }
 
 void SMMU::disable() {
@@ -2847,8 +3105,11 @@ void SMMU::disable() {
     // CR0_SMMUEN without touching any other bits.  The previous load-then-store
     // pattern allowed a concurrent setCR0() write between the load and store to
     // be silently lost.
-    cr0_.fetch_and(~static_cast<uint32_t>(CR0_SMMUEN), std::memory_order_acq_rel);
+    uint32_t newVal = cr0_.fetch_and(~static_cast<uint32_t>(CR0_SMMUEN), std::memory_order_acq_rel)
+                      & ~static_cast<uint32_t>(CR0_SMMUEN);
     smmuen_.store(false, std::memory_order_release);
+    // CONF-GAP-9: sync CR0ACK to match updated CR0
+    cr0ack_.store(newVal, std::memory_order_release);
 }
 
 bool SMMU::isEnabled() const {
@@ -2866,6 +3127,11 @@ void SMMU::setGbpaAbort(bool abort) {
     // BUG-CPP-A fix: use explicit release ordering so that any preceding writes
     // are visible to threads that subsequently acquire-load gbpaAbort_.
     gbpaAbort_.store(abort, std::memory_order_release);
+    // CONF-GAP-13: keep gbpaConfig_.abort in sync for full GBPA config consistency.
+    {
+        std::lock_guard<std::recursive_mutex> glock(queueMutex);
+        gbpaConfig_.abort = abort;
+    }
 }
 
 bool SMMU::isGbpaAbort() const {
@@ -2901,6 +3167,26 @@ size_t SMMU::getStalledTransactionCount() const {
     return stallQueue_.size();
 }
 
+// CONF-GAP-11: §6.3.12 CR2.PTM — broadcast TLB maintenance.
+// Checks PTM bit before executing the invalidation; NS-targeted commands
+// (TLBI_NH_*, TLBI_NSNH_ALL, TLBI_EL2_*) are gated by PTM.  Secure and
+// EL3 commands are not broadcast maintenance and always execute.
+void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, IOVA va) {
+    bool isNsEL1Tlbi = (type == CommandType::TLBI_NH_ALL  ||
+                        type == CommandType::TLBI_NH_VA   ||
+                        type == CommandType::TLBI_NH_VAA  ||
+                        type == CommandType::TLBI_NH_ASID ||
+                        type == CommandType::TLBI_NSNH_ALL ||
+                        type == CommandType::TLBI_EL2_ALL ||
+                        type == CommandType::TLBI_EL2_VA  ||
+                        type == CommandType::TLBI_EL2_VAA ||
+                        type == CommandType::TLBI_EL2_ASID);
+    if (isNsEL1Tlbi && (cr2_.load(std::memory_order_acquire) & CR2_PTM) == 0u) {
+        return; // PTM=0: SMMU does not participate in this broadcast
+    }
+    executeTLBInvalidationCommand(type, 0, 0, asid, vmid, va);
+}
+
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                          SecurityState securityState, bool isStall, uint16_t stag) {
     // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
@@ -2915,6 +3201,26 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // that callers already holding queueMutex (e.g. processCommandQueue) can
     // safely call this without deadlocking.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
+
+    // CONF-GAP-14: STE.MEV event merging — suppress duplicate events when enabled.
+    // When the stream has MEV=true, skip inserting this event if an identical
+    // event (same type + streamID) already exists in the event queue.
+    // MEV merging applies only within the event queue (not across queue drains).
+    {
+        size_t stripe = getStreamStripe(streamID);
+        std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
+        auto streamIt = streamMap.find(streamID);
+        if (streamIt != streamMap.end() && streamIt->second) {
+            const StreamConfig& scfg = streamIt->second->getStreamConfiguration();
+            if (scfg.mev) {
+                for (const auto& existing : eventQueue) {
+                    if (existing.type == type && existing.streamID == streamID) {
+                        return; // suppress duplicate
+                    }
+                }
+            }
+        }
+    }
 
     // BUG-ANALYSIS-5 fix: Drain any previously-pending stall events into the
     // main queue first (FIFO order) before inserting the new event, provided

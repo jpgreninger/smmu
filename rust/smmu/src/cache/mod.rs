@@ -1078,6 +1078,118 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
+    /// Invalidate all TLB entries matching the given VA and ASID (§4.4 VA-targeted TLBI).
+    ///
+    /// Implements `CMD_TLBI_NH_VA`, `CMD_TLBI_EL2_VA`, `CMD_TLBI_EL3_VA` selective
+    /// invalidation: only entries whose `iova` matches the page-aligned `va` AND whose
+    /// `asid` matches `target_asid` are evicted.
+    ///
+    /// # Arguments
+    ///
+    /// * `va`         - Virtual address (raw u64; lower 12 bits are masked / ignored)
+    /// * `target_asid`- ASID to match
+    pub fn invalidate_by_va_and_asid(&self, va: u64, target_asid: u16) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if e.asid == target_asid && (e.iova.as_u64() & PAGE_MASK) == page_va {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all TLB entries matching the given VA, regardless of ASID (§4.4 VAA TLBI).
+    ///
+    /// Implements `CMD_TLBI_NH_VAA`, `CMD_TLBI_EL2_VAA`, `CMD_TLBI_S_EL2_VAA` —
+    /// evicts any entry whose `iova` matches the page-aligned `va`, for any ASID.
+    ///
+    /// # Arguments
+    ///
+    /// * `va` - Virtual address (raw u64; lower 12 bits are masked / ignored)
+    pub fn invalidate_by_va(&self, va: u64) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            if (entry_ref.value().iova.as_u64() & PAGE_MASK) == page_va {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate all TLB entries within a VA range for a given ASID (§4.4.1.1 RIL).
+    ///
+    /// Implements range-based TLBI: evicts entries where
+    /// `start <= entry.iova <= end` AND `entry.asid == target_asid`.
+    ///
+    /// # Arguments
+    ///
+    /// * `start`      - Inclusive start of the VA range (raw u64)
+    /// * `end`        - Inclusive end of the VA range (raw u64)
+    /// * `target_asid`- ASID to match
+    pub fn invalidate_by_va_range_and_asid(&self, start: u64, end: u64, target_asid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            let iova = e.iova.as_u64();
+            if e.asid == target_asid && iova >= start && iova <= end {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate TLB entries by VMID with wildcard masking (§6.3.9 CR0.VMW).
+    ///
+    /// Evicts entries where `(entry.vmid & vmid_mask) == (target_vmid & vmid_mask)`.
+    /// When `vmid_mask == 0xFFFF` (VMW=0), this is an exact VMID match.
+    /// When `vmid_mask == 0` (VMW=16), all VMIDs match (global invalidation).
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - Base VMID from the TLBI command operand
+    /// * `vmid_mask`   - Bitmask derived from CR0.VMW — `(0xFFFF << vmw) as u16`
+    pub fn invalidate_by_vmid_with_mask(&self, target_vmid: u16, vmid_mask: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if (e.vmid & vmid_mask) == (target_vmid & vmid_mask) {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
     /// Invalidate a specific entry by exact key match
     ///
     /// Removes a single cached translation if it exists.

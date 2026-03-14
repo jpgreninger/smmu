@@ -5,9 +5,20 @@
 //! The spec says "SMMU does not toggle bit[x] if error already active".
 //! This means if GERROR[x] != GERRORN[x] (error active), a second signal
 //! must NOT toggle GERROR[x] again.
+//!
+//! CONF-GAP-2 note: CMD_CFGI_STE for unknown StreamID is a silent no-op (§4.3.1).
+//! CMDQ_ERR is triggered here via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
 
 use smmu::SMMU;
-use smmu::types::{CommandEntry, CommandType, StreamConfig, StreamID};
+use smmu::types::{CommandEntry, CommandType};
+
+/// Helper: trigger GERROR.CMDQ_ERR via CMD_SYNC CS=3 (CERROR_ILL per §4.7.3).
+fn trigger_cmdq_err(smmu: &SMMU) {
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3; // CS=0b11 is Reserved → CERROR_ILL
+    smmu.submit_command(cmd).unwrap();
+    let _ = smmu.process_command_queue();
+}
 
 /// Verify that signalling GERROR when the error bit is already active is a no-op.
 ///
@@ -18,10 +29,8 @@ fn dbgr7_gerror_toggle_idempotent_when_already_active() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Trigger CMDQ_ERR: submit a command for an unknown stream.
-    let bad_sid = StreamID::new(0xDEAD).unwrap();
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid.as_u32(), 0)).unwrap();
-    let _ = smmu.process_command_queue();
+    // Trigger CMDQ_ERR via CMD_SYNC CS=3 (CERROR_ILL).
+    trigger_cmdq_err(&smmu);
 
     // Error should now be ACTIVE (GERROR[x] != GERRORN[x]).
     let gerror1 = smmu.get_gerror();
@@ -35,8 +44,7 @@ fn dbgr7_gerror_toggle_idempotent_when_already_active() {
     // Clear the error first so we can re-arm:
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     // Now signal once more to activate it again.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid.as_u32(), 0)).unwrap();
-    let _ = smmu.process_command_queue();
+    trigger_cmdq_err(&smmu);
 
     let gerror2 = smmu.get_gerror();
     let gerrorn2 = smmu.get_gerrorn();
@@ -54,7 +62,9 @@ fn dbgr7_gerror_toggle_idempotent_when_already_active() {
     let gerrorn_before = smmu.get_gerrorn();
 
     // Verify the SMMU halts processing (CMDQ_ERR active → no commands processed).
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid.as_u32(), 0)).unwrap();
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3;
+    smmu.submit_command(cmd).unwrap();
     let processed = smmu.process_command_queue().unwrap_or(0);
     assert_eq!(processed, 0, "Queue must halt while CMDQ_ERR is active");
 
@@ -76,11 +86,8 @@ fn dbgr7_gerror_can_be_reactivated_after_ack() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    let bad_sid = StreamID::new(0xBEEF).unwrap();
-
-    // First activation
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid.as_u32(), 0)).unwrap();
-    let _ = smmu.process_command_queue();
+    // First activation via CMD_SYNC CS=3.
+    trigger_cmdq_err(&smmu);
     assert_ne!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
@@ -95,11 +102,8 @@ fn dbgr7_gerror_can_be_reactivated_after_ack() {
         "CMDQ_ERR must be inactive after acknowledge"
     );
 
-    // Second activation (after configure stream so we can trigger another error)
-    // Re-arm with another bad command.
-    let _cfg = StreamConfig::stage1_only();
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, 0xCAFE, 0)).unwrap();
-    let _ = smmu.process_command_queue();
+    // Second activation.
+    trigger_cmdq_err(&smmu);
     assert_ne!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,

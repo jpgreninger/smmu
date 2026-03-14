@@ -271,6 +271,16 @@ pub struct StreamConfig {
     ///
     /// Valid range for SMMUv3.0: 0-39. Out-of-range generates `C_BAD_CD`.
     pub t1sz: u8,
+
+    /// §5.2 STE.MEV: Merged Event.
+    ///
+    /// When `true`, the SMMU may suppress duplicate fault events for this stream —
+    /// if an identical event (same type + stream_id) is already queued, the new
+    /// event is silently dropped.  This prevents the event queue from being
+    /// flooded with repeated faults from the same stream (ARM §5.2 STE.MEV).
+    ///
+    /// Default: `false` (all events recorded).
+    pub mev: bool,
 }
 
 impl StreamConfig {
@@ -324,6 +334,7 @@ impl StreamConfig {
             aa64: true,
             t0sz: 16,
             t1sz: 16,
+            mev: false,
         }
     }
 
@@ -362,6 +373,7 @@ impl StreamConfig {
             aa64: true,
             t0sz: 16,
             t1sz: 16,
+            mev: false,
         }
     }
 
@@ -400,6 +412,7 @@ impl StreamConfig {
             aa64: true,
             t0sz: 16,
             t1sz: 16,
+            mev: false,
         }
     }
 
@@ -438,6 +451,7 @@ impl StreamConfig {
             aa64: true,
             t0sz: 16,
             t1sz: 16,
+            mev: false,
         }
     }
 
@@ -614,6 +628,8 @@ pub struct StreamConfigBuilder {
     // CT-13
     t0sz: u8,
     t1sz: u8,
+    // CONF-GAP-14
+    mev: bool,
 }
 
 impl StreamConfigBuilder {
@@ -652,6 +668,7 @@ impl StreamConfigBuilder {
             aa64: true,
             t0sz: 16,
             t1sz: 16,
+            mev: false,
         }
     }
 
@@ -926,6 +943,7 @@ impl StreamConfigBuilder {
             aa64: self.aa64,
             t0sz: self.t0sz,
             t1sz: self.t1sz,
+            mev: self.mev,
         };
 
         config.validate()?;

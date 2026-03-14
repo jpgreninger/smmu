@@ -22,6 +22,7 @@ mod access_type;
 mod address;
 mod command_entry;
 pub mod config;
+mod stream_table_format;
 mod event_entry;
 mod fault_record;
 mod fault_type;
@@ -52,6 +53,7 @@ pub use smmu_error::SMMUError;
 pub use stream_context_error::StreamContextError;
 pub use stream_id::StreamID;
 pub use translation_result::{TranslationData, TranslationDataBuilder, TranslationError, TranslationResult};
+pub use stream_table_format::StreamTableFormat;
 pub use translation_stage::TranslationStage;
 pub use validation_error::ValidationError;
 

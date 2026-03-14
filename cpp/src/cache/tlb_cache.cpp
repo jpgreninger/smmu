@@ -373,6 +373,145 @@ void TLBCache::invalidateByVMID(uint16_t vmid) {
     }
 }
 
+void TLBCache::invalidateByVMIDWithMask(uint16_t vmid, uint16_t vmidMask) {
+    // CONF-GAP-12: VMID wildcard matching — invalidate entries where
+    // (entry.vmid & vmidMask) == (vmid & vmidMask).
+    // When vmidMask==0xFFFF this is exact matching (same as invalidateByVMID).
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if ((it->second.vmid & vmidMask) == (vmid & vmidMask)) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVAAndASID(IOVA va, uint16_t asid) {
+    // CONF-GAP-6: VA+ASID targeted TLBI — evict entries where iova matches va AND asid matches.
+    // va is page-aligned (strip offset bits) before comparison.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.iova == pageAlignedVA && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVA(IOVA va) {
+    // CONF-GAP-6: VAA invalidation — evict entries where iova matches va, regardless of ASID.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.iova == pageAlignedVA) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVARange(IOVA start, IOVA end, uint16_t asid) {
+    // CONF-GAP-8: Range-based TLBI — evict entries where iova is in [start, end] AND asid matches.
+    IOVA pageAlignedStart = start & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            IOVA entryVA = it->second.iova;
+            if (entryVA >= pageAlignedStart && entryVA <= end && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateStream(StreamID streamID) {
     // Per-stripe iteration: acquire only one stripe lock at a time
     // to allow concurrent operations on other stripes

@@ -137,6 +137,13 @@ public:
     void invalidateBySecurityState(SecurityState securityState);
     void invalidateByASID(uint16_t asid);    ///< ARM §4.4: evict all TLB entries tagged with this ASID
     void invalidateByVMID(uint16_t vmid);    ///< ARM §4.4: evict all TLB entries tagged with this VMID
+    // CONF-GAP-12: VMID wildcard matching — invalidate entries where (vmid & mask)==(target & mask)
+    void invalidateByVMIDWithMask(uint16_t vmid, uint16_t vmidMask);
+    // CONF-GAP-6: VA-targeted TLBI — invalidate entries by VA+ASID or VA-only (§4.4)
+    void invalidateByVAAndASID(IOVA va, uint16_t asid);  ///< evict entries matching va AND asid
+    void invalidateByVA(IOVA va);                         ///< evict entries matching va (all ASIDs)
+    // CONF-GAP-8: Range TLBI — invalidate entries in [start, end] for given ASID
+    void invalidateByVARange(IOVA start, IOVA end, uint16_t asid);
     void invalidateByStream(StreamID streamID);
     void invalidateByPASID(StreamID streamID, PASID pasid);
     void invalidateAll();

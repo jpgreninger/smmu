@@ -115,8 +115,9 @@ TEST(NewGapsCpp, CR2_GetSet_RoundTrip) {
     EXPECT_EQ(s->getCR2(), 0u) << "getCR2() must reflect cleared value";
 }
 
-// CMD_CFGI_STE with RECINVSID=0: no event BUT GERROR.CMDQ_ERR must still be set.
-TEST(NewGapsCpp, RECINVSID_Default_CfgiSte_NoEventButGerrorSet) {
+// CONF-GAP-2: CMD_CFGI_STE for unknown stream is a silent no-op (§4.3.1).
+// Neither RECINVSID value should produce a C_BAD_STREAMID event or GERROR.CMDQ_ERR.
+TEST(NewGapsCpp, RECINVSID_Default_CfgiSte_SilentNoOp) {
     auto s = makeSMMU();
     // CR2.RECINVSID == 0 at reset
     CommandEntry cmd;
@@ -136,15 +137,15 @@ TEST(NewGapsCpp, RECINVSID_Default_CfgiSte_NoEventButGerrorSet) {
             foundEvent = true;
         }
     }
-    EXPECT_FALSE(foundEvent) << "With RECINVSID=0, CMD_CFGI_STE must NOT record C_BAD_STREAMID event";
+    EXPECT_FALSE(foundEvent) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT record C_BAD_STREAMID";
 
-    // GERROR.CMDQ_ERR must still be set unconditionally
+    // GERROR.CMDQ_ERR must NOT be set — silent no-op
     uint32_t active = s->getGerror() ^ s->getGerrorN();
-    EXPECT_NE(active & GERROR_CMDQ_ERR, 0u) << "GERROR.CMDQ_ERR must be set even when RECINVSID=0";
+    EXPECT_EQ(active & GERROR_CMDQ_ERR, 0u) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR";
 }
 
-// CMD_CFGI_STE with RECINVSID=1: event IS recorded AND GERROR.CMDQ_ERR is set.
-TEST(NewGapsCpp, RECINVSID_Set_CfgiSte_EventAndGerrorSet) {
+// CONF-GAP-2: With RECINVSID=1, CMD_CFGI_STE for unknown stream is still a silent no-op.
+TEST(NewGapsCpp, RECINVSID_Set_CfgiSte_StillSilentNoOp) {
     auto s = makeSMMU();
     s->setCR2(SMMU::CR2_RECINVSID);
     CommandEntry cmd;
@@ -163,10 +164,10 @@ TEST(NewGapsCpp, RECINVSID_Set_CfgiSte_EventAndGerrorSet) {
             foundEvent = true;
         }
     }
-    EXPECT_TRUE(foundEvent) << "With RECINVSID=1, CMD_CFGI_STE must record C_BAD_STREAMID event";
+    EXPECT_FALSE(foundEvent) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT record C_BAD_STREAMID even when RECINVSID=1";
 
     uint32_t active = s->getGerror() ^ s->getGerrorN();
-    EXPECT_NE(active & GERROR_CMDQ_ERR, 0u) << "GERROR.CMDQ_ERR must be set";
+    EXPECT_EQ(active & GERROR_CMDQ_ERR, 0u) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR";
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,51 @@ TEST(NewGapsCpp, SuccessPath_ReturnsCorrectPA) {
         EXPECT_EQ(result.getValue().physicalAddress, static_cast<PA>(0xDEAD000u))
             << "PA must be correct on success path";
     }
+}
+
+// ── Gap 4: CONF-GAP-4 CMD_DPTI_ALL / CMD_DPTI_PA ──────────────────────────
+
+/// §4.6.1: CMD_DPTI_ALL when IDR3.DPT=0 (no dirty-page tracking) must
+/// generate CERROR_ILL and set GERROR.CMDQ_ERR.  The current no-op silently
+/// swallows the command, violating §4.6.1.
+TEST(ConfGap4, DptiAllSetsGerrorCmdqErr) {
+    auto s = makeSMMU();
+
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::DPTI_ALL;
+    cmd.streamID = 0;
+    cmd.pasid    = 0;
+
+    s->submitCommand(cmd);
+    s->processCommandQueue();
+
+    const uint32_t active = s->getGerror() ^ s->getGerrorN();
+    EXPECT_NE(active & smmu::GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-4: CMD_DPTI_ALL must set GERROR.CMDQ_ERR when IDR3.DPT=0 (§4.6.1)";
+
+    EXPECT_EQ(s->getCmdqConsErr(), smmu::CERROR_ILL)
+        << "CONF-GAP-4: CMDQ_CONS.ERR must be CERROR_ILL for CMD_DPTI_ALL when DPT not supported";
+}
+
+/// §4.6.1: CMD_DPTI_PA when IDR3.DPT=0 must also generate CERROR_ILL and
+/// set GERROR.CMDQ_ERR.
+TEST(ConfGap4, DptiPaSetsGerrorCmdqErr) {
+    auto s = makeSMMU();
+
+    smmu::CommandEntry cmd;
+    cmd.type = smmu::CommandType::DPTI_PA;
+    cmd.streamID = 0;
+    cmd.pasid    = 0;
+
+    s->submitCommand(cmd);
+    s->processCommandQueue();
+
+    const uint32_t active = s->getGerror() ^ s->getGerrorN();
+    EXPECT_NE(active & smmu::GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-4: CMD_DPTI_PA must set GERROR.CMDQ_ERR when IDR3.DPT=0 (§4.6.1)";
+
+    EXPECT_EQ(s->getCmdqConsErr(), smmu::CERROR_ILL)
+        << "CONF-GAP-4: CMDQ_CONS.ERR must be CERROR_ILL for CMD_DPTI_PA when DPT not supported";
 }
 
 } // namespace test

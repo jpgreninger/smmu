@@ -76,11 +76,15 @@ fn test_new_opcodes_usable_in_command_entry() {
     assert_eq!(cmd3.cmd_type, CommandType::DptiPa);
 }
 
-/// New opcodes can be submitted and processed without panic
+/// New opcodes (excluding DPTI which requires IDR3.DPT=1) can be submitted
+/// and processed without error.  DPTI commands intentionally omitted here —
+/// they generate `CERROR_ILL` when `IDR3.DPT=0` (§4.6.1, CONF-GAP-4).
 #[test]
 fn test_new_opcodes_processable_in_command_queue() {
     let smmu = make_smmu();
 
+    // DPTI_ALL / DPTI_PA excluded: require IDR3.DPT=1; result in CERROR_ILL
+    // when DPT is not supported (§4.6.1, CONF-GAP-4 fix).
     let new_opcodes = [
         CommandType::CfgiVmsPidm,
         CommandType::TlbiEl3All,
@@ -92,8 +96,6 @@ fn test_new_opcodes_processable_in_command_queue() {
         CommandType::TlbiSS12Vmall,
         CommandType::TlbiSS2Ipa,
         CommandType::TlbiSnhAll,
-        CommandType::DptiAll,
-        CommandType::DptiPa,
     ];
 
     for opcode in new_opcodes {
@@ -101,10 +103,10 @@ fn test_new_opcodes_processable_in_command_queue() {
         smmu.submit_command(cmd).unwrap();
     }
 
-    // All commands must process without error
+    // All non-DPTI commands must process without error
     let result = smmu.process_command_queue();
-    assert!(result.is_ok(), "New opcodes must process without error: {result:?}");
-    assert_eq!(result.unwrap(), 12, "All 12 new opcodes must be processed");
+    assert!(result.is_ok(), "Non-DPTI new opcodes must process without error: {result:?}");
+    assert_eq!(result.unwrap(), 10, "All 10 non-DPTI new opcodes must be processed");
 }
 
 // ============================================================================

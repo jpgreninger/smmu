@@ -142,12 +142,11 @@ TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_PermissionFault) {
 
 // ========== EVENT HANDLING PATHS (Lines 1272, 1275, 1292, 1294-1295, 1308, 1601, 1615-1620) ==========
 
-// Target line 1272: CONFIGURATION_ERROR event type
+// CONF-GAP-2 / Target line 1272: CMD_CFGI_STE for unknown StreamID is a silent no-op.
+// ARM §4.3.1: no C_BAD_STREAMID event and no GERROR.CMDQ_ERR for unknown StreamID.
 TEST_F(SMMUPriority2Phase2Test, EventHandling_ConfigurationError) {
-    // ARM §4.3.1 / FINDING-NEW-40: CMD_CFGI_STE on an unknown (unconfigured) StreamID
-    // must generate a C_BAD_STREAMID event and set GERROR.CMDQ_ERR.
-    // STREAM1 is not configured in this test's SetUp(), so it is unknown.
-    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    // STREAM1 is not configured in this test's SetUp() — unknown StreamID.
+    // §6.3.12 CR2.RECINVSID=1: enable recording; should still produce no event.
     smmuController->setCR2(SMMU::CR2_RECINVSID);
     CommandEntry cmd;
     cmd.type = CommandType::CFGI_STE;
@@ -160,17 +159,17 @@ TEST_F(SMMUPriority2Phase2Test, EventHandling_ConfigurationError) {
     ASSERT_TRUE(smmuController->submitCommand(cmd).isOk());
     smmuController->processCommandQueue();
 
-    // C_BAD_STREAMID event must be generated for CMD_CFGI_STE with unknown StreamID.
+    // CONF-GAP-2: CMD_CFGI_STE for unknown stream is a silent no-op.
     bool foundCBadStreamid = false;
     for (const auto& ev : smmuController->getEventQueue()) {
         if (ev.type == EventType::C_BAD_STREAMID && ev.streamID == STREAM1) {
             foundCBadStreamid = true;
         }
     }
-    EXPECT_TRUE(foundCBadStreamid)
-        << "CMD_CFGI_STE with unknown StreamID must generate C_BAD_STREAMID per ARM §4.3.1";
-    EXPECT_NE(smmuController->getGerror() & GERROR_CMDQ_ERR, 0u)
-        << "GERROR.CMDQ_ERR must be set for C_BAD_STREAMID per ARM §4.3.1";
+    EXPECT_FALSE(foundCBadStreamid)
+        << "CONF-GAP-2: CMD_CFGI_STE for unknown StreamID must NOT generate C_BAD_STREAMID (§4.3.1 silent no-op)";
+    EXPECT_EQ(smmuController->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-2: CMD_CFGI_STE for unknown StreamID must NOT set GERROR.CMDQ_ERR";
 }
 
 // Target line 1275: INTERNAL_ERROR event type

@@ -7,21 +7,22 @@
 //!
 //! Requirements:
 //! - SMMU_GERROR starts at 0 after reset.
-//! - CMDQ_ERR (bit 7) is set when command processing detects an error.
+//! - CMDQ_ERR (bit 0) is set when command processing detects an error.
 //! - Software clears GERROR bits by writing to SMMU_GERRORN (`clear_gerror`).
 //! - Clearing only clears the specified bits; other bits are unaffected.
 //! - After CMDQ_ERR is set, `process_command_queue` returns an error.
 //! - Clearing CMDQ_ERR re-enables command queue processing.
+//!
+//! CONF-GAP-2 note: CMD_CFGI_STE for unknown StreamID is a silent no-op (§4.3.1).
+//! CMDQ_ERR is triggered here via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
 
-use smmu::types::{CommandEntry, CommandType, EventType, StreamConfig, StreamID};
+use smmu::types::{CommandEntry, CommandType, StreamConfig, StreamID};
 use smmu::SMMU;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn make_smmu() -> SMMU {
     let smmu = SMMU::new();
-    // ARM §6.3.9: CR0 resets to 0; set CMDQEN and EVENTQEN so command and
-    // event queue operations work in these tests (BUG-04 fix).
     smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     smmu
 }
@@ -32,6 +33,14 @@ fn sid(n: u32) -> StreamID {
 
 const fn cfgi_ste_cmd(stream_id: u32) -> CommandEntry {
     CommandEntry::new(CommandType::CfgiSte, stream_id, 0)
+}
+
+/// Helper: trigger GERROR.CMDQ_ERR via CMD_SYNC CS=3 (CERROR_ILL per §4.7.3).
+fn trigger_cmdq_err(smmu: &SMMU) {
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3; // CS=0b11 is Reserved → CERROR_ILL
+    smmu.submit_command(cmd).unwrap();
+    let _ = smmu.process_command_queue();
 }
 
 // ── §6.3.17: GERROR reset state ───────────────────────────────────────────────
@@ -52,7 +61,6 @@ fn test_gerror_cmdq_err_bit_position() {
 /// §6.3.17: Confirm all GERROR bit constant values match the ARM IHI0070G.b spec table.
 #[test]
 fn test_gerror_bit_constants() {
-    // New spec-correct constants (ARM §6.3.17)
     assert_eq!(SMMU::GERROR_CMDQ_ERR,           1 << 0, "CMDQ_ERR must be bit 0 (§6.3.17)");
     assert_eq!(SMMU::GERROR_EVENTQ_ABT_ERR,     1 << 2, "EVENTQ_ABT_ERR must be bit 2 (§6.3.17)");
     assert_eq!(SMMU::GERROR_PRIQ_ABT_ERR,       1 << 3, "PRIQ_ABT_ERR must be bit 3 (§6.3.17)");
@@ -62,7 +70,6 @@ fn test_gerror_bit_constants() {
     assert_eq!(SMMU::GERROR_MSI_GERROR_ABT_ERR, 1 << 7, "MSI_GERROR_ABT_ERR must be bit 7 (§6.3.17)");
     assert_eq!(SMMU::GERROR_SFM_ERR,            1 << 8, "SFM_ERR must be bit 8 (§6.3.17)");
     assert_eq!(SMMU::GERROR_CMDQP_ERR,          1 << 9, "CMDQP_ERR must be bit 9 (§6.3.17)");
-    // Backward-compatible aliases must resolve to the correct bit positions
     assert_eq!(SMMU::GERROR_SFE,        SMMU::GERROR_SFM_ERR,          "GERROR_SFE alias must equal SFM_ERR (bit 8)");
     assert_eq!(SMMU::GERROR_MSI_ABT_ERR, SMMU::GERROR_MSI_EVENTQ_ABT_ERR, "GERROR_MSI_ABT_ERR alias must equal MSI_EVENTQ_ABT_ERR (bit 5)");
     assert_eq!(SMMU::GERROR_CMDQ_ABT_ERR, SMMU::GERROR_MSI_CMDQ_ABT_ERR, "GERROR_CMDQ_ABT_ERR alias must equal MSI_CMDQ_ABT_ERR (bit 4)");
@@ -71,89 +78,73 @@ fn test_gerror_bit_constants() {
 // ── §6.3.18: SMMU_GERRORN — software clear ───────────────────────────────────
 
 /// §6.3.20: clear_gerror on an INACTIVE error toggles GERRORN (pre-acknowledge).
-///
-/// ARM §6.3.19/6.3.20: GERROR and GERRORN both reset to 0.  Calling
-/// clear_gerror when GERROR.CMDQ_ERR == 0 toggles GERRORN.CMDQ_ERR (0→1).
-/// GERROR remains 0.  The XOR-active indicator (GERROR XOR GERRORN) becomes 1,
-/// meaning the error is now "negatively active" — but the GERROR register itself
-/// is unchanged.  This verifies clear_gerror writes GERRORN, not GERROR.
 #[test]
 fn test_clear_gerror_noop_when_zero() {
     let smmu = make_smmu();
-    // GERROR=0, GERRORN=0 at reset: XOR-active indicator is 0.
     assert_eq!(
         smmu.get_gerror() ^ smmu.get_gerrorn(),
         0,
         "at reset, GERROR XOR GERRORN must be 0 (no active errors)"
     );
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
-    // GERROR still 0 (not changed by clear_gerror); GERRORN.CMDQ_ERR toggled to 1.
     assert_eq!(smmu.get_gerror(), 0, "clear_gerror must not modify GERROR");
 }
 
 // ── §6.3.17: CMDQ_ERR set on command queue error ─────────────────────────────
 
-/// §6.3.17: CMDQ_ERR must be set when CMD_CFGI_STE references an unknown stream.
-///
-/// Per ARM §4.3.1 CONSTRAINED UNPREDICTABLE: the SMMU may record a
-/// C_BAD_STREAMID error for an unrecognised stream ID in CMD_CFGI_STE.
-/// This model records the error and sets CMDQ_ERR.
+/// §6.3.17: CMDQ_ERR must be set when a reserved CMD_SYNC CS=3 (CERROR_ILL) is processed.
+/// CONF-GAP-2: CMD_CFGI_STE for unknown stream is a silent no-op (§4.3.1), so we
+/// use CMD_SYNC CS=3 as the correct CMDQ_ERR trigger.
 #[test]
 fn test_cmdq_err_set_on_cfgi_ste_unknown_stream() {
     let smmu = make_smmu();
-    // Stream 42 is not configured — should trigger C_BAD_STREAMID / CMDQ_ERR
-    smmu.submit_command(cfgi_ste_cmd(42)).unwrap();
-    let result = smmu.process_command_queue();
-    assert!(result.is_err(), "process_command_queue must return Err on command error");
+    // Trigger via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
+    trigger_cmdq_err(&smmu);
     assert_ne!(
         smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR,
         0,
-        "GERROR.CMDQ_ERR must be set after command queue error"
+        "GERROR.CMDQ_ERR must be set after CERROR_ILL (CMD_SYNC CS=3)"
     );
 }
 
-/// §7.3.3 / §6.3.12: C_BAD_STREAMID event must appear in the event queue when
-/// CMDQ_ERR fires AND CR2.RECINVSID == 1.  Per §6.3.12, C_BAD_STREAMID events
-/// from CMD_CFGI_STE are only recorded when RECINVSID is set.
+/// CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op (§4.3.1).
+/// No C_BAD_STREAMID event and no GERROR.CMDQ_ERR must be generated.
 #[test]
 fn test_c_bad_streamid_event_generated_on_cmdq_err() {
     let smmu = make_smmu();
-    // §6.3.12: set RECINVSID so C_BAD_STREAMID events are recorded in the event queue.
     smmu.set_cr2(SMMU::CR2_RECINVSID);
     smmu.submit_command(cfgi_ste_cmd(99)).unwrap();
-    let _ = smmu.process_command_queue();
+    let result = smmu.process_command_queue();
+    // CONF-GAP-2: must succeed as silent no-op
+    assert!(result.is_ok(), "CONF-GAP-2: CMD_CFGI_STE for unknown stream must be a silent no-op (Ok)");
+    // No CMDQ_ERR
+    assert_eq!(
+        smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR,
+        0,
+        "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT set GERROR.CMDQ_ERR"
+    );
+    // No C_BAD_STREAMID event even with RECINVSID=1
     let events = smmu.get_events();
-    let bad_sid = events.iter().any(|e| e.event_type == EventType::CBadStreamid);
-    assert!(bad_sid, "C_BAD_STREAMID event must be generated for unknown stream in CMD_CFGI_STE");
+    assert!(
+        events.is_empty(),
+        "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT generate C_BAD_STREAMID event (§4.3.1)"
+    );
 }
 
 /// §6.3.20: clear_gerror(CMDQ_ERR) acknowledges the error (makes it INACTIVE).
-///
-/// ARM §6.3.19/6.3.20 XOR-toggle protocol:
-///   Before ack: GERROR.CMDQ_ERR=1, GERRORN.CMDQ_ERR=0 → ACTIVE (unequal).
-///   After ack:  GERRORN.CMDQ_ERR toggled to 1. GERROR remains 1.
-///               GERROR XOR GERRORN == 0 for CMDQ_ERR → INACTIVE.
-///
-/// BUG-03 fix: clear_gerror writes GERRORN (not GERROR), so get_gerror()
-/// still returns 1 for the CMDQ_ERR bit after acknowledgement — this is
-/// correct per spec.  The ACTIVE state is tested via XOR, not raw GERROR.
 #[test]
 fn test_clear_gerror_clears_cmdq_err_bit() {
     let smmu = make_smmu();
-    smmu.submit_command(cfgi_ste_cmd(77)).unwrap();
-    let _ = smmu.process_command_queue();
+    trigger_cmdq_err(&smmu);
 
-    // Confirm CMDQ_ERR is ACTIVE (GERROR != GERRORN for this bit).
     assert_ne!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
         "CMDQ_ERR must be ACTIVE before acknowledge"
     );
 
-    // Acknowledge: toggle GERRORN.CMDQ_ERR to match GERROR.CMDQ_ERR.
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
-    // Error is now INACTIVE: GERROR XOR GERRORN == 0 for CMDQ_ERR.
     assert_eq!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
@@ -162,23 +153,15 @@ fn test_clear_gerror_clears_cmdq_err_bit() {
 }
 
 /// §6.3.20: clear_gerror toggles only the specified GERRORN bits; others unaffected.
-///
-/// ARM §6.3.20: writing GERRORN only affects the bits specified.
-/// Calling clear_gerror(SFE) when CMDQ_ERR is active must not affect CMDQ_ERR.
 #[test]
 fn test_clear_gerror_only_clears_specified_bits() {
     let smmu = make_smmu();
-    // Trigger CMDQ_ERR — the error is now ACTIVE.
-    smmu.submit_command(cfgi_ste_cmd(10)).unwrap();
-    let _ = smmu.process_command_queue();
-    // CMDQ_ERR is ACTIVE (GERROR.CMDQ_ERR != GERRORN.CMDQ_ERR).
+    trigger_cmdq_err(&smmu);
     assert_ne!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
         "precondition: CMDQ_ERR must be ACTIVE"
     );
-    // clear_gerror with a different bit (SFE is not active) — must not affect CMDQ_ERR.
-    // Capture GERROR and GERRORN state for the CMDQ_ERR bit before the call.
     let cmdq_err_in_gerror  = smmu.get_gerror()  & SMMU::GERROR_CMDQ_ERR;
     let cmdq_err_in_gerrorn = smmu.get_gerrorn() & SMMU::GERROR_CMDQ_ERR;
     let full_gerror_snapshot = smmu.get_gerror();
@@ -188,53 +171,37 @@ fn test_clear_gerror_only_clears_specified_bits() {
         full_gerror_snapshot,
         "clear_gerror(SFE) must not modify GERROR"
     );
-    // GERRORN.CMDQ_ERR must not have changed.
     assert_eq!(
         smmu.get_gerrorn() & SMMU::GERROR_CMDQ_ERR,
         cmdq_err_in_gerrorn,
         "clear_gerror(SFE) must not affect GERRORN.CMDQ_ERR"
     );
-    // Verify the captured values are consistent with an active CMDQ_ERR.
     assert_ne!(cmdq_err_in_gerror, 0, "CMDQ_ERR must remain set in GERROR");
 }
 
 /// §6.3.19/6.3.20: After CMDQ_ERR is acknowledged, subsequent valid commands process normally.
-///
-/// ARM §6.3.19/6.3.20 XOR-toggle protocol:
-///   1. Error active: GERROR.CMDQ_ERR=1, GERRORN.CMDQ_ERR=0 → ACTIVE.
-///      process_command_queue returns Ok(0) (gated).
-///   2. Acknowledge: clear_gerror(CMDQ_ERR) → GERRORN.CMDQ_ERR=1.
-///      Error INACTIVE: GERROR XOR GERRORN == 0.
-///   3. Valid command proceeds normally.
 #[test]
 fn test_command_queue_resumes_after_clear_gerror() {
     let smmu = make_smmu();
     smmu.enable().unwrap();
 
-    // Trigger CMDQ_ERR with an unknown stream.
-    smmu.submit_command(cfgi_ste_cmd(55)).unwrap();
-    let _ = smmu.process_command_queue();
-    // Error is ACTIVE (GERROR != GERRORN for CMDQ_ERR bit).
+    trigger_cmdq_err(&smmu);
     assert_ne!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
         "CMDQ_ERR must be ACTIVE after command error"
     );
 
-    // Acknowledge: toggle GERRORN to match GERROR.
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
-    // Error is now INACTIVE.
     assert_eq!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
         "CMDQ_ERR must be INACTIVE after acknowledge"
     );
 
-    // Submit and process a valid command (TlbiNhAll) — must succeed.
     smmu.submit_command(CommandEntry::new(CommandType::TlbiNhAll, 0, 0)).unwrap();
     let result = smmu.process_command_queue();
     assert!(result.is_ok(), "Command queue must resume normally after acknowledging CMDQ_ERR");
-    // No new error was signalled — CMDQ_ERR remains INACTIVE.
     assert_eq!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,
         0,
@@ -247,10 +214,8 @@ fn test_command_queue_resumes_after_clear_gerror() {
 fn test_cfgi_ste_valid_stream_no_cmdq_err() {
     let smmu = make_smmu();
     smmu.enable().unwrap();
-    // Configure stream 1
     smmu.configure_stream(sid(1), StreamConfig::stage1_only()).unwrap();
 
-    // CMD_CFGI_STE for known stream must succeed
     smmu.submit_command(cfgi_ste_cmd(1)).unwrap();
     let result = smmu.process_command_queue();
     assert!(result.is_ok(), "CMD_CFGI_STE for known stream must succeed");
@@ -261,20 +226,21 @@ fn test_cfgi_ste_valid_stream_no_cmdq_err() {
     );
 }
 
-/// §6.3.17: Only one command error per queue-halt: after CMDQ_ERR is set,
-/// additional commands in the same batch are NOT processed (queue halted).
+/// §6.3.17: Queue halts after CMDQ_ERR — remaining commands are not processed.
+/// Uses CMD_SYNC CS=3 as the bad command (CERROR_ILL per §4.7.3).
 #[test]
 fn test_cmdq_err_halts_remaining_commands() {
     let smmu = make_smmu();
 
-    // Submit bad command followed by a good command
-    smmu.submit_command(cfgi_ste_cmd(999)).unwrap();  // bad: unknown stream
-    smmu.submit_command(CommandEntry::new(CommandType::TlbiNhAll, 0, 0)).unwrap();  // good
+    // Submit bad command (CMD_SYNC CS=3 → CERROR_ILL) followed by a good command.
+    let mut bad_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad_cmd.cs = 3;
+    smmu.submit_command(bad_cmd).unwrap();
+    smmu.submit_command(CommandEntry::new(CommandType::TlbiNhAll, 0, 0)).unwrap();
 
     let result = smmu.process_command_queue();
     assert!(result.is_err(), "Queue must halt on command error");
 
     // The good TlbiNhAll command was never processed because queue halted
-    // after the bad command — GERROR.CMDQ_ERR is set
     assert_ne!(smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR, 0);
 }

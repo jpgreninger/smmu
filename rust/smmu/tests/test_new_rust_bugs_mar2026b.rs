@@ -142,10 +142,11 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Activate CMDQ_ERR via a command for an unknown stream_id
-    let bad_stream = StreamID::new(0xBEEF).unwrap();
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_stream.as_u32(), 0))
-        .unwrap();
+    // Activate CMDQ_ERR via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
+    // (CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op per §4.3.1.)
+    let mut bad_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad_cmd.cs = 3;
+    smmu.submit_command(bad_cmd).unwrap();
     let _ = smmu.process_command_queue(); // activates CMDQ_ERR
 
     let active = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;

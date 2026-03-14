@@ -446,14 +446,17 @@ TEST(CompletionEventSecurityStateTest, SyncCompletionUsesStreamSecurityState) {
         << "COMMAND_SYNC_COMPLETION event must be generated when CS!=0";
 }
 
-// ─── FINDING-NEW-40: CMD_CFGI_STE with unknown StreamID → C_BAD_STREAMID ──────
+// ─── CONF-GAP-2: CMD_CFGI_STE with unknown StreamID is a silent no-op ──────
 //
-// ARM §4.3.1 — C_BAD_STREAMID + GERROR.CMDQ_ERR for out-of-table StreamID.
+// ARM §4.3.1: CMD_CFGI_STE simply invalidates any cached STE for the given
+// StreamID. If the StreamID is unknown there is nothing cached to evict — the
+// command must complete silently with no error, no event, and no GERROR change.
+// C_BAD_STREAMID is a *transaction-path* fault (§7.3.3), not a command error.
 
-TEST(CfgiSteTest, UnknownStreamIDGeneratesCBadStreamid) {
+TEST(CfgiSteTest, UnknownStreamIDIsSilentNoOp) {
     SMMU smmu;
     enableSMMU(smmu);
-    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    // Set RECINVSID=1 to maximise sensitivity — should still produce no event.
     smmu.setCR2(SMMU::CR2_RECINVSID);
 
     // StreamID 0xDEAD is not configured
@@ -469,10 +472,10 @@ TEST(CfgiSteTest, UnknownStreamIDGeneratesCBadStreamid) {
     ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
     smmu.processCommandQueue();
 
-    EXPECT_GT(countEvents(smmu, EventType::C_BAD_STREAMID), 0)
-        << "CMD_CFGI_STE with unknown StreamID must generate C_BAD_STREAMID per ARM §4.3.1";
-    EXPECT_NE(smmu.getGerror() & GERROR_CMDQ_ERR, 0u)
-        << "GERROR.CMDQ_ERR must be set for C_BAD_STREAMID per ARM §4.3.1";
+    EXPECT_EQ(countEvents(smmu, EventType::C_BAD_STREAMID), 0)
+        << "CONF-GAP-2: CMD_CFGI_STE for unknown StreamID must NOT generate C_BAD_STREAMID (§4.3.1 silent no-op)";
+    EXPECT_EQ(smmu.getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "CONF-GAP-2: CMD_CFGI_STE for unknown StreamID must NOT set GERROR.CMDQ_ERR";
 }
 
 TEST(CfgiSteTest, KnownStreamIDDoesNotGenerateCBadStreamid) {

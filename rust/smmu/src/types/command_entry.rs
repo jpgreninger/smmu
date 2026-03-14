@@ -110,6 +110,12 @@ impl Default for CommandType {
     }
 }
 
+impl Default for CommandEntry {
+    fn default() -> Self {
+        Self::new(CommandType::Sync, 0, 0)
+    }
+}
+
 /// Command entry structure
 ///
 /// Contains all information about a single command in the command queue.
@@ -204,6 +210,39 @@ pub struct CommandEntry {
     /// Defaults to 0 (SIG_NONE — no completion signal).
     pub cs: u8,
 
+    // ---- CONF-GAP-8: Range Invalidation Leaf (RIL) fields (§4.4.1.1) ----
+
+    /// Translation Granule (TG) for range-based TLBI (§4.4.1.1).
+    ///
+    /// - `0` = 4 KB granule
+    /// - `1` = 64 KB granule
+    /// - `2` = 16 KB granule
+    ///
+    /// Only used when `ril=true`.  Defaults to 0.
+    pub tg: u8,
+
+    /// Number of blocks minus 1 in the range (5 bits, §4.4.1.1).
+    ///
+    /// `blocks = num + 1`.  Only used when `ril=true`.  Defaults to 0.
+    pub num: u8,
+
+    /// Scale factor for the range (3 bits, §4.4.1.1).
+    ///
+    /// `total_blocks = (num + 1) << (5 * scale)`.  Defaults to 0.
+    pub scale: u8,
+
+    /// TLB level hint for range invalidation (2 bits, §4.4.1.1).
+    ///
+    /// Hints at which TLB level the invalidation targets.  Defaults to 0.
+    pub ttl: u8,
+
+    /// Range Invalidation Leaf flag (§4.4.1.1).
+    ///
+    /// When `true`, the VA TLBI commands use range-based invalidation rather
+    /// than single-address invalidation.  The range is computed from `tg`,
+    /// `num`, and `scale`.  Defaults to `false`.
+    pub ril: bool,
+
     /// Security state of the originating command (ARM §7.3 / §3.10.2.1).
     ///
     /// ARM SMMU v3 requires that command error events (e.g., `C_BAD_STREAMID`,
@@ -247,6 +286,11 @@ impl CommandEntry {
             leaf: false,
             cs: 0,
             security_state: crate::types::SecurityState::NonSecure,
+            tg: 0,
+            num: 0,
+            scale: 0,
+            ttl: 0,
+            ril: false,
         }
     }
 

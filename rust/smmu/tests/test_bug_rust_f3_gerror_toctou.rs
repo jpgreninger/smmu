@@ -31,10 +31,6 @@
 use smmu::types::{CommandEntry, CommandType, StreamConfig, StreamID};
 use smmu::SMMU;
 
-fn bad_sid() -> StreamID {
-    StreamID::new(0xABCD).unwrap()
-}
-
 fn good_sid() -> StreamID {
     StreamID::new(1).unwrap()
 }
@@ -43,9 +39,11 @@ fn setup_smmu_with_cmdq_err() -> SMMU {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Submit a command for an unknown stream → triggers CMDQ_ERR.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid().as_u32(), 0))
-        .unwrap();
+    // Trigger CMDQ_ERR via CMD_SYNC CS=3 (Reserved → CERROR_ILL per §4.7.3).
+    // (CONF-GAP-2: CMD_CFGI_STE for unknown StreamID is a silent no-op per §4.3.1.)
+    let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    cmd.cs = 3;
+    smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue(); // This activates CMDQ_ERR.
     smmu
 }
@@ -127,9 +125,10 @@ fn f3_gerror_check_never_spuriously_passes_in_single_thread() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Activate CMDQ_ERR via a bad command.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid().as_u32(), 0))
-        .unwrap();
+    // Activate CMDQ_ERR via CMD_SYNC CS=3 (CERROR_ILL per §4.7.3).
+    let mut bad_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad_cmd.cs = 3;
+    smmu.submit_command(bad_cmd).unwrap();
     let _ = smmu.process_command_queue();
 
     // Verify CMDQ_ERR is active.
@@ -162,9 +161,10 @@ fn f3_gerror_xor_active_test_is_correct() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
-    // Activate CMDQ_ERR.
-    smmu.submit_command(CommandEntry::new(CommandType::CfgiSte, bad_sid().as_u32(), 0))
-        .unwrap();
+    // Activate CMDQ_ERR via CMD_SYNC CS=3 (CERROR_ILL per §4.7.3).
+    let mut bad_cmd2 = CommandEntry::new(CommandType::Sync, 0, 0);
+    bad_cmd2.cs = 3;
+    smmu.submit_command(bad_cmd2).unwrap();
     let _ = smmu.process_command_queue();
 
     // Acknowledge (GERRORN catches up to GERROR → XOR = 0 → INACTIVE).

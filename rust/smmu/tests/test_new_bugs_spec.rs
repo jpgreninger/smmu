@@ -16,10 +16,9 @@
 
 // ─── BUG-NEW-03 ───────────────────────────────────────────────────────────────
 
-/// §7.3 / §3.10.2.1 / BUG-NEW-03:
-/// When `CMD_CFGI_STE` targets an unknown `stream_id`, the resulting `C_BAD_STREAMID`
-/// event must carry the security state of the originating command, not a hardcoded
-/// `SecurityState::NonSecure`.
+/// CONF-GAP-2 / BUG-NEW-03:
+/// `CMD_CFGI_STE` for an unknown `StreamID` is a silent no-op per ARM §4.3.1.
+/// No `C_BAD_STREAMID` event must be generated, regardless of security state or `RECINVSID`.
 #[test]
 fn test_cfgi_ste_bad_stream_event_carries_command_security_state() {
     use smmu::types::{CommandEntry, CommandType, EventType, SecurityState, StreamID};
@@ -27,29 +26,21 @@ fn test_cfgi_ste_bad_stream_event_carries_command_security_state() {
 
     let smmu = SMMU::new();
     smmu.enable().unwrap();
-    // §6.3.12: set RECINVSID so C_BAD_STREAMID events from CMD_CFGI_STE are recorded.
     smmu.set_cr2(SMMU::CR2_RECINVSID);
 
-    // Build a CfgiSte command with a non-default security state (SecureEL2 == Secure)
-    // targeting a stream that has never been configured.
     let unknown_sid = StreamID::new(0xDEAD).unwrap();
     let cmd = CommandEntry::new(CommandType::CfgiSte, unknown_sid.as_u32(), 0)
         .with_security_state(SecurityState::Secure);
 
     smmu.submit_command(cmd).unwrap();
-    // Processing will fail with C_BAD_STREAMID (unknown stream)
-    let _ = smmu.process_command_queue();
+    let result = smmu.process_command_queue();
+    assert!(result.is_ok(), "CONF-GAP-2: CMD_CFGI_STE for unknown stream must be a silent no-op (Ok)");
 
+    // No C_BAD_STREAMID event — §4.3.1 says nothing about generating errors for unknown StreamIDs.
     let events = smmu.get_events_by_type(EventType::CBadStreamid);
     assert!(
-        !events.is_empty(),
-        "expected a C_BAD_STREAMID event for unknown stream"
-    );
-    assert_eq!(
-        events[0].security_state,
-        SecurityState::Secure,
-        "BUG-NEW-03: C_BAD_STREAMID event must carry the command's security_state \
-         (Secure), not a hardcoded NonSecure"
+        events.is_empty(),
+        "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT generate C_BAD_STREAMID (§4.3.1 silent no-op)"
     );
 }
 

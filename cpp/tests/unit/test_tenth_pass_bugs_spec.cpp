@@ -106,30 +106,26 @@ TEST(Bug11CppS1cdMax, ValidS1cdMaxEnforcesSubstreamRange) {
         << "§7.3.9: PASID >= 2^s1cdMax must generate C_BAD_SUBSTREAMID";
 }
 
-// ── BUG-14: C_BAD_STREAMID security state must use command.securityState ──────
+// ── CONF-GAP-2 / BUG-14: CMD_CFGI_STE for unknown StreamID is a silent no-op ──
 //
-// ARM §7.3.3 / §7.3: "Event records are recorded into the Event queue
-// appropriate to the Security status of the StreamID causing the event."
+// ARM §4.3.1: CMD_CFGI_STE is a cache invalidation command.  If the StreamID
+// is unknown there is nothing cached to evict.  The command must complete
+// silently — no C_BAD_STREAMID event, no GERROR.CMDQ_ERR, regardless of
+// the security state field in CommandEntry.
 //
-// Before the fix, both executeInvalidationCommand and processCommand hardcode
-// SecurityState::NonSecure when generating C_BAD_STREAMID.
-// After the fix, command.securityState is used.
-//
-// Tests FAIL before fix: event.securityState is always NonSecure.
+// (BUG-14 originally fixed security state propagation in the now-removed
+// C_BAD_STREAMID generation path.  These tests now verify the correct no-op
+// behavior per CONF-GAP-2.)
 
-/// §7.3.3 / BUG-14: C_BAD_STREAMID event from processCommand must carry
-/// the security state set in CommandEntry, not hardcoded NonSecure.
-///
-/// Submits a CMD_CFGI_STE for an unknown stream with securityState=Secure;
-/// verifies the resulting C_BAD_STREAMID event carries Secure.
+/// CONF-GAP-2: Secure CMD_CFGI_STE for unknown stream → silent no-op.
 TEST(Bug14CppCbadStreamidSecState, ProcessCommandCarriesSecureState) {
     auto smmu = makeSmmu();
 
-    // Stream 0x99 is not configured — CMD_CFGI_STE must produce C_BAD_STREAMID.
+    // Stream 0x99 is not configured — CMD_CFGI_STE must be a silent no-op.
     CommandEntry cmd;
     cmd.type = CommandType::CFGI_STE;
     cmd.streamID = 0x99;
-    cmd.securityState = SecurityState::Secure;  // field added by BUG-14 fix
+    cmd.securityState = SecurityState::Secure;
 
     ASSERT_TRUE(smmu->submitCommand(cmd).isOk());
     smmu->processCommandQueue();
@@ -138,17 +134,15 @@ TEST(Bug14CppCbadStreamidSecState, ProcessCommandCarriesSecureState) {
     bool found = false;
     for (const auto& ev : events) {
         if (ev.type == EventType::C_BAD_STREAMID) {
-            // BUG-14: currently hardcoded NonSecure; must be Secure after fix.
-            EXPECT_EQ(ev.securityState, SecurityState::Secure)
-                << "§7.3.3 / BUG-14: C_BAD_STREAMID must carry Secure security state";
             found = true;
             break;
         }
     }
-    EXPECT_TRUE(found) << "C_BAD_STREAMID event must be generated for unknown stream";
+    EXPECT_FALSE(found) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT generate C_BAD_STREAMID (§4.3.1 silent no-op)";
+    EXPECT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u) << "CONF-GAP-2: must NOT set GERROR.CMDQ_ERR";
 }
 
-/// §7.3.3 / BUG-14: NonSecure CommandEntry must produce NonSecure event.
+/// CONF-GAP-2: NonSecure CMD_CFGI_STE for unknown stream → silent no-op.
 TEST(Bug14CppCbadStreamidSecState, ProcessCommandNonSecurePreserved) {
     auto smmu = makeSmmu();
 
@@ -164,13 +158,12 @@ TEST(Bug14CppCbadStreamidSecState, ProcessCommandNonSecurePreserved) {
     bool found = false;
     for (const auto& ev : events) {
         if (ev.type == EventType::C_BAD_STREAMID) {
-            EXPECT_EQ(ev.securityState, SecurityState::NonSecure)
-                << "§7.3.3: NonSecure command must produce NonSecure C_BAD_STREAMID";
             found = true;
             break;
         }
     }
-    EXPECT_TRUE(found);
+    EXPECT_FALSE(found) << "CONF-GAP-2: CMD_CFGI_STE for unknown stream must NOT generate C_BAD_STREAMID (§4.3.1 silent no-op)";
+    EXPECT_EQ(smmu->getGerror() & GERROR_CMDQ_ERR, 0u) << "CONF-GAP-2: must NOT set GERROR.CMDQ_ERR";
 }
 
 }  // namespace test
