@@ -113,6 +113,8 @@ TEST(StrwTwoStageSpec, Stage1Only_StrwEl3_PrivilegedOnlyPage_PlainReadSucceeds) 
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = false;
     cfg.strw               = StreamWorld::EL3;
+    // CONF-GAP-16: ARM §5.2.2 — STRW=EL3 is only valid for Secure streams.
+    cfg.securityState      = SecurityState::Secure;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.aa64               = true;
     smmu.configureStream(D5_STREAM, cfg);

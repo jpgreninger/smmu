@@ -376,10 +376,14 @@ TEST(BugNewCpp4, EnableThenDisableIsIdempotentOnOtherBits) {
         << "BUG-NEW-CPP-4: EVENTQEN must survive enable()+disable() cycle";
     EXPECT_NE(cr0After & SMMU::CR0_CMDQEN, 0u)
         << "BUG-NEW-CPP-4: CMDQEN must survive enable()+disable() cycle";
-    // All bits that were set before enable() (excluding SMMUEN) must be present after disable().
-    EXPECT_EQ(cr0After & ~SMMU::CR0_SMMUEN,
-              cr0Before & ~SMMU::CR0_SMMUEN)
-        << "BUG-NEW-CPP-4: non-SMMUEN bits must be unchanged after enable()+disable()";
+    // CONF-GAP-23 (§6.3.9): enable() now sets PRIQEN in addition to SMMUEN, EVENTQEN,
+    // CMDQEN to match Rust behavior and ARM spec. After enable()+disable(), PRIQEN
+    // persists (disable() only clears SMMUEN). Pre-existing bits are also preserved.
+    uint32_t bitsSetByEnable = SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN;
+    uint32_t expectedAfter = (cr0Before | bitsSetByEnable) & ~SMMU::CR0_SMMUEN;
+    EXPECT_EQ(cr0After & ~SMMU::CR0_SMMUEN, expectedAfter)
+        << "BUG-NEW-CPP-4: after enable()+disable(), bits set by enable() (EVENTQEN, CMDQEN,"
+           " PRIQEN per CONF-GAP-23) must persist; only SMMUEN must be cleared";
 }
 
 // Concurrent: setCR0() setting EVENTQEN must not be lost during a concurrent

@@ -425,8 +425,12 @@ void TLBCache::invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa
         while (it != stripe.list.end()) {
             const TLBEntry& e = it->second;
             bool vmidMatch = ((e.vmid & vmidMask) == (vmid & vmidMask));
-            bool ipaMatch  = (e.ipa != 0u &&
-                              e.ipa >= pageAlignedIPA &&
+            // CONF-GAP-7: entries with ipa==0 have no IPA info (single-stage or
+            // two-stage entry whose IPA was not yet stored). Per spec §4.4, TLBI_S2_IPA
+            // must invalidate matching entries; conservatively invalidate on VMID-only
+            // when IPA info is unavailable. Entries with ipa!=0 are precisely scoped.
+            bool ipaMatch  = (e.ipa == 0u) ||
+                             (e.ipa >= pageAlignedIPA &&
                               e.ipa <= pageAlignedIPAEnd);
             if (vmidMatch && ipaMatch) {
                 const CacheKey& key = it->first;

@@ -119,6 +119,11 @@ static bool setupStream(SMMU& smmu, StreamID sid, StreamWorld strw,
     cfg.stage2Enabled      = false;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.strw               = strw;
+    // CONF-GAP-16: ARM §5.2.2 — STRW=EL3 is only valid for Secure streams.
+    // NonSecure + EL3 is an illegal STE combination that generates C_BAD_STE.
+    if (strw == StreamWorld::EL3) {
+        cfg.securityState = SecurityState::Secure;
+    }
 
     if (!smmu.configureStream(sid, cfg).isOk()) return false;
     if (!smmu.enableStream(sid).isOk())         return false;
