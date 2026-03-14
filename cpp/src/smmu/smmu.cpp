@@ -410,7 +410,22 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         const StreamConfig& streamCfg = streamCfgSnapshot;
         bool s1dssIsBypass = (streamCfg.s1cdMax > 0 && pasid == 0 && streamCfg.s1dss == 0x01u);
         if (!s1dssIsBypass) {
-            cacheTranslationResult(streamID, pasid, iova, result, currentTime, streamCfg.asid, streamCfg.vmid);
+            // CONF-GAP-25: ARM §3.17 — TLB entries must be tagged with the correct
+            // ASID and VMID depending on the active translation stage(s).
+            //   Stage-1 only:   asid = CD.ASID,  vmid = 0    (no stage-2 VMID)
+            //   Stage-2 only:   asid = 0,         vmid = S2VMID
+            //   Both stages:    asid = CD.ASID,  vmid = S2VMID
+            uint16_t entryAsid = streamCfg.asid;
+            uint16_t entryVmid = streamCfg.vmid;
+            if (!streamCfg.stage2Enabled) {
+                // Stage-1 only: no VMID tagging
+                entryVmid = 0;
+            }
+            if (!streamCfg.stage1Enabled) {
+                // Stage-2 only: no ASID tagging
+                entryAsid = 0;
+            }
+            cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid);
         }
     } else if (result.isError()) {
         // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
@@ -508,7 +523,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // generateEvent() acquires queueMutex — this is safe because the
             // stripe lock is no longer held, eliminating the ABBA deadlock.
             streamContext = nullptr; // Defensive: no further accesses via this pointer
-            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag);
+            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are populated.
+            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag, accessType);
             return makeTranslationError(SMMUError::Stalled);
         }
         // BUG-NEW-CPP-3 fix: the stripe lock was already released before
@@ -532,8 +548,35 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
 // Stream management - Create and configure new stream with StreamContext
 VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) {
+    // CONF-GAP-16: ARM §5.2.2 STE validation — check for illegal combinations
+    // BEFORE acquiring the stripe lock.  These checks examine only the config
+    // parameter (no shared state), so they are safe to run unlocked.
+    // generateEvent() acquires queueMutex (and then the stripe lock for MEV check)
+    // which would deadlock if called while holding the stripe lock.
+
+    // Validation 1: STRW=EL3 is forbidden for Non-secure streams (§5.2 Table 3-2).
+    if (config.securityState == SecurityState::NonSecure &&
+        config.strw == StreamWorld::EL3) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // Validation 2: Stage-2 S2TTB must lie within the OAS (§5.2, §3.4.3).
+    // s2ps encoding: 0=32b, 1=36b, 2=40b, 3=42b, 4=44b, 5=48b, 6=52b.
+    if (config.stage2Enabled && config.s2ttb != 0u) {
+        static const uint8_t s2psToOasBits[] = {32, 36, 40, 42, 44, 48, 52};
+        uint8_t s2psIdx = (config.s2ps <= 6u) ? config.s2ps : 5u;
+        uint8_t oasBits = s2psToOasBits[s2psIdx];
+        uint64_t oasLimit = (oasBits >= 64u) ? UINT64_MAX : (static_cast<uint64_t>(1u) << oasBits);
+        if (config.s2ttb >= oasLimit) {
+            generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+            return makeVoidError(SMMUError::InvalidConfiguration);
+        }
+    }
+
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+
     // Check if stream already exists
     if (streamMap.find(streamID) != streamMap.end()) {
         // ARM §3.11: Changing a stream table entry requires CMD_CFGI_STE + CMD_SYNC
@@ -934,10 +977,11 @@ void SMMU::reset() {
     strtabLog2Size_.store(32u, std::memory_order_release);
     cr2_.store(0u, std::memory_order_release);
 
-    // ARM §3.12.2: Clear stall queue on reset.
+    // ARM §3.12.2: Clear stall queue and resume outcomes on reset.
     {
         std::lock_guard<std::mutex> slock(stallQueueMutex_);
         stallQueue_.clear();
+        resumeOutcomes_.clear();
     }
     // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
     stagCounter_.store(1, std::memory_order_relaxed);
@@ -1325,6 +1369,11 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     entry.timestamp = currentTime;
     entry.asid = asid;
     entry.vmid = vmid;
+    // CONF-GAP-7: propagate IPA from two-stage translation result so that
+    // TLBI_S2_IPA can perform selective IPA-based invalidation (§4.4).
+    // For single-stage results data.ipa==0 (default), correctly marking the
+    // entry as non-IPA-addressable.
+    entry.ipa = data.ipa & ~static_cast<uint64_t>(PAGE_SIZE - 1u); // page-align
 
     // ARM SMMU v3 spec: Insert into TLB with LRU eviction if needed
     tlbCache->insert(entry);
@@ -1570,8 +1619,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // authoritative PA security state and is not required to equal the incoming NS
     // bit by §3.10.2.  The check has been removed.
 
-    // Create successful final translation result
-    return makeTranslationSuccess(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
+    // Create successful final translation result.
+    // CONF-GAP-7: tag the result with the IPA (stage-1 output) so it can be
+    // stored in the TLBEntry.ipa field for selective TLBI_S2_IPA invalidation.
+    TranslationData twoStageResult(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
+    twoStageResult.ipa = intermediatePA;
+    return makeSuccess<TranslationData>(twoStageResult);
 }
 
 TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
@@ -1600,8 +1653,10 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                 // ARM §3.4.1: IOVA exceeded the per-context input address size.
                 // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
                 // that handleTranslationFailure does not need to emit it again.
+                // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
                 fault.faultType = FaultType::AddressSizeFault;
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;
@@ -1644,8 +1699,10 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidAddress:
                 // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
                 // that handleTranslationFailure does not need to emit it again.
+                // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
                 fault.faultType = FaultType::AddressSizeFault;
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;
@@ -1734,7 +1791,9 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::TranslationFault:
             // §7.3.13: F_TRANSLATION (0x10) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
-            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             // Could implement page fault handling or demand paging here
             handleTranslationFaultRecovery(streamID, pasid, iova, securityState);
             break;
@@ -1742,7 +1801,9 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::PermissionFault:
             // §7.3.16: F_PERMISSION (0x13) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
-            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState);
+            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             // Could implement permission escalation or security logging
             handlePermissionFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
@@ -2490,15 +2551,44 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_S12_VMALL:
-        case CommandType::TLBI_S2_IPA:
-            // ARM §4.4: VMID-targeted invalidation — CONF-GAP-12: apply VMW mask
+            // ARM §4.4: VMID-targeted invalidation — all entries for this VMID
+            // CONF-GAP-12: apply VMW wildcard mask
             tlbCache->invalidateByVMIDWithMask(vmid, getVmidMask());
             break;
 
+        case CommandType::TLBI_S2_IPA:
+            // CONF-GAP-7: ARM §4.4 TLBI_S2_IPA — IPA-selective invalidation.
+            // iova carries the IPA operand. Invalidate only TLB entries whose
+            // stage-1 output (entry.ipa) falls within the specified IPA range.
+            // This avoids over-invalidation of entries with different IPAs that
+            // share the same VMID.
+            if (ril) {
+                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
+                                                 iova, computeRILRangeEnd(iova, tg, num, scale));
+            } else {
+                // Single-page IPA invalidation: IPA is page-aligned; invalidate
+                // entries whose ipa is within the same 4KB page.
+                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
+                                                 iova & ~static_cast<IOVA>(0xFFFu),
+                                                 (iova & ~static_cast<IOVA>(0xFFFu)) | 0xFFFu);
+            }
+            break;
+
         case CommandType::TLBI_S_S12_VMALL:
-        case CommandType::TLBI_S_S2_IPA:
-            // Secure Stage-1+2 / Stage-2 IPA VMID-targeted invalidation — apply VMW mask
+            // Secure Stage-1+2 VMID-targeted invalidation — apply VMW mask
             tlbCache->invalidateByVMIDWithMask(vmid, getVmidMask());
+            break;
+
+        case CommandType::TLBI_S_S2_IPA:
+            // CONF-GAP-7: Secure Stage-2 IPA-selective invalidation (same logic as TLBI_S2_IPA).
+            if (ril) {
+                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
+                                                 iova, computeRILRangeEnd(iova, tg, num, scale));
+            } else {
+                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
+                                                 iova & ~static_cast<IOVA>(0xFFFu),
+                                                 (iova & ~static_cast<IOVA>(0xFFFu)) | 0xFFFu);
+            }
             break;
 
         // §4.1.1 / CT-30: EL3 and Secure EL2 TLB invalidation
@@ -2792,12 +2882,22 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             //   Ac=0, Ab=0:     Terminate successfully (RAZ/WI from device perspective).
             //   Ac=0, Ab=1:     Abort with bus error.
             // Per §4.6: only retire the record if its StreamID matches.
+            // CONF-GAP-24: Record the outcome BEFORE erasing the stall record so
+            // software can observe which disposition was chosen via getResumeOutcome().
             std::lock_guard<std::mutex> slock(stallQueueMutex_);
             auto it = stallQueue_.find(command.stag);
             if (it != stallQueue_.end() && it->second.streamID == command.streamID) {
-                // Outcome is determined by Ac/Ab — in the SW model all three outcomes
-                // simply retire the stall record (actual retry/abort is the caller's
-                // responsibility via re-issuing or discarding the DMA transaction).
+                // Classify outcome per ARM §4.6 Ac/Ab field encoding.
+                ResumeOutcome outcome;
+                if (command.action) {
+                    outcome = ResumeOutcome::Retry;
+                } else if (command.abort) {
+                    outcome = ResumeOutcome::Abort;
+                } else {
+                    outcome = ResumeOutcome::Terminate;
+                }
+                // Record outcome for one-shot query via getResumeOutcome().
+                resumeOutcomes_[command.stag] = outcome;
                 stallQueue_.erase(it);
             }
             // If STAG not found or StreamID mismatch: no effect (§4.6).
@@ -3089,12 +3189,11 @@ void SMMU::enable() {
     // BUG-NEW-CPP-4 fix: use fetch_or (atomic read-modify-write) instead of
     // the previous non-atomic load-then-store.  The old pattern allowed a
     // concurrent setCR0() write between the load and store to be silently lost.
-    // Sets SMMUEN | EVENTQEN | CMDQEN atomically (PRIQEN deliberately excluded:
-    // the old implementation incorrectly added PRIQEN, causing any bits set via
-    // setCR0() to be permanently augmented after an enable()+disable() cycle).
+    // CONF-GAP-23: ARM IHI0070G.b §6.3.9 requires PRIQEN (bit 1) to be set
+    // alongside SMMUEN|EVENTQEN|CMDQEN when the SMMU is globally enabled.
     // acquire/release ordering ensures visibility to concurrent translate() readers.
-    uint32_t newVal = cr0_.fetch_or(CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel)
-                      | CR0_SMMUEN | CR0_EVENTQEN | CR0_CMDQEN;
+    uint32_t newVal = cr0_.fetch_or(CR0_SMMUEN | CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel)
+                      | CR0_SMMUEN | CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN;
     smmuen_.store(true, std::memory_order_release);
     // CONF-GAP-9: sync CR0ACK to match updated CR0
     cr0ack_.store(newVal, std::memory_order_release);
@@ -3167,6 +3266,24 @@ size_t SMMU::getStalledTransactionCount() const {
     return stallQueue_.size();
 }
 
+// CONF-GAP-24: ARM §3.12.2 / §4.6 CMD_RESUME outcome observability.
+// One-shot read: removes the entry from resumeOutcomes_ after returning it.
+ResumeOutcome SMMU::getResumeOutcome(uint16_t stag) {
+    std::lock_guard<std::mutex> slock(stallQueueMutex_);
+    auto it = resumeOutcomes_.find(stag);
+    if (it == resumeOutcomes_.end()) {
+        return ResumeOutcome::None;
+    }
+    ResumeOutcome outcome = it->second;
+    resumeOutcomes_.erase(it);
+    return outcome;
+}
+
+void SMMU::clearResumeOutcomes() {
+    std::lock_guard<std::mutex> slock(stallQueueMutex_);
+    resumeOutcomes_.clear();
+}
+
 // CONF-GAP-11: §6.3.12 CR2.PTM — broadcast TLB maintenance.
 // Checks PTM bit before executing the invalidation; NS-targeted commands
 // (TLBI_NH_*, TLBI_NSNH_ALL, TLBI_EL2_*) are gated by PTM.  Secure and
@@ -3188,7 +3305,8 @@ void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, 
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
-                         SecurityState securityState, bool isStall, uint16_t stag) {
+                         SecurityState securityState, bool isStall, uint16_t stag,
+                         AccessType accessType) {
     // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
     // Exception: stall events must always be recorded (§3.5.3 stall semantics).
     // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
@@ -3293,6 +3411,87 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // §7.3 / FINDING-NEW-28: errorCode has no spec-defined meaning; set to 0.
     // The event type (EventEntry.type) is the authoritative fault identifier.
     event.errorCode = 0;
+
+    // CONF-GAP-20: §7.3 event record wire format fields.
+    // Populate access-type-derived fields from the AccessType parameter.
+    // Note: accessType is not a parameter of generateEvent(); it is encoded in
+    // the fault record / event type at the call site.  We derive the fields
+    // here from the event type and PASID.
+    //
+    // RnW: true for writes (Write, WritePrivileged).
+    // InD: true for instruction fetches (Execute, ExecutePrivileged).
+    // PnU: true for privileged access types (*Privileged variants).
+    // SSV: true when PASID != 0 (SubstreamID is valid).
+    // eventClass: 0 for translation/data faults (F_*), 1 for config faults (C_*).
+    //
+    // The AccessType is not available at this level; generateEvent() is called
+    // from many call sites.  We populate what we can from the event type and pasid.
+    // Fields that require the AccessType are populated by call sites that have it
+    // (translate-path code sets rnw/ind/pnu before calling generateEvent via the
+    // stallPending path; here we set reasonable defaults for generic events).
+    event.ssv = (pasid != 0);
+
+    // eventClass: C_* events are configuration faults (class=1); F_* are translation (class=0).
+    switch (type) {
+        case EventType::C_BAD_STREAMID:
+        case EventType::C_BAD_STE:
+        case EventType::C_BAD_SUBSTREAMID:
+        case EventType::C_BAD_CD:
+        case EventType::F_CFG_CONFLICT:
+            event.eventClass = 1u;
+            break;
+        default:
+            event.eventClass = 0u;
+            break;
+    }
+
+    // CONF-GAP-20: populate rnw/ind/pnu from the accessType parameter (§7.3).
+    switch (accessType) {
+        case AccessType::Write:
+            event.rnw = true;
+            event.ind = false;
+            event.pnu = false;
+            break;
+        case AccessType::Execute:
+            event.rnw = false;
+            event.ind = true;
+            event.pnu = false;
+            break;
+        case AccessType::ReadWrite:
+            event.rnw = true;   // atomic RMW is write-class per ARM §3.24
+            event.ind = false;
+            event.pnu = false;
+            break;
+        case AccessType::ReadPrivileged:
+            event.rnw = false;
+            event.ind = false;
+            event.pnu = true;
+            break;
+        case AccessType::WritePrivileged:
+            event.rnw = true;
+            event.ind = false;
+            event.pnu = true;
+            break;
+        case AccessType::ExecutePrivileged:
+            event.rnw = false;
+            event.ind = true;
+            event.pnu = true;
+            break;
+        case AccessType::ReadWritePrivileged:
+            event.rnw = true;
+            event.ind = false;
+            event.pnu = true;
+            break;
+        case AccessType::Read:
+        default:
+            event.rnw = false;
+            event.ind = false;
+            event.pnu = false;
+            break;
+    }
+    event.s2    = false;
+    event.ipa   = 0;
+    event.nsipa = false;
 
     // Add to event queue
     eventQueue.push_back(event);

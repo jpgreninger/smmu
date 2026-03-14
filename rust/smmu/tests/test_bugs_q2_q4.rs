@@ -60,6 +60,7 @@ const fn stall_event(sid: u32) -> EventEntry {
         timestamp: 0,
         stall: true,
         stag: 1,
+        ..EventEntry::zeroed()
     }
 }
 
@@ -101,6 +102,7 @@ fn bug_q2_reset_queues_clears_stall_pending() {
             timestamp: 0,
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         // Ignore errors: the queue may be full, which is fine — we just want it full.
         let _ = smmu.submit_event(ev);
@@ -146,6 +148,7 @@ fn bug_q2_reset_queues_clears_event_queue_too() {
             timestamp: 0,
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         let _ = smmu.submit_event(ev);
     }
@@ -182,6 +185,7 @@ fn bug_q2_reset_clears_multiple_stall_pending_entries() {
             timestamp: 0,
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         let _ = smmu.submit_event(ev);
     }

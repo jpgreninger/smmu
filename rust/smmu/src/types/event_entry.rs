@@ -95,9 +95,61 @@ pub struct EventEntry {
     /// §3.12.2: Stall Tag — identifies the stalled transaction group for CMD_RESUME matching.
     /// Non-zero only when `stall == true`; zero for all non-stall events.
     pub stag: u16,
+
+    // ── CONF-GAP-20: §7.3 event record wire format fields ───────────────────
+    /// Intermediate Physical Address — for two-stage faults (§7.3).
+    /// Zero for single-stage faults.
+    pub ipa: u64,
+    /// CLASS: event class — 0=translation, 1=config, 2=access_flag, 3=permission (§7.3).
+    pub event_class: u8,
+    /// S2 flag — true if the fault occurred during Stage-2 translation (§7.3).
+    pub s2: bool,
+    /// RnW — true=write, false=read (§7.3).
+    pub rnw: bool,
+    /// InD — true=instruction fetch, false=data access (§7.3).
+    pub ind: bool,
+    /// PnU — true=privileged, false=unprivileged (§7.3).
+    pub pnu: bool,
+    /// NSIPA — true if the IPA is in the Non-Secure physical address space (§7.3).
+    pub nsipa: bool,
+    /// SSV — SubstreamID Valid; true when the transaction carried a non-zero PASID (§7.3).
+    pub ssv: bool,
 }
 
 impl EventEntry {
+    /// Return a zeroed/defaulted `EventEntry`.
+    ///
+    /// Provided as a `const fn` so it can be used as a struct-update base in
+    /// both `const` and non-`const` contexts:
+    ///
+    /// ```rust
+    /// use smmu::types::{EventEntry, EventType};
+    /// let ev = EventEntry { event_type: EventType::FTranslation, stream_id: 1,
+    ///     ..EventEntry::zeroed() };
+    /// ```
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        Self {
+            event_type: EventType::FTranslation,
+            stream_id: 0,
+            pasid: 0,
+            address: 0,
+            security_state: SecurityState::NonSecure,
+            error_code: 0,
+            timestamp: 0,
+            stall: false,
+            stag: 0,
+            ipa: 0,
+            event_class: 0,
+            s2: false,
+            rnw: false,
+            ind: false,
+            pnu: false,
+            nsipa: false,
+            ssv: false,
+        }
+    }
+
     /// Create a new event entry
     #[must_use]
     pub const fn new(event_type: EventType, stream_id: u32, pasid: u32, address: u64) -> Self {
@@ -111,6 +163,21 @@ impl EventEntry {
             timestamp: 0,
             stall: false,
             stag: 0,
+            // CONF-GAP-20: wire-format fields default to zero/false.
+            ipa: 0,
+            event_class: 0,
+            s2: false,
+            rnw: false,
+            ind: false,
+            pnu: false,
+            nsipa: false,
+            ssv: false,
         }
+    }
+}
+
+impl Default for EventEntry {
+    fn default() -> Self {
+        Self::zeroed()
     }
 }

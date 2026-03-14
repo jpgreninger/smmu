@@ -263,6 +263,15 @@ public:
     /// Returns the number of currently stalled transactions.
     size_t getStalledTransactionCount() const;
 
+    // CONF-GAP-24: ARM §3.12.2 / §4.6 CMD_RESUME outcome observability.
+    /// Returns the ResumeOutcome recorded for the given STAG by the last CMD_RESUME
+    /// command that matched it.  Removes the entry from the internal map after the
+    /// query (one-shot read).  Returns ResumeOutcome::None when no outcome is
+    /// recorded for that STAG (not yet resumed or already queried).
+    ResumeOutcome getResumeOutcome(uint16_t stag);
+    /// Clears all recorded resume outcomes (e.g. on reset or software flush).
+    void clearResumeOutcomes();
+
     // Statistics and debugging
     size_t getStreamCount() const;
     uint64_t getTotalTranslations() const;
@@ -391,6 +400,12 @@ private:
     std::atomic<uint16_t> stagCounter_;                       ///< Monotonically incrementing STAG generator
     mutable std::mutex stallQueueMutex_;                      ///< Protects stallQueue_
 
+    // CONF-GAP-24: ARM §4.6 CMD_RESUME outcome recording.
+    // Maps STAG -> ResumeOutcome so software can observe what happened to each
+    // stalled transaction after CMD_RESUME is processed.
+    // Protected by stallQueueMutex_ (same lock as stallQueue_ for consistency).
+    std::unordered_map<uint16_t, ResumeOutcome> resumeOutcomes_;  ///< STAG -> ResumeOutcome
+
     // BUG-ANALYSIS-5 fix: Stall-event pending buffer (ARM IHI0070G.b §7.4).
     // When the main event queue is full and a stall event arrives, the event is
     // placed here instead of growing eventQueue beyond maxEventQueueSize.
@@ -515,9 +530,13 @@ private:
     // queueMutex before acquiring stripe locks, preventing ABBA deadlock.
     void processCommand(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock);
     void executeInvalidationCommandLocked(const CommandEntry& command, std::unique_lock<std::recursive_mutex>& queueLock);
+    // CONF-GAP-20: accessType parameter populates rnw/ind/pnu wire-format fields (§7.3).
+    // Defaults to AccessType::Read (rnw=false, ind=false, pnu=false) for call sites
+    // that do not have the access type available (e.g. config-fault generators).
     void generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                        SecurityState securityState = SecurityState::NonSecure, bool isStall = false,
-                       uint16_t stag = 0);
+                       uint16_t stag = 0,
+                       AccessType accessType = AccessType::Read);
     uint64_t getCurrentTimestamp() const;
 };
 

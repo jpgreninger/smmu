@@ -139,6 +139,10 @@ public:
     void invalidateByVMID(uint16_t vmid);    ///< ARM §4.4: evict all TLB entries tagged with this VMID
     // CONF-GAP-12: VMID wildcard matching — invalidate entries where (vmid & mask)==(target & mask)
     void invalidateByVMIDWithMask(uint16_t vmid, uint16_t vmidMask);
+    // CONF-GAP-7: IPA-selective TLBI_S2_IPA — invalidate two-stage entries where
+    // (entry.vmid & vmidMask)==(vmid & vmidMask) AND entry.ipa is in [ipa, ipaEnd].
+    // Only entries with entry.ipa != 0 are candidates (two-stage entries).
+    void invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa, IOVA ipaEnd);
     // CONF-GAP-6: VA-targeted TLBI — invalidate entries by VA+ASID or VA-only (§4.4)
     void invalidateByVAAndASID(IOVA va, uint16_t asid);  ///< evict entries matching va AND asid
     void invalidateByVA(IOVA va);                         ///< evict entries matching va (all ASIDs)

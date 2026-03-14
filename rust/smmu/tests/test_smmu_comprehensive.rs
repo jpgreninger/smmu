@@ -805,6 +805,7 @@ fn test_event_queue_submit_translation_fault() {
         timestamp: 12_345,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -825,6 +826,7 @@ fn test_event_queue_submit_permission_fault() {
         timestamp: 12_346,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     };
 
     assert!(smmu.submit_event(event).is_ok());
@@ -845,6 +847,7 @@ fn test_event_queue_submit_access_fault() {
         timestamp: 12_347,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     };
 
     smmu.submit_event(event).unwrap();
@@ -870,6 +873,7 @@ fn test_event_queue_overflow_with_small_queue() {
             timestamp: u64::from(i),
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         smmu.submit_event(event).unwrap();
     }
@@ -887,6 +891,7 @@ fn test_event_queue_overflow_with_small_queue() {
         timestamp: 9999,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     };
 
     let result = smmu.submit_event(overflow_event);
@@ -914,6 +919,7 @@ fn test_event_queue_large_queue_no_overflow() {
             timestamp: u64::from(i),
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         assert!(smmu.submit_event(event).is_ok());
     }
@@ -937,6 +943,7 @@ fn test_event_queue_get_all_events() {
             timestamp: u64::from(i),
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         smmu.submit_event(event).unwrap();
     }
@@ -960,6 +967,7 @@ fn test_event_queue_filter_by_type() {
         timestamp: 1,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -973,6 +981,7 @@ fn test_event_queue_filter_by_type() {
         timestamp: 2,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -986,6 +995,7 @@ fn test_event_queue_filter_by_type() {
         timestamp: 3,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1012,6 +1022,7 @@ fn test_event_queue_filter_by_stream() {
             timestamp: i as u64,
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         })
         .unwrap();
     }
@@ -1026,6 +1037,7 @@ fn test_event_queue_filter_by_stream() {
         timestamp: 999,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1052,6 +1064,7 @@ fn test_event_queue_clear() {
             timestamp: u64::from(i),
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         })
         .unwrap();
     }
@@ -1381,6 +1394,7 @@ fn test_queue_statistics() {
         timestamp: 1,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1488,6 +1502,7 @@ fn test_reset_queues_atomically() {
         timestamp: 1,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1945,6 +1960,7 @@ fn test_multiple_event_types() {
         timestamp: 1,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1958,6 +1974,7 @@ fn test_multiple_event_types() {
         timestamp: 2,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1971,6 +1988,7 @@ fn test_multiple_event_types() {
         timestamp: 3,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 
@@ -1984,6 +2002,7 @@ fn test_multiple_event_types() {
         timestamp: 4,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     })
     .unwrap();
 

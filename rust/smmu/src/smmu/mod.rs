@@ -107,6 +107,20 @@ pub struct StallRecord {
     pub security_state: SecurityState,
 }
 
+/// CONF-GAP-24: CMD_RESUME outcome observable (ARM §3.12.2, §4.6 Table 4-10).
+///
+/// Records the outcome of a CMD_RESUME command for a stalled transaction.
+/// Software can query the outcome via `SMMU::get_resume_outcome(stag)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeOutcome {
+    /// Ac=1: transaction is retried as if freshly arrived.
+    Retry,
+    /// Ac=0, Ab=0: transaction terminated successfully (RAZ/WI).
+    Terminate,
+    /// Ac=0, Ab=1: transaction aborted with bus error.
+    Abort,
+}
+
 /// GBPA (Global Bypass/Abort) output attribute configuration (§6.3.22).
 ///
 /// When SMMUEN=0 and GBPA.ABORT=0, these fields are applied to the identity-mapping
@@ -291,6 +305,13 @@ pub struct SMMU {
     /// Wrapping increment ensures unique STAGs for up to 65 535 concurrent
     /// stalls before wrap-around.
     stag_counter: AtomicU16,
+
+    /// CONF-GAP-24: Resolved CMD_RESUME outcomes (ARM §3.12.2, §4.6 Table 4-10).
+    ///
+    /// Maps STAG → ResumeOutcome after CMD_RESUME processing so software can
+    /// observe the outcome via `get_resume_outcome(stag)`.  Entries are removed
+    /// on first read.  Use `clear_resume_outcomes()` to discard all outcomes.
+    resolved_stags: Mutex<std::collections::HashMap<u16, ResumeOutcome>>,
 
     /// Stall-event pending buffer (ARM IHI0070G.b §7.4 / BUG-13).
     ///
@@ -724,6 +745,7 @@ impl SMMU {
             stall_queue: DashMap::new(),
             stag_counter: AtomicU16::new(1),
             stall_pending: Mutex::new(VecDeque::new()),
+            resolved_stags: Mutex::new(std::collections::HashMap::new()),
             gerror: AtomicU32::new(0),
             // GERRORN reset: ARM §6.3.20 — resets to 0.
             gerrorn: AtomicU32::new(0),
@@ -1492,6 +1514,44 @@ impl SMMU {
             .validate()
             .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
 
+        // CONF-GAP-16: SteIllegal() checks per ARM §5.2.2.
+        //
+        // (1) STRW=EL3 is forbidden for Non-Secure streams.
+        //     ARM §5.2.2: "If STE.STRW==0b11 (EL3) and the stream security state is
+        //     Non-Secure, this is a C_BAD_STE condition."
+        if config.security_state == SecurityState::NonSecure && config.strw == crate::types::StreamWorld::El3 {
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STRW=EL3 is forbidden for Non-Secure streams (ARM §5.2.2)".to_string(),
+            ));
+        }
+
+        // (2) S2TTB address-size check: when Stage-2 is enabled, S2TTB must be
+        //     within the Output Address Size (OAS) bounds derived from STE.S2PS.
+        //     ARM §5.2.2: OAS bit widths — S2PS: 0=32, 1=36, 2=40, 3=42, 4=44, 5=48, 6=52.
+        if config.stage2_enabled {
+            let oas_bits: u32 = match config.s2_ps {
+                0 => 32,
+                1 => 36,
+                2 => 40,
+                3 => 42,
+                4 => 44,
+                5 => 48,
+                6 => 52,
+                _ => 48, // default to 48-bit for reserved values
+            };
+            // For OAS < 52 bits the valid range is [0, 2^oas_bits).
+            // For OAS == 52 we skip the check (any u64 S2TTB could be valid).
+            if oas_bits < 52 {
+                let oas_limit = 1u64 << oas_bits;
+                if config.s2_ttb >= oas_limit {
+                    return Err(SMMUError::invalid_configuration(
+                        format!("C_BAD_STE: S2TTB 0x{:x} exceeds OAS ({}‐bit, limit 0x{:x}) (ARM §5.2.2)",
+                            config.s2_ttb, oas_bits, oas_limit),
+                    ));
+                }
+            }
+        }
+
         let stream_value = stream_id.as_u32();
 
         // BUG-6 fix: atomically reserve a slot BEFORE the DashMap insert.
@@ -1887,6 +1947,25 @@ impl SMMU {
     /// ```
     pub fn abort_stalled_transaction(&self, stag: u16) -> bool {
         self.stall_queue.remove(&stag).is_some()
+    }
+
+    /// CONF-GAP-24: Retrieve and remove the recorded outcome of a CMD_RESUME command (ARM §3.12.2).
+    ///
+    /// Returns `Some(ResumeOutcome)` if a CMD_RESUME for `stag` has been processed,
+    /// or `None` if no outcome has been recorded (STAG unknown or not yet resolved).
+    /// The entry is removed from the map on first read.
+    pub fn get_resume_outcome(&self, stag: u16) -> Option<ResumeOutcome> {
+        self.resolved_stags.lock().ok()?.remove(&stag)
+    }
+
+    /// CONF-GAP-24: Clear all recorded CMD_RESUME outcomes (ARM §3.12.2).
+    ///
+    /// Discards all pending outcome records regardless of whether they have been
+    /// read.  Use this to reset state between test runs or after a global SMMU reset.
+    pub fn clear_resume_outcomes(&self) {
+        if let Ok(mut outcomes) = self.resolved_stags.lock() {
+            outcomes.clear();
+        }
     }
 
     /// Remove a PASID from a stream
@@ -2572,6 +2651,7 @@ impl SMMU {
                                 timestamp,
                                 stall: false,
                                 stag: 0,
+                                ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
                                 if queue.len() < self.event_queue_capacity {
@@ -2731,6 +2811,10 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
+                        rnw: matches!(access, AccessType::Write),
+                        ind: matches!(access, AccessType::Execute),
+                        ssv: pasid.as_u32() != 0,
+                        ..EventEntry::zeroed()
                     };
                     if let Ok(mut queue) = self.event_queue.write() {
                         if queue.len() < self.event_queue_capacity {
@@ -3119,6 +3203,20 @@ impl SMMU {
 
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event_type = Self::map_fault_type_to_event_type(fault_type);
+        // CONF-GAP-20: §7.3 wire-format fields.
+        // event_class: 0=translation (F_*), 1=config (C_*).  Use the event type discriminant.
+        let event_class: u8 = match event_type {
+            EventType::CBadStreamid
+            | EventType::FSteFetch
+            | EventType::CBadSte
+            | EventType::FBadAtsTreq
+            | EventType::FStreamDisabled
+            | EventType::FTranslForbidden
+            | EventType::CBadSubstreamid
+            | EventType::FCdFetch
+            | EventType::CBadCd => 1,
+            _ => 0,
+        };
         let event = EventEntry {
             event_type,
             stream_id: stream_id.as_u32(),
@@ -3131,6 +3229,12 @@ impl SMMU {
             // §3.12.2 / FINDING-NEW-26: Carry the stall tag so software can correlate
             // the EventEntry to the matching CMD_RESUME command.  Zero when stall==false.
             stag,
+            // CONF-GAP-20: §7.3 wire-format fields.
+            event_class,
+            rnw: matches!(access, AccessType::Write),
+            ind: matches!(access, AccessType::Execute),
+            ssv: pasid.as_u32() != 0,
+            ..EventEntry::zeroed()
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
@@ -3246,6 +3350,11 @@ impl SMMU {
             timestamp,
             stall: false,
             stag: 0,
+            event_class: 1, // C_* events are class 1 (config)
+            rnw: matches!(access, AccessType::Write),
+            ind: matches!(access, AccessType::Execute),
+            ssv: pasid.as_u32() != 0,
+            ..EventEntry::zeroed()
         };
 
         if let Ok(mut queue) = self.event_queue.write() {
@@ -3728,12 +3837,28 @@ impl SMMU {
                     self.invalidation_count.fetch_add(1, Ordering::Relaxed);
                 }
             },
-            // CONF-GAP-12: VMID-targeted invalidation with CR0.VMW wildcard masking (§6.3.9).
-            CommandType::TlbiS12Vmall | CommandType::TlbiS2Ipa | CommandType::TlbiSS12Vmall | CommandType::TlbiSS2Ipa => {
+            // CONF-GAP-12: VMID-targeted (all) invalidation with CR0.VMW wildcard masking (§6.3.9).
+            CommandType::TlbiS12Vmall | CommandType::TlbiSS12Vmall => {
                 // CONF-GAP-12: apply CR0.VMW wildcard mask to VMID comparison.
                 let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
                 self.tlb_cache.invalidate_by_vmid_with_mask(command.vmid, vmid_mask);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // CONF-GAP-7: IPA-selective Stage-2 invalidation (§4.4 CMD_TLBI_S2_IPA).
+            //
+            // Use start_address as the IPA operand.  When RIL is active, use the
+            // pre-computed end_address; otherwise invalidate a single 4 KB page.
+            CommandType::TlbiS2Ipa | CommandType::TlbiSS2Ipa => {
+                let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
+                let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
+                let ipa_start = command.start_address;
+                let ipa_end = if command.ril {
+                    command.end_address
+                } else {
+                    ipa_start | 0xFFF
+                };
+                self.tlb_cache.invalidate_by_vmid_and_ipa(command.vmid, vmid_mask, ipa_start, ipa_end);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
@@ -3790,6 +3915,7 @@ impl SMMU {
                     timestamp,
                     stall: false,
                     stag: 0,
+                    ..EventEntry::zeroed()
                 };
 
                 let _ = self.submit_event(event);
@@ -3837,6 +3963,7 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
+                        ..EventEntry::zeroed()
                     };
 
                     let _ = self.submit_event(event);
@@ -3853,6 +3980,17 @@ impl SMMU {
                     .get(&command.stag)
                     .map_or(false, |r| r.stream_id == command.stream_id);
                 if stream_matches {
+                    // CONF-GAP-24: record outcome BEFORE removing from stall queue.
+                    let outcome = if command.action {
+                        ResumeOutcome::Retry
+                    } else if command.abort {
+                        ResumeOutcome::Abort
+                    } else {
+                        ResumeOutcome::Terminate
+                    };
+                    if let Ok(mut outcomes) = self.resolved_stags.lock() {
+                        outcomes.insert(command.stag, outcome);
+                    }
                     self.stall_queue.remove(&command.stag);
                 }
             },
@@ -4104,6 +4242,7 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
+                        ..EventEntry::zeroed()
                     };
 
                     let _ = self.submit_event(event);
@@ -5408,6 +5547,7 @@ mod tests {
             timestamp: u64::from(i),
             stall: false,
             stag: 0,
+            ..EventEntry::zeroed()
         };
 
         // Fill the queue exactly to capacity — all must succeed.
@@ -5646,6 +5786,7 @@ mod tests {
             timestamp: 0,
             stall: false,
             stag: 0,
+            ..EventEntry::zeroed()
         };
         // Fill the event queue to capacity via public API.
         for i in 0..(capacity as u32) {

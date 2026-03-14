@@ -447,6 +447,7 @@ fn bug3_tlb_hit_path_does_not_enforce_priv_when_el3_suppresses() {
         .stage1_enabled(true)
         .translation_enabled(true)
         .strw(StreamWorld::El3) // suppresses privileged_only
+        .security_state(SecurityState::Secure) // STRW=EL3 is only valid for Secure streams (ARM §5.2.2)
         .fault_mode(FaultMode::Terminate)
         .build()
         .unwrap();

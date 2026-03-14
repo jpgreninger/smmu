@@ -284,6 +284,7 @@ fn rust4_submit_event_full_queue_toggles_ovflg() {
         timestamp: 0,
         stall: false,
         stag: 0,
+        ..EventEntry::default()
     };
 
     // Fill the event queue to capacity

@@ -408,6 +408,51 @@ void TLBCache::invalidateByVMIDWithMask(uint16_t vmid, uint16_t vmidMask) {
     }
 }
 
+void TLBCache::invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa, IOVA ipaEnd) {
+    // CONF-GAP-7: ARM §4.4 TLBI_S2_IPA IPA-selective invalidation.
+    // Evict two-stage TLB entries where:
+    //   (entry.vmid & vmidMask) == (vmid & vmidMask)  AND
+    //   entry.ipa != 0  (two-stage entry — has a valid IPA)  AND
+    //   entry.ipa >= ipa AND entry.ipa <= ipaEnd
+    // Page-align the IPA operand before comparison (strip sub-page offset bits).
+    IOVA pageAlignedIPA    = ipa    & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    IOVA pageAlignedIPAEnd = ipaEnd & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            const TLBEntry& e = it->second;
+            bool vmidMatch = ((e.vmid & vmidMask) == (vmid & vmidMask));
+            bool ipaMatch  = (e.ipa != 0u &&
+                              e.ipa >= pageAlignedIPA &&
+                              e.ipa <= pageAlignedIPAEnd);
+            if (vmidMatch && ipaMatch) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateByVAAndASID(IOVA va, uint16_t asid) {
     // CONF-GAP-6: VA+ASID targeted TLBI — evict entries where iova matches va AND asid matches.
     // va is page-aligned (strip offset bits) before comparison.

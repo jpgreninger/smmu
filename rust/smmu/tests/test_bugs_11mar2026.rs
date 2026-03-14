@@ -65,6 +65,7 @@ fn fill_event_queue(smmu: &SMMU, n: usize) {
             timestamp: 0,
             stall: false,
             stag: 0,
+            ..EventEntry::default()
         };
         let _ = smmu.submit_event(ev);
     }
@@ -84,6 +85,7 @@ fn push_stall_to_pending(smmu: &SMMU) {
         timestamp: 0,
         stall: true,
         stag: 1,
+        ..EventEntry::default()
     };
     // If the queue is full, submit_event() redirects this to stall_pending.
     let _ = smmu.submit_event(stall_ev);
@@ -428,6 +430,7 @@ fn bug5_get_events_drain_after_queue_clear() {
         timestamp: 0,
         stall: true,
         stag: 2,
+        ..EventEntry::default()
     };
     // Submit while queue is empty — this should succeed and advance prod.
     let submit_result = smmu.submit_event(stall_ev);

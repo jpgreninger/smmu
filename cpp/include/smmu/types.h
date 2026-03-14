@@ -808,13 +808,19 @@ struct TranslationData {
     uint8_t privCfg;
     /// @brief 2-bit resolved NS output attribute
     uint8_t nsCfgOut;
+    /// @brief CONF-GAP-7: Stage-1 output (IPA) for two-stage translations.
+    /// Set to the IPA produced by Stage-1 when both stages are enabled, so that
+    /// TLB entries can be tagged with the IPA for selective TLBI_S2_IPA invalidation.
+    /// Zero for single-stage translations (no IPA).
+    uint64_t ipa;
 
     /**
      * @brief Default constructor
      * @details Physical address = 0, NonSecure state, no permissions.
      */
     TranslationData() : physicalAddress(0), securityState(SecurityState::NonSecure),
-                        memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0) {
+                        memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0),
+                        ipa(0) {
     }
 
     /**
@@ -823,7 +829,8 @@ struct TranslationData {
      * @details Security state defaults to NonSecure, no permissions.
      */
     TranslationData(PA pa) : physicalAddress(pa), securityState(SecurityState::NonSecure),
-                             memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0) {
+                             memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0),
+                             ipa(0) {
     }
 
     /**
@@ -835,7 +842,7 @@ struct TranslationData {
     TranslationData(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms),
                                                     securityState(SecurityState::NonSecure),
                                                     memType(0), shareability(0), allocHint(0),
-                                                    instCfg(0), privCfg(0), nsCfgOut(0) {
+                                                    instCfg(0), privCfg(0), nsCfgOut(0), ipa(0) {
     }
 
     /**
@@ -849,7 +856,8 @@ struct TranslationData {
                                                                             securityState(secState),
                                                                             memType(0), shareability(0),
                                                                             allocHint(0), instCfg(0),
-                                                                            privCfg(0), nsCfgOut(0) {
+                                                                            privCfg(0), nsCfgOut(0),
+                                                                            ipa(0) {
     }
 };
 
@@ -1170,6 +1178,13 @@ struct StreamConfig {
     /// event queue will suppress a new identical event (merge/dedup).
     bool mev;  ///< STE.MEV; defaults to false (no merging)
 
+    /// CONF-GAP-16: ARM §5.2 STE.S2S — Stage-2 Secure bit.
+    /// When true, stage-2 translation uses Secure PA space.
+    bool s2s;  ///< STE.S2S; defaults to false
+    /// CONF-GAP-16: ARM §5.2 STE.EATS — Enhanced Address Translation Security.
+    /// 2-bit field; 0=off, other values per spec.
+    uint8_t eats;  ///< STE.EATS; defaults to 0
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1178,7 +1193,7 @@ struct StreamConfig {
                     t0sz(16), t1sz(16), aa64(true),
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
                     securityState(SecurityState::NonSecure),
-                    mev(false) {
+                    mev(false), s2s(false), eats(0) {
     }
 };
 
@@ -1224,15 +1239,20 @@ struct TLBEntry {
     uint64_t timestamp;
     uint16_t asid;  // CD.ASID tag — used for CMD_TLBI_NH_ASID / CMD_TLBI_EL2_ASID (ARM §4.4)
     uint16_t vmid;  // STE.S2VMID tag — used for CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA (ARM §4.4)
+    /// CONF-GAP-7: ARM §4.4 TLBI_S2_IPA operand.
+    /// For two-stage translation entries this is the stage-1 output address (IPA)
+    /// used as the operand of CMD_TLBI_S2_IPA to perform selective IPA invalidation.
+    /// Zero for single-stage entries (no IPA to compare against).
+    uint64_t ipa;   // Stage-1 output (IPA) for two-stage entries; 0 for single-stage
 
     TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0),
                  securityState(SecurityState::NonSecure), valid(false), timestamp(0),
-                 asid(0), vmid(0) {
+                 asid(0), vmid(0), ipa(0) {
     }
 
     TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState)
         : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms),
-          securityState(secState), valid(true), timestamp(0), asid(0), vmid(0) {
+          securityState(secState), valid(true), timestamp(0), asid(0), vmid(0), ipa(0) {
     }
 };
 
@@ -1494,22 +1514,51 @@ struct EventEntry {
     bool stall;   ///< §7.3: true when this event corresponds to a stalled transaction (§3.5.3)
     uint16_t stag; ///< §3.12.2: Stall Tag — identifies the stalled transaction group; 0 when stall==false
 
+    // CONF-GAP-20: §7.3 event record wire format fields
+    uint64_t ipa;        ///< §7.3: Intermediate Physical Address (for two-stage faults)
+    uint8_t  eventClass; ///< §7.3: CLASS field (0=translation/F_* fault, 1=config/C_* fault)
+    bool     s2;         ///< §7.3: S2 flag — true if fault occurred during stage-2 translation
+    bool     rnw;        ///< §7.3: RnW — true=write, false=read
+    bool     ind;        ///< §7.3: InD — true=instruction (Execute), false=data
+    bool     pnu;        ///< §7.3: PnU — true=privileged access, false=unprivileged
+    bool     nsipa;      ///< §7.3: NSIPA — true if the IPA is non-secure
+    bool     ssv;        ///< §7.3: SSV — SubstreamID Valid (true when PASID != 0)
+
     EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
                   address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
-                  stall(false), stag(0) {
+                  stall(false), stag(0),
+                  ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
+                  pnu(false), nsipa(false), ssv(false) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr)
         : type(eventType), streamID(sid), pasid(p), address(addr),
           securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
-          stall(false), stag(0) {
+          stall(false), stag(0),
+          ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
+          pnu(false), nsipa(false), ssv(false) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState)
         : type(eventType), streamID(sid), pasid(p), address(addr),
           securityState(secState), errorCode(0), timestamp(0),
-          stall(false), stag(0) {
+          stall(false), stag(0),
+          ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
+          pnu(false), nsipa(false), ssv(false) {
     }
+};
+
+/// @brief CONF-GAP-24: ARM §3.12.2 CMD_RESUME outcome classification (§4.6).
+/// Records the disposition chosen by software when resuming a stalled transaction.
+///   Retry     — Ac=1:          transaction may be retried.
+///   Terminate — Ac=0, Ab=0:   transaction terminates successfully (RAZ/WI from device).
+///   Abort     — Ac=0, Ab=1:   transaction aborts with bus error.
+///   None      — no outcome recorded (STAG not found or not yet resumed).
+enum class ResumeOutcome : uint8_t {
+    None      = 0, ///< No outcome recorded (default / not-yet-resumed)
+    Retry     = 1, ///< Ac=1: retry the stalled transaction
+    Terminate = 2, ///< Ac=0, Ab=0: terminate successfully
+    Abort     = 3  ///< Ac=0, Ab=1: abort with bus error
 };
 
 /// @brief ARM §3.12.2: Record of a stalled transaction awaiting CMD_RESUME.

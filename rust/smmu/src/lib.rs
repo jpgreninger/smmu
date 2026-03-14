@@ -448,7 +448,7 @@ pub mod types;
 pub mod prelude;
 
 // Re-export main types for convenience
-pub use smmu::{GbpaConfig, StallRecord, SMMU};
+pub use smmu::{GbpaConfig, ResumeOutcome, StallRecord, SMMU};
 
 // Re-export core types
 pub use types::{

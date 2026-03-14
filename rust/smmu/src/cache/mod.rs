@@ -71,6 +71,16 @@ pub struct CacheEntry {
     /// VMID-targeted invalidation via `CMD_TLBI_S12_VMALL` / `CMD_TLBI_S2_IPA`.
     /// Defaults to 0.
     pub vmid: u16,
+
+    /// CONF-GAP-7: Intermediate Physical Address for two-stage TLB entries (§4.4).
+    ///
+    /// For entries populated during two-stage (S1+S2) translation, this field
+    /// holds the Stage-1 output IPA that was subsequently translated by Stage-2.
+    /// For single-stage entries this field is `0`.
+    ///
+    /// Used by `CMD_TLBI_S2_IPA` to perform IPA-selective invalidation rather
+    /// than over-invalidating all VMID-tagged entries.
+    pub ipa: u64,
 }
 
 impl CacheEntry {
@@ -87,6 +97,7 @@ impl CacheEntry {
             timestamp,
             asid: 0,
             vmid: 0,
+            ipa: 0,
         }
     }
 
@@ -107,6 +118,7 @@ impl CacheEntry {
             timestamp,
             asid: 0,
             vmid: 0,
+            ipa: 0,
         }
     }
 
@@ -130,6 +142,7 @@ impl CacheEntry {
             timestamp,
             asid,
             vmid: 0,
+            ipa: 0,
         }
     }
 
@@ -157,6 +170,7 @@ impl CacheEntry {
             timestamp,
             asid,
             vmid,
+            ipa: 0,
         }
     }
 }
@@ -171,6 +185,7 @@ impl Default for CacheEntry {
             timestamp: 0,
             asid: 0,
             vmid: 0,
+            ipa: 0,
         }
     }
 }
@@ -1179,6 +1194,43 @@ impl TlbCache {
         for entry_ref in self.entries.iter() {
             let e = entry_ref.value();
             if (e.vmid & vmid_mask) == (target_vmid & vmid_mask) {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// CONF-GAP-7: Invalidate TLB entries by VMID and IPA range (§4.4 `CMD_TLBI_S2_IPA`).
+    ///
+    /// Implements IPA-selective Stage-2 invalidation: evicts entries where
+    /// `(entry.vmid & vmid_mask) == (target_vmid & vmid_mask)` AND
+    /// `entry.ipa != 0` AND `entry.ipa` is within `[ipa_start, ipa_end]` (inclusive).
+    ///
+    /// Entries with `ipa == 0` are Stage-1-only entries and are NOT matched,
+    /// preventing over-invalidation of non-two-stage TLB entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid`  - VMID from the TLBI command operand
+    /// * `vmid_mask`    - Bitmask from CR0.VMW — `(0xFFFF << vmw) as u16`
+    /// * `ipa_start`    - Inclusive start of the IPA range (raw u64)
+    /// * `ipa_end`      - Inclusive end of the IPA range (raw u64)
+    pub fn invalidate_by_vmid_and_ipa(&self, target_vmid: u16, vmid_mask: u16, ipa_start: u64, ipa_end: u64) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            // Only match two-stage entries (ipa != 0) within the IPA range.
+            if e.ipa != 0
+                && (e.vmid & vmid_mask) == (target_vmid & vmid_mask)
+                && e.ipa >= ipa_start
+                && e.ipa <= ipa_end
+            {
                 keys_to_remove.push(*entry_ref.key());
             }
         }
