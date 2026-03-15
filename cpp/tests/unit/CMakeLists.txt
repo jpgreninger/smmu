@@ -102,6 +102,10 @@ set(UNIT_TEST_SOURCES
     test_conf_gaps_CD_fixes.cpp
     test_conf_gaps_3456789_fixes.cpp
     test_conf_gaps_EFH_fixes.cpp
+    test_bug3_stall_pending_fields.cpp
+    test_bug2_reset_pri_failures.cpp
+    test_bug1_broadcast_tlbi_scope.cpp
+    test_bug4_dead_code_lookup.cpp
     ../test_thread_safety.cpp
 )
 

@@ -164,6 +164,9 @@ public:
     // CONF-GAP-6: Added iova parameter for VA-targeted selective TLBI (§4.4)
     // CONF-GAP-8: Added ril/tg/num/scale for range invalidation (§4.4.1.1)
     void executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid, IOVA iova = 0, bool ril = false, uint8_t tg = 0, uint8_t num = 0, uint8_t scale = 0);
+    // ARM §3.17: Broadcast TLBIs carry no stream context — this overload is used
+    // exclusively by receiveBroadcastTLBI() to make that intent explicit.
+    void executeTLBInvalidationCommand(CommandType type, uint16_t asid, uint16_t vmid, IOVA va);
 
     // CONF-GAP-11: §6.3.12 CR2.PTM — broadcast TLB maintenance participation.
     // This method models the hardware path where a PE broadcast TLB invalidation
@@ -488,7 +491,6 @@ private:
     void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                const TranslationResult& result, uint64_t currentTime,
                                uint16_t asid, uint16_t vmid);
-    TranslationResult lookupTranslationCache(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState);
     void generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const;
 
     // Stage-specific translation methods (Task 5.2)

@@ -1004,6 +1004,7 @@ void SMMU::reset() {
     {
         std::lock_guard<std::recursive_mutex> glock(queueMutex);
         gbpaConfig_ = GbpaConfig();
+        priAutoFailures_.clear();
     }
     // CONF-GAP-3: Reset stream table format to linear with default split
     strtabFmt_.store(static_cast<uint8_t>(StreamTableFormat::Linear), std::memory_order_release);
@@ -1478,37 +1479,6 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     tlbCache->insert(entry);
 }
 
-TranslationResult SMMU::lookupTranslationCache(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    if (!tlbCache || !cachingEnabled.load(std::memory_order_acquire)) {
-        return makeTranslationError(SMMUError::CacheOperationFailed); // Failed result - caching disabled
-    }
-    
-    // ARM SMMU v3 spec: Perform optimized TLB lookup with page alignment
-    IOVA pageAlignedIOVA = iova & ~PAGE_MASK; // Page-align the IOVA for lookup
-    
-    // BUG-26 fix: use lookupEntry() which returns TLBEntry by value, eliminating the
-    // use-after-free that occurred when lookup() returned a raw TLBEntry* whose
-    // backing list node could be destroyed by a concurrent insert/invalidate after
-    // the stripe lock inside lookup() was released.
-    Result<TLBEntry> lookupResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
-    if (lookupResult.isError() || !lookupResult.getValue().valid) {
-        return makeTranslationError(SMMUError::CacheEntryNotFound); // Cache miss
-    }
-
-    const TLBEntry entry = lookupResult.getValue();
-
-    // Security state validation
-    if (entry.securityState != securityState) {
-        return makeTranslationError(FaultType::SecurityFault);
-    }
-
-    // ARM §3.16 / FINDING-NEW-37: TLB entries are valid until an explicit TLBI.
-    // No time-based eviction is performed; the entry is unconditionally valid.
-
-    // Convert TLBEntry back to TranslationResult with page offset preservation
-    PA finalPhysicalAddress = entry.physicalAddress + (iova & PAGE_MASK); // Add back page offset
-    return makeTranslationSuccess(finalPhysicalAddress, entry.permissions, entry.securityState);
-}
 
 void SMMU::generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const {
     // Generate a unique cache key combining StreamID, PASID, IOVA, and SecurityState.
@@ -2664,6 +2634,11 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
     }
 }
 
+void SMMU::executeTLBInvalidationCommand(CommandType type, uint16_t asid, uint16_t vmid, IOVA va) {
+    // Broadcast TLBIs carry no stream context (ARM §3.17)
+    executeTLBInvalidationCommand(type, 0, 0, asid, vmid, va);
+}
+
 void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PASID pasid, uint16_t asid, uint16_t vmid, IOVA iova, bool ril, uint8_t tg, uint8_t num, uint8_t scale) {
     // CONF-GAP-11: CR2.PTM controls *broadcast* TLB maintenance participation
     // (§6.3.12): when PTM=0 the SMMU ignores OS-level broadcast TLB invalidations
@@ -3523,7 +3498,7 @@ void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, 
     if (isNsEL1Tlbi && (cr2_.load(std::memory_order_acquire) & CR2_PTM) == 0u) {
         return; // PTM=0: SMMU does not participate in this broadcast
     }
-    executeTLBInvalidationCommand(type, 0, 0, asid, vmid, va);
+    executeTLBInvalidationCommand(type, asid, vmid, va);
 }
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
@@ -3615,6 +3590,72 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         pendingEvent.stall = isStall;
         pendingEvent.stag = stag;
         pendingEvent.errorCode = 0;
+        // §7.3 wire-format fields — must match the normal path derivations.
+        pendingEvent.ssv = (pasid != 0);
+        switch (type) {
+            case EventType::C_BAD_STREAMID:
+            case EventType::C_BAD_STE:
+            case EventType::C_BAD_SUBSTREAMID:
+            case EventType::C_BAD_CD:
+            case EventType::F_CFG_CONFLICT:
+                pendingEvent.eventClass = 0u;
+                break;
+            case EventType::F_TRANSLATION:
+            case EventType::F_ADDR_SIZE:
+            case EventType::F_PERMISSION:
+            case EventType::F_ACCESS:
+                pendingEvent.eventClass = 2u;
+                break;
+            default:
+                pendingEvent.eventClass = 0u;
+                break;
+        }
+        switch (accessType) {
+            case AccessType::Write:
+                pendingEvent.rnw = true;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = false;
+                break;
+            case AccessType::Execute:
+                pendingEvent.rnw = false;
+                pendingEvent.ind = true;
+                pendingEvent.pnu = false;
+                break;
+            case AccessType::ReadWrite:
+                pendingEvent.rnw = true;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = false;
+                break;
+            case AccessType::ReadPrivileged:
+                pendingEvent.rnw = false;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = true;
+                break;
+            case AccessType::WritePrivileged:
+                pendingEvent.rnw = true;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = true;
+                break;
+            case AccessType::ExecutePrivileged:
+                pendingEvent.rnw = false;
+                pendingEvent.ind = true;
+                pendingEvent.pnu = true;
+                break;
+            case AccessType::ReadWritePrivileged:
+                pendingEvent.rnw = true;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = true;
+                break;
+            case AccessType::Read:
+            default:
+                pendingEvent.rnw = false;
+                pendingEvent.ind = false;
+                pendingEvent.pnu = false;
+                break;
+        }
+        pendingEvent.s2    = isStage2;
+        pendingEvent.ipa   = isStage2 ? ipaValue : 0u;
+        pendingEvent.nsipa = false;
         stallPending_.push_back(pendingEvent);
         return;
     }
