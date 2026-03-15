@@ -1337,9 +1337,17 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     // An IOVA at or above the range limit is a translation fault (F_TRANSLATION),
     // NOT an address-size fault (F_ADDR_SIZE, which is for OAS violations).
     // When t0sz==0 the effective VA space is the full 64-bit range — no check needed.
+    //
+    // GAP-E fix: ARM IHI0070G.b §3.4.1 — CD.TBI: when tbi==true, VA bits[63:56] are
+    // masked (treated as a tag) before the T0SZ range check.  iova is preserved for
+    // fault reporting; only effectiveIova is used for the range comparison.
     if (config.stage1Enabled && config.t0sz > 0u) {
+        uint64_t effectiveIova = iova;
+        if (config.tbi) {
+            effectiveIova &= UINT64_C(0x00FFFFFFFFFFFFFF);
+        }
         uint64_t vaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.t0sz));
-        if (iova >= vaLimit) {
+        if (effectiveIova >= vaLimit) {
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
             // Return InvalidConfiguration so the outer handleTranslationFailure() switch
             // maps this to FaultType::StreamDisabled (a no-op) and does not re-emit
@@ -1359,12 +1367,21 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         return makeTranslationError(SMMUError::InvalidConfiguration);
     }
 
+    // GAP-E: Compute the effective IOVA for the page-table walk.
+    // When TBI=1 the top byte is treated as a tag and is not part of the VA
+    // used in the page-table walk (only the range check above used effectiveIova).
+    // Use lookupIova for all address-space lookups; keep iova for fault reporting.
+    uint64_t lookupIova = iova;
+    if (config.stage1Enabled && config.tbi) {
+        lookupIova &= UINT64_C(0x00FFFFFFFFFFFFFF);
+    }
+
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
-        result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext, config, currentTime);
+        result = performBothStagesTranslation(streamID, pasid, lookupIova, accessType, securityState, streamContext, config, currentTime);
     } else if (config.stage1Enabled && !config.stage2Enabled) {
         // Stage-1 only: IOVA -> PA directly
-        result = performStage1OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
+        result = performStage1OnlyTranslation(streamID, pasid, lookupIova, accessType, securityState, streamContext, currentTime);
     } else if (!config.stage1Enabled && config.stage2Enabled) {
         // ARM §3.9: Stage-2-only stream — stage 1 is absent. A non-zero PASID has
         // no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
@@ -1592,6 +1609,25 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
     // Stage 1 success - IPA is now in stage1Result.physicalAddress
     IPA intermediatePA = stage1Result.getValue().physicalAddress;
+
+    // GAP-F fix: ARM IHI0070G.b §5.4/§3.4 — CD.IPS: stage-1 output IPA must lie
+    // within the IPS output address range.  Violation → F_ADDR_SIZE (§7.3.14).
+    // IPS uses the same 3-bit encoding as S2PS; reuse the oasBitsFromS2PS() helper.
+    // When ips==6 (52-bit, the default) the check is skipped (no restriction).
+    {
+        uint8_t ipsBits = oasBitsFromS2PS(config.ips);
+        if (ipsBits < 52u) {
+            uint64_t ipaLimit = UINT64_C(1) << static_cast<unsigned>(ipsBits);
+            if (intermediatePA >= ipaLimit) {
+                recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
+                                       accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                // Return InvalidConfiguration to suppress a duplicate event in
+                // handleTranslationFailure() (same pattern as S2PS OAS check).
+                return makeTranslationError(SMMUError::InvalidConfiguration);
+            }
+        }
+    }
 
     // NEW-3 fix: §3.4 — S2T0SZ IPA input range check for two-stage streams.
     // The IPA produced by stage-1 must lie within [0, 2^(64-S2T0SZ)).
@@ -2409,6 +2445,14 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         }
         // If already overflowed (OVFLG != OVACKFLG bit in priqCons), leave
         // OVFLG unchanged and inhibit the new entry (do not push_back).
+
+        // GAP-H fix: ARM IHI0070G.b §3.13.6 — PRIQ overflow auto-PRG_RESPONSE.
+        // When the PRIQ is full, the SMMU must automatically generate a FAILURE
+        // response for the overflowing page request group so the device is not
+        // left stalled indefinitely waiting for a response that will never arrive.
+        PRIAutoFailure autoFail(request.streamID, request.pasid,
+                                request.prgIndex, getCurrentTimestamp());
+        priAutoFailures_.push_back(autoFail);
         return;
     }
 
@@ -2489,6 +2533,17 @@ void SMMU::clearPRIQueue() {
 size_t SMMU::getPRIQueueSize() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     return priQueue.size();
+}
+
+// GAP-H: ARM §3.13.6 — return auto-generated FAILURE responses from PRIQ overflow.
+std::vector<PRIAutoFailure> SMMU::getPRIAutoFailures() const {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    return priAutoFailures_;
+}
+
+void SMMU::clearPRIAutoFailures() {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    priAutoFailures_.clear();
 }
 
 // Task 5.3: Cache Invalidation Command Handling (Task 5.3.4)

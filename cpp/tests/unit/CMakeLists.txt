@@ -101,6 +101,7 @@ set(UNIT_TEST_SOURCES
     test_new_qa_findings.cpp
     test_conf_gaps_CD_fixes.cpp
     test_conf_gaps_3456789_fixes.cpp
+    test_conf_gaps_EFH_fixes.cpp
     ../test_thread_safety.cpp
 )
 

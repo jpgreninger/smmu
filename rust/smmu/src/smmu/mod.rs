@@ -271,6 +271,14 @@ pub struct SMMU {
     /// PRI queue consumer index register (ARM §3.5.1)
     priq_cons: AtomicU32,
 
+    /// GAP-H: §3.13.6 — auto-PRG failure responses generated on PRIQ overflow.
+    ///
+    /// When the PRIQ is full and a new page request cannot be enqueued, the SMMU
+    /// must automatically generate a PRG_RESPONSE with RESPONSE=FAILURE so the
+    /// device does not wait indefinitely.  The failed PRIEntry is stored here;
+    /// callers retrieve them via `get_pri_auto_failure_responses()`.
+    pri_auto_failure_responses: Mutex<Vec<PRIEntry>>,
+
     /// Cache invalidation counter
     ///
     /// Tracks number of TLB/ATC invalidation operations for statistics.
@@ -739,6 +747,7 @@ impl SMMU {
             priq_log2size,
             priq_prod: AtomicU32::new(0),
             priq_cons: AtomicU32::new(0),
+            pri_auto_failure_responses: Mutex::new(Vec::new()),
             invalidation_count: AtomicU64::new(0),
             tlb_cache,
             fault_timestamp_counter: AtomicU64::new(0),
@@ -2691,11 +2700,20 @@ impl SMMU {
                 // When stage-1 is enabled and T0SZ > 0, the IOVA must be strictly below
                 // 2^(64-T0SZ).  An IOVA at or above this limit generates F_TRANSLATION
                 // (ARM §3.4.1).  T0SZ==0 means no restriction (64-bit VA space).
+                //
+                // GAP-E fix: §3.4.1 — CD.TBI: mask VA top byte before T0SZ range check.
+                // When TBI=1, bits[63:56] are a tag and must not participate in the range
+                // check.  The translation itself still uses the original unmasked IOVA.
                 if stream_ref.value().is_stage1_enabled() {
                     let t0sz = stream_ref.value().get_t0sz();
                     if t0sz > 0 {
                         let va_limit: u64 = 1u64 << (64u32 - u32::from(t0sz));
-                        if iova.as_u64() >= va_limit {
+                        let effective_iova_val = if stream_ref.value().get_tbi() {
+                            iova.as_u64() & 0x00FF_FFFF_FFFF_FFFFu64
+                        } else {
+                            iova.as_u64()
+                        };
+                        if effective_iova_val >= va_limit {
                             drop(stream_ref);
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
@@ -4321,6 +4339,13 @@ impl SMMU {
                 }
                 // CAS failed: priq_prod changed concurrently — retry loop
             }
+            // GAP-H fix: §3.13.6 — PRIQ overflow: auto-generate PRG_RESPONSE(FAILURE).
+            // The device must not wait indefinitely for a response that will never come.
+            // Store the failed entry so callers can retrieve it via
+            // get_pri_auto_failure_responses().
+            if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                auto_resp.push(request);
+            }
             return Err(SMMUError::PriQueueFull);
         }
         queue.push_back(request);
@@ -4411,6 +4436,24 @@ impl SMMU {
         queue.clear();
         self.priq_prod.store(0, Ordering::Release);
         self.priq_cons.store(0, Ordering::Release);
+    }
+
+    /// GAP-H: §3.13.6 — retrieve and drain auto-generated PRG_RESPONSE(FAILURE) entries.
+    ///
+    /// Returns all auto-failure responses that were generated because the PRIQ was full
+    /// when a page request arrived.  Per ARM §3.13.6, when the PRIQ overflows the SMMU
+    /// must automatically generate a PRG_RESPONSE with RESPONSE=FAILURE so the device
+    /// does not stall indefinitely.
+    ///
+    /// Each call drains (removes) all accumulated entries.  Callers should treat each
+    /// returned `PRIEntry` as a device that received a FAILURE response.
+    #[must_use]
+    pub fn get_pri_auto_failure_responses(&self) -> Vec<PRIEntry> {
+        if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+            std::mem::take(&mut *auto_resp)
+        } else {
+            Vec::new()
+        }
     }
 
     // ========================================================================

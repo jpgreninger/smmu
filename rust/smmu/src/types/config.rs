@@ -294,6 +294,26 @@ pub struct StreamConfig {
     ///
     /// Not separately modelled in the SW simulation (single address space per PASID).
     pub epd1: bool,
+
+    // ---- GAP-E: CD.TBI top-byte-ignore (§3.4.1/§5.4) ----
+
+    /// §5.4 CD.TBI: top-byte-ignore; VA bits[63:56] are masked before T0SZ
+    /// range check (§3.4.1); default `false`.
+    ///
+    /// When `true`, bits[63:56] of the input VA are treated as a tag and are
+    /// not used in address range checks.  The translation itself still uses
+    /// the original unmasked IOVA.
+    pub tbi: bool,
+
+    // ---- GAP-F: CD.IPS per-CD stage-1 output IPA size (§5.4/§3.4) ----
+
+    /// §5.4 CD.IPS: stage-1 output IPA size (3-bit encoding, same as S2PS).
+    ///
+    /// After stage-1 produces an IPA, the IPA must not exceed `2^IPS`.
+    /// Violation generates F_ADDR_SIZE.
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit,
+    ///           5=48-bit (default), 6=52-bit.
+    pub ips: u8,
 }
 
 impl StreamConfig {
@@ -350,6 +370,8 @@ impl StreamConfig {
             mev: false,
             epd0: false,
             epd1: false,
+            tbi: false,
+            ips: 5,
         }
     }
 
@@ -391,6 +413,8 @@ impl StreamConfig {
             mev: false,
             epd0: false,
             epd1: false,
+            tbi: false,
+            ips: 5,
         }
     }
 
@@ -432,6 +456,8 @@ impl StreamConfig {
             mev: false,
             epd0: false,
             epd1: false,
+            tbi: false,
+            ips: 5,
         }
     }
 
@@ -473,6 +499,8 @@ impl StreamConfig {
             mev: false,
             epd0: false,
             epd1: false,
+            tbi: false,
+            ips: 5,
         }
     }
 
@@ -654,6 +682,10 @@ pub struct StreamConfigBuilder {
     // NEW-7
     epd0: bool,
     epd1: bool,
+    // GAP-E
+    tbi: bool,
+    // GAP-F
+    ips: u8,
 }
 
 impl StreamConfigBuilder {
@@ -695,6 +727,8 @@ impl StreamConfigBuilder {
             mev: false,
             epd0: false,
             epd1: false,
+            tbi: false,
+            ips: 5,
         }
     }
 
@@ -951,6 +985,30 @@ impl StreamConfigBuilder {
         self
     }
 
+    // ---- GAP-E: CD.TBI builder method ----
+
+    /// Set CD.TBI — top-byte-ignore for VA range check (GAP-E, ARM §3.4.1/§5.4).
+    ///
+    /// When `true`, bits[63:56] of the input VA are treated as a tag and are
+    /// not used in the T0SZ range check.
+    #[must_use]
+    pub fn tbi(mut self, tbi: bool) -> Self {
+        self.tbi = tbi;
+        self
+    }
+
+    // ---- GAP-F: CD.IPS builder method ----
+
+    /// Set CD.IPS — stage-1 output IPA size encoding (GAP-F, ARM §5.4/§3.4).
+    ///
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit,
+    ///           5=48-bit (default), 6=52-bit.
+    #[must_use]
+    pub fn ips(mut self, ips: u8) -> Self {
+        self.ips = ips;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -989,6 +1047,8 @@ impl StreamConfigBuilder {
             mev: self.mev,
             epd0: self.epd0,
             epd1: self.epd1,
+            tbi: self.tbi,
+            ips: self.ips,
         };
 
         config.validate()?;

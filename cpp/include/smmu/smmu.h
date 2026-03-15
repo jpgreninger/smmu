@@ -134,6 +134,14 @@ public:
     std::vector<PRIEntry> getPRIQueue() const;
     void clearPRIQueue();
     size_t getPRIQueueSize() const;
+
+    // GAP-H: ARM §3.13.6 — auto-failure responses generated on PRIQ overflow.
+    // Returns the list of auto-generated FAILURE PRG_RESPONSE records that were
+    // created because the PRIQ was full when the corresponding page request arrived.
+    // The caller should drain this list and send the FAILURE response to the device.
+    std::vector<PRIAutoFailure> getPRIAutoFailures() const;
+    /// Clear the auto-failure list (call after consuming the responses).
+    void clearPRIAutoFailures();
     
     // ARM §3.5.1: Circular queue PROD/CONS register accessors (FINDING-M-01)
     uint32_t getCmdqProdIndex() const;
@@ -322,6 +330,9 @@ private:
     std::deque<EventEntry> eventQueue;
     std::deque<CommandEntry> commandQueue;
     std::deque<PRIEntry> priQueue;
+    // GAP-H: §3.13.6 — auto-failure responses generated when PRIQ overflows.
+    // Protected by queueMutex (same lock as priQueue).
+    std::vector<PRIAutoFailure> priAutoFailures_;
 
     size_t maxEventQueueSize;
     size_t maxCommandQueueSize;

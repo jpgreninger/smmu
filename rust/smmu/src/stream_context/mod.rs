@@ -258,6 +258,19 @@ pub struct StreamContext {
     /// §5.4 CD.EPD0: when `true`, all TTBR0 (stage-1) translation table walks are
     /// disabled and generate F_TRANSLATION.  Default `false`.
     epd0: AtomicBool,
+
+    // ---- GAP-E: CD.TBI top-byte-ignore (§3.4.1/§5.4) ----
+
+    /// §5.4 CD.TBI: top-byte-ignore; VA bits[63:56] masked before T0SZ range
+    /// check (§3.4.1).  Default `false`.
+    tbi: AtomicBool,
+
+    // ---- GAP-F: CD.IPS per-CD stage-1 output IPA size (§5.4/§3.4) ----
+
+    /// §5.4 CD.IPS: stage-1 output IPA size encoding (3 bits, same encoding as
+    /// STE.S2PS).  After stage-1 produces an IPA the IPA must be within this
+    /// range (F_ADDR_SIZE).  Default 5 (48-bit).
+    ips: AtomicU8,
 }
 
 impl StreamContext {
@@ -317,6 +330,8 @@ impl StreamContext {
             s2_t0sz: AtomicU8::new(16),
             s2_ps: AtomicU8::new(5),
             epd0: AtomicBool::new(false),
+            tbi: AtomicBool::new(false),
+            ips: AtomicU8::new(5),
         }
     }
 
@@ -831,6 +846,12 @@ impl StreamContext {
 
         // NEW-7: CD.EPD0 — TTBR0 table walk disable (§5.4)
         self.epd0.store(cfg.epd0, Ordering::Release);
+
+        // GAP-E: CD.TBI — top-byte-ignore for VA range check (§3.4.1/§5.4)
+        self.tbi.store(cfg.tbi, Ordering::Release);
+
+        // GAP-F: CD.IPS — stage-1 output IPA size (§5.4/§3.4)
+        self.ips.store(cfg.ips, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -933,6 +954,42 @@ impl StreamContext {
     #[inline]
     pub fn set_epd0(&self, value: bool) {
         self.epd0.store(value, Ordering::Release);
+    }
+
+    // ---- GAP-E: CD.TBI accessors (§3.4.1/§5.4) ----
+
+    /// Returns the CD.TBI flag (GAP-E, ARM §3.4.1/§5.4).
+    ///
+    /// When `true`, VA bits[63:56] are masked to zero before the T0SZ VA range
+    /// check.  The translation itself uses the original unmasked IOVA.
+    #[inline]
+    #[must_use]
+    pub fn get_tbi(&self) -> bool {
+        self.tbi.load(Ordering::Acquire)
+    }
+
+    /// Sets the CD.TBI flag (ARM §3.4.1/§5.4).
+    #[inline]
+    pub fn set_tbi(&self, value: bool) {
+        self.tbi.store(value, Ordering::Release);
+    }
+
+    // ---- GAP-F: CD.IPS accessors (§5.4/§3.4) ----
+
+    /// Returns the CD.IPS stage-1 output IPA size encoding (GAP-F, ARM §5.4).
+    ///
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit,
+    ///           5=48-bit (default), 6=52-bit.
+    #[inline]
+    #[must_use]
+    pub fn get_ips(&self) -> u8 {
+        self.ips.load(Ordering::Acquire)
+    }
+
+    /// Sets the CD.IPS stage-1 output IPA size encoding (ARM §5.4).
+    #[inline]
+    pub fn set_ips(&self, value: u8) {
+        self.ips.store(value, Ordering::Release);
     }
 
     /// Removes a PASID and its associated AddressSpace
@@ -1671,6 +1728,20 @@ impl StreamContext {
             Ok(i) => i,
             Err(_) => return (Err(TranslationError::AddressSizeError), None),
         };
+
+        // GAP-F fix: §5.4/§3.4 — CD.IPS: stage-1 output IPA must be within IPS range → F_ADDR_SIZE.
+        // The IPS field bounds the stage-1 output address (IPA).  Violation maps to
+        // AddressSizeError which the SMMU caller records as F_ADDR_SIZE.
+        {
+            let ips = self.ips.load(Ordering::Acquire);
+            let ipa_bits = Self::s2ps_to_bits(ips); // reuse existing S2PS helper (same encoding)
+            if ipa_bits < 52 {
+                let ipa_limit: u64 = 1u64 << ipa_bits;
+                if ipa_raw >= ipa_limit {
+                    return (Err(TranslationError::AddressSizeError), None);
+                }
+            }
+        }
 
         // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
         // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.

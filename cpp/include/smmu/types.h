@@ -1189,6 +1189,20 @@ struct StreamConfig {
     /// 2-bit field; 0=off, other values per spec.
     uint8_t eats;  ///< STE.EATS; defaults to 0
 
+    /// GAP-E: ARM IHI0070G.b §3.4.1 / §5.4 CD.TBI — Top-Byte Ignore.
+    /// When true, VA bits[63:56] are masked (zeroed) before the T0SZ range check.
+    /// The top byte is treated as a tag and is not part of the effective address.
+    /// Default false (top byte participates in range check).
+    bool tbi;  ///< CD.TBI; defaults to false
+
+    /// GAP-F: ARM IHI0070G.b §5.4 CD.IPS — stage-1 output IPA size (3-bit).
+    /// Encodes the maximum IPA width from stage-1 translation.  Same encoding as S2PS:
+    ///   0b000=32-bit, 0b001=36-bit, 0b010=40-bit, 0b011=42-bit,
+    ///   0b100=44-bit, 0b101=48-bit, 0b110=52-bit.
+    /// An IPA from stage-1 that exceeds 2^IPS → F_ADDR_SIZE (§7.3.14).
+    /// Default 6 (52-bit, no effective restriction).
+    uint8_t ips;  ///< CD.IPS 3-bit encoding; defaults to 6 (52-bit)
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1198,7 +1212,8 @@ struct StreamConfig {
                     epd0(false), epd1(false),
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
                     securityState(SecurityState::NonSecure),
-                    mev(false), s2s(false), eats(0) {
+                    mev(false), s2s(false), eats(0),
+                    tbi(false), ips(6) {
     }
 };
 
@@ -1477,6 +1492,24 @@ struct PRIEntry {
         : streamID(sid), pasid(p), requestedAddress(addr), accessType(access),
           isLastRequest(false), timestamp(0), prgIndex(0),
           securityState(SecurityState::NonSecure) {
+    }
+};
+
+/// GAP-H: ARM IHI0070G.b §3.13.6 — auto-generated PRG_RESPONSE on PRIQ overflow.
+/// When the PRIQ is full and a new page request cannot be enqueued, the SMMU
+/// automatically generates a FAILURE response for the overflowing request group
+/// so the device is not left waiting indefinitely.
+struct PRIAutoFailure {
+    StreamID streamID;    ///< Stream that issued the overflowing page request
+    PASID    pasid;       ///< PASID of the overflowing page request
+    uint16_t prgIndex;    ///< Page Request Group index echoed back to device
+    uint64_t timestamp;   ///< Time the auto-failure was generated
+
+    PRIAutoFailure() : streamID(0), pasid(0), prgIndex(0), timestamp(0) {
+    }
+
+    PRIAutoFailure(StreamID sid, PASID p, uint16_t prg, uint64_t ts)
+        : streamID(sid), pasid(p), prgIndex(prg), timestamp(ts) {
     }
 };
 
