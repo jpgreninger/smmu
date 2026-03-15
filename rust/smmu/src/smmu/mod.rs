@@ -2687,6 +2687,66 @@ impl SMMU {
                     }
                 }
 
+                // Gap C fix: §3.4.1 — T0SZ VA range enforcement.
+                // When stage-1 is enabled and T0SZ > 0, the IOVA must be strictly below
+                // 2^(64-T0SZ).  An IOVA at or above this limit generates F_TRANSLATION
+                // (ARM §3.4.1).  T0SZ==0 means no restriction (64-bit VA space).
+                if stream_ref.value().is_stage1_enabled() {
+                    let t0sz = stream_ref.value().get_t0sz();
+                    if t0sz > 0 {
+                        let va_limit: u64 = 1u64 << (64u32 - u32::from(t0sz));
+                        if iova.as_u64() >= va_limit {
+                            drop(stream_ref);
+                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                            // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
+                            let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                            let fault = FaultRecord::builder()
+                                .stream_id(stream_id)
+                                .pasid(pasid)
+                                .address(iova)
+                                .fault_type(FaultType::TranslationFault)
+                                .access_type(access)
+                                .security_state(security_state)
+                                .timestamp(timestamp)
+                                .build();
+                            self.record_fault(fault);
+                            // Gate event recording on CR0.EVENTQEN (§7.2.1).
+                            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                                let event = EventEntry {
+                                    event_type: EventType::FTranslation,
+                                    stream_id: stream_id.as_u32(),
+                                    pasid: pasid.as_u32(),
+                                    address: iova.as_u64(),
+                                    security_state,
+                                    error_code: 0,
+                                    timestamp,
+                                    stall: false,
+                                    stag: 0,
+                                    // GAP NEW-1: F_TRANSLATION → CLASS==2 (IN).
+                                    event_class: 2,
+                                    rnw: matches!(access, AccessType::Write),
+                                    ind: matches!(access, AccessType::Execute),
+                                    ssv: pasid.as_u32() != 0,
+                                    ..EventEntry::zeroed()
+                                };
+                                if let Ok(mut queue) = self.event_queue.write() {
+                                    if queue.len() < self.event_queue_capacity {
+                                        queue.push_back(event);
+                                        self.event_count.fetch_add(1, Ordering::Relaxed);
+                                        // ARM §3.5.4 — advance PROD.WR to publish record.
+                                        let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                        self.eventq_prod.store(
+                                            Self::advance_index(prod, self.eventq_log2size),
+                                            Ordering::Release,
+                                        );
+                                    }
+                                }
+                            }
+                            return Err(TranslationError::VaRangeExceeded);
+                        }
+                    }
+                }
+
                 // Delegate to StreamContext for actual translation.
                 // Use translate_and_get_stage2_ipa() so the SMMU can populate the S2 and IPA
                 // fields in the event record for two-stage faults (ARM §7.3.13 / GAP NEW-2).
@@ -3198,6 +3258,10 @@ impl SMMU {
             // BUG-RUST-DBGR-12: StallQueueFull is a stall-queue resource exhaustion condition.
             // The underlying fault was already recorded; map to TranslationFault for fallback.
             TranslationError::StallQueueFull => FaultType::TranslationFault,
+            // Gap C: §3.4.1 — IOVA exceeds T0SZ VA range; fault+event already recorded inline.
+            // Map to TranslationFault so that if the outer path ever reaches this arm
+            // (which it should not), it uses a consistent fault type.
+            TranslationError::VaRangeExceeded => FaultType::TranslationFault,
         }
     }
 
@@ -3254,7 +3318,9 @@ impl SMMU {
         // the two paths distinguishable to callers; both suppress EventEntry here.
         if matches!(
             error,
-            TranslationError::AbortMode | TranslationError::StreamDisabled
+            TranslationError::AbortMode
+                | TranslationError::StreamDisabled
+                | TranslationError::VaRangeExceeded
         ) {
             return;
         }

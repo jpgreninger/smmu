@@ -178,22 +178,44 @@ fn test_configure_stream_alloc_cfg_applied_in_translation() {
 }
 
 /// When inst_cfg=1 is configured, translate() must return inst_cfg==1.
+///
+/// Note: With inst_cfg=1 (Force-Instruction), a Read access is overridden to Execute
+/// before the permission check (ARM §3.2/§13.5, Gap D fix).  The mapped page must
+/// therefore have execute permission.  We use AccessType::Execute (no override needed)
+/// so the test focuses purely on verifying that the output-attribute field is set.
 #[test]
 fn test_configure_stream_inst_cfg_applied_in_translation() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+    let sid = stream_id(1);
     let cfg = StreamConfig::builder()
         .translation_enabled(true)
         .stage1_enabled(true)
         .inst_cfg(1)
         .build()
         .unwrap();
+    smmu.configure_stream(sid, cfg).unwrap();
+    let p = pasid(0);
+    smmu.create_pasid(sid, p).unwrap();
+    // Map with execute-only permission so the inst_cfg=1 override (Read→Execute)
+    // and a direct Execute access both succeed; this lets us verify the output attribute.
+    smmu.map_page(
+        sid,
+        p,
+        iova(0x1000),
+        pa(0x5000),
+        PagePermissions::execute_only(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
 
-    let (smmu, sid) = setup_stream_with_config(cfg);
+    // Use Execute directly — no override needed, just check the output attribute.
     let result = smmu
         .translate(
             sid,
             pasid(0),
             iova(0x1000),
-            AccessType::Read,
+            AccessType::Execute,
             SecurityState::NonSecure,
         )
         .unwrap();

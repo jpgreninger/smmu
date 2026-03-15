@@ -1442,15 +1442,31 @@ impl StreamContext {
             return Err(TranslationError::BadSubstreamId);
         }
 
+        // Gap D fix: §3.2/§13.5 — STE.INSTCFG override applied before permission checks.
+        // inst_cfg==1: Force-Instruction — Read accesses are treated as Execute.
+        // inst_cfg==2: Force-Data         — Execute accesses are treated as Read.
+        // inst_cfg==0 (or reserved): pass through unchanged.
+        let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
+            1 => match access_type {
+                AccessType::Read => AccessType::Execute,
+                _ => access_type,
+            },
+            2 => match access_type {
+                AccessType::Execute => AccessType::Read,
+                _ => access_type,
+            },
+            _ => access_type,
+        };
+
         match (stage1_enabled, stage2_enabled) {
             // Stage-1 only: IOVA → PA
-            (true, false) => self.translate_stage1_only(pasid, iova, access_type, security_state),
+            (true, false) => self.translate_stage1_only(pasid, iova, effective_access, security_state),
 
             // Stage-2 only: IPA → PA (treat IOVA as IPA)
-            (false, true) => self.translate_stage2_only(pasid, iova, access_type, security_state),
+            (false, true) => self.translate_stage2_only(pasid, iova, effective_access, security_state),
 
             // Two-stage: IOVA → IPA → PA
-            (true, true) => self.translate_two_stage(pasid, iova, access_type, security_state),
+            (true, true) => self.translate_two_stage(pasid, iova, effective_access, security_state),
 
             // Bypass mode: IOVA = PA (identity mapping)
             (false, false) => self.translate_bypass(iova, security_state),
@@ -1489,11 +1505,25 @@ impl StreamContext {
 
         if stage1_enabled && stage2_enabled {
             // Two-stage path: delegate to the specialised helper that returns the IPA.
+            // Gap D fix: §3.2/§13.5 — apply STE.INSTCFG override before the permission
+            // checks inside translate_two_stage_with_ipa (which does not call translate()).
+            let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
+                1 => match access_type {
+                    AccessType::Read => AccessType::Execute,
+                    _ => access_type,
+                },
+                2 => match access_type {
+                    AccessType::Execute => AccessType::Read,
+                    _ => access_type,
+                },
+                _ => access_type,
+            };
             let (result, stage2_ipa) =
-                self.translate_two_stage_with_ipa(pasid, iova, access_type, security_state);
+                self.translate_two_stage_with_ipa(pasid, iova, effective_access, security_state);
             (result, stage2_ipa)
         } else {
-            // Single-stage or bypass: call the existing translate() and report no IPA.
+            // Single-stage or bypass: delegate to translate() which already applies the
+            // Gap D INSTCFG override internally.
             (self.translate(pasid, iova, access_type, security_state), None)
         }
     }

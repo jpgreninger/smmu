@@ -1322,6 +1322,22 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
     }
 
+    // Gap C fix: ARM IHI0070G.b §3.4.1 / §5.4 — CD.T0SZ VA range enforcement.
+    // T0SZ defines the TTBR0 input address range: valid IOVAs are [0, 2^(64-T0SZ)).
+    // An IOVA at or above the range limit is a translation fault (F_TRANSLATION),
+    // NOT an address-size fault (F_ADDR_SIZE, which is for OAS violations).
+    // When t0sz==0 the effective VA space is the full 64-bit range — no check needed.
+    if (config.stage1Enabled && config.t0sz > 0u) {
+        uint64_t vaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.t0sz));
+        if (iova >= vaLimit) {
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            // Return InvalidConfiguration so the outer handleTranslationFailure() switch
+            // maps this to FaultType::StreamDisabled (a no-op) and does not re-emit
+            // a second F_TRANSLATION event.  The event was already queued above.
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
+    }
+
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
         result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext, config, currentTime);

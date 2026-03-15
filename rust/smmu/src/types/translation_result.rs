@@ -137,6 +137,15 @@ pub enum TranslationError {
     /// a STAG) and from `PageNotMapped` (which is the underlying fault cause).
     #[error("Stall queue exhausted — all STAG slots occupied (§3.12.2)")]
     StallQueueFull,
+
+    /// IOVA exceeds T0SZ VA range limit (ARM §3.4.1/§5.4, Gap C)
+    ///
+    /// Returned when a stage-1-enabled stream presents an IOVA that is at or
+    /// above `2^(64-T0SZ)`.  Generates `F_TRANSLATION` (event 0x10).
+    /// The fault and event are recorded inline before this error is returned,
+    /// so the outer error-handling path must NOT generate a second event.
+    #[error("IOVA exceeds T0SZ VA range limit (§3.4.1 F_TRANSLATION)")]
+    VaRangeExceeded,
 }
 
 /// Translation result data structure

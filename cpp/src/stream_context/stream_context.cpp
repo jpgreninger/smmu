@@ -1057,6 +1057,26 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
     }
 
+    // Gap D fix: ARM IHI0070G.b §3.2 / §13.5 — STE.INSTCFG access-type override.
+    // INSTCFG must be applied to the *effective* access type before permission checks
+    // so that the page-table walk uses the overridden type.
+    //   INSTCFG=1 (Force Instruction): treat Read/ReadPrivileged as Execute/ExecutePrivileged.
+    //   INSTCFG=2 (Force Data):        treat Execute/ExecutePrivileged as Read/ReadPrivileged.
+    //   INSTCFG=0 (Use incoming):      no change.
+    if (currentConfiguration.instCfg == 1u) {
+        if (effectiveAccessType == AccessType::Read) {
+            effectiveAccessType = AccessType::Execute;
+        } else if (effectiveAccessType == AccessType::ReadPrivileged) {
+            effectiveAccessType = AccessType::ExecutePrivileged;
+        }
+    } else if (currentConfiguration.instCfg == 2u) {
+        if (effectiveAccessType == AccessType::Execute) {
+            effectiveAccessType = AccessType::Read;
+        } else if (effectiveAccessType == AccessType::ExecutePrivileged) {
+            effectiveAccessType = AccessType::ReadPrivileged;
+        }
+    }
+
     // GAP-1: Helper lambda to apply STE output-attribute overrides to a TranslationData.
     auto applyOutputAttrs = [&](TranslationData data) -> TranslationData {
         data.memType      = currentConfiguration.mtCfg ? currentConfiguration.memAttr : 0u;
