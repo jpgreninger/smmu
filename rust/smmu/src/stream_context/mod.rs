@@ -1457,6 +1457,135 @@ impl StreamContext {
         }
     }
 
+    /// Translate an address and also return the Stage-2 IPA if a two-stage fault occurred.
+    ///
+    /// This is the SMMU-internal entry point used by `smmu/mod.rs` to populate the
+    /// `S2` and `IPA` fields of the event record per ARM IHI0070G.b §7.3.13.
+    ///
+    /// Returns `(result, stage2_ipa)` where:
+    /// - `result` is the same value as [`translate()`] would return.
+    /// - `stage2_ipa` is `Some(ipa_addr)` when a two-stage translation was attempted
+    ///   and the fault occurred at Stage-2 (i.e. Stage-1 succeeded and produced an IPA,
+    ///   but Stage-2 failed to map that IPA to a PA).  It is `None` for all other
+    ///   translation modes or when Stage-1 itself faulted.
+    ///
+    /// # Note
+    ///
+    /// The `ipa_addr` is the raw u64 value of the stage-1 output physical address
+    /// (the IPA fed into Stage-2), NOT a validated `IOVA` or `PA` — it may exceed
+    /// hardware limits.  The caller is responsible for propagating it directly into
+    /// the event record without further arithmetic.
+    pub(crate) fn translate_and_get_stage2_ipa(
+        &self,
+        pasid: PASID,
+        iova: IOVA,
+        access_type: AccessType,
+        security_state: SecurityState,
+    ) -> (TranslationResult, Option<u64>) {
+        // GAP NEW-2: §7.3.13 — S2 and IPA fields.
+        // Determine whether this is a two-stage stream so we can detect stage-2 faults.
+        let stage1_enabled = self.stage1_enabled.load(Ordering::Acquire);
+        let stage2_enabled = self.stage2_enabled.load(Ordering::Acquire);
+
+        if stage1_enabled && stage2_enabled {
+            // Two-stage path: delegate to the specialised helper that returns the IPA.
+            let (result, stage2_ipa) =
+                self.translate_two_stage_with_ipa(pasid, iova, access_type, security_state);
+            (result, stage2_ipa)
+        } else {
+            // Single-stage or bypass: call the existing translate() and report no IPA.
+            (self.translate(pasid, iova, access_type, security_state), None)
+        }
+    }
+
+    /// Two-stage translation that also returns the IPA on stage-2 failure.
+    ///
+    /// Mirrors `translate_two_stage` but additionally returns `Some(ipa)` when
+    /// Stage-2 translation fails, so the SMMU can populate the IPA field in the
+    /// event record per ARM §7.3.13.
+    fn translate_two_stage_with_ipa(
+        &self,
+        pasid: PASID,
+        iova: IOVA,
+        access_type: AccessType,
+        security_state: SecurityState,
+    ) -> (TranslationResult, Option<u64>) {
+        let pasid_value = pasid.as_u32();
+
+        // Abort-mode / disabled checks are already done in the public translate().
+        // Here we re-check only what is needed to get the IPA.
+        let addr_space = match self.pasid_map.get(&pasid_value) {
+            Some(a) => a,
+            None => {
+                let err = if self.is_disabling() || !self.is_enabled() {
+                    TranslationError::StreamDisabled
+                } else {
+                    TranslationError::PASIDNotFound
+                };
+                return (Err(err), None);
+            }
+        };
+
+        // Stage-1: IOVA → IPA
+        let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
+            Ok(data) => {
+                let ha = self.ha.load(Ordering::Acquire);
+                let hd = self.hd.load(Ordering::Acquire);
+                if ha || hd {
+                    addr_space.update_access_flags(iova, ha, hd, access_type);
+                }
+                data
+            }
+            Err(e) => return (Err(e), None), // Stage-1 fault — no IPA
+        };
+
+        // IPA = stage-1 output PA address
+        let ipa_raw = stage1_result.physical_address().as_u64();
+        let ipa = match IOVA::new(ipa_raw) {
+            Ok(i) => i,
+            Err(_) => return (Err(TranslationError::AddressSizeError), None),
+        };
+
+        // Stage-2: IPA → PA.
+        let stage2_result = {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            let stage2 = match stage2_guard.as_ref() {
+                Some(s) => s,
+                None => return (Err(TranslationError::StreamNotConfigured), Some(ipa_raw)),
+            };
+            stage2.translate_page(ipa, AccessType::Read, stage1_result.security_state())
+        };
+
+        // Stage-2 failed → return the IPA so the SMMU can populate the event record.
+        let s2_data = match stage2_result {
+            Ok(d) => d,
+            Err(e) => return (Err(e), Some(ipa_raw)),
+        };
+
+        // Permission intersection (same as translate_two_stage)
+        let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
+        let access_denied = match access_type {
+            AccessType::Read => !final_perms.read(),
+            AccessType::Write => !final_perms.write(),
+            AccessType::Execute => !final_perms.execute(),
+            AccessType::ReadWrite => !final_perms.read() || !final_perms.write(),
+            AccessType::ReadExecute => !final_perms.read() || !final_perms.execute(),
+            AccessType::WriteExecute => !final_perms.write() || !final_perms.execute(),
+            AccessType::ReadWriteExecute => !final_perms.read() || !final_perms.write() || !final_perms.execute(),
+            AccessType::None => false,
+        };
+        if access_denied {
+            // Permission fault occurred AFTER stage-2 succeeded — IPA is the stage-2 input.
+            return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
+        }
+        if final_perms.privileged_only() && !self.strw_suppresses_priv() {
+            return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
+        }
+
+        let result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        (Ok(self.apply_output_attrs(result_data)), None)
+    }
+
     /// Stage-1 only translation: IOVA → PA
     fn translate_stage1_only(
         &self,
