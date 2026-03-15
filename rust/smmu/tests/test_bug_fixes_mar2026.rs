@@ -271,3 +271,89 @@ fn bug6_gerror_concurrent_signal_clear_invariant() {
         "no bits other than CMDQ_ERR should be active: gerror={g:#010x} gerrorn={gn:#010x}"
     );
 }
+
+// ─── BUG-12 ───────────────────────────────────────────────────────────────────
+
+/// BUG-12: Two-stage TLB entries were inserted with IPA=0 instead of the real
+/// Stage-1 output IPA.  As a result, `CMD_TLBI_S2_IPA` never matched any entry
+/// (the `e.ipa != 0` guard in `invalidate_by_vmid_and_ipa` skips all of them),
+/// leaving stale translations alive after a hypervisor remap.
+///
+/// Fix: store `stage2_ipa_opt.unwrap_or(0)` in `CacheEntry.ipa` at TLB-insert
+/// time.  Single-stage entries keep `ipa=0` and are unaffected.
+///
+/// Per ARM IHI0070G.b §4.4.3.1 (CMD_TLBI_S2_IPA) and §3.17 (TLB tagging).
+#[test]
+fn bug12_tlbi_s2_ipa_invalidates_two_stage_tlb_entry() {
+    // ── Setup ──────────────────────────────────────────────────────────────
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+
+    let stream_id = sid(10);
+    let p = pasid(0);
+    // IOVA for stage-1 (within 48-bit VA space, T0SZ=16).
+    let iova_addr = iova(0x0000_0000_0001_0000);
+    // Stage-1 maps IOVA → IPA=0x5000, stage-2 maps IPA=0x5000 → PA=0xA000.
+    let ipa_addr = iova(0x0000_0000_0000_5000); // used as IOVA for map_stage2_page
+    let pa_addr = pa(0x0000_0000_0000_A000);
+
+    // Two-stage config: T0SZ=16 (48-bit VA), S2T0SZ=16 (48-bit IPA), vmid=7.
+    let mut cfg = StreamConfig::two_stage();
+    cfg.vmid = 7;
+    smmu.configure_stream(stream_id, cfg).unwrap();
+
+    // Stage-1: IOVA → IPA
+    smmu.create_pasid(stream_id, p).unwrap();
+    smmu.map_page(
+        stream_id,
+        p,
+        iova_addr,
+        PA::new(0x0000_0000_0000_5000).unwrap(), // IPA treated as PA in s1 map
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    // Stage-2: IPA → PA
+    smmu.create_stage2_address_space(stream_id).unwrap();
+    smmu.map_stage2_page(
+        stream_id,
+        ipa_addr,
+        pa_addr,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    // ── First translate: populates the TLB ────────────────────────────────
+    let first = smmu.translate(stream_id, p, iova_addr, AccessType::Read, SecurityState::NonSecure);
+    assert!(first.is_ok(), "first translate must succeed: {:?}", first.err());
+
+    // Record TLB misses after the warm-up translate.
+    let stats_before = smmu.get_cache_statistics();
+    let misses_before = stats_before.tlb_misses();
+
+    // ── Issue CMD_TLBI_S2_IPA targeting IPA=0x5000, VMID=7 ───────────────
+    let mut cmd = CommandEntry::new(CommandType::TlbiS2Ipa, 0, 0);
+    cmd.vmid = 7;
+    cmd.start_address = 0x0000_0000_0000_5000;
+    smmu.submit_command(cmd).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    // ── Second translate: must be a TLB MISS (re-translate, not cached) ───
+    let second = smmu.translate(stream_id, p, iova_addr, AccessType::Read, SecurityState::NonSecure);
+    assert!(second.is_ok(), "second translate must succeed: {:?}", second.err());
+
+    let stats_after = smmu.get_cache_statistics();
+    let misses_after = stats_after.tlb_misses();
+
+    // The TLB invalidation must have forced a miss on the second translate.
+    // Before BUG-12 fix: IPA=0 means TLBI_S2_IPA never matches → no miss increment.
+    // After fix: IPA=0x5000 is stored → TLBI hits the entry → miss on re-translate.
+    assert!(
+        misses_after > misses_before,
+        "CMD_TLBI_S2_IPA must have invalidated the two-stage TLB entry, \
+         causing a miss on re-translate (misses_before={misses_before}, \
+         misses_after={misses_after})"
+    );
+}

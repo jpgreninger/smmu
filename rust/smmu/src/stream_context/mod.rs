@@ -1807,7 +1807,9 @@ impl StreamContext {
         }
 
         let result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
-        (Ok(self.apply_output_attrs(result_data)), None)
+        // Return Some(ipa_raw) even on success so the SMMU can tag the TLB entry
+        // with the correct IPA for CMD_TLBI_S2_IPA selective invalidation (§4.4.3.1 / §3.17).
+        (Ok(self.apply_output_attrs(result_data)), Some(ipa_raw))
     }
 
     /// Stage-1 only translation: IOVA → PA

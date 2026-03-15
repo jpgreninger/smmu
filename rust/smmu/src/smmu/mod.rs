@@ -2861,7 +2861,7 @@ impl SMMU {
             !is_bypass && stream_s1cd_max > 0 && pasid.as_u32() == 0 && current_s1dss != 2;
         if let Ok(ref data) = result {
             if !s1dss_will_override {
-                let entry = CacheEntry::new_with_tags(
+                let mut entry = CacheEntry::new_with_tags(
                     iova,
                     data.physical_address(),
                     data.permissions(),
@@ -2870,6 +2870,11 @@ impl SMMU {
                     entry_vmid,
                     0,
                 );
+                // §3.17 / §4.4.3.1: tag two-stage TLB entries with the Stage-1
+                // output IPA so that CMD_TLBI_S2_IPA can match them by VMID+IPA.
+                // Single-stage entries keep ipa=0 and are never matched by S2_IPA
+                // invalidation, which is correct per spec.
+                entry.ipa = stage2_ipa_opt.unwrap_or(0);
                 self.tlb_cache.insert(cache_key, entry);
             }
         }
