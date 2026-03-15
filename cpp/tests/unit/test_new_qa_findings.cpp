@@ -1,4 +1,4 @@
-// ARM SMMU v3 — QA Conformance Gaps: NEW-1, NEW-2, NEW-5
+// ARM SMMU v3 — QA Conformance Gaps: NEW-1, NEW-2, NEW-5, GAP-B
 // Copyright (c) 2024 John Greninger
 //
 // TDD spec tests for three newly identified conformance gaps:
@@ -296,4 +296,55 @@ TEST_F(NewQAFindings, New5_Stage2BypassOAS_TruncatesNotAborts) {
             << "Expected 0x" << std::hex << expected_pa
             << ", got 0x" << actual_pa;
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-B — §5.2 STE.Config reserved values 0b001/0b010/0b011
+// ARM §5.2 Table STE.Config: reserved encodings must behave as 0b000 (disabled).
+// translationEnabled=true with neither stage enabled maps to a reserved encoding
+// and must be rejected with C_BAD_STE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GAP-B-1: translationEnabled=true, stage1=false, stage2=false → C_BAD_STE
+TEST_F(NewQAFindings, GapB_ReservedConfig_TranslationOnNoStage_Rejected) {
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = false;  // no stage selected → reserved STE.Config
+    cfg.stage2Enabled      = false;
+    cfg.bypassEnabled      = false;
+
+    VoidResult r = smmu_->configureStream(0xB0, cfg);
+    EXPECT_FALSE(r.isOk())
+        << "GAP-B: §5.2 — reserved STE.Config (translationEnabled=true, no stage) must be rejected";
+
+    auto events = smmu_->getEventQueue();
+    bool has_bad_ste = false;
+    for (const auto& e : events) {
+        if (e.type == EventType::C_BAD_STE) { has_bad_ste = true; break; }
+    }
+    EXPECT_TRUE(has_bad_ste)
+        << "GAP-B: §5.2 — reserved STE.Config must generate C_BAD_STE event";
+}
+
+// GAP-B-2: valid STE.Config encodings must still be accepted (regression guard)
+TEST_F(NewQAFindings, GapB_ValidConfigs_StillAccepted) {
+    // 0b000 disabled
+    { StreamConfig c; c.translationEnabled=false; c.stage1Enabled=false; c.stage2Enabled=false;
+      EXPECT_TRUE(smmu_->configureStream(0xB1, c).isOk()) << "0b000 disabled must be accepted"; }
+
+    // 0b100 bypass
+    { StreamConfig c; c.translationEnabled=false; c.bypassEnabled=true;
+      EXPECT_TRUE(smmu_->configureStream(0xB2, c).isOk()) << "0b100 bypass must be accepted"; }
+
+    // 0b101 stage-1 only
+    { StreamConfig c; c.translationEnabled=true; c.stage1Enabled=true; c.stage2Enabled=false;
+      EXPECT_TRUE(smmu_->configureStream(0xB3, c).isOk()) << "0b101 S1-only must be accepted"; }
+
+    // 0b110 stage-2 only
+    { StreamConfig c; c.translationEnabled=true; c.stage1Enabled=false; c.stage2Enabled=true;
+      EXPECT_TRUE(smmu_->configureStream(0xB4, c).isOk()) << "0b110 S2-only must be accepted"; }
+
+    // 0b111 both stages
+    { StreamConfig c; c.translationEnabled=true; c.stage1Enabled=true; c.stage2Enabled=true;
+      EXPECT_TRUE(smmu_->configureStream(0xB5, c).isOk()) << "0b111 both stages must be accepted"; }
 }

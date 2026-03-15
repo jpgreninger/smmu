@@ -583,7 +583,18 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
-    // Validation 2: Stage-2 S2TTB must lie within the OAS (§5.2, §3.4.3).
+    // Validation 2: Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
+    // Valid encodings: 0b000 (disabled), 0b100 (bypass), 0b101 (S1-only),
+    //                  0b110 (S2-only), 0b111 (S1+S2).
+    // 0b001/0b010/0b011 are reserved and "behave as 0b000" per spec.
+    // The reserved encodings correspond to translationEnabled=true with no stage
+    // selected — generate C_BAD_STE so callers detect the misconfigured STE.
+    if (config.translationEnabled && !config.stage1Enabled && !config.stage2Enabled) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // Validation 3: Stage-2 S2TTB must lie within the OAS (§5.2, §3.4.3).
     // s2ps encoding: 0=32b, 1=36b, 2=40b, 3=42b, 4=44b, 5=48b, 6=52b.
     if (config.stage2Enabled && config.s2ttb != 0u) {
         static const uint8_t s2psToOasBits[] = {32, 36, 40, 42, 44, 48, 52};

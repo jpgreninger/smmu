@@ -418,3 +418,62 @@ fn new5_stage2_bypass_oas_truncates_not_aborts() {
         addr_size_events.len()
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-B — §5.2 STE.Config reserved values 0b001/0b010/0b011
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// GAP-B-1: translation_enabled=true with no stage selected → reserved encoding, must be rejected.
+#[test]
+fn gap_b_reserved_config_translation_on_no_stage_rejected() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+
+    let sid = StreamID::new(0xB0).unwrap();
+    let mut cfg = StreamConfig::default();
+    cfg.translation_enabled = true;
+    cfg.stage1_enabled      = false;  // no stage → reserved STE.Config
+    cfg.stage2_enabled      = false;
+
+    let result = smmu.configure_stream(sid, cfg);
+    assert!(result.is_err(),
+        "GAP-B: §5.2 — reserved STE.Config (translation_enabled=true, no stage) must be rejected");
+}
+
+/// GAP-B-2: all valid STE.Config encodings must still be accepted (regression guard).
+#[test]
+fn gap_b_valid_configs_still_accepted() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+
+    // 0b000 disabled
+    let sid1 = StreamID::new(0xB1).unwrap();
+    let cfg1 = StreamConfig::default();
+    assert!(smmu.configure_stream(sid1, cfg1).is_ok(), "0b000 disabled must be accepted");
+
+    // 0b100 bypass
+    let sid2 = StreamID::new(0xB2).unwrap();
+    let cfg2 = StreamConfig::bypass();
+    assert!(smmu.configure_stream(sid2, cfg2).is_ok(), "0b100 bypass must be accepted");
+
+    // 0b101 stage-1 only
+    let sid3 = StreamID::new(0xB3).unwrap();
+    let cfg3 = StreamConfig::stage1_only();
+    assert!(smmu.configure_stream(sid3, cfg3).is_ok(), "0b101 S1-only must be accepted");
+
+    // 0b110 stage-2 only
+    let sid4 = StreamID::new(0xB4).unwrap();
+    let mut cfg4 = StreamConfig::default();
+    cfg4.translation_enabled = true;
+    cfg4.stage1_enabled      = false;
+    cfg4.stage2_enabled      = true;
+    assert!(smmu.configure_stream(sid4, cfg4).is_ok(), "0b110 S2-only must be accepted");
+
+    // 0b111 both stages
+    let sid5 = StreamID::new(0xB5).unwrap();
+    let mut cfg5 = StreamConfig::default();
+    cfg5.translation_enabled = true;
+    cfg5.stage1_enabled      = true;
+    cfg5.stage2_enabled      = true;
+    assert!(smmu.configure_stream(sid5, cfg5).is_ok(), "0b111 both stages must be accepted");
+}

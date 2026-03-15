@@ -1552,6 +1552,19 @@ impl SMMU {
             }
         }
 
+        // (3) Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
+        // Valid encodings: 0b000 (disabled), 0b100 (bypass), 0b101 (S1-only),
+        //                  0b110 (S2-only), 0b111 (S1+S2).
+        // 0b001/0b010/0b011 are reserved — "behave as 0b000" per spec.
+        // translation_enabled=true with no stage selected maps to a reserved encoding.
+        if config.translation_enabled && !config.stage1_enabled && !config.stage2_enabled {
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: reserved STE.Config — translation_enabled=true requires at least \
+                 one of stage1_enabled or stage2_enabled (ARM §5.2 Table STE.Config)"
+                    .to_string(),
+            ));
+        }
+
         let stream_value = stream_id.as_u32();
 
         // BUG-6 fix: atomically reserve a slot BEFORE the DashMap insert.
