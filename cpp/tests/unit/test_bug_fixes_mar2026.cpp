@@ -365,6 +365,102 @@ TEST(Bug8PrivilegedOnlyEl3, FastPathClearPrivilegedOnly) {
         << "BUG-8: privilegedOnly must be false for EL3 STRW on TLB hit";
 }
 
+// ============================================================================
+// BUG-10: fault priority — F_ADDR_SIZE must precede F_PERMISSION in two-stage
+// ============================================================================
+//
+// ARM IHI0070G.b §7.3 defines fault priority ordering: F_ADDR_SIZE (§7.3.14)
+// has higher priority than F_PERMISSION (§7.3.16).  When both conditions hold
+// simultaneously in performBothStagesTranslation() — that is, the stage-2
+// output PA exceeds 2^S2PS AND the intersected permissions deny the access —
+// the SMMU must emit F_ADDR_SIZE, not F_PERMISSION.
+//
+// Before the fix the permission check ran before the S2PS OAS check, so the
+// test below produces F_PERMISSION and FAILS.  After the fix (S2PS check moved
+// before the permission check) it must produce F_ADDR_SIZE and PASS.
+
+// Helper fixture: build a two-stage SMMU with a 52-bit OAS so we can map PAs
+// above the 32-bit S2PS threshold (s2ps=0 → PA limit = 2^32).
+class Bug10FaultPriorityTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // 52-bit OAS so the SMMU can physically hold a PA above 2^32.
+        SMMUConfiguration smmuCfg;
+        AddressConfiguration addrCfg;
+        addrCfg.maxPASize = 52u;
+        smmuCfg.setAddressConfiguration(addrCfg);
+        smmu_ = std::make_unique<SMMU>(smmuCfg);
+        smmu_->enable();
+        smmu_->setCR0(smmu_->getCR0() | SMMU::CR0_EVENTQEN);
+    }
+
+    void TearDown() override {
+        smmu_.reset();
+    }
+
+    std::unique_ptr<SMMU> smmu_;
+};
+
+// BUG-10: when PA > S2PS limit AND permissions denied, F_ADDR_SIZE must win.
+// Before fix: F_PERMISSION fires first.  After fix: F_ADDR_SIZE fires first.
+TEST_F(Bug10FaultPriorityTest, AddrSizeTakesPriorityOverPermission) {
+    static constexpr StreamID SID  = 50u;
+    static constexpr PASID    PID  = 0u;
+    static constexpr IOVA     IOVA_VAL = 0x1000u;
+    static constexpr IPA      TEST_IPA = 0x2000u;
+    // PA is above the 32-bit S2PS limit (s2ps=0 → PA must be < 2^32 = 0x1_0000_0000).
+    static constexpr PA       OUT_PA   = (UINT64_C(1) << 32u) + 0x1000u;
+
+    // Two-stage stream; s2ps=0 restricts stage-2 output PA to 32 bits.
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = true;
+    cfg.t0sz               = 0u;   // no stage-1 VA restriction
+    cfg.s2t0sz             = 0u;   // no IPA range restriction
+    cfg.ips                = 6u;   // 52-bit IPS — no IPA output restriction
+    cfg.s2ps               = 0u;   // 32-bit S2PS limit — OUT_PA will exceed this
+
+    ASSERT_TRUE(smmu_->configureStream(SID, cfg).isOk());
+    ASSERT_TRUE(smmu_->enableStream(SID).isOk());
+    ASSERT_TRUE(smmu_->createStreamPASID(SID, PID).isOk());
+
+    // Stage-2 address space with read-only mapping (so a Write access is denied).
+    auto s2as = std::make_shared<AddressSpace>();
+    ASSERT_TRUE(smmu_->setStreamStage2AddressSpace(SID, s2as).isOk());
+
+    // Stage-1: map IOVA -> IPA (read+write so S1 does not block the write).
+    PagePermissions s1perms;
+    s1perms.read  = true;
+    s1perms.write = true;
+    ASSERT_TRUE(smmu_->mapPage(SID, PID, IOVA_VAL, TEST_IPA, s1perms).isOk());
+
+    // Stage-2: map IPA -> PA (read-only AND PA exceeds S2PS limit).
+    PagePermissions s2perms;
+    s2perms.read  = true;
+    s2perms.write = false;   // write denied → F_PERMISSION if checked first
+    ASSERT_TRUE(s2as->mapPage(TEST_IPA, OUT_PA, s2perms).isOk());
+
+    // Perform a Write translation — this hits BOTH violations simultaneously.
+    auto r = smmu_->translate(SID, PID, IOVA_VAL, AccessType::Write);
+    EXPECT_TRUE(r.isError())
+        << "BUG-10: translation with PA > S2PS + write-denied must fail";
+
+    // Inspect the event queue: F_ADDR_SIZE must be present, not just F_PERMISSION.
+    auto ev = smmu_->getEventQueue();
+    bool has_f_addr_size  = false;
+    bool has_f_permission = false;
+    for (const auto& e : ev) {
+        if (e.type == EventType::F_ADDR_SIZE)  { has_f_addr_size  = true; }
+        if (e.type == EventType::F_PERMISSION) { has_f_permission = true; }
+    }
+    EXPECT_TRUE(has_f_addr_size)
+        << "BUG-10: §7.3 fault priority — F_ADDR_SIZE must be emitted when PA > S2PS";
+    EXPECT_FALSE(has_f_permission)
+        << "BUG-10: §7.3 fault priority — F_PERMISSION must NOT fire when F_ADDR_SIZE has priority";
+}
+
+// ============================================================================
 // EL1_EL0 stream — privilegedOnly must NOT be cleared (privilege checks apply).
 TEST(Bug8PrivilegedOnlyEl1El0, FastPathKeepsPrivilegedOnly) {
     SMMU smmu;

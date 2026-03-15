@@ -1749,14 +1749,6 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     finalPermissions.execute       = stage1Data.permissions.execute && stage2Data.permissions.execute;
     finalPermissions.privilegedOnly = stage1Data.permissions.privilegedOnly || stage2Data.permissions.privilegedOnly;
 
-    // ARM SMMU v3 spec: Validate final permissions against requested access
-    if (!validateAccessPermissions(finalPermissions, accessType)) {
-        // Permission fault after two-stage translation - final permission check failed
-        recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
-                               accessType, securityState, FaultStage::BothStages, currentTime, 2, 0);
-        return makeTranslationError(SMMUError::PagePermissionViolation);
-    }
-
     // ARM IHI0070G.b §3.10/§3.10.2: Stage-2 alone determines the final PA security
     // state. The translatePage() call at stage-2 (above) already enforces the
     // correct security state match — it rejects a lookup if the requested security
@@ -1766,8 +1758,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // authoritative PA security state and is not required to equal the incoming NS
     // bit by §3.10.2.  The check has been removed.
 
-    // NEW-8 fix: §3.4/§7.3.14 — Stage-2 output PA must lie within the S2PS output range.
-    // If the PA returned by stage-2 translation exceeds 2^S2PsBits, emit F_ADDR_SIZE.
+    // NEW-8 / BUG-10 fix: §3.4/§7.3.14 — Stage-2 output PA must lie within the
+    // S2PS output range.  This check MUST run before the permission intersection
+    // check below (ARM §7.3 fault priority: F_ADDR_SIZE §7.3.14 > F_PERMISSION
+    // §7.3.16).  When both conditions hold simultaneously the address-size fault
+    // takes precedence.
     {
         uint8_t s2psBits = oasBitsFromS2PS(config.s2ps);
         if (s2psBits < 52u) {
@@ -1781,6 +1776,15 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
+    }
+
+    // ARM SMMU v3 spec: Validate final permissions against requested access.
+    // Runs AFTER the S2PS OAS check per §7.3 fault priority ordering.
+    if (!validateAccessPermissions(finalPermissions, accessType)) {
+        // Permission fault after two-stage translation - final permission check failed
+        recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
+                               accessType, securityState, FaultStage::BothStages, currentTime, 2, 0);
+        return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
     // Create successful final translation result.
