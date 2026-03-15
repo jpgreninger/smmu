@@ -9,6 +9,20 @@
 
 namespace smmu {
 
+// GAP NEW-2: Thread-local storage for stage-2 fault context.
+// Used to pass IPA and isStage2 flag from performBothStagesTranslation()
+// to handleTranslationFailure() without changing intermediate function signatures.
+// Each translate() call resets these at entry so stale state from a prior call
+// on the same thread cannot leak into the next translation.
+// Thread-local ensures concurrent translations on different threads are isolated.
+namespace {
+struct Stage2FaultContext {
+    bool     isStage2 = false; ///< true when the fault occurred in stage-2
+    uint64_t ipa      = 0;     ///< IPA (stage-1 output) at which stage-2 faulted
+};
+thread_local Stage2FaultContext tl_stage2FaultCtx;
+} // anonymous namespace
+
 // ARM §3.5.1: Circular queue index helpers (FINDING-M-01)
 
 // Compute LOG2SIZE: smallest k such that 2^k >= capacity (minimum 0).
@@ -159,6 +173,11 @@ SMMU::~SMMU() {
 
 // Main translate() API - Enhanced with Task 5.2: Two-stage translation and TLBCache integration
 TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
+    // GAP NEW-2: Reset thread-local stage-2 fault context at the start of each translation.
+    // This prevents stale context from a prior translation on the same thread from leaking.
+    tl_stage2FaultCtx.isStage2 = false;
+    tl_stage2FaultCtx.ipa      = 0;
+
     // Optimization 3: Cache timestamp once at start for reuse
     uint64_t currentTime = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -524,7 +543,10 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // stripe lock is no longer held, eliminating the ABBA deadlock.
             streamContext = nullptr; // Defensive: no further accesses via this pointer
             // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are populated.
-            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag, accessType);
+            // GAP NEW-2: propagate stage-2 context (S2 flag, IPA) for stall events that
+            // originated in stage-2.  tl_stage2FaultCtx was set by performBothStagesTranslation.
+            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag, accessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             return makeTranslationError(SMMUError::Stalled);
         }
         // BUG-NEW-CPP-3 fix: the stripe lock was already released before
@@ -1586,6 +1608,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         // Using pasid (the parameter to this function) preserves the originating PASID.
         recordComprehensiveFault(streamID, pasid, intermediatePA, stage2FaultType,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 1, 0);
+
+        // GAP NEW-2: Record stage-2 fault context so handleTranslationFailure() and the
+        // stall path can set S2=1 and IPA in the generated event (§7.3.13).
+        tl_stage2FaultCtx.isStage2 = true;
+        tl_stage2FaultCtx.ipa      = intermediatePA;
+
         return stage2Result;
     }
 
@@ -1671,6 +1699,25 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
     }
 
     // BUG-27 fix: removed spurious physicalAddress==0 guard; PA=0 is valid per spec.
+
+    // GAP NEW-5 fix: ARM IHI0070G.b §3.4 — when stage-2 is bypassed (STE.Config=0b10x,
+    // i.e., stage-1 active + stage-2 disabled), a PA output that exceeds OAS must be
+    // SILENTLY TRUNCATED to OAS width.  No F_ADDR_SIZE event is generated (contrast with
+    // STE.Config=0b100 full-bypass, which does generate F_ADDR_SIZE per §7.3.14).
+    {
+        uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+        if (oasBits < 64u && result.isOk()) {
+            PA outputPA = result.getValue().physicalAddress;
+            PA oasLimit = static_cast<PA>(1) << oasBits;
+            if (outputPA >= oasLimit) {
+                // Silently truncate to OAS width — ARM §3.4 stage-2-bypass semantics.
+                TranslationData truncated = result.getValue();
+                truncated.physicalAddress = outputPA & (oasLimit - 1u);
+                return makeSuccess<TranslationData>(truncated);
+            }
+        }
+    }
+
     return result;
 }
 
@@ -1792,8 +1839,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             // §7.3.13: F_TRANSLATION (0x10) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
             // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            // GAP NEW-2: propagate stage-2 context (S2 flag, IPA) from thread-local state
+            // set by performBothStagesTranslation() when stage-2 translation failed.
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, accessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             // Could implement page fault handling or demand paging here
             handleTranslationFaultRecovery(streamID, pasid, iova, securityState);
             break;
@@ -1802,8 +1852,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             // §7.3.16: F_PERMISSION (0x13) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
             // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            // GAP NEW-2: propagate stage-2 context for permission faults that occurred at stage-2.
             generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, accessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             // Could implement permission escalation or security logging
             handlePermissionFaultRecovery(streamID, pasid, iova, accessType, securityState);
             break;
@@ -3306,7 +3358,7 @@ void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, 
 
 void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                          SecurityState securityState, bool isStall, uint16_t stag,
-                         AccessType accessType) {
+                         AccessType accessType, bool isStage2, uint64_t ipaValue) {
     // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
     // Exception: stall events must always be recorded (§3.5.3 stall semantics).
     // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
@@ -3422,7 +3474,8 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // InD: true for instruction fetches (Execute, ExecutePrivileged).
     // PnU: true for privileged access types (*Privileged variants).
     // SSV: true when PASID != 0 (SubstreamID is valid).
-    // eventClass: 0 for translation/data faults (F_*), 1 for config faults (C_*).
+    // eventClass: 2 (IN) for input-address faults (F_TRANSLATION/F_ADDR_SIZE/F_PERMISSION/F_ACCESS),
+    //             0 for config faults (C_*) — CLASS field is undefined for configuration events.
     //
     // The AccessType is not available at this level; generateEvent() is called
     // from many call sites.  We populate what we can from the event type and pasid.
@@ -3431,14 +3484,29 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // stallPending path; here we set reasonable defaults for generic events).
     event.ssv = (pasid != 0);
 
-    // eventClass: C_* events are configuration faults (class=1); F_* are translation (class=0).
+    // GAP NEW-1 fix: ARM IHI0070G.b §7.3 CLASS field (2-bit) encoding.
+    // The CLASS field is defined ONLY for F_* translation events:
+    //   0b00 (0) = CD   — fault during CD fetch
+    //   0b01 (1) = TTD  — fault during translation table descriptor fetch
+    //   0b10 (2) = IN   — fault on the input address itself (SW model default for F_* data faults)
+    //   0b11 (3) = Reserved
+    // C_* (configuration) events do NOT have a CLASS field — it must be left as 0.
+    // Previously C_* events erroneously set eventClass=1.
     switch (type) {
         case EventType::C_BAD_STREAMID:
         case EventType::C_BAD_STE:
         case EventType::C_BAD_SUBSTREAMID:
         case EventType::C_BAD_CD:
         case EventType::F_CFG_CONFLICT:
-            event.eventClass = 1u;
+            // §7.3: CLASS field not defined for configuration events; leave as 0.
+            event.eventClass = 0u;
+            break;
+        case EventType::F_TRANSLATION:
+        case EventType::F_ADDR_SIZE:
+        case EventType::F_PERMISSION:
+        case EventType::F_ACCESS:
+            // §7.3: CLASS=0b10 (IN) — fault is on the input address itself.
+            event.eventClass = 2u;
             break;
         default:
             event.eventClass = 0u;
@@ -3489,8 +3557,11 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             event.pnu = false;
             break;
     }
-    event.s2    = false;
-    event.ipa   = 0;
+    // GAP NEW-2 fix: ARM IHI0070G.b §7.3.13 — S2 and IPA fields for two-stage faults.
+    // When the fault occurred during stage-2 translation, S2=1 and IPA carries
+    // the intermediate physical address (stage-1 output) that was looked up in stage-2.
+    event.s2    = isStage2;
+    event.ipa   = isStage2 ? ipaValue : 0u;
     event.nsipa = false;
 
     // Add to event queue

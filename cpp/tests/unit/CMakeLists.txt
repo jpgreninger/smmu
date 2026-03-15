@@ -98,6 +98,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_11mar2026.cpp
     test_conf_gaps_11_fixes.cpp
     test_conf_gaps_moderate.cpp
+    test_new_qa_findings.cpp
     ../test_thread_safety.cpp
 )
 

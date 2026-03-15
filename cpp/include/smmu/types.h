@@ -1516,7 +1516,7 @@ struct EventEntry {
 
     // CONF-GAP-20: §7.3 event record wire format fields
     uint64_t ipa;        ///< §7.3: Intermediate Physical Address (for two-stage faults)
-    uint8_t  eventClass; ///< §7.3: CLASS field (0=translation/F_* fault, 1=config/C_* fault)
+    uint8_t  eventClass; ///< §7.3: CLASS field (2-bit): 0b00=CD, 0b01=TTD, 0b10=IN (default for F_* input-address faults), 0b11=Reserved. C_* events leave this 0 (field not defined).
     bool     s2;         ///< §7.3: S2 flag — true if fault occurred during stage-2 translation
     bool     rnw;        ///< §7.3: RnW — true=write, false=read
     bool     ind;        ///< §7.3: InD — true=instruction (Execute), false=data

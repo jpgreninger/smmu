@@ -100,7 +100,16 @@ pub struct EventEntry {
     /// Intermediate Physical Address — for two-stage faults (§7.3).
     /// Zero for single-stage faults.
     pub ipa: u64,
-    /// CLASS: event class — 0=translation, 1=config, 2=access_flag, 3=permission (§7.3).
+    /// CLASS: 2-bit event class field per ARM IHI0070G.b §7.3.
+    ///
+    /// Defined only for translation-related F_* events:
+    /// - `0b00` (0) = CD — fault during CD fetch
+    /// - `0b01` (1) = TTD — fault during translation table descriptor fetch
+    /// - `0b10` (2) = IN — fault on the input address itself (default for SW model F_* events)
+    /// - `0b11` = Reserved
+    ///
+    /// C_* configuration events (C_BAD_STREAMID, C_BAD_STE, C_BAD_SUBSTREAMID, C_BAD_CD,
+    /// F_CFG_CONFLICT) must leave this field at 0 — CLASS is not defined for them.
     pub event_class: u8,
     /// S2 flag — true if the fault occurred during Stage-2 translation (§7.3).
     pub s2: bool,

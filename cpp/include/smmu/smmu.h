@@ -533,10 +533,15 @@ private:
     // CONF-GAP-20: accessType parameter populates rnw/ind/pnu wire-format fields (§7.3).
     // Defaults to AccessType::Read (rnw=false, ind=false, pnu=false) for call sites
     // that do not have the access type available (e.g. config-fault generators).
+    // GAP NEW-2: isStage2 and ipa added for ARM IHI0070G.b §7.3.13 compliance.
+    // When isStage2==true the event record's S2 flag is set and ipa carries the
+    // intermediate physical address (stage-1 output) at which stage-2 faulted.
     void generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA address,
                        SecurityState securityState = SecurityState::NonSecure, bool isStall = false,
                        uint16_t stag = 0,
-                       AccessType accessType = AccessType::Read);
+                       AccessType accessType = AccessType::Read,
+                       bool isStage2 = false,
+                       uint64_t ipaValue = 0);
     uint64_t getCurrentTimestamp() const;
 };
 

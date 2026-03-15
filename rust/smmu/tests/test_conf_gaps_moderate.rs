@@ -421,8 +421,9 @@ fn test_conf_gap20_event_class_translation_fault() {
 
     let events = smmu.get_events();
     assert!(!events.is_empty());
-    // F_TRANSLATION is event_class = 0 (translation fault).
-    assert_eq!(events[0].event_class, 0, "F_TRANSLATION must have event_class=0");
+    // GAP NEW-1 fix: F_TRANSLATION must have event_class=2 (IN — fault on input address)
+    // per ARM IHI0070G.b §7.3.  CLASS is a 2-bit field: 0b10 = IN (SW model default).
+    assert_eq!(events[0].event_class, 2, "F_TRANSLATION must have event_class=2 (IN per §7.3)");
 }
 
 // ============================================================================

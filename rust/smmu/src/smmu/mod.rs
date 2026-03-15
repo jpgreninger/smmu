@@ -2606,12 +2606,14 @@ impl SMMU {
         // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), stall mode,
         // and S1DSS / S1CDMax while holding the stream guard, so TLB entries
         // can be tagged and routing decisions made without re-locking the map.
-        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_s1dss, stream_s1cd_max) =
+        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt) =
             if let Some(stream_ref) = stream_guard {
                 let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
                 let vmid = stream_ref.value().get_vmid();
                 let stall = stream_ref.value().is_stall_enabled();
-                let bypass = !stream_ref.value().is_stage1_enabled() && !stream_ref.value().is_stage2_enabled();
+                let s1_en = stream_ref.value().is_stage1_enabled();
+                let s2_en = stream_ref.value().is_stage2_enabled();
+                let bypass = !s1_en && !s2_en;
                 let s1dss_val = stream_ref.value().get_s1dss();
                 let s1cd_max_val = stream_ref.value().get_s1cd_max();
 
@@ -2672,10 +2674,13 @@ impl SMMU {
                     }
                 }
 
-                // Delegate to StreamContext for actual translation
-                // StreamContext handles Stage-1, Stage-2, Two-Stage, and Bypass modes
-                let r = stream_ref.value().translate(pasid, iova, access, security_state);
-                (r, asid, vmid, stall, bypass, s1dss_val, s1cd_max_val)
+                // Delegate to StreamContext for actual translation.
+                // Use translate_and_get_stage2_ipa() so the SMMU can populate the S2 and IPA
+                // fields in the event record for two-stage faults (ARM §7.3.13 / GAP NEW-2).
+                let (r, stage2_ipa_opt) = stream_ref.value().translate_and_get_stage2_ipa(
+                    pasid, iova, access, security_state,
+                );
+                (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt)
             } else {
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                 // Record fault before returning error
@@ -2696,10 +2701,42 @@ impl SMMU {
             if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
                 let oas_error = TranslationError::AddressSizeError;
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0);
+                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0);
                 return Err(oas_error);
             }
         }
+
+        // GAP NEW-5 / ARM IHI0070G.b §3.4: Stage-2-bypass OAS check.
+        // When Stage-1 is active and Stage-2 is bypassed (STE.Config=0b10x), the Stage-1
+        // output PA must be silently truncated to OAS width if it exceeds the OAS limit.
+        // This is distinct from the STE.Config=0b100 bypass case above:
+        //   - STE.Config=0b100 (both stages disabled): F_ADDR_SIZE abort.
+        //   - STE.Config=0b10x (Stage-1 active, Stage-2 bypassed): silent truncation, no event.
+        //
+        // NOTE: This MUST run BEFORE TLB insertion (below) so the truncated PA is what gets
+        // cached. We mutate the result in-place by constructing a new Ok with the truncated PA.
+        let result = if stream_stage1_enabled && !stream_stage2_enabled && !is_bypass {
+            if let Ok(ref data) = result {
+                let out_pa = data.physical_address().as_u64();
+                if oas_bits < 64 && out_pa >= (1u64 << oas_bits) {
+                    // §3.4: silently truncate — mask to OAS width, no event, no error.
+                    let truncated = out_pa & ((1u64 << oas_bits) - 1);
+                    let trunc_pa = crate::types::PA::new(truncated)
+                        .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA valid"));
+                    Ok(crate::types::TranslationData::new(
+                        trunc_pa,
+                        data.permissions(),
+                        data.security_state(),
+                    ))
+                } else {
+                    result
+                }
+            } else {
+                result
+            }
+        } else {
+            result
+        };
 
         // NEW-52 / ARM §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
         // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
@@ -2723,7 +2760,7 @@ impl SMMU {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let substreamid_error = TranslationError::BadSubstreamId;
             self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0,
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0,
             );
             return Err(substreamid_error);
         }
@@ -2837,7 +2874,7 @@ impl SMMU {
                         let oas_error = TranslationError::AddressSizeError;
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                         self.record_translation_fault(
-                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0,
+                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0,
                         );
                         return Err(oas_error);
                     }
@@ -2934,9 +2971,13 @@ impl SMMU {
                                 // event so software sees the correct fault report.
                                 // Return StallQueueFull so callers can distinguish
                                 // this condition from a plain translation error.
+                                // Stall-queue full: pass s2/ipa from two-stage context if available.
+                                let (fault_s2, fault_ipa) = stage2_ipa_opt
+                                    .map(|ip| (true, ip))
+                                    .unwrap_or((false, 0));
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, access, security_state,
-                                    error, false, 0,
+                                    error, false, 0, fault_s2, fault_ipa,
                                 );
                                 return Err(TranslationError::StallQueueFull);
                             }
@@ -2948,7 +2989,14 @@ impl SMMU {
                 0
             };
 
-            self.record_translation_fault(stream_id, pasid, iova, access, security_state, error, is_stall, stag);
+            // GAP NEW-2: §7.3.13 — populate S2/IPA fields for two-stage faults.
+            let (fault_s2, fault_ipa) = stage2_ipa_opt
+                .map(|ip| (true, ip))
+                .unwrap_or((false, 0));
+            self.record_translation_fault(
+                stream_id, pasid, iova, access, security_state,
+                error, is_stall, stag, fault_s2, fault_ipa,
+            );
 
             if is_stall {
                 // The stall record was already inserted atomically via entry()
@@ -3151,6 +3199,8 @@ impl SMMU {
     /// * `iova` - Input/Output Virtual Address
     /// * `access` - Access type that caused the fault
     /// * `error` - Translation error details
+    // GAP NEW-2: `s2` is true when the fault occurred at Stage-2 (§7.3.13 S2 field).
+    // `ipa` is the IPA fed into Stage-2 when `s2==true`; 0 otherwise.
     fn record_translation_fault(
         &self,
         stream_id: StreamID,
@@ -3161,6 +3211,8 @@ impl SMMU {
         error: &TranslationError,
         is_stall: bool,
         stag: u16,
+        s2: bool,
+        ipa: u64,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -3203,18 +3255,19 @@ impl SMMU {
 
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event_type = Self::map_fault_type_to_event_type(fault_type);
-        // CONF-GAP-20: §7.3 wire-format fields.
-        // event_class: 0=translation (F_*), 1=config (C_*).  Use the event type discriminant.
+        // GAP NEW-1 / ARM IHI0070G.b §7.3: CLASS is a 2-bit field defined ONLY for
+        // translation-related F_* events.  C_* configuration events must leave CLASS==0
+        // (it is not defined for them).  For F_* translation faults in this SW model the
+        // fault is always detected on the input address, so CLASS==0b10 (IN).
+        //
+        // Encoding: 0b00=CD, 0b01=TTD, 0b10=IN (fault on input address), 0b11=reserved.
         let event_class: u8 = match event_type {
-            EventType::CBadStreamid
-            | EventType::FSteFetch
-            | EventType::CBadSte
-            | EventType::FBadAtsTreq
-            | EventType::FStreamDisabled
-            | EventType::FTranslForbidden
-            | EventType::CBadSubstreamid
-            | EventType::FCdFetch
-            | EventType::CBadCd => 1,
+            // Translation-class F_* events: CLASS==2 (IN — fault on input address)
+            EventType::FTranslation
+            | EventType::FAddrSize
+            | EventType::FAccess
+            | EventType::FPermission => 2,
+            // C_* configuration events and all others: CLASS==0 (not defined for config events)
             _ => 0,
         };
         let event = EventEntry {
@@ -3231,6 +3284,9 @@ impl SMMU {
             stag,
             // CONF-GAP-20: §7.3 wire-format fields.
             event_class,
+            // GAP NEW-2: §7.3.13 — S2 and IPA fields for two-stage faults.
+            s2,
+            ipa,
             rnw: matches!(access, AccessType::Write),
             ind: matches!(access, AccessType::Execute),
             ssv: pasid.as_u32() != 0,
@@ -3350,7 +3406,8 @@ impl SMMU {
             timestamp,
             stall: false,
             stag: 0,
-            event_class: 1, // C_* events are class 1 (config)
+            // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
+            event_class: 0,
             rnw: matches!(access, AccessType::Write),
             ind: matches!(access, AccessType::Execute),
             ssv: pasid.as_u32() != 0,

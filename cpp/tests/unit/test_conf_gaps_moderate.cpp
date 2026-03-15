@@ -400,7 +400,10 @@ TEST(ConfGapModerate, Gap20_ZeroPASID_SsvFalse) {
 }
 
 TEST(ConfGapModerate, Gap20_ConfigFault_EventClassIs1) {
-    // C_BAD_STE and similar config faults must have eventClass=1
+    // GAP NEW-1 fix: ARM IHI0070G.b §7.3 — the CLASS field is defined ONLY for F_*
+    // translation events.  C_* (configuration) events do NOT have a CLASS field; it
+    // must be left as 0.  The original CONF-GAP-20 test incorrectly asserted eventClass=1
+    // for C_* events.  Updated to the spec-correct value of 0.
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_EVENTQEN | (1u << 1)); // RECINVSID
@@ -413,8 +416,8 @@ TEST(ConfGapModerate, Gap20_ConfigFault_EventClassIs1) {
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
         if (e.type == EventType::C_BAD_STREAMID) {
-            EXPECT_EQ(e.eventClass, 1u)
-                << "Config fault (C_*) events must have eventClass=1 (CONF-GAP-20)";
+            EXPECT_EQ(e.eventClass, 0u)
+                << "GAP NEW-1: C_* events must have eventClass=0 (CLASS field undefined for config faults, §7.3)";
             found = true;
             break;
         }
@@ -423,6 +426,9 @@ TEST(ConfGapModerate, Gap20_ConfigFault_EventClassIs1) {
 }
 
 TEST(ConfGapModerate, Gap20_TranslationFault_EventClassIs0) {
+    // GAP NEW-1 fix: ARM IHI0070G.b §7.3 — CLASS=0b10 (IN=2) means the fault is on the
+    // input address itself.  F_TRANSLATION faults must have eventClass=2, not 0.
+    // Updated from the previous incorrect assertion of eventClass=0.
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_EVENTQEN);
@@ -439,8 +445,8 @@ TEST(ConfGapModerate, Gap20_TranslationFault_EventClassIs0) {
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
         if (e.streamID == 25 && e.type == EventType::F_TRANSLATION) {
-            EXPECT_EQ(e.eventClass, 0u)
-                << "Translation fault (F_*) events must have eventClass=0 (CONF-GAP-20)";
+            EXPECT_EQ(e.eventClass, 2u)
+                << "GAP NEW-1: F_TRANSLATION events must have eventClass=2 (0b10=IN, fault on input address, §7.3)";
             found = true;
             break;
         }
