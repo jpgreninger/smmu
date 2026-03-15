@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.3.0)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.3.1)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,27 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.3.0** - Post-Release Bug Fixes ⚡
+## ✅ **PRODUCTION READY v1.3.1** - Post-Release Bug Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,777 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 15, 2026)**: Version 1.3.0 — Fixed 4 bugs found in post-release C++ code audit: 1 spec violation (§7.3 stall-pending event record missing wire-format fields), 1 spec-adjacent defect (priAutoFailures_ not cleared on reset per §3.11/§8.1), and 2 SW quality fixes (broadcast TLBI overload per §3.17, lookupTranslationCache dead code removed). C++ tests: 115/115 passing, Rust tests: 205/205 passing, zero clippy warnings.
+**🎯 Latest Update (March 15, 2026)**: Version 1.3.1 — Fixed 4 bugs from second post-release C++ audit: 13 generateEvent() calls missing accessType fixing §7.3 RnW/InD/PnU event wire-format fields (Medium/Spec Violation), CacheConsistencyAfterInvalidation test restored covering §4.4 TLB maintenance (Medium), 9 redundant const_cast on mutable lockStripes removed (Low), 25 compiler warnings eliminated (Low). C++ tests: 116/116 passing, Rust tests: 205/205 passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.3.1 (March 15, 2026)
+
+**Second Post-Release Bug Fixes (C++ — 4 bugs, 6 new regression tests)**
+
+- ✅ **Bug 2 (Medium — Spec Violation §7.3)**: 13 `generateEvent()` call sites now pass `accessType` — fixes `RnW`/`InD`/`PnU` wire-format fields in `F_ADDR_SIZE`, `F_TRANSLATION`, `F_ACCESS`, `F_PERMISSION` event records for non-Read transactions
+- ✅ **Bug 1 (Medium — Test Coverage §4.4)**: `CacheConsistencyAfterInvalidation` test restored — correct 4-step unmap/remap/invalidate/translate body replacing GTEST_SKIP(); underlying use-after-free (BUG-NEW-A) was already fixed
+- ✅ **Bug 3 (Low)**: 9 redundant `const_cast<std::mutex&>` removed from `tlb_cache.cpp` — `lockStripes` is already `mutable`
+- ✅ **Bug 4 (Low)**: 25 compiler warnings eliminated across 10 test files — unused result variables, dead helper functions, unused local vars and parameters
+- ✅ 6 new regression tests added (1 new test file); C++ suite: 116/116 passing
 
 ### 🚀 Release v1.3.0 (March 15, 2026)
 

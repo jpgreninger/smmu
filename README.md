@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.3.0 (C++ + Rust)** - Post-Release Bug Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.3.1 (C++ + Rust)** - Post-Release Bug Fixes ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (115 tests), Rust 94.72% lines / 93.53% functions (2,777 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 90.9% lines / 96.2% functions (116 tests), Rust 94.72% lines / 93.53% functions (2,777 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (March 15, 2026)**: v1.3.0 — Fixed 4 bugs found in post-release code audit: 1 spec violation (§7.3 stall-pending event record fields), 1 spec-adjacent defect (priAutoFailures_ not cleared on reset), and 2 SW quality fixes (broadcast TLBI overload per §3.17, dead code removal). C++ tests: 115/115 passing, Rust tests: 205/205 passing, zero warnings.
+**Latest Update (March 15, 2026)**: v1.3.1 — Fixed 4 bugs from second post-release audit: 13 generateEvent() calls missing accessType fixing §7.3 RnW/InD/PnU event wire-format fields (Medium/Spec Violation), CacheConsistencyAfterInvalidation test restored per §4.4 (Medium), 9 redundant const_cast removed (Low), 25 compiler warnings eliminated (Low). C++ tests: 116/116 passing, Rust tests: 205/205 passing, zero warnings.
 
 ## Production Features
 

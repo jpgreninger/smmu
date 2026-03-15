@@ -1,10 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.3.0** - Post-Release Bug Fixes ✅
+## ✅ **PRODUCTION RELEASE v1.3.1** - Post-Release Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 115/115 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.3.0
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 116/116 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.3.1
 
-> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 98 new tests added (40 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (94%). All critical/high/medium/low severity bugs resolved. All 115 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 99 new tests added (41 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (94%). All critical/high/medium/low severity bugs resolved. All 116 tests pass at 100%.
+>
+> **v1.3.1 (March 15, 2026)**: Fixed 4 bugs from second post-release audit: 13 generateEvent() calls missing accessType fixing §7.3 RnW/InD/PnU event wire-format fields (Medium/Spec Violation), CacheConsistencyAfterInvalidation test restored covering §4.4 TLB maintenance (Medium), 9 redundant const_cast on mutable lockStripes removed (Low), 25 compiler warnings eliminated across 10 test files (Low). 116/116 C++ tests passing, zero warnings.
 >
 > **v1.3.0 (March 15, 2026)**: Fixed 4 bugs from post-release audit: stall-pending EventEntry §7.3 wire-format fields (High/Spec Violation), priAutoFailures_ not cleared on reset() (Medium/Spec-Adjacent), receiveBroadcastTLBI broadcast overload per §3.17 (Low), lookupTranslationCache() dead code removed (Low). 115/115 C++ tests passing, zero warnings.
 
