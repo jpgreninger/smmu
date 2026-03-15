@@ -2,7 +2,7 @@
 
 ## ✅ **PRODUCTION RELEASE v1.3.1** - Post-Release Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 116/116 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.3.1
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 116/116 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.3.1
 
 > **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 99 new tests added (41 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (94%). All critical/high/medium/low severity bugs resolved. All 116 tests pass at 100%.
 >
@@ -187,7 +187,7 @@ A production-ready, high-performance C++11 implementation of the ARM System Memo
 
 ### ✅ Production Quality
 - **C++11 strict compliance** - Zero C++14/17/20 features, no external dependencies beyond STL
-- **90.9% line coverage** (3,240/3,563 lines) | **96.2% function coverage** (432/449) — 5 of 6 source components ≥93%
+- **88.0% line coverage** (3,897 lines total) | **91.5% branches executed** — 5 of 6 source components ≥92%; measured 2026-03-15
 - **100% test success rate** (65/65 tests passing — 20 test files)
 - **Zero build warnings** with production-grade code quality
 - **Full ARM SMMU v3 IHI0070G.b compliance** — 80 conformance findings found and fixed across 6 QA passes
@@ -430,24 +430,19 @@ smmu/
 
 ## Test Coverage
 
-**Overall Coverage**: 90.9% lines (3,240/3,563) | 96.2% functions (432/449) | 59.7% branches (1,910/3,202)
-*(Measured with gcovr + gcov, Debug build with `--coverage`, 2026-02-23)*
+**Overall Coverage**: 88.0% lines (3,897 lines total) | 91.5% branches executed
+*(Measured with gcov, Debug build with `-DENABLE_COVERAGE=ON`, 2026-03-15)*
 
 ### Component Breakdown
 
-| Component            | Line Coverage | Lines       | Function Coverage | Status       |
-|----------------------|---------------|-------------|-------------------|--------------|
-| Fault Handler        | 98%           | 149/151     | —                 | ⭐ Excellent |
-| Configuration        | 97%           | 285/292     | —                 | ⭐ Excellent |
-| TLB Cache            | 97%           | 366/376     | —                 | ⭐ Excellent |
-| Address Space        | 95%           | 264/277     | —                 | ⭐ Excellent |
-| Stream Context       | 93%           | 478/510     | —                 | ⭐ Excellent |
-| SMMU Controller      | 84%           | 1,166/1,382 | —                 | ⭐ Good      |
-| configuration.h      | 100%          | 61/61       | —                 | ⭐ Perfect   |
-| tlb_cache.h          | 100%          | 34/34       | —                 | ⭐ Perfect   |
-| types.h              | 91%           | 377/412     | —                 | ⭐ Excellent |
-| memory_pool.h        | 92%           | 50/54       | —                 | ⭐ Excellent |
-| smmu.h (inline)      | 71%           | 10/14       | —                 | Good         |
+| Component            | Line Coverage | Branch Coverage | Status       |
+|----------------------|---------------|-----------------|--------------|
+| Fault Handler        | 98.8%         | 100.0%          | ⭐ Excellent |
+| Configuration        | 97.6%         | 93.2%           | ⭐ Excellent |
+| Address Space        | 96.2%         | 98.7%           | ⭐ Excellent |
+| TLB Cache            | 93.6%         | 94.0%           | ⭐ Excellent |
+| Stream Context       | 92.7%         | 92.8%           | ⭐ Excellent |
+| SMMU Controller      | 82.1%         | 87.8%           | ⭐ Good      |
 
 **Note**: The SMMU Controller's 84% coverage represents the practical maximum achievable. Analysis identified ~16% of code as defensive programming and dead code paths that cannot be reached through normal API usage. Branch coverage at 59.7% is typical for C++ — exception/error paths and rarely-triggered defensive branches are difficult to reach in normal testing.
 
@@ -571,7 +566,7 @@ Ready for immediate deployment in:
 
 ### Quality Assurance
 - ✅ 100% test pass rate (65/65 tests)
-- ✅ 90.9% line coverage (3,240/3,563) | 96.2% function coverage (432/449) — measured 2026-02-23
+- ✅ 88.0% line coverage (3,897 lines total) | 91.5% branches executed — measured 2026-03-15
 - ✅ Zero build warnings
 - ✅ Hardware-exceeding performance (86-101ns translation latency)
 - ✅ Thread safety validated (concurrent test scenarios)

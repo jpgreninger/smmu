@@ -6,7 +6,7 @@
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
 [![Tests](https://img.shields.io/badge/tests-2777%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
-[![Coverage](https://img.shields.io/badge/coverage-94.72%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Coverage](https://img.shields.io/badge/coverage-94.30%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -551,7 +551,7 @@ See [PERFORMANCE-RUST.md](PERFORMANCE-RUST.md) for complete technical details.
 - ❌ Tests Failed: 0
 - ⚠️ Tests Ignored: 28 (intentional - platform/feature gated)
 - ⚡ Execution Time: ~5-7 seconds (full suite)
-- 📈 Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** — measured with cargo-llvm-cov
+- 📈 Coverage: **94.30% lines** (9,741 lines total) | **93.59% functions** (1,233 total) | **94.56% regions** — measured 2026-03-15 with cargo-llvm-cov
 
 **Documentation**:
 - Generated [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) - Comprehensive 400+ line test report
@@ -973,7 +973,7 @@ The project follows strict coding standards:
 - ✅ Test Scenarios: >170,000 (142,000+ property-based + exhaustive concurrency)
 - ✅ Success Rate: 100.00%
 - ✅ Examples: 8/8 running successfully
-- ✅ Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** (1,027/1,098) — measured 2026-02-23 with cargo-llvm-cov
+- ✅ Coverage: **94.30% lines** (9,741 lines total) | **93.59% functions** (1,233 total) | **94.56% regions** — measured 2026-03-15 with cargo-llvm-cov
 - ✅ Test Suites: 55 test files, all passing
 - ✅ Execution Time: ~15-20 seconds total (including advanced tests)
 
@@ -1103,7 +1103,7 @@ See [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md) for complete te
 - Licenses: 0 conflicts
 - Tests: 2,039 passing (0 failures)
 - Doctests: 142 passing (0 failures)
-- Coverage: **94.72% lines** (7,681/8,109) | **93.53% functions** — measured with cargo-llvm-cov
+- Coverage: **94.30% lines** (9,741 lines total) | **93.59% functions** (1,233 total) | **94.56% regions** — measured 2026-03-15 with cargo-llvm-cov
 - Compliance: 100% ARM SMMU v3
 
 See `TASKS-RUST.md` for complete implementation details, `QA_REPORT.md` for quality assurance validation, and `COMPREHENSIVE_TEST_REPORT.md` for detailed test results.
