@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.2.16)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.3.0)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,27 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.2.16** - 7 Additional Bug Fixes ⚡
+## ✅ **PRODUCTION READY v1.3.0** - Post-Release Bug Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,777 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 15, 2026)**: Version 1.2.16 — Added comprehensive ARM SMMU v3 IHI0070G.b conformance audit section to documentation. Overall conformance: 94% (no open non-conformance; remaining 6% are intentional SW-model gaps). C++ tests: 106/106 passing, Rust tests: 205/205 passing, zero clippy warnings.
+**🎯 Latest Update (March 15, 2026)**: Version 1.3.0 — Fixed 4 bugs found in post-release C++ code audit: 1 spec violation (§7.3 stall-pending event record missing wire-format fields), 1 spec-adjacent defect (priAutoFailures_ not cleared on reset per §3.11/§8.1), and 2 SW quality fixes (broadcast TLBI overload per §3.17, lookupTranslationCache dead code removed). C++ tests: 115/115 passing, Rust tests: 205/205 passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.3.0 (March 15, 2026)
+
+**Post-Release Bug Fixes (C++ — 4 bugs, 13 new regression tests)**
+
+- ✅ **Bug 3 (High — Spec Violation §7.3)**: stall-pending `EventEntry` now populates all mandatory wire-format fields (`ssv`, `eventClass`, `rnw`, `ind`, `pnu`, `s2`, `ipa`, `nsipa`) — previously zeroed when event queue was full at stall fault time
+- ✅ **Bug 2 (Medium — Spec-Adjacent §3.11/§8.1)**: `priAutoFailures_.clear()` added to `reset()` under `queueMutex` — stale PRI auto-failure records no longer survive across resets
+- ✅ **Bug 1 (Low — §3.17)**: `receiveBroadcastTLBI` now uses a broadcast-specific overload of `executeTLBInvalidationCommand` with no `streamID`/`pasid` params — explicit per spec that broadcast TLBIs carry only ASID/VMID/VA
+- ✅ **Bug 4 (Low)**: `lookupTranslationCache()` dead code removed — was missing STRW promotion (§5.2), STE output-attribute overrides (§13), and stall-mode fallthrough (§3.12.2)
+- ✅ 13 new regression tests added (4 test files); C++ suite: 115/115 passing
 
 ### 🚀 Release v1.2.16 (March 15, 2026)
 

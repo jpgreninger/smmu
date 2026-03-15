@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++ Implementation
 
-## ✅ **PRODUCTION RELEASE v1.2.16** - Conformance Audit Documentation ✅
+## ✅ **PRODUCTION RELEASE v1.3.0** - Post-Release Bug Fixes ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 106/106 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.2.16
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 90.9% lines / 96.2% functions | **Tests**: 115/115 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.3.0
 
-> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 89 new tests added (36 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (94%). All critical/high/medium/low severity bugs resolved. All 106 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 54+ conformance fixes across 12+ QA passes. 98 new tests added (40 test files). Full ARM SMMU v3 IHI0070G.b compliance achieved (94%). All critical/high/medium/low severity bugs resolved. All 115 tests pass at 100%.
 >
-> **v1.2.16 (March 15, 2026)**: Added comprehensive ARM SMMU v3 IHI0070G.b conformance audit section to README. Overall conformance: 94% — no open non-conformance items. 106/106 C++ tests passing, zero warnings.
+> **v1.3.0 (March 15, 2026)**: Fixed 4 bugs from post-release audit: stall-pending EventEntry §7.3 wire-format fields (High/Spec Violation), priAutoFailures_ not cleared on reset() (Medium/Spec-Adjacent), receiveBroadcastTLBI broadcast overload per §3.17 (Low), lookupTranslationCache() dead code removed (Low). 115/115 C++ tests passing, zero warnings.
 
 A production-ready, high-performance C++11 implementation of the ARM System Memory Management Unit (SMMU) version 3 specification, delivering hardware-exceeding performance while maintaining strict C++11 compliance and zero external dependencies.
 
