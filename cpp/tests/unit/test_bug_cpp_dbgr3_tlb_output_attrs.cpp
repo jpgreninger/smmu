@@ -68,7 +68,9 @@ TEST_F(TlbOutputAttrsTest, SlowPath_CacheMiss_OutputAttrsCorrect) {
     ASSERT_TRUE(smmuObj->enableStream(STREAM_ID).isOk());
     ASSERT_TRUE(smmuObj->createStreamPASID(STREAM_ID, PASID0).isOk());
 
-    PagePermissions perms(true, true, false);
+    // execute=true because instCfg=1 overrides Read→Execute before the
+    // permission check (Gap D fix); the page must be executable.
+    PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuObj->mapPage(STREAM_ID, PASID0, IOVA_VAL, PA_VAL,
                                   perms, SecurityState::NonSecure).isOk());
 
@@ -98,7 +100,9 @@ TEST_F(TlbOutputAttrsTest, FastPath_CacheHit_OutputAttrsCorrect) {
     ASSERT_TRUE(smmuObj->enableStream(STREAM_ID).isOk());
     ASSERT_TRUE(smmuObj->createStreamPASID(STREAM_ID, PASID0).isOk());
 
-    PagePermissions perms(true, true, false);
+    // execute=true because instCfg=1 overrides Read→Execute before the
+    // permission check (Gap D fix); the page must be executable.
+    PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuObj->mapPage(STREAM_ID, PASID0, IOVA_VAL, PA_VAL,
                                   perms, SecurityState::NonSecure).isOk());
 
@@ -142,7 +146,9 @@ TEST_F(TlbOutputAttrsTest, FastPath_CacheHit_MtCfgFalse_MemTypeIsZero) {
     ASSERT_TRUE(smmuObj->enableStream(STREAM_ID).isOk());
     ASSERT_TRUE(smmuObj->createStreamPASID(STREAM_ID, PASID0).isOk());
 
-    PagePermissions perms(true, true, false);
+    // execute=true because instCfg=1 overrides Read→Execute before the
+    // permission check (Gap D fix); the page must be executable.
+    PagePermissions perms(true, true, true);
     ASSERT_TRUE(smmuObj->mapPage(STREAM_ID, PASID0, IOVA_VAL, PA_VAL,
                                   perms, SecurityState::NonSecure).isOk());
 
@@ -171,7 +177,9 @@ TEST_F(TlbOutputAttrsTest, FastPath_CacheHit_PageOffsetPreserved) {
     ASSERT_TRUE(smmuObj->enableStream(STREAM_ID).isOk());
     ASSERT_TRUE(smmuObj->createStreamPASID(STREAM_ID, PASID0).isOk());
 
-    PagePermissions perms(true, true, false);
+    // execute=true because instCfg=1 overrides Read→Execute before the
+    // permission check (Gap D fix); the page must be executable.
+    PagePermissions perms(true, true, true);
     // Map the page-aligned base address.
     ASSERT_TRUE(smmuObj->mapPage(STREAM_ID, PASID0, IOVA_VAL, PA_VAL,
                                   perms, SecurityState::NonSecure).isOk());

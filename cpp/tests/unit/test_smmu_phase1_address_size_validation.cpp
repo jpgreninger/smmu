@@ -68,12 +68,15 @@ protected:
     static constexpr uint64_t MAX_48BIT_ADDRESS = 0x0000FFFFFFFFFFFFULL;  // 256TB - 1
     static constexpr uint64_t MAX_52BIT_ADDRESS = 0x000FFFFFFFFFFFFFULL;  // 4PB - 1
 
-    // Helper function to configure stream with basic setup
+    // Helper function to configure stream with basic setup.
+    // t0sz=0 (full 64-bit range) so that the Gap-C VA-range check does NOT
+    // block tests that use 49-52 bit IOVAs to exercise the IAS/OAS validation.
     void configureBasicStream() {
         StreamConfig config;
         config.translationEnabled = true;
         config.stage1Enabled = true;
         config.stage2Enabled = false;
+        config.t0sz = 0; // no VA-range restriction from CD.T0SZ
 
         ASSERT_TRUE(smmu->configureStream(TEST_STREAM_ID, config).isOk());
         ASSERT_TRUE(smmu->enableStream(TEST_STREAM_ID).isOk());

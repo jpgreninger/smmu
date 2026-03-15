@@ -2653,10 +2653,13 @@ TEST_F(SMMUTest, Task81_ComprehensiveFaultHandlingIntegration) {
     constexpr IOVA hugeBadIova = 0xFFFFFFFFFFFFFFFFULL;  // Invalid address
     TranslationResult addressFaultResult = smmuController->translate(faultStream, faultPasid, hugeBadIova, AccessType::Read);
     EXPECT_TRUE(addressFaultResult.isError());
-    // Note: Implementation may return different error codes for invalid addresses
-    EXPECT_TRUE(addressFaultResult.getError() == SMMUError::InvalidAddress || 
+    // Note: Implementation may return different error codes for invalid addresses.
+    // Gap C fix: 0xFFFF...FFFF exceeds the T0SZ=16 VA range (2^48), so the VA-range
+    // check fires first and returns InvalidConfiguration (event already queued).
+    EXPECT_TRUE(addressFaultResult.getError() == SMMUError::InvalidAddress ||
                 addressFaultResult.getError() == SMMUError::PageNotMapped ||
-                addressFaultResult.getError() == SMMUError::CacheOperationFailed);
+                addressFaultResult.getError() == SMMUError::CacheOperationFailed ||
+                addressFaultResult.getError() == SMMUError::InvalidConfiguration);
     
     // Test fault recovery and cleanup
     smmuController->clearEvents();

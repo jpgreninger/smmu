@@ -28,11 +28,14 @@ protected:
         // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
         smmu->enable();
 
-        // Configure basic stream
+        // Configure basic stream.
+        // t0sz=0 (full 64-bit range) so that the Gap-C VA-range check does NOT
+        // block tests that use 49-52 bit IOVAs to exercise address-size validation.
         StreamConfig config;
         config.translationEnabled = true;
         config.stage1Enabled = true;
         config.stage2Enabled = false;
+        config.t0sz = 0; // no VA-range restriction from CD.T0SZ
 
         smmu->configureStream(TEST_STREAM_ID, config);
         smmu->enableStream(TEST_STREAM_ID);

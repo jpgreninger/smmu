@@ -52,13 +52,16 @@ protected:
     static constexpr PA TEST_PA2 = 0x50000000;
     static constexpr PA NULL_PA = 0x0;
 
-    // Helper to setup basic stream
+    // Helper to setup basic stream.
+    // t0sz=0 (full 64-bit range) so that the Gap-C VA-range check does NOT
+    // block tests that use 48-bit+ IOVAs to exercise address-size fault paths.
     void setupBasicStream(StreamID streamID, PASID pasid, bool enableTranslation = true) {
         StreamConfig config;
         config.translationEnabled = enableTranslation;
         config.stage1Enabled = true;
         config.stage2Enabled = false;
         config.faultMode = FaultMode::Terminate;
+        config.t0sz = 0; // no VA-range restriction from CD.T0SZ
 
         ASSERT_TRUE(smmuController->configureStream(streamID, config).isOk());
         ASSERT_TRUE(smmuController->enableStream(streamID).isOk());

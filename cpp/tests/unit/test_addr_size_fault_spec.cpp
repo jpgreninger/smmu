@@ -57,11 +57,14 @@ protected:
     }
 
     // Configure a Stage-1 stream with a single PASID.
+    // t0sz=0 (full 64-bit range) so that the Gap-C VA-range check does NOT
+    // interfere with the per-context InputAddressSize tests below.
     void configureStream(StreamID sid, PASID pasid) {
         StreamConfig cfg;
         cfg.translationEnabled = true;
         cfg.stage1Enabled      = true;
         cfg.stage2Enabled      = false;
+        cfg.t0sz               = 0; // no VA-range restriction from CD.T0SZ
         ASSERT_TRUE(smmu->configureStream(sid, cfg).isOk());
         ASSERT_TRUE(smmu->enableStream(sid).isOk());
         ASSERT_TRUE(smmu->createStreamPASID(sid, pasid).isOk());
@@ -394,6 +397,8 @@ protected:
     }
 
     // Configure a stage-1 stream with a page at 'iova' -> 'pa'.
+    // t0sz=0 (full 64-bit range) so that Gap-C VA-range check does not
+    // interfere with 49-52 bit IOVA tests that rely on OAS checking only.
     void configureStreamWithPage(StreamID sid, IOVA iova, PA pa) {
         StreamConfig scfg;
         scfg.translationEnabled = true;
@@ -402,6 +407,7 @@ protected:
         scfg.faultMode          = FaultMode::Terminate;
         scfg.securityState      = SecurityState::NonSecure;
         scfg.bypassEnabled      = false;
+        scfg.t0sz               = 0; // no VA-range restriction from CD.T0SZ
         ASSERT_TRUE(smmu->configureStream(sid, scfg).isOk());
         ASSERT_TRUE(smmu->enableStream(sid).isOk());
         ASSERT_TRUE(smmu->createStreamPASID(sid, 0).isOk());
