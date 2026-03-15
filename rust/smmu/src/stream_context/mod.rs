@@ -235,6 +235,29 @@ pub struct StreamContext {
     /// (DashMap documents this constraint).  A separate atomic counter avoids the
     /// issue entirely while keeping the PASID-limit check effectively atomic.
     pasid_count: AtomicUsize,
+
+    // ---- NEW-3: STE.S2T0SZ Stage-2 IPA input range (§3.4/§5.2) ----
+
+    /// §5.2 STE.S2T0SZ: Stage-2 T0SZ — input IPA range (6 bits, 0-63).
+    ///
+    /// When > 0, any IPA at or above `2^(64-S2T0SZ)` generates F_TRANSLATION.
+    /// Default 16 (48-bit IPA range).
+    s2_t0sz: AtomicU8,
+
+    // ---- NEW-3/NEW-8: STE.S2PS Stage-2 output PA size (§3.4/§5.2/§7.3.14) ----
+
+    /// §5.2 STE.S2PS: Stage-2 output physical address size (3 bits).
+    ///
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit, 5=48-bit, 6=52-bit.
+    /// After stage-2 translation, the output PA must be within this range (F_ADDR_SIZE).
+    /// Default 5 (48-bit PA).
+    s2_ps: AtomicU8,
+
+    // ---- NEW-7: CD.EPD0 TTBR0 translation table walk disable (§5.4) ----
+
+    /// §5.4 CD.EPD0: when `true`, all TTBR0 (stage-1) translation table walks are
+    /// disabled and generate F_TRANSLATION.  Default `false`.
+    epd0: AtomicBool,
 }
 
 impl StreamContext {
@@ -291,6 +314,9 @@ impl StreamContext {
             stream_id: AtomicU32::new(0),
             pasid_count: AtomicUsize::new(0),
             mev: AtomicBool::new(false),
+            s2_t0sz: AtomicU8::new(16),
+            s2_ps: AtomicU8::new(5),
+            epd0: AtomicBool::new(false),
         }
     }
 
@@ -798,6 +824,13 @@ impl StreamContext {
 
         // CONF-GAP-14: MEV (Merged Event) flag
         self.mev.store(cfg.mev, Ordering::Release);
+
+        // NEW-3: S2T0SZ / S2PS Stage-2 translation parameters (§3.4/§5.2)
+        self.s2_t0sz.store(cfg.s2_t0sz, Ordering::Release);
+        self.s2_ps.store(cfg.s2_ps, Ordering::Release);
+
+        // NEW-7: CD.EPD0 — TTBR0 table walk disable (§5.4)
+        self.epd0.store(cfg.epd0, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -850,6 +883,56 @@ impl StreamContext {
     #[inline]
     pub fn set_stream_id(&self, id: u32) {
         self.stream_id.store(id, Ordering::Release);
+    }
+
+    // ---- NEW-3: S2T0SZ / S2PS accessors (§3.4/§5.2) ----
+
+    /// Returns the STE.S2T0SZ Stage-2 IPA input address range (NEW-3, ARM §5.2).
+    ///
+    /// When > 0, any IPA at or above `2^(64-S2T0SZ)` must generate F_TRANSLATION.
+    #[inline]
+    #[must_use]
+    pub fn get_s2_t0sz(&self) -> u8 {
+        self.s2_t0sz.load(Ordering::Acquire)
+    }
+
+    /// Sets the STE.S2T0SZ Stage-2 IPA input address range (ARM §5.2).
+    #[inline]
+    pub fn set_s2_t0sz(&self, value: u8) {
+        self.s2_t0sz.store(value, Ordering::Release);
+    }
+
+    /// Returns the STE.S2PS Stage-2 output PA size encoding (NEW-3/NEW-8, ARM §5.2).
+    ///
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit, 5=48-bit, 6=52-bit.
+    #[inline]
+    #[must_use]
+    pub fn get_s2_ps(&self) -> u8 {
+        self.s2_ps.load(Ordering::Acquire)
+    }
+
+    /// Sets the STE.S2PS Stage-2 output PA size encoding (ARM §5.2).
+    #[inline]
+    pub fn set_s2_ps(&self, value: u8) {
+        self.s2_ps.store(value, Ordering::Release);
+    }
+
+    // ---- NEW-7: EPD0 accessor (§5.4) ----
+
+    /// Returns the CD.EPD0 flag (NEW-7, ARM §5.4).
+    ///
+    /// When `true`, TTBR0 stage-1 translation table walks are disabled and
+    /// generate F_TRANSLATION.
+    #[inline]
+    #[must_use]
+    pub fn get_epd0(&self) -> bool {
+        self.epd0.load(Ordering::Acquire)
+    }
+
+    /// Sets the CD.EPD0 flag (ARM §5.4).
+    #[inline]
+    pub fn set_epd0(&self, value: bool) {
+        self.epd0.store(value, Ordering::Release);
     }
 
     /// Removes a PASID and its associated AddressSpace
@@ -1449,14 +1532,27 @@ impl StreamContext {
         let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
             1 => match access_type {
                 AccessType::Read => AccessType::Execute,
+                // NOTE: ReadWrite, ReadExecute, WriteExecute, ReadWriteExecute are
+                // intentionally left unchanged. ARM §5.2: "INSTCFG only affects reads;
+                // writes are always considered Data." A compound access type cannot have
+                // its read component independently forced to Execute without abandoning
+                // its write semantics.
                 _ => access_type,
             },
             2 => match access_type {
                 AccessType::Execute => AccessType::Read,
+                // NOTE: compound types left unchanged per same rationale above.
                 _ => access_type,
             },
             _ => access_type,
         };
+
+        // NEW-7 fix: §5.4 CD.EPD0=1 — TTBR0 translation table walk disabled → F_TRANSLATION.
+        // SW model uses a single address space per PASID (TTBR0-equivalent).
+        // EPD1 (TTBR1 upper half) is not modelled separately.
+        if stage1_enabled && self.epd0.load(Ordering::Acquire) {
+            return Err(TranslationError::PageNotMapped);
+        }
 
         match (stage1_enabled, stage2_enabled) {
             // Stage-1 only: IOVA → PA
@@ -1576,6 +1672,19 @@ impl StreamContext {
             Err(_) => return (Err(TranslationError::AddressSizeError), None),
         };
 
+        // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
+        // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.
+        // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
+        {
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            if s2_t0sz > 0 {
+                let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
+                if ipa_raw >= ipa_limit {
+                    return (Err(TranslationError::PageNotMapped), None);
+                }
+            }
+        }
+
         // Stage-2: IPA → PA.
         let stage2_result = {
             let stage2_guard = self.stage2_address_space.read().unwrap();
@@ -1591,6 +1700,19 @@ impl StreamContext {
             Ok(d) => d,
             Err(e) => return (Err(e), Some(ipa_raw)),
         };
+
+        // NEW-8 fix: §3.4/§7.3.14 — stage-2 output PA must be within S2PS range → F_ADDR_SIZE.
+        // Return the IPA in the error pair so the event record is properly populated.
+        {
+            let s2_ps = self.s2_ps.load(Ordering::Acquire);
+            let pa_bits = Self::s2ps_to_bits(s2_ps);
+            if pa_bits < 52 {
+                let pa_limit: u64 = 1u64 << pa_bits;
+                if s2_data.physical_address().as_u64() >= pa_limit {
+                    return (Err(TranslationError::AddressSizeError), Some(ipa_raw));
+                }
+            }
+        }
 
         // Permission intersection (same as translate_two_stage)
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
@@ -1608,7 +1730,8 @@ impl StreamContext {
             // Permission fault occurred AFTER stage-2 succeeded — IPA is the stage-2 input.
             return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
         }
-        if final_perms.privileged_only() && !self.strw_suppresses_priv() {
+        // NEW-4: §3.3.4/§13.5 — STE.PRIVCFG overrides STRW for privileged_only check.
+        if final_perms.privileged_only() && !self.effective_priv_suppresses_check() {
             return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
         }
 
@@ -1665,10 +1788,10 @@ impl StreamContext {
 
         let data = result.unwrap();
 
-        // §5.2 GAP-2: Check privileged_only against STRW suppression.
-        // If the page is privileged-only AND STRW does not suppress (not EL2/EL3),
-        // the access is denied with a PermissionFault.
-        if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
+        // §5.2 GAP-2 / NEW-4: Check privileged_only against STRW/PRIVCFG suppression.
+        // PRIVCFG=3 (Force Privileged) overrides STRW to always suppress.
+        // PRIVCFG=2 (Force Unprivileged) overrides STRW to never suppress.
+        if data.permissions().privileged_only() && !self.effective_priv_suppresses_check() {
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1684,6 +1807,19 @@ impl StreamContext {
         access_type: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
+        // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
+        // For stage-2-only streams, the incoming IOVA is the IPA.
+        // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
+        {
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            if s2_t0sz > 0 {
+                let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
+                if ipa.as_u64() >= ipa_limit {
+                    return Err(TranslationError::PageNotMapped);
+                }
+            }
+        }
+
         // Get Stage-2 AddressSpace (scope the read-lock tightly)
         let result = {
             let stage2_guard = self.stage2_address_space.read().unwrap();
@@ -1699,9 +1835,22 @@ impl StreamContext {
 
         let data = result.unwrap();
 
-        // §5.2 GAP-2: Check privileged_only against STRW suppression.
+        // NEW-8 fix: §3.4/§7.3.14 — stage-2 output PA must be within S2PS range → F_ADDR_SIZE.
+        // SMMU caller maps AddressSizeError → FaultType::AddressSizeFault and records event.
+        {
+            let s2_ps = self.s2_ps.load(Ordering::Acquire);
+            let pa_bits = Self::s2ps_to_bits(s2_ps);
+            if pa_bits < 52 {
+                let pa_limit: u64 = 1u64 << pa_bits;
+                if data.physical_address().as_u64() >= pa_limit {
+                    return Err(TranslationError::AddressSizeError);
+                }
+            }
+        }
+
+        // §5.2 GAP-2 / NEW-4: Check privileged_only against STRW/PRIVCFG suppression.
         // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
-        if data.permissions().privileged_only() && !self.strw_suppresses_priv() {
+        if data.permissions().privileged_only() && !self.effective_priv_suppresses_check() {
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1756,8 +1905,22 @@ impl StreamContext {
         };
 
         // IPA is the physical address from Stage-1
+        let ipa_raw = stage1_result.physical_address().as_u64();
         let ipa =
-            IOVA::new(stage1_result.physical_address().as_u64()).map_err(|_| TranslationError::AddressSizeError)?;
+            IOVA::new(ipa_raw).map_err(|_| TranslationError::AddressSizeError)?;
+
+        // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
+        // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.
+        // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
+        {
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            if s2_t0sz > 0 {
+                let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
+                if ipa_raw >= ipa_limit {
+                    return Err(TranslationError::PageNotMapped);
+                }
+            }
+        }
 
         // Stage-2: IPA → PA.
         // BUG-07: Scope the stage2_address_space read-lock tightly so it is
@@ -1792,6 +1955,19 @@ impl StreamContext {
         // derive the final access rights.  If the intersected permissions deny the requested
         // access type, record a PermissionFault and return PermissionViolation.
         let s2_data = stage2_result?;
+
+        // NEW-8 fix: §3.4/§7.3.14 — stage-2 output PA must be within S2PS range → F_ADDR_SIZE.
+        {
+            let s2_ps = self.s2_ps.load(Ordering::Acquire);
+            let pa_bits = Self::s2ps_to_bits(s2_ps);
+            if pa_bits < 52 {
+                let pa_limit: u64 = 1u64 << pa_bits;
+                if s2_data.physical_address().as_u64() >= pa_limit {
+                    return Err(TranslationError::AddressSizeError);
+                }
+            }
+        }
+
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
 
         let access_denied = match access_type {
@@ -1809,9 +1985,9 @@ impl StreamContext {
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
-        // §5.2 GAP-2: Check final effective permissions for privileged_only.
+        // §5.2 GAP-2 / NEW-4: Check final effective permissions for privileged_only.
         // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
-        if final_perms.privileged_only() && !self.strw_suppresses_priv() {
+        if final_perms.privileged_only() && !self.effective_priv_suppresses_check() {
             return Err(TranslationError::PermissionViolation { access: access_type });
         }
 
@@ -1847,6 +2023,45 @@ impl StreamContext {
     #[inline]
     pub(crate) fn strw_suppresses_priv(&self) -> bool {
         matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
+    }
+
+    /// Returns `true` if the effective privilege level suppresses the `privileged_only`
+    /// permission check, taking STE.PRIVCFG into account (NEW-4, ARM §3.3.4/§13.5).
+    ///
+    /// PRIVCFG=3 (Force Privileged) overrides STRW: treat the access as privileged
+    ///   regardless of STRW — suppress the `privileged_only` check.
+    /// PRIVCFG=2 (Force Unprivileged) overrides STRW: treat the access as unprivileged
+    ///   regardless of STRW — never suppress the `privileged_only` check.
+    /// PRIVCFG=0/1 (pass-through): fall back to STRW-based suppression.
+    ///
+    /// Made `pub(crate)` so the SMMU TLB fast path can apply the same logic.
+    #[inline]
+    pub(crate) fn effective_priv_suppresses_check(&self) -> bool {
+        match self.priv_cfg.load(Ordering::Acquire) {
+            3 => true,  // Force Privileged: suppress privileged_only check
+            2 => false, // Force Unprivileged: never suppress privileged_only check
+            _ => self.strw_suppresses_priv(),
+        }
+    }
+
+    // ---- NEW-8 helper: S2PS encoding → PA bit width ----
+
+    /// Converts a STE.S2PS 3-bit encoding to the number of output PA bits (NEW-8, ARM §5.2).
+    ///
+    /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit, 5=48-bit, 6=52-bit.
+    /// Reserved values default to 48 bits.
+    #[inline]
+    fn s2ps_to_bits(s2_ps: u8) -> u32 {
+        match s2_ps {
+            0 => 32,
+            1 => 36,
+            2 => 40,
+            3 => 42,
+            4 => 44,
+            5 => 48,
+            6 => 52,
+            _ => 48,
+        }
     }
 
     /// Applies STE output-attribute overrides from the stream configuration to

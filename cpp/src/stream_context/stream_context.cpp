@@ -1069,11 +1069,38 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         } else if (effectiveAccessType == AccessType::ReadPrivileged) {
             effectiveAccessType = AccessType::ExecutePrivileged;
         }
+        // NOTE: ReadWrite / ReadWritePrivileged are intentionally NOT converted by INSTCFG=1.
+        // ARM §5.2: "INSTCFG only affects reads; writes are always considered Data."
+        // A compound Read+Write access type cannot have its read component independently
+        // forced to Execute without abandoning its write semantics.  Leave as-is.
     } else if (currentConfiguration.instCfg == 2u) {
         if (effectiveAccessType == AccessType::Execute) {
             effectiveAccessType = AccessType::Read;
         } else if (effectiveAccessType == AccessType::ExecutePrivileged) {
             effectiveAccessType = AccessType::ReadPrivileged;
+        }
+    }
+
+    // NEW-4 fix: §3.3.4/§13.5 — STE.PRIVCFG override before permission checks.
+    // PRIVCFG transforms the effective access type so that permission checks use
+    // the overridden privilege level.
+    if (currentConfiguration.privCfg == 2u) {
+        // Force Unprivileged: strip Privileged suffix
+        switch (effectiveAccessType) {
+            case AccessType::ReadPrivileged:       effectiveAccessType = AccessType::Read;      break;
+            case AccessType::WritePrivileged:      effectiveAccessType = AccessType::Write;     break;
+            case AccessType::ExecutePrivileged:    effectiveAccessType = AccessType::Execute;   break;
+            case AccessType::ReadWritePrivileged:  effectiveAccessType = AccessType::ReadWrite; break;
+            default: break;
+        }
+    } else if (currentConfiguration.privCfg == 3u) {
+        // Force Privileged: add Privileged suffix
+        switch (effectiveAccessType) {
+            case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;       break;
+            case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;      break;
+            case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;    break;
+            case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged;  break;
+            default: break;
         }
     }
 

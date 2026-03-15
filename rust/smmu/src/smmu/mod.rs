@@ -3325,10 +3325,12 @@ impl SMMU {
             return;
         }
 
-        // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
-        // Stall events are exempt because the stalled transaction can never complete
-        // without an event — software needs the event to issue CMD_RESUME.
-        if !is_stall && (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+        // NEW-9 fix: §3.5.3 / §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be
+        // recorded — this gate applies to ALL events including stall events.
+        // ARM §3.5.3: the event queue is not writable when EVENTQEN=0; there is no
+        // exemption for stall events.  (The SW comment "stall events are exempt" was
+        // incorrect — the spec does not grant such an exemption.)
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
             return;
         }
 

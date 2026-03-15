@@ -281,6 +281,19 @@ pub struct StreamConfig {
     ///
     /// Default: `false` (all events recorded).
     pub mev: bool,
+
+    // ---- NEW-7: CD.EPD0 / CD.EPD1 (§5.4) ----
+
+    /// §5.4 CD.EPD0: disable TTBR0 translation table walk (§5.4); default `false`.
+    ///
+    /// When `true`, all stage-1 (TTBR0-equivalent) translation table walks are
+    /// disabled and generate F_TRANSLATION.
+    pub epd0: bool,
+
+    /// §5.4 CD.EPD1: disable TTBR1 translation table walk (§5.4); default `false`.
+    ///
+    /// Not separately modelled in the SW simulation (single address space per PASID).
+    pub epd1: bool,
 }
 
 impl StreamConfig {
@@ -335,6 +348,8 @@ impl StreamConfig {
             t0sz: 16,
             t1sz: 16,
             mev: false,
+            epd0: false,
+            epd1: false,
         }
     }
 
@@ -374,6 +389,8 @@ impl StreamConfig {
             t0sz: 16,
             t1sz: 16,
             mev: false,
+            epd0: false,
+            epd1: false,
         }
     }
 
@@ -413,6 +430,8 @@ impl StreamConfig {
             t0sz: 16,
             t1sz: 16,
             mev: false,
+            epd0: false,
+            epd1: false,
         }
     }
 
@@ -452,6 +471,8 @@ impl StreamConfig {
             t0sz: 16,
             t1sz: 16,
             mev: false,
+            epd0: false,
+            epd1: false,
         }
     }
 
@@ -630,6 +651,9 @@ pub struct StreamConfigBuilder {
     t1sz: u8,
     // CONF-GAP-14
     mev: bool,
+    // NEW-7
+    epd0: bool,
+    epd1: bool,
 }
 
 impl StreamConfigBuilder {
@@ -669,6 +693,8 @@ impl StreamConfigBuilder {
             t0sz: 16,
             t1sz: 16,
             mev: false,
+            epd0: false,
+            epd1: false,
         }
     }
 
@@ -908,6 +934,23 @@ impl StreamConfigBuilder {
         self
     }
 
+    /// Set CD.EPD0 — disable TTBR0 translation table walk (NEW-7, ARM §5.4).
+    ///
+    /// When `true`, all stage-1 (TTBR0-equivalent) translation table walks are
+    /// disabled and generate F_TRANSLATION.
+    #[must_use]
+    pub fn epd0(mut self, epd0: bool) -> Self {
+        self.epd0 = epd0;
+        self
+    }
+
+    /// Set CD.EPD1 — disable TTBR1 translation table walk (NEW-7, ARM §5.4).
+    #[must_use]
+    pub fn epd1(mut self, epd1: bool) -> Self {
+        self.epd1 = epd1;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -944,6 +987,8 @@ impl StreamConfigBuilder {
             t0sz: self.t0sz,
             t1sz: self.t1sz,
             mev: self.mev,
+            epd0: self.epd0,
+            epd1: self.epd1,
         };
 
         config.validate()?;

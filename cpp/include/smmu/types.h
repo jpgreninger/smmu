@@ -1159,6 +1159,10 @@ struct StreamConfig {
     // §5.4 CD.AA64 (CT-14): 1=AArch64 stage-1 tables, 0=AArch32 LPAE (unsupported)
     bool aa64;        ///< CD.AA64 — true=AArch64 (default); false=AArch32 LPAE
 
+    // §5.4 CD.EPD0/EPD1: disable TTBR0/TTBR1 translation table walk (NEW-7)
+    bool epd0;  ///< §5.4 CD.EPD0: disable TTBR0 translation table walk; default false
+    bool epd1;  ///< §5.4 CD.EPD1: disable TTBR1 translation table walk; default false
+
     // §5.2 Stage-2 STE translation parameters (CT-23)
     uint8_t  s2t0sz;  ///< 6-bit Stage-2 T0SZ; default 16
     uint8_t  s2tg;    ///< 2-bit Stage-2 granule (0=4KB, 1=64KB, 2=16KB); default 0
@@ -1191,6 +1195,7 @@ struct StreamConfig {
                     strw(StreamWorld::EL1_EL0),
                     nsCfg(0), shCfg(0), allocCfg(0), memAttr(0), instCfg(0), privCfg(0), mtCfg(false),
                     t0sz(16), t1sz(16), aa64(true),
+                    epd0(false), epd1(false),
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
                     securityState(SecurityState::NonSecure),
                     mev(false), s2s(false), eats(0) {

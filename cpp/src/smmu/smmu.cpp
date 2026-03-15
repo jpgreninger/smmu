@@ -23,6 +23,16 @@ struct Stage2FaultContext {
 thread_local Stage2FaultContext tl_stage2FaultCtx;
 } // anonymous namespace
 
+// NEW-8 helper: convert S2PS 3-bit encoding to output PA bit-width.
+// ARM IHI0070G.b §5.2: S2PS encoding 0=32b, 1=36b, 2=40b, 3=42b, 4=44b, 5=48b, 6=52b.
+// Used by performBothStagesTranslation and performStage2OnlyTranslation to check
+// that the stage-2 output PA lies within the allowed S2PS range (NEW-8 fix).
+static uint8_t oasBitsFromS2PS(uint8_t s2ps) {
+    static const uint8_t kS2PSToBits[] = {32u, 36u, 40u, 42u, 44u, 48u, 52u};
+    uint8_t idx = (s2ps <= 6u) ? s2ps : 5u;
+    return kS2PSToBits[idx];
+}
+
 // ARM §3.5.1: Circular queue index helpers (FINDING-M-01)
 
 // Compute LOG2SIZE: smallest k such that 2^k >= capacity (minimum 0).
@@ -1338,6 +1348,17 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
     }
 
+    // NEW-7 fix: §5.4 — CD.EPD0=1: TTBR0 translation walk disabled → F_TRANSLATION.
+    // SW model uses a single address space per PASID (no TTBR1), so EPD0 applies
+    // to all stage-1 translations; EPD1 is architecturally for the upper VA half
+    // (TTBR1) which this model does not implement separately.
+    if (config.stage1Enabled && config.epd0) {
+        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+        // Return InvalidConfiguration so handleTranslationFailure() treats this as
+        // a no-op (StreamDisabled path) and does not re-emit a duplicate event.
+        return makeTranslationError(SMMUError::InvalidConfiguration);
+    }
+
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
         result = performBothStagesTranslation(streamID, pasid, iova, accessType, securityState, streamContext, config, currentTime);
@@ -1359,6 +1380,18 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             recordFault(fault);
             generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidPASID);
+        }
+        // NEW-3 fix: §3.4 — S2T0SZ IPA input range check for stage-2-only streams.
+        // In stage-2-only mode the IOVA is treated directly as the IPA.  An IPA at or
+        // above 2^(64-S2T0SZ) exceeds the stage-2 input range → F_TRANSLATION.
+        if (config.s2t0sz > 0u) {
+            uint64_t ipaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.s2t0sz));
+            if (iova >= ipaLimit) {
+                generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+                // Return InvalidConfiguration so handleTranslationFailure() suppresses
+                // duplicate event emission (StreamDisabled no-op path).
+                return makeTranslationError(SMMUError::InvalidConfiguration);
+            }
         }
         // Stage-2 only: IPA -> PA (IOVA = IPA)
         result = performStage2OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
@@ -1560,6 +1593,20 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // Stage 1 success - IPA is now in stage1Result.physicalAddress
     IPA intermediatePA = stage1Result.getValue().physicalAddress;
 
+    // NEW-3 fix: §3.4 — S2T0SZ IPA input range check for two-stage streams.
+    // The IPA produced by stage-1 must lie within [0, 2^(64-S2T0SZ)).
+    // An IPA at or above the limit is a translation fault (F_TRANSLATION).
+    if (config.s2t0sz > 0u) {
+        uint64_t ipaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.s2t0sz));
+        if (intermediatePA >= ipaLimit) {
+            recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
+                                   accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
+    }
+
     // BUG-27 fix: removed spurious IPA==0 guard; IPA=0 is a valid intermediate
     // address — Stage-2 will look it up and fail normally if not mapped.
 
@@ -1673,6 +1720,22 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // output security state is architecturally incorrect: the stage-2 output is the
     // authoritative PA security state and is not required to equal the incoming NS
     // bit by §3.10.2.  The check has been removed.
+
+    // NEW-8 fix: §3.4/§7.3.14 — Stage-2 output PA must lie within the S2PS output range.
+    // If the PA returned by stage-2 translation exceeds 2^S2PsBits, emit F_ADDR_SIZE.
+    {
+        uint8_t s2psBits = oasBitsFromS2PS(config.s2ps);
+        if (s2psBits < 52u) {
+            uint64_t paLimit = UINT64_C(1) << static_cast<unsigned>(s2psBits);
+            PA outputPA = stage2Data.physicalAddress;
+            if (outputPA >= paLimit) {
+                recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
+                                       accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                return makeTranslationError(SMMUError::InvalidConfiguration);
+            }
+        }
+    }
 
     // Create successful final translation result.
     // CONF-GAP-7: tag the result with the IPA (stage-1 output) so it can be
@@ -1791,6 +1854,31 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
     }
 
     // BUG-27 fix: removed spurious physicalAddress==0 guard; PA=0 is valid per spec.
+
+    // NEW-8 fix: §3.4/§7.3.14 — Stage-2 output PA must lie within the S2PS output range.
+    // Applies to stage-2-only streams the same way as two-stage streams.
+    {
+        StreamConfig s2onlyCfg = streamContext->getStreamConfiguration();
+        uint8_t s2psBits = oasBitsFromS2PS(s2onlyCfg.s2ps);
+        if (s2psBits < 52u && result.isOk()) {
+            uint64_t paLimit = UINT64_C(1) << static_cast<unsigned>(s2psBits);
+            PA outputPA = result.getValue().physicalAddress;
+            if (outputPA >= paLimit) {
+                FaultRecord s2PaFault;
+                s2PaFault.streamID = streamID;
+                s2PaFault.pasid = pasid;
+                s2PaFault.address = iova;
+                s2PaFault.faultType = FaultType::AddressSizeFault;
+                s2PaFault.accessType = accessType;
+                s2PaFault.securityState = securityState;
+                s2PaFault.timestamp = currentTime;
+                recordFault(s2PaFault);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                return makeTranslationError(SMMUError::InvalidConfiguration);
+            }
+        }
+    }
+
     return result;
 }
 
@@ -3387,9 +3475,11 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                          SecurityState securityState, bool isStall, uint16_t stag,
                          AccessType accessType, bool isStage2, uint64_t ipaValue) {
     // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
-    // Exception: stall events must always be recorded (§3.5.3 stall semantics).
+    // NEW-9 fix: §3.5.3 — the EVENTQEN gate applies to ALL events including stall
+    // events.  The previous exception for isStall was incorrect; the event queue is
+    // not writable when disabled regardless of the event kind.
     // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
-    if (!isStall && (cr0_.load(std::memory_order_acquire) & CR0_EVENTQEN) == 0u) {
+    if ((cr0_.load(std::memory_order_acquire) & CR0_EVENTQEN) == 0u) {
         return;
     }
 
