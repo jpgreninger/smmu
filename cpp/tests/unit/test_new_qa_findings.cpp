@@ -59,15 +59,6 @@ void setupTwoStageStream(SMMU& smmu, StreamID sid = SID, PASID pasid = PID) {
     ASSERT_TRUE(smmu.createStreamPASID(sid, pasid).isOk());
 }
 
-// Return the first event from the queue, or a default-constructed entry.
-EventEntry firstEvent(SMMU& smmu) {
-    auto ev = smmu.getEventQueue();
-    if (ev.empty()) {
-        return EventEntry{};
-    }
-    return ev.front();
-}
-
 } // anonymous namespace
 
 // ═════════════════════════════════════════════════════════════════════════════

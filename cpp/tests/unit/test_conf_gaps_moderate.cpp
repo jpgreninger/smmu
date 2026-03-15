@@ -215,7 +215,7 @@ TEST(ConfGapModerate, Gap16_STRW_EL3_ForbiddenForNSStream) {
         // If configureStream() allowed it, a C_BAD_STE event should appear
         // on next translate (STE validation deferred to translation time)
         smmu.createStreamPASID(10, 0);
-        TranslationResult tr = smmu.translate(10, 0, 0x1000, AccessType::Read);
+        smmu.translate(10, 0, 0x1000, AccessType::Read);
         for (const auto& e : smmu.getEventQueue()) {
             if (e.type == EventType::C_BAD_STE && e.streamID == 10) {
                 eventGenerated = true;
@@ -244,7 +244,7 @@ TEST(ConfGapModerate, Gap16_S2TTB_ExceedsOAS_Rejected) {
     bool eventGenerated = false;
     if (!rejected) {
         // Deferred STE validation on translate
-        TranslationResult tr = smmu.translate(11, 0, 0x1000, AccessType::Read);
+        smmu.translate(11, 0, 0x1000, AccessType::Read);
         for (const auto& e : smmu.getEventQueue()) {
             if (e.type == EventType::C_BAD_STE && e.streamID == 11) {
                 eventGenerated = true;

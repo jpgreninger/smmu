@@ -517,7 +517,7 @@ TEST_F(SMMUPriority2CoverageTest, ProcessEventQueue_ConfigurationError) {
     smmuController->submitCommand(cmd);
 
     // Verify event queue has events before processing
-    size_t eventsBefore = smmuController->getEventQueueSize();
+    smmuController->getEventQueueSize();
 
     // Process event queue
     smmuController->processEventQueue();
@@ -1434,7 +1434,7 @@ TEST_F(SMMUPriority2CoverageTest, CacheTranslationResult_NullPhysicalAddress) {
     ASSERT_TRUE(smmuController->mapPage(STREAM1, PASID1, NULL_IOVA, NULL_PA, perms).isOk());
 
     // This should not crash or cache the null translation
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, NULL_IOVA, AccessType::Read);
+    smmuController->translate(STREAM1, PASID1, NULL_IOVA, AccessType::Read);
     // Result may succeed for IOVA=0 -> PA=0 mapping
 }
 

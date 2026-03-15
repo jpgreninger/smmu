@@ -38,47 +38,6 @@ static constexpr PASID    PID      = 0;
 static constexpr IOVA     BASE_IOVA = 0x1000;
 static constexpr PA       BASE_PA   = 0xA000;
 
-// Build and enable a stage-2-only stream.
-void setupStage2OnlyStream(SMMU& smmu, StreamID sid = SID, uint8_t s2t0sz = 16u, uint8_t s2ps = 5u) {
-    StreamConfig cfg;
-    cfg.translationEnabled = true;
-    cfg.stage1Enabled      = false;
-    cfg.stage2Enabled      = true;
-    cfg.s2t0sz             = s2t0sz;
-    cfg.s2ps               = s2ps;
-    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk())
-        << "configureStream must succeed for stage-2-only stream";
-    ASSERT_TRUE(smmu.enableStream(sid).isOk());
-    ASSERT_TRUE(smmu.createStreamPASID(sid, PID).isOk());
-}
-
-// Build and enable a two-stage stream.
-void setupTwoStageStream(SMMU& smmu, StreamID sid = SID, uint8_t s2t0sz = 16u, uint8_t s2ps = 5u,
-                         uint8_t t0sz = 0u) {
-    StreamConfig cfg;
-    cfg.translationEnabled = true;
-    cfg.stage1Enabled      = true;
-    cfg.stage2Enabled      = true;
-    cfg.t0sz               = t0sz;
-    cfg.s2t0sz             = s2t0sz;
-    cfg.s2ps               = s2ps;
-    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk())
-        << "configureStream must succeed for two-stage stream";
-    ASSERT_TRUE(smmu.enableStream(sid).isOk());
-    ASSERT_TRUE(smmu.createStreamPASID(sid, PID).isOk());
-}
-
-// Build and enable a stage-1-only stream.
-void setupStage1Stream(SMMU& smmu, StreamID sid = SID, PASID pasid = PID) {
-    StreamConfig cfg;
-    cfg.translationEnabled = true;
-    cfg.stage1Enabled      = true;
-    cfg.stage2Enabled      = false;
-    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
-    ASSERT_TRUE(smmu.enableStream(sid).isOk());
-    ASSERT_TRUE(smmu.createStreamPASID(sid, pasid).isOk());
-}
-
 } // anonymous namespace
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -160,7 +119,6 @@ TEST_F(New3S2T0SZTests, new3_s2t0sz_0_no_restriction) {
     ASSERT_TRUE(smmu_->setStreamStage2AddressSpace(TEST_SID, s2as).isOk());
 
     // A large IPA that would fail if s2t0sz=16 were applied, but s2t0sz=0 → no check.
-    static constexpr IPA LARGE_IPA = (UINT64_C(1) << 48u) | 0x2000u;
     // Map IPA -> PA in stage-2 (IPA within 48-bit S2PS limit).
     // The IPA is beyond 2^48, so we use a smaller IPA for the s2 map and a
     // different one for stage-1 output to keep both within bounds.

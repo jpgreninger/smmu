@@ -108,7 +108,7 @@ TEST_F(SMMUPhase4BCoverageTest, Translation_SecureSecurityState) {
     setupStreamWithMapping(STREAM1, PASID1, TEST_IOVA1, TEST_PA1);
 
     // Translate with Secure security state to exercise security state paths (lines 1672-1673)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Secure);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Secure);
 
     // Result may succeed or fail depending on security configuration
     // The important thing is exercising the security state check code path
@@ -119,7 +119,7 @@ TEST_F(SMMUPhase4BCoverageTest, Translation_RealmSecurityState) {
     setupStreamWithMapping(STREAM1, PASID1, TEST_IOVA1, TEST_PA1);
 
     // Translate with Realm security state to exercise security state paths (lines 1675-1676)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Realm);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Realm);
 
     // Result may succeed or fail depending on security configuration
 }
@@ -181,7 +181,7 @@ TEST_F(SMMUPhase4BCoverageTest, FaultSyndrome_AccessFlagFault) {
     setupStreamWithMapping(STREAM1, PASID1, TEST_IOVA1, TEST_PA1);
 
     // Perform execute access to potentially trigger access flag fault (line 1743-1744)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Execute);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Execute);
 }
 
 TEST_F(SMMUPhase4BCoverageTest, FaultSyndrome_ExternalAbort) {
@@ -232,7 +232,7 @@ TEST_F(SMMUPhase4BCoverageTest, FaultStage_BothStagesEnabled) {
     smmuController->mapPage(STREAM1, PASID_ZERO, TEST_IOVA1, TEST_PA1, perms);
 
     // Translate to exercise both stage fault determination (lines 1800-1812)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
 }
 
 TEST_F(SMMUPhase4BCoverageTest, FaultStage_Stage1Only) {
@@ -278,7 +278,7 @@ TEST_F(SMMUPhase4BCoverageTest, FaultStage_NoStagesEnabled) {
     smmuController->enableStream(STREAM1);
 
     // Translate - should be pass-through, may trigger unknown stage path (line 1819)
-    TranslationResult result = smmuController->translate(STREAM1, PASID_ZERO, TEST_IOVA1, AccessType::Read);
+    smmuController->translate(STREAM1, PASID_ZERO, TEST_IOVA1, AccessType::Read);
 }
 
 TEST_F(SMMUPhase4BCoverageTest, FaultStage_TranslationEnabledButNoStages_ConfigRejected) {
@@ -365,7 +365,7 @@ TEST_F(SMMUPhase4BCoverageTest, PrivilegeLevel_RealmSecurity) {
     setupStreamWithMapping(STREAM1, PASID1, TEST_IOVA1, TEST_PA1);
 
     // Translate with Realm security state to exercise EL2 privilege level path (line 1828)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Realm);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::Realm);
 }
 
 // ========== PRIORITY 8: ACCESS CLASSIFICATION (Lines 1847-1848) ==========
@@ -516,7 +516,7 @@ TEST_F(SMMUPhase4BCoverageTest, ErrorPath_InvalidStreamConfiguration) {
     config.translationEnabled = true;
 
     // This exercises various error return paths
-    VoidResult result = smmuController->configureStream(MAX_STREAM_ID + 1, config);
+    smmuController->configureStream(MAX_STREAM_ID + 1, config);
 }
 
 TEST_F(SMMUPhase4BCoverageTest, ErrorPath_EnableUnconfiguredStream) {
@@ -596,7 +596,7 @@ TEST_F(SMMUPhase4BCoverageTest, NullAddress_TranslationWithZeroIOVA) {
     smmuController->mapPage(STREAM1, PASID1, 0x0, TEST_PA1, perms);
 
     // Translate IOVA 0 - exercises null address handling paths (lines 1023-1038)
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, 0x0, AccessType::Read);
+    smmuController->translate(STREAM1, PASID1, 0x0, AccessType::Read);
 }
 
 // ========== PRIORITY 15: EVENT HANDLING PATHS (Lines 1251-1275, 1539) ==========
@@ -613,7 +613,7 @@ TEST_F(SMMUPhase4BCoverageTest, EventHandling_ProcessEventQueue) {
     smmuController->processEventQueue();
 
     // Check event queue
-    size_t queueSize = smmuController->getEventQueueSize();
+    smmuController->getEventQueueSize();
 }
 
 TEST_F(SMMUPhase4BCoverageTest, EventHandling_ClearEventQueue) {

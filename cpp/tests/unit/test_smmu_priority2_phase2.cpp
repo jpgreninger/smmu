@@ -859,7 +859,7 @@ TEST_F(SMMUPriority2Phase2Test, TwoStage_SecurityStateMismatch) {
     smmuController->invalidateTranslationCache();
 
     // Should detect security state mismatch
-    TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::NonSecure);
+    smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read, SecurityState::NonSecure);
     // May succeed or fail depending on implementation - test executes the path
 }
 

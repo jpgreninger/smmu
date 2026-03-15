@@ -96,7 +96,7 @@ TEST(Ct04Strtab, StreamIdInRangeNotRejected) {
     ASSERT_TRUE(smmu.configureStream(31, config).isOk());
     ASSERT_TRUE(smmu.enableStream(31).isOk());
 
-    auto result = smmu.translate(31, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);
+    smmu.translate(31, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);
     // Should not fail with C_BAD_STREAMID (may fail for other reasons)
     bool hasBadStreamId = false;
     for (const auto& ev : smmu.getEventQueue()) {
@@ -119,7 +119,7 @@ TEST(Ct04Strtab, DefaultLog2SizeAcceptsAllStreamIDs) {
     ASSERT_TRUE(smmu.configureStream(0xFFFFu, config).isOk());
     ASSERT_TRUE(smmu.enableStream(0xFFFFu).isOk());
 
-    auto result = smmu.translate(0xFFFFu, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);
+    smmu.translate(0xFFFFu, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);
     bool hasBadStreamId = false;
     for (const auto& ev : smmu.getEventQueue()) {
         if (ev.type == EventType::C_BAD_STREAMID) {

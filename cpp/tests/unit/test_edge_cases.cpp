@@ -1000,10 +1000,50 @@ TEST_F(CacheInvalidationTest, InvalidationDuringConcurrentAccess) {
 }
 
 // Test cache consistency after invalidation
+// Originally disabled due to a suspected segfault in the unmap/remap sequence.
+// Root-cause analysis (2026-03-15): the crash was caused by callers using the
+// deprecated TLBCache::lookup() raw-pointer overload while a concurrent insert()
+// could evict the entry mid-access (use-after-free).  That overload was replaced
+// by the safe lookupEntry() copy-based path (BUG-NEW-A fix) and unmapPage() was
+// updated to NOT auto-invalidate the TLB per ARM §4.4 (explicit TLBI required).
+// The sequence is now safe and the correct expected behavior is:
+//   map -> translate (populate cache) -> unmap (no auto-TLBI, stale hit)
+//   -> invalidatePASIDCache -> remap to new PA -> translate -> new PA returned.
 TEST_F(CacheInvalidationTest, CacheConsistencyAfterInvalidation) {
-    // Temporarily disable this test due to segmentation fault
-    // The issue is likely in the unmap/remap sequence or cache invalidation
-    GTEST_SKIP() << "Test disabled due to segmentation fault - requires further investigation of unmap/remap sequence";
+    setupBasicStream();
+    ASSERT_TRUE(smmuController->createStreamPASID(VALID_STREAM_ID, VALID_PASID).isOk());
+
+    const IOVA iova = 0x10000000;
+    const PA   pa1  = 0x40000000;
+    const PA   pa2  = 0x50000000;
+    PagePermissions perms(true, true, false);
+
+    // Step 1: map first PA and populate the TLB cache via a translation.
+    ASSERT_TRUE(smmuController->mapPage(VALID_STREAM_ID, VALID_PASID, iova, pa1, perms).isOk());
+    TranslationResult r1 = smmuController->translate(VALID_STREAM_ID, VALID_PASID, iova, AccessType::Read);
+    ASSERT_TRUE(r1.isOk());
+    EXPECT_EQ(r1.getValue().physicalAddress, pa1);
+
+    // Step 2: unmap the page.  Per ARM §4.4 the TLB is NOT auto-invalidated;
+    // a subsequent translation still hits the stale cache entry and returns pa1.
+    ASSERT_TRUE(smmuController->unmapPage(VALID_STREAM_ID, VALID_PASID, iova).isOk());
+    TranslationResult r2 = smmuController->translate(VALID_STREAM_ID, VALID_PASID, iova, AccessType::Read);
+    EXPECT_TRUE(r2.isOk()) << "Stale TLB entry should still serve the old PA after unmap without TLBI";
+    if (r2.isOk()) {
+        EXPECT_EQ(r2.getValue().physicalAddress, pa1) << "Stale TLB hit should return old pa1";
+    }
+
+    // Step 3: explicit TLB invalidation clears the stale entry.
+    // Without a remap, the next translation must fault (page not in table).
+    smmuController->invalidatePASIDCache(VALID_STREAM_ID, VALID_PASID);
+    TranslationResult r3 = smmuController->translate(VALID_STREAM_ID, VALID_PASID, iova, AccessType::Read);
+    EXPECT_TRUE(r3.isError()) << "After TLBI with no remap, translation should produce a fault";
+
+    // Step 4: remap to a new PA and translate — must observe the new mapping.
+    ASSERT_TRUE(smmuController->mapPage(VALID_STREAM_ID, VALID_PASID, iova, pa2, perms).isOk());
+    TranslationResult r4 = smmuController->translate(VALID_STREAM_ID, VALID_PASID, iova, AccessType::Read);
+    ASSERT_TRUE(r4.isOk()) << "After remap, translation should succeed";
+    EXPECT_EQ(r4.getValue().physicalAddress, pa2) << "After remap+invalidate, translation must return new PA";
 }
 
 // Test invalidation with security state considerations

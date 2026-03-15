@@ -48,7 +48,7 @@ protected:
 
     // Helper to configure a stream efficiently
     void configureStream(StreamID streamID, bool enableStage2 = false,
-                        SecurityState securityState = SecurityState::NonSecure) {
+                        SecurityState /*securityState*/ = SecurityState::NonSecure) {
         StreamConfig streamConfig;
         streamConfig.translationEnabled = true;
         streamConfig.stage1Enabled = true;

@@ -519,8 +519,6 @@ TEST_F(PASIDContextSwitchingTest, PASIDFaultHandlingDuringSwitching) {
 
 // Test 10: PASID Resource Limit Testing
 TEST_F(PASIDContextSwitchingTest, PASIDResourceLimits) {
-    // Get current configuration limits
-    const auto& config = smmu->getConfiguration();
     const size_t max_pasids = 1024;  // Default PASID limit
     
     std::vector<PASID> created_pasids;

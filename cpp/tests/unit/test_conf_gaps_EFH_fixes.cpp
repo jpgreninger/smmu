@@ -23,17 +23,6 @@ namespace {
 static constexpr StreamID SID   = 0x10;
 static constexpr PASID    PID   = 0;
 
-// Stage-1-only stream with a PASID-0 address space.
-void setupStage1Stream(SMMU& smmu, StreamID sid = SID, PASID pasid = PID) {
-    StreamConfig cfg;
-    cfg.translationEnabled = true;
-    cfg.stage1Enabled      = true;
-    cfg.stage2Enabled      = false;
-    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
-    ASSERT_TRUE(smmu.enableStream(sid).isOk());
-    ASSERT_TRUE(smmu.createStreamPASID(sid, pasid).isOk());
-}
-
 // Two-stage stream (stage-1 + stage-2).
 // The caller must still set up address spaces and call setStreamStage2AddressSpace.
 void setupTwoStageStream(SMMU& smmu, StreamID sid = SID, PASID pasid = PID,

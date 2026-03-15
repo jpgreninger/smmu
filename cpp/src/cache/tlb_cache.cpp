@@ -53,7 +53,7 @@ Result<TLBEntry> TLBCache::lookupEntry(StreamID streamID, PASID pasid, IOVA iova
 
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
     size_t stripeIndex = getLockStripeIndex(key);
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+    std::lock_guard<std::mutex> lock(lockStripes[stripeIndex]);
 
     CacheStripe& stripe = stripes[stripeIndex];
     auto it = stripe.map.find(key);
@@ -112,7 +112,7 @@ Result<CacheEntry> TLBCache::lookupCacheEntry(StreamID streamID, PASID pasid, IO
 TLBEntry* TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
     size_t stripeIndex = getLockStripeIndex(key);
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+    std::lock_guard<std::mutex> lock(lockStripes[stripeIndex]);
 
     CacheStripe& stripe = stripes[stripeIndex];
     auto it = stripe.map.find(key);
@@ -137,7 +137,7 @@ TLBEntry* TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, SecuritySt
 void TLBCache::insert(const TLBEntry& entry) {
     CacheKey key = makeKey(entry.streamID, entry.pasid, entry.iova, entry.securityState);
     size_t stripeIndex = getLockStripeIndex(key);
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+    std::lock_guard<std::mutex> lock(lockStripes[stripeIndex]);
 
     CacheStripe& stripe = stripes[stripeIndex];
 
@@ -228,7 +228,7 @@ void TLBCache::insert(StreamID streamID, PASID pasid, const CacheEntry& entry) {
 void TLBCache::remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
     CacheKey key = makeKey(streamID, pasid, iova, securityState);
     size_t stripeIndex = getLockStripeIndex(key);
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[stripeIndex]));
+    std::lock_guard<std::mutex> lock(lockStripes[stripeIndex]);
 
     CacheStripe& stripe = stripes[stripeIndex];
     auto it = stripe.map.find(key);
@@ -565,7 +565,7 @@ void TLBCache::invalidateStream(StreamID streamID) {
     // Per-stripe iteration: acquire only one stripe lock at a time
     // to allow concurrent operations on other stripes
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
-        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[i]));
+        std::lock_guard<std::mutex> lock(lockStripes[i]);
         CacheStripe& stripe = stripes[i];
 
         auto streamIt = stripe.streamIndex.find(streamID);
@@ -597,7 +597,7 @@ void TLBCache::invalidatePASID(StreamID streamID, PASID pasid) {
     StreamPASIDKey spKey{streamID, pasid};
 
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
-        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(lockStripes[i]));
+        std::lock_guard<std::mutex> lock(lockStripes[i]);
         CacheStripe& stripe = stripes[i];
 
         auto pasidIt = stripe.pasidIndex.find(spKey);
@@ -830,14 +830,14 @@ size_t TLBCache::getLockStripeIndex(const CacheKey& key) const {
 
 std::mutex& TLBCache::getLockStripe(const CacheKey& key) const {
     size_t index = getLockStripeIndex(key);
-    return const_cast<std::mutex&>(lockStripes[index]);
+    return lockStripes[index];
 }
 
 // RAII guard for acquiring all locks in order
 TLBCache::AllLocksGuard::AllLocksGuard(const TLBCache& cache) : cache_(cache) {
     // Acquire locks in strict order to prevent deadlock
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
-        const_cast<std::mutex&>(cache_.lockStripes[i]).lock();
+        cache_.lockStripes[i].lock();
     }
 }
 

@@ -1243,7 +1243,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
                 bypassOasFault.securityState = securityState;
                 bypassOasFault.timestamp = currentTime;
                 recordFault(bypassOasFault);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 return makeTranslationError(SMMUError::InvalidAddress);
             }
         }
@@ -1288,7 +1289,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
                 oasFault.securityState = securityState;
                 oasFault.timestamp = currentTime;
                 recordFault(oasFault);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 return makeTranslationError(SMMUError::InvalidAddress);
             }
             PagePermissions s1dssPerms(true, true, true);
@@ -1349,7 +1351,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
         uint64_t vaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.t0sz));
         if (effectiveIova >= vaLimit) {
-            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             // Return InvalidConfiguration so the outer handleTranslationFailure() switch
             // maps this to FaultType::StreamDisabled (a no-op) and does not re-emit
             // a second F_TRANSLATION event.  The event was already queued above.
@@ -1362,7 +1365,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     // to all stage-1 translations; EPD1 is architecturally for the upper VA half
     // (TTBR1) which this model does not implement separately.
     if (config.stage1Enabled && config.epd0) {
-        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                      false, 0, accessType);
         // Return InvalidConfiguration so handleTranslationFailure() treats this as
         // a no-op (StreamDisabled path) and does not re-emit a duplicate event.
         return makeTranslationError(SMMUError::InvalidConfiguration);
@@ -1405,7 +1409,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         if (config.s2t0sz > 0u) {
             uint64_t ipaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.s2t0sz));
             if (iova >= ipaLimit) {
-                generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 // Return InvalidConfiguration so handleTranslationFailure() suppresses
                 // duplicate event emission (StreamDisabled no-op path).
                 return makeTranslationError(SMMUError::InvalidConfiguration);
@@ -1563,7 +1568,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 // pattern used in performStage1OnlyTranslation (line 1526) and
                 // performStage2OnlyTranslation (line 1570).
                 faultType = FaultType::AddressSizeFault;
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
@@ -1591,7 +1597,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             if (intermediatePA >= ipaLimit) {
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
                                        accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 // Return InvalidConfiguration to suppress a duplicate event in
                 // handleTranslationFailure() (same pattern as S2PS OAS check).
                 return makeTranslationError(SMMUError::InvalidConfiguration);
@@ -1607,7 +1614,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         if (intermediatePA >= ipaLimit) {
             recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                    accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
-            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }
@@ -1737,7 +1745,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             if (outputPA >= paLimit) {
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
                                        accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
@@ -1879,7 +1888,8 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                 s2PaFault.securityState = securityState;
                 s2PaFault.timestamp = currentTime;
                 recordFault(s2PaFault);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState);
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
@@ -2036,13 +2046,15 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::Level3TranslationFault:
             // §7.3.13: Translation table format error and level-N translation faults
             // → F_TRANSLATION (0x10), not F_ACCESS (0x12).
-            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState);
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             break;
 
         case FaultType::AccessFlagFault:
             // §7.3.15: Access flag fault → F_ACCESS (0x12).  This is the ONLY
             // fault type in this group that correctly emits F_ACCESS.
-            generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState);
+            generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState,
+                          false, 0, accessType);
             break;
 
         case FaultType::DirtyBitFault:
@@ -3808,7 +3820,8 @@ void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, Access
     // BUG-CPP-07 fix: Security state mismatches at translation time generate
     // F_PERMISSION (event code 0x13, permission fault) per ARM §7.3.16, not
     // C_BAD_STE which is for malformed STE configuration entries.
-    generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, actualState);
+    generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, actualState,
+                  false, 0, accessType);
 }
 
 bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState contextState) const {
