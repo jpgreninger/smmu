@@ -405,6 +405,18 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     data.instCfg      = streamCfgForTlb.instCfg;
                     data.privCfg      = streamCfgForTlb.privCfg;
                     data.nsCfgOut     = streamCfgForTlb.nsCfg;
+                    // BUG-8 fix: ARM §13.4.1 — for EL2 (non-VHE) and EL3 StreamWorld,
+                    // AP[1] is ignored (treated as 1), so the output PRIV attribute must
+                    // reflect the effective privilege level of the transaction, not the
+                    // raw page-descriptor AP[1] bit stored in entry.permissions.
+                    // Clear privilegedOnly so that the caller observes the correct output.
+                    // EL2_E2H is explicitly excluded — VHE maintains EL1-like privilege
+                    // checks and must NOT have privilegedOnly cleared.
+                    if (!streamCfgForTlb.stage2Enabled &&
+                        (streamCfgForTlb.strw == StreamWorld::EL2 ||
+                         streamCfgForTlb.strw == StreamWorld::EL3)) {
+                        data.permissions.privilegedOnly = false;
+                    }
                     return TranslationResult(data);
                 }
                 // Permission failure: fall through to slow path for stall-mode handling.
@@ -500,22 +512,41 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             StallRecord record(0, streamID, pasid, iova, accessType, securityState, currentTime);
             {
                 std::lock_guard<std::mutex> slock(stallQueueMutex_);
-                // Skip STAG==0 (reserved), then attempt a single allocation.
-                // Burning up to 65535 counter values on queue-full wasted the
-                // 16-bit STAG counter space and accelerated wrap-around.
-                // A single attempt is sufficient: if the slot is occupied the
-                // stall queue is full and we fall back to terminate mode below.
-                stag = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
-                while (stag == 0) {
-                    stag = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
+                // BUG-5 fix: ARM §3.12.2 — the SMMU must not terminate a stalled
+                // transaction while free STAG slots remain.  The previous code
+                // checked only ONE candidate slot and immediately fell back to
+                // terminate mode on any collision.
+                //
+                // Corrected algorithm:
+                //   1. If ALL 65534 usable slots are occupied, fall back to
+                //      terminate immediately (no free slot exists).
+                //   2. Otherwise scan up to 65535 candidates: increment the
+                //      monotonic counter, skip STAG=0 (reserved per §3.12.2),
+                //      and return the first slot not present in stallQueue_.
+                //
+                // The entire scan runs under stallQueueMutex_ so that no
+                // concurrent thread can steal a slot between the "free?" check
+                // and the insert.
+                if (stallQueue_.size() >= 65534u) {
+                    // All usable slots occupied — terminate mode is the only option.
+                    stagValid = false;
                 }
-                // BUG-NEW2-03 fix: only write to stallQueue_ when a valid unique
-                // non-zero slot was found.  If the queue is exhausted, fall back
-                // to terminate-mode fault handling instead of corrupting the queue.
-                if (stag != 0 && stallQueue_.count(stag) == 0) {
-                    stagValid = true;
-                    record = StallRecord(stag, streamID, pasid, iova, accessType, securityState, currentTime);
-                    stallQueue_[stag] = record;
+                else {
+                    // At least one free slot exists; scan for it.
+                    for (uint32_t attempt = 0; attempt < 65535u; ++attempt) {
+                        uint16_t candidate = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
+                        if (candidate == 0u) {
+                            // Skip the reserved STAG=0 value.
+                            candidate = stagCounter_.fetch_add(1, std::memory_order_acq_rel);
+                        }
+                        if (stallQueue_.count(candidate) == 0) {
+                            stag = candidate;
+                            stagValid = true;
+                            record = StallRecord(stag, streamID, pasid, iova, accessType, securityState, currentTime);
+                            stallQueue_[stag] = record;
+                            break;
+                        }
+                    }
                 }
             }
             if (!stagValid) {
@@ -2280,16 +2311,6 @@ void SMMU::processCommandQueue() {
         return;
     }
 
-    // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is active.
-    // An error is active when GERROR[x] != GERRORN[x] (unacknowledged).
-    // Software must write GERRORN via clearGerror() to acknowledge before
-    // queue processing can resume.  BUG-03/SPEC-09.
-    // BUG-CPP-NEW-1 fix: use load(relaxed) — this function runs under queueMutex
-    // which provides the required memory ordering between writer and this reader.
-    if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
-        return;
-    }
-
     // ARM SMMU v3 spec: Process command queue with proper ordering.
     // BUG-03 fix: protect commandQueue with queueMutex.
     // BUG-CPP-C01 fix: Use unique_lock so we can temporarily release queueMutex
@@ -2300,13 +2321,40 @@ void SMMU::processCommandQueue() {
     // deadlock).  Releasing queueMutex before taking the stripe lock, then
     // re-acquiring queueMutex to continue the loop, preserves the invariant.
     std::unique_lock<std::recursive_mutex> lock(queueMutex);
+
+    // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is active.
+    // An error is active when GERROR[x] != GERRORN[x] (unacknowledged).
+    // Software must write GERRORN via clearGerror() to acknowledge before
+    // queue processing can resume.  BUG-03/SPEC-09.
+    // BUG-2 fix: this check MUST be inside queueMutex to close the TOCTOU
+    // window.  A concurrent signalGerror(GERROR_CMDQ_ERR) between the old
+    // pre-lock check and the lock acquisition would be missed, allowing
+    // commands to be consumed while the error is active.  Moving the check
+    // inside the lock makes it atomic with respect to command dequeue.
+    // The lock-ordering invariant (stripe locks must not be acquired while
+    // queueMutex is held) is preserved — this check does not acquire any
+    // stripe lock.
+    if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
+        return;
+    }
     while (!commandQueue.empty()) {
         // BUG-04 fix: copy command by value before pop_front() so that the
         // reference is not dangling when we inspect command.type afterwards.
         CommandEntry command = commandQueue.front();
         commandQueue.pop_front();
-        // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
-        cmdqCons.store(advanceQueueIndex(cmdqCons.load(std::memory_order_relaxed), cmdqLog2Size), std::memory_order_release);
+        // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01).
+        // BUG-1 fix: §6.3.28 — CMDQ_CONS.ERR bits [31:24] must persist until
+        // software clears them.  A plain store(advanceQueueIndex()) zeros the
+        // upper 12 bits on every dequeue.  Use a read-modify-write so that
+        // only the RD field (bits [19:0]) is updated; bits [31:20] are
+        // preserved verbatim.  advanceQueueIndex() operates on the RD portion
+        // only (result is in range [0, 2^(log2size+1)-1], at most 20 bits).
+        {
+            uint32_t oldCons = cmdqCons.load(std::memory_order_relaxed);
+            uint32_t newRD   = advanceQueueIndex(oldCons & 0xFFFFFu, cmdqLog2Size);
+            cmdqCons.store((oldCons & ~static_cast<uint32_t>(0xFFFFFu)) | newRD,
+                           std::memory_order_release);
+        }
 
         // Process the command based on type
         processCommand(command, lock);

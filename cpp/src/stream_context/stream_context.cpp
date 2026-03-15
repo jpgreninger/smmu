@@ -1267,9 +1267,22 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
 
     // Only Stage-1 enabled: return the Stage-1 result directly.
     if (stage1Enabled && stage1Result.isOk()) {
-        return makeSuccess(applyOutputAttrs(TranslationData(intermediatePA,
-                                                            stage1Result.getValue().permissions,
-                                                            stage1Result.getValue().securityState)));
+        TranslationData s1data(intermediatePA,
+                               stage1Result.getValue().permissions,
+                               stage1Result.getValue().securityState);
+        // BUG-8 fix: ARM §13.4.1 — for EL2 (non-VHE) and EL3 StreamWorld, AP[1]
+        // is ignored (treated as 1).  The output PRIV attribute must reflect the
+        // effective access privilege, not the raw page-descriptor AP[1] bit.
+        // Clear privilegedOnly on the output TranslationData for these worlds.
+        // EL2_E2H (VHE) is excluded — it maintains EL1-like privilege checks.
+        // The guard !stage2Enabled matches the STRW promotion guard above (STRW
+        // is ignored when stage-2 is active for Non-secure streams per §5.2).
+        if (!stage2Enabled &&
+            (currentConfiguration.strw == StreamWorld::EL2 ||
+             currentConfiguration.strw == StreamWorld::EL3)) {
+            s1data.permissions.privilegedOnly = false;
+        }
+        return makeSuccess(applyOutputAttrs(s1data));
     }
 
     // BUG-08 fix: Bypass / identity-mapping mode (neither stage enabled).

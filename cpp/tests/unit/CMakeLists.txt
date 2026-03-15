@@ -107,6 +107,7 @@ set(UNIT_TEST_SOURCES
     test_bug1_broadcast_tlbi_scope.cpp
     test_bug4_dead_code_lookup.cpp
     test_event_access_type_fix.cpp
+    test_bug_fixes_mar2026.cpp
     ../test_thread_safety.cpp
 )
 

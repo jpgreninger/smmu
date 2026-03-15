@@ -335,33 +335,20 @@ pub struct SMMU {
     /// when get_events() is called).
     stall_pending: Mutex<VecDeque<EventEntry>>,
 
-    /// Global error register (SMMU_GERROR, ARM §6.3.19).
+    /// Combined GERROR + GERRORN register pair (ARM §6.3.19, §6.3.20).
     ///
-    /// Bit-field of global error conditions:
-    ///   Bit 0:  CMDQ_ERR       — Command queue processing error (key)
-    ///   Bit 2:  EVENTQ_ABT_ERR — Event queue memory system abort
-    ///   Bit 3:  PRIQ_ABT_ERR   — PRI queue memory system abort
-    ///   Bit 4:  MSI_CMDQ_ABT_ERR  — MSI write abort for command queue
-    ///   Bit 5:  MSI_EVENTQ_ABT_ERR — MSI write abort for event queue
-    ///   Bit 6:  MSI_PRIQ_ABT_ERR  — MSI write abort for PRI queue
-    ///   Bit 7:  MSI_GERROR_ABT_ERR — MSI write abort for GERROR
-    ///   Bit 8:  SFM_ERR        — Service Fault Mapping error
-    ///   Bit 9:  CMDQP_ERR      — Command queue paused error
+    /// BUG-6 fix: both registers are packed into a single `AtomicU64` so that
+    /// `signal_gerror` and `clear_gerror` can update both fields atomically with
+    /// a single `compare_exchange`, eliminating the TOCTOU window that existed
+    /// when the two `AtomicU32` fields were updated independently.
     ///
-    /// The SMMU toggles GERROR[x] ONLY when the error is currently INACTIVE
-    /// (GERROR[x] == GERRORN[x]).  An error is active when GERROR[x] != GERRORN[x].
-    /// Software acknowledges by writing GERRORN[x] to match GERROR[x].
-    /// Resets to 0 (ARM §6.3.19).
-    gerror: AtomicU32,
-
-    /// Global error notify register (SMMU_GERRORN, ARM §6.3.20).
+    /// Layout:
+    ///   bits [31: 0] — SMMU_GERROR  (hardware-toggled, read-only for software)
+    ///   bits [63:32] — SMMU_GERRORN (software-written to acknowledge errors)
     ///
-    /// Software-writable companion to GERROR.  An error bit is ACTIVE when
-    /// the corresponding bits differ (GERROR[x] XOR GERRORN[x] == 1).
-    /// Software acknowledges an error by toggling GERRORN[x] to match GERROR[x].
-    /// `clear_gerror(bits)` toggles the specified bits in this register.
-    /// Resets to 0 (ARM §6.3.20).
-    gerrorn: AtomicU32,
+    /// An error bit x is ACTIVE when GERROR[x] != GERRORN[x].
+    /// Both registers reset to 0 (ARM §6.3.19, §6.3.20).
+    gerror_combined: AtomicU64,
 
     /// SMMU_CR0 register (§6.3.9).
     ///
@@ -755,9 +742,9 @@ impl SMMU {
             stag_counter: AtomicU16::new(1),
             stall_pending: Mutex::new(VecDeque::new()),
             resolved_stags: Mutex::new(std::collections::HashMap::new()),
-            gerror: AtomicU32::new(0),
-            // GERRORN reset: ARM §6.3.20 — resets to 0.
-            gerrorn: AtomicU32::new(0),
+            // BUG-6 fix: GERROR (bits [31:0]) and GERRORN (bits [63:32]) packed
+            // into a single AtomicU64.  Both reset to 0 (ARM §6.3.19, §6.3.20).
+            gerror_combined: AtomicU64::new(0),
             // CR0 reset: ARM IHI0070G.b §6.3.9 — ALL bits reset to 0.
             // SMMUEN, CMDQEN, EVENTQEN, and PRIQEN are all 0 after reset.
             // Software must explicitly set the required bits via set_cr0() or
@@ -1281,7 +1268,8 @@ impl SMMU {
     /// ```
     #[must_use]
     pub fn get_gerror(&self) -> u32 {
-        self.gerror.load(Ordering::Acquire)
+        // BUG-6 fix: extract GERROR from bits [31:0] of the combined field.
+        (self.gerror_combined.load(Ordering::Acquire) & 0xFFFF_FFFF) as u32
     }
 
     /// Read SMMU_GERRORN — global error notify register (ARM §6.3.20).
@@ -1301,7 +1289,8 @@ impl SMMU {
     /// ```
     #[must_use]
     pub fn get_gerrorn(&self) -> u32 {
-        self.gerrorn.load(Ordering::Acquire)
+        // BUG-6 fix: extract GERRORN from bits [63:32] of the combined field.
+        (self.gerror_combined.load(Ordering::Acquire) >> 32) as u32
     }
 
     /// Signal a GERROR error condition (ARM §6.3.19 XOR-toggle protocol).
@@ -1314,57 +1303,36 @@ impl SMMU {
     /// This replaces the old `fetch_or` pattern which violated the spec by
     /// setting bits unconditionally instead of using XOR-toggle semantics.
     fn signal_gerror(&self, bits: u32) {
-        // BUG-RUST-DBGR-7 fix: use a CAS loop to atomically check-and-toggle.
-        // The spec (§6.3.19 §7.5) says "The SMMU does not toggle bit[x] if the
-        // error is already active".  An error is ACTIVE when GERROR[x] != GERRORN[x].
-        // A plain load-then-fetch_xor has a TOCTOU window: another thread could
-        // activate the bit between our load and our fetch_xor, causing us to
-        // incorrectly toggle an already-active bit.  A CAS loop closes this window.
+        // BUG-6 fix: operate on gerror_combined (single AtomicU64) so that both
+        // GERROR and GERRORN are read and written in a single CAS.  This closes
+        // the TOCTOU window that existed when the two separate AtomicU32 fields
+        // were loaded independently — a concurrent clear_gerror() could change
+        // GERRORN between our load of GERROR and our load of GERRORN, causing us
+        // to compute a stale `active` mask and potentially toggle an already-active
+        // bit (double-toggle) or miss toggling an inactive bit.
+        //
+        // Layout: bits[31:0] = GERROR, bits[63:32] = GERRORN.
         loop {
-            let current_gerror  = self.gerror.load(Ordering::Acquire);
-            let current_gerrorn = self.gerrorn.load(Ordering::Acquire);
-            // BUG-NEW-RUST-3 fix: full seqlock — re-read BOTH gerrorn and gerror
-            // to detect concurrent modification of either register between the two
-            // initial loads.
-            //
-            // BUG-RUST-E fix (preserved): re-read gerrorn after gerror to detect
-            // concurrent clear_gerror() between the two loads.  If gerrorn changed,
-            // our snapshot is inconsistent — retry.
-            let reread_gerrorn = self.gerrorn.load(Ordering::Acquire);
-            if reread_gerrorn != current_gerrorn {
-                // BUG-R2-RUST-7 fix: yield CPU hint to reduce memory-bus contention
-                // under adversarial concurrent load and avoid a busy-spin livelock.
-                std::hint::spin_loop();
-                continue; // gerrorn changed — clear_gerror ran concurrently, retry
-            }
-            // Also re-read gerror to detect concurrent signal_gerror() modifying
-            // gerror between our initial load and the gerrorn read.  If gerror
-            // changed, our snapshot is stale — retry.
-            let reread_gerror = self.gerror.load(Ordering::Acquire);
-            if reread_gerror != current_gerror {
-                // BUG-R2-RUST-7 fix: yield CPU hint at each retry point.
-                std::hint::spin_loop();
-                continue; // gerror changed — concurrent signal_gerror(), retry
-            }
-            // Consistent snapshot — compute inactive bits.
-            // Bits that are currently ACTIVE (GERROR[x] != GERRORN[x]): skip.
-            // Bits that are currently INACTIVE (GERROR[x] == GERRORN[x]): toggle.
-            let active   = current_gerror ^ current_gerrorn;
-            let inactive = bits & !active;
+            let combined = self.gerror_combined.load(Ordering::Acquire);
+            let gerror  = (combined & 0xFFFF_FFFF) as u32;
+            let gerrorn = (combined >> 32) as u32;
+            // An error bit x is ACTIVE when gerror[x] != gerrorn[x].
+            let active   = gerror ^ gerrorn;
+            let inactive = bits & !active; // bits that are currently inactive
             if inactive == 0 {
                 break; // all requested bits are already active — nothing to do
             }
-            let new_gerror = current_gerror ^ inactive;
-            if self.gerror.compare_exchange_weak(
-                current_gerror,
-                new_gerror,
+            let new_gerror  = gerror ^ inactive;
+            let new_combined = u64::from(new_gerror) | (u64::from(gerrorn) << 32);
+            if self.gerror_combined.compare_exchange_weak(
+                combined,
+                new_combined,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ).is_ok() {
-                break; // success — CAS applied
+                break; // success — CAS applied atomically to both fields
             }
-            // CAS failed: GERROR changed concurrently — retry loop.
-            // BUG-R2-RUST-7 fix: yield CPU hint to reduce contention on retry.
+            // CAS failed: combined changed concurrently — retry.
             std::hint::spin_loop();
         }
     }
@@ -1451,32 +1419,30 @@ impl SMMU {
     /// );
     /// ```
     pub fn clear_gerror(&self, bits: u32) {
-        // BUG-03 fix: toggle GERRORN to acknowledge the error (ARM §6.3.20).
-        // The old implementation (fetch_and(!bits)) directly cleared GERROR,
-        // which is a read-only hardware register.  Per the spec, software must
-        // write GERRORN; the SMMU uses XOR-toggle semantics: toggling GERRORN[x]
-        // to match GERROR[x] makes the error inactive (equal → inactive).
-        // ARM §6.3.20: "Software must not toggle fields in this register that
-        // correspond to errors that are inactive."  Mask to active bits only.
+        // BUG-6 fix: operate on gerror_combined (single AtomicU64) so that both
+        // GERROR and GERRORN are read and written atomically with a single CAS.
+        // The previous implementation loaded gerror and gerrorn separately, then
+        // CAS'd only gerrorn — a concurrent signal_gerror() could change gerror
+        // between the two loads, causing the `active_bits` mask to be stale, and
+        // the CAS to acknowledge bits that are not actually active (or miss bits
+        // that became active).
         //
-        // BUG-R-04 fix: use a CAS loop to close the TOCTOU race between the
-        // Acquire load of gerrorn and the subsequent fetch_xor.  A concurrent
-        // clear_gerror call could toggle the same bits between the load and the
-        // store, re-activating an already-acknowledged error.  The CAS loop
-        // retries until our snapshot of gerrorn is still current at store time,
-        // matching the pattern used by signal_gerror().
+        // ARM §6.3.20: software acknowledges by toggling GERRORN[x] to match
+        // GERROR[x]; only toggle bits that are currently active.
         loop {
-            let gerror = self.gerror.load(Ordering::Acquire);
-            let gerrorn = self.gerrorn.load(Ordering::Acquire);
+            let combined = self.gerror_combined.load(Ordering::Acquire);
+            let gerror  = (combined & 0xFFFF_FFFF) as u32;
+            let gerrorn = (combined >> 32) as u32;
             let active_bits = gerror ^ gerrorn;
             let new_gerrorn = gerrorn ^ (bits & active_bits);
-            if self
-                .gerrorn
-                .compare_exchange(gerrorn, new_gerrorn, Ordering::AcqRel, Ordering::Acquire)
+            let new_combined = u64::from(gerror) | (u64::from(new_gerrorn) << 32);
+            if self.gerror_combined
+                .compare_exchange(combined, new_combined, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 break;
             }
+            std::hint::spin_loop();
         }
     }
 
@@ -1754,15 +1720,30 @@ impl SMMU {
 
         let stream_value = stream_id.as_u32();
 
+        // BUG-4 fix: invalidate TLB entries BEFORE removing from the stream map.
+        // A concurrent translate() on the TLB fast-path could get a cache hit
+        // (entry still present), then find streams.get() returns None (stream
+        // already removed), and still return Ok with the stale translation.
+        // By invalidating first, any concurrent translate() either:
+        //   - finds the TLB already clear (cache miss → slow path → stream still
+        //     present and the translation proceeds legitimately), or
+        //   - finds the stream gone after the remove (legitimate in-flight error).
+        // Only check stream existence without removing yet, to guard against
+        // invalidating TLB for a non-existent stream.
+        if !self.streams.contains_key(&stream_value) {
+            return Err(SMMUError::stream_not_found(stream_id));
+        }
+
+        // Step 1: invalidate TLB entries for this stream while it is still in the map.
+        self.tlb_cache.invalidate_by_stream(stream_id);
+
+        // Step 2: remove the stream from the map — after TLB is already clear.
         self.streams
             .remove(&stream_value)
             .ok_or_else(|| SMMUError::stream_not_found(stream_id))?;
 
-        // BUG-6 fix: decrement atomic counter to match the removed stream slot.
+        // Decrement atomic counter to match the removed stream slot.
         self.stream_count.fetch_sub(1, Ordering::Release);
-
-        // Invalidate all TLB cache entries for this stream
-        self.tlb_cache.invalidate_by_stream(stream_id);
 
         Ok(())
     }
@@ -3747,22 +3728,15 @@ impl SMMU {
         // GERRORN to match GERROR (via clear_gerror) before restarting queue processing.
         // BUG-03 fix: use XOR-active test instead of raw GERROR bit test.
         //
-        // BUG-NEW-RUST-2 fix: replace the SeqCst fence with a double-load seqlock.
-        // A SeqCst fence between the two loads PREVENTS REORDERING but does NOT
-        // prevent a concurrent signal_gerror() write from landing between the two
-        // loads — the fence is an ordering guarantee, not a mutual-exclusion barrier.
-        // The correct fix mirrors the seqlock pattern used in signal_gerror(): re-read
-        // gerror after gerrorn and retry if it changed.  This ensures both loads
-        // see a coherent snapshot of the gerror/gerrorn pair.
-        let gerror_active = loop {
-            let err_reg  = self.gerror.load(Ordering::Acquire);
-            let err_ack  = self.gerrorn.load(Ordering::Acquire);
-            let reread   = self.gerror.load(Ordering::Acquire);
-            if reread != err_reg {
-                std::hint::spin_loop();
-                continue; // gerror changed between the two reads — retry
-            }
-            break err_reg ^ err_ack;
+        // BUG-6 fix: read gerror_combined atomically (single 64-bit load) so that
+        // both GERROR and GERRORN are always read from a coherent snapshot.  The
+        // previous seqlock with two separate loads still had a window where a
+        // concurrent update could land between the two reads even with the re-read.
+        let gerror_active = {
+            let combined = self.gerror_combined.load(Ordering::Acquire);
+            let err_reg = (combined & 0xFFFF_FFFF) as u32;
+            let err_ack = (combined >> 32) as u32;
+            err_reg ^ err_ack
         };
         if gerror_active & Self::GERROR_CMDQ_ERR != 0 {
             return Ok(0);
