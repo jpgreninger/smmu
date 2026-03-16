@@ -439,22 +439,23 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // These checks are performed after the stripe lock is released so that
     // generateEvent() can safely acquire queueMutex without creating a deadlock.
 
-    // Check 1 — F_TRANSL_FORBIDDEN (§7.3.8): ATS Translation Request on a stream
-    // that does not support ATS (eats==0) or on a bypass/disabled stream.
+    // Check 1 — F_BAD_ATS_TREQ (§7.3.6, event 0x05): ATS Translation Request on a
+    // stream that does not support ATS (eats==0) or on a bypass/disabled stream.
     if (transactionType == TransactionType::AtsTranslationRequest) {
         bool atsSupported = (streamCfgSnapshot.eats != 0)
                             && streamCfgSnapshot.translationEnabled
                             && !streamCfgSnapshot.bypassEnabled;
         if (!atsSupported) {
-            generateEvent(EventType::F_TRANSL_FORBIDDEN, streamID, pasid, iova,
+            generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
                           securityState, false, 0, accessType, false, 0);
             return makeTranslationError(SMMUError::PageNotMapped);
         }
     }
 
-    // Check 2 — F_BAD_ATS_TREQ (§7.3.6): ATS Translated transaction with ATSCHK=1.
-    // The SMMU re-translates the address as Ordinary to verify the presented
-    // translation is correct.  If re-translation fails, F_BAD_ATS_TREQ is emitted.
+    // Check 2 — F_TRANSL_FORBIDDEN (§7.3.8, event 0x07): ATS Translated transaction
+    // with ATSCHK=1. The SMMU re-translates the address as Ordinary to verify the
+    // presented translation is correct.  If re-translation fails, F_TRANSL_FORBIDDEN
+    // is emitted.
     if (transactionType == TransactionType::AtsTranslated
         && (cr0_.load(std::memory_order_acquire) & CR0_ATSCHK) != 0u) {
         // Re-translate as Ordinary to validate the pre-translated address.
@@ -462,7 +463,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             streamID, pasid, iova, accessType, securityState,
             streamContext, currentTime);
         if (recheck.isError()) {
-            generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
+            generateEvent(EventType::F_TRANSL_FORBIDDEN, streamID, pasid, iova,
                           securityState, false, 0, accessType, false, 0);
             return makeTranslationError(SMMUError::PageNotMapped);
         }

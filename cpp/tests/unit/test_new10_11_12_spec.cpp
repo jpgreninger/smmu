@@ -259,8 +259,8 @@ protected:
     std::unique_ptr<SMMU> smmu_;
 };
 
-// Test 7: TR type with eats=0 → F_TRANSL_FORBIDDEN
-TEST_F(New12Ats, TrType_EatsZero_TranslForbidden) {
+// Test 7: TR type with eats=0 → F_BAD_ATS_TREQ (§7.3.6)
+TEST_F(New12Ats, TrType_EatsZero_BadAtsTreq) {
     setupS1Stream(*smmu_, SID, PID, /*eats=*/0);
     setupPage(*smmu_);
     smmu_->clearEventQueue();
@@ -273,12 +273,12 @@ TEST_F(New12Ats, TrType_EatsZero_TranslForbidden) {
     EXPECT_FALSE(result.isOk()) << "TR on eats=0 stream must fail";
 
     auto events = smmu_->getEventQueue();
-    ASSERT_FALSE(events.empty()) << "Expected F_TRANSL_FORBIDDEN event";
-    EXPECT_EQ(events[0].type, EventType::F_TRANSL_FORBIDDEN);
+    ASSERT_FALSE(events.empty()) << "Expected F_BAD_ATS_TREQ event";
+    EXPECT_EQ(events[0].type, EventType::F_BAD_ATS_TREQ);
 }
 
-// Test 8: TR type on bypass stream → F_TRANSL_FORBIDDEN
-TEST_F(New12Ats, TrType_BypassStream_TranslForbidden) {
+// Test 8: TR type on bypass stream → F_BAD_ATS_TREQ (§7.3.6)
+TEST_F(New12Ats, TrType_BypassStream_BadAtsTreq) {
     setupBypassStream(*smmu_);
     smmu_->clearEventQueue();
 
@@ -290,8 +290,8 @@ TEST_F(New12Ats, TrType_BypassStream_TranslForbidden) {
     EXPECT_FALSE(result.isOk()) << "TR on bypass stream must fail";
 
     auto events = smmu_->getEventQueue();
-    ASSERT_FALSE(events.empty()) << "Expected F_TRANSL_FORBIDDEN event";
-    EXPECT_EQ(events[0].type, EventType::F_TRANSL_FORBIDDEN);
+    ASSERT_FALSE(events.empty()) << "Expected F_BAD_ATS_TREQ event";
+    EXPECT_EQ(events[0].type, EventType::F_BAD_ATS_TREQ);
 }
 
 // Test 9: TR type with eats != 0 and translation-enabled stream → success
@@ -342,8 +342,8 @@ TEST_F(New12Ats, TtType_AtschkOn_MappedPage_Succeeds) {
     EXPECT_TRUE(smmu_->getEventQueue().empty()) << "No error event expected on success";
 }
 
-// Test 12: TT type with ATSCHK=1 and unmapped address → F_BAD_ATS_TREQ
-TEST_F(New12Ats, TtType_AtschkOn_UnmappedPage_BadAtsTreq) {
+// Test 12: TT type with ATSCHK=1 and unmapped address → F_TRANSL_FORBIDDEN (§7.3.8)
+TEST_F(New12Ats, TtType_AtschkOn_UnmappedPage_TranslForbidden) {
     setupS1Stream(*smmu_);
     // Do NOT map any page at 0x9000
     smmu_->setCR0(smmu_->getCR0() | SMMU::CR0_ATSCHK);
@@ -357,8 +357,8 @@ TEST_F(New12Ats, TtType_AtschkOn_UnmappedPage_BadAtsTreq) {
     EXPECT_FALSE(result.isOk()) << "TT with ATSCHK=1 on unmapped page must fail";
 
     auto events = smmu_->getEventQueue();
-    ASSERT_FALSE(events.empty()) << "Expected F_BAD_ATS_TREQ event";
-    EXPECT_EQ(events[0].type, EventType::F_BAD_ATS_TREQ);
+    ASSERT_FALSE(events.empty()) << "Expected F_TRANSL_FORBIDDEN event";
+    EXPECT_EQ(events[0].type, EventType::F_TRANSL_FORBIDDEN);
 }
 
 // Test 13: Ordinary type (default) — behavior unchanged

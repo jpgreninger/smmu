@@ -215,9 +215,9 @@ fn make_smmu_s1_with_ats() -> SMMU {
 }
 
 /// NEW-12: ATS Translation Request (TR) on a stream with `eats=0` must generate
-/// `F_TRANSL_FORBIDDEN` and return an error.
+/// `F_BAD_ATS_TREQ` (§7.3.6 event 0x05) and return an error.
 #[test]
-fn test_new12_tr_eats_zero_transl_forbidden() {
+fn test_new12_tr_eats_zero_bad_ats_treq() {
     let smmu = make_smmu_s1_no_ats();
     let sid = StreamID::new(1).unwrap();
     let pasid = PASID::new(0).unwrap();
@@ -234,20 +234,20 @@ fn test_new12_tr_eats_zero_transl_forbidden() {
     assert!(result.is_err(), "TR on eats=0 stream must fail");
 
     let events = smmu.get_events();
-    let transl_forbidden_count =
-        events.iter().filter(|e| e.event_type == EventType::FTranslForbidden).count();
+    let bad_ats_treq_count =
+        events.iter().filter(|e| e.event_type == EventType::FBadAtsTreq).count();
     assert_eq!(
-        transl_forbidden_count,
+        bad_ats_treq_count,
         1,
-        "Exactly one F_TRANSL_FORBIDDEN event must be emitted; event types: {:?}",
+        "Exactly one F_BAD_ATS_TREQ event must be emitted; event types: {:?}",
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }
 
 /// NEW-12: ATS Translation Request (TR) on a bypass stream must also generate
-/// `F_TRANSL_FORBIDDEN` (bypass streams do not support ATS).
+/// `F_BAD_ATS_TREQ` (§7.3.6 event 0x05) — bypass streams do not support ATS.
 #[test]
-fn test_new12_tr_bypass_stream_transl_forbidden() {
+fn test_new12_tr_bypass_stream_bad_ats_treq() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     let sid = StreamID::new(2).unwrap();
@@ -268,8 +268,8 @@ fn test_new12_tr_bypass_stream_transl_forbidden() {
     assert!(result.is_err(), "TR on bypass stream must fail");
 
     let events = smmu.get_events();
-    let found = events.iter().any(|e| e.event_type == EventType::FTranslForbidden);
-    assert!(found, "F_TRANSL_FORBIDDEN must be emitted for TR on bypass stream");
+    let found = events.iter().any(|e| e.event_type == EventType::FBadAtsTreq);
+    assert!(found, "F_BAD_ATS_TREQ must be emitted for TR on bypass stream");
 }
 
 /// NEW-12: ATS Translation Request (TR) on a stream with eats!=0 and translation
@@ -314,10 +314,12 @@ fn test_new12_tt_atschk_off_no_recheck() {
     // Without ATSCHK, the TT request uses the ordinary translation path;
     // the mapped page means the translation succeeds with no extra event.
     assert!(result.is_ok(), "TT with ATSCHK=0 on mapped page must succeed");
-    // No F_BAD_ATS_TREQ event must be emitted.
+    // No ATS error events must be emitted (ATSCHK=0, no re-check).
     let events = smmu.get_events();
     let bad_treq = events.iter().any(|e| e.event_type == EventType::FBadAtsTreq);
+    let transl_forbidden = events.iter().any(|e| e.event_type == EventType::FTranslForbidden);
     assert!(!bad_treq, "F_BAD_ATS_TREQ must NOT be emitted when ATSCHK=0");
+    assert!(!transl_forbidden, "F_TRANSL_FORBIDDEN must NOT be emitted when ATSCHK=0");
 }
 
 /// NEW-12: ATS Translated transaction (TT) with ATSCHK=1 and a mapped IOVA
@@ -344,14 +346,14 @@ fn test_new12_tt_atschk_on_mapped_succeeds() {
     assert!(result.is_ok(), "TT with ATSCHK=1 and valid mapping must succeed; got {result:?}");
 
     let events = smmu.get_events();
-    let bad_treq = events.iter().any(|e| e.event_type == EventType::FBadAtsTreq);
-    assert!(!bad_treq, "F_BAD_ATS_TREQ must NOT be emitted for a valid TT");
+    let transl_forbidden = events.iter().any(|e| e.event_type == EventType::FTranslForbidden);
+    assert!(!transl_forbidden, "F_TRANSL_FORBIDDEN must NOT be emitted for a valid TT");
 }
 
 /// NEW-12: ATS Translated transaction (TT) with `ATSCHK=1` and an UNMAPPED IOVA
-/// must generate `F_BAD_ATS_TREQ` and return an error.
+/// must generate `F_TRANSL_FORBIDDEN` (§7.3.8 event 0x07) and return an error.
 #[test]
-fn test_new12_tt_atschk_on_unmapped_bad_ats_treq() {
+fn test_new12_tt_atschk_on_unmapped_transl_forbidden() {
     let smmu = make_smmu_s1_with_ats();
     // Set ATSCHK=1.
     smmu.set_cr0(
@@ -372,12 +374,12 @@ fn test_new12_tt_atschk_on_unmapped_bad_ats_treq() {
     assert!(result.is_err(), "TT with ATSCHK=1 and unmapped IOVA must fail");
 
     let events = smmu.get_events();
-    let bad_treq_count =
-        events.iter().filter(|e| e.event_type == EventType::FBadAtsTreq).count();
+    let transl_forbidden_count =
+        events.iter().filter(|e| e.event_type == EventType::FTranslForbidden).count();
     assert_eq!(
-        bad_treq_count,
+        transl_forbidden_count,
         1,
-        "Exactly one F_BAD_ATS_TREQ event must be emitted; event types: {:?}",
+        "Exactly one F_TRANSL_FORBIDDEN event must be emitted; event types: {:?}",
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }

@@ -2548,8 +2548,8 @@ impl SMMU {
     ) -> TranslationResult {
         // ── NEW-12 §3.9: ATS Translation Request check ────────────────────────
         // An ATS TR is only allowed on streams where EATS != 0 AND translation
-        // is active (not bypass/abort).  Any other stream generates F_TRANSL_FORBIDDEN
-        // (event 0x07, §7.3.8).
+        // is active (not bypass/abort).  Any other stream generates F_BAD_ATS_TREQ
+        // (event 0x05, §7.3.6).
         if transaction_type == TransactionType::AtsTranslationRequest {
             let ats_supported = self.streams.get(&stream_id.as_u32()).map_or(false, |r| {
                 let cfg = r.value().get_eats();
@@ -2561,7 +2561,7 @@ impl SMMU {
                 if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     let event = EventEntry {
-                        event_type: EventType::FTranslForbidden,
+                        event_type: EventType::FBadAtsTreq,
                         stream_id: stream_id.as_u32(),
                         pasid: pasid.as_u32(),
                         address: iova.as_u64(),
@@ -2593,7 +2593,7 @@ impl SMMU {
         // ── NEW-12 §3.9: ATS Translated transaction check ─────────────────────
         // When CR0.ATSCHK=1 the SMMU re-validates the pre-translated address by
         // performing an Ordinary translation.  If that check fails, emit
-        // F_BAD_ATS_TREQ (event 0x05, §7.3.6) and abort.
+        // F_TRANSL_FORBIDDEN (event 0x07, §7.3.8) and abort.
         if transaction_type == TransactionType::AtsTranslated
             && (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0
         {
@@ -2604,7 +2604,7 @@ impl SMMU {
             let recheck = self.translate(stream_id, pasid, iova, access, security_state);
             if recheck.is_err() {
                 // Remove any events that the inner translate() appended (e.g.
-                // F_TRANSLATION for unmapped address) — only F_BAD_ATS_TREQ
+                // F_TRANSLATION for unmapped address) — only F_TRANSL_FORBIDDEN
                 // must be visible to the caller.
                 if let Ok(mut queue) = self.event_queue.write() {
                     let added = queue.len().saturating_sub(snapshot_len);
@@ -2617,7 +2617,7 @@ impl SMMU {
                 if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     let event = EventEntry {
-                        event_type: EventType::FBadAtsTreq,
+                        event_type: EventType::FTranslForbidden,
                         stream_id: stream_id.as_u32(),
                         pasid: pasid.as_u32(),
                         address: iova.as_u64(),
