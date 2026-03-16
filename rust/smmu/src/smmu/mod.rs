@@ -2597,8 +2597,23 @@ impl SMMU {
         if transaction_type == TransactionType::AtsTranslated
             && (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0
         {
+            // Snapshot the event queue length before the internal re-check so
+            // we can undo any F_TRANSLATION event the inner translate() emits.
+            let snapshot_len = self.event_queue.read().map(|q| q.len()).unwrap_or(0);
+
             let recheck = self.translate(stream_id, pasid, iova, access, security_state);
             if recheck.is_err() {
+                // Remove any events that the inner translate() appended (e.g.
+                // F_TRANSLATION for unmapped address) — only F_BAD_ATS_TREQ
+                // must be visible to the caller.
+                if let Ok(mut queue) = self.event_queue.write() {
+                    let added = queue.len().saturating_sub(snapshot_len);
+                    self.event_count.fetch_sub(added as u64, Ordering::Relaxed);
+                    for _ in 0..added {
+                        queue.pop_back();
+                    }
+                }
+
                 if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     let event = EventEntry {
@@ -3939,7 +3954,7 @@ impl SMMU {
         stream_id: StreamID,
         pasid: PASID,
         iova: IOVA,
-        _access: AccessType,
+        access: AccessType,
         security_state: SecurityState,
     ) -> Result<(), SMMUError> {
         self.check_shutdown()?;
@@ -3954,7 +3969,10 @@ impl SMMU {
             address: iova.as_u64(),
             security_state,
             timestamp,
-            event_class: 2, // eventClass=2 (0b10=IN) per NEW-1 encoding
+            event_class: 2, // eventClass=2 (0b10=IN) per §7.3 NEW-1 encoding
+            rnw: matches!(access, AccessType::Write),
+            ind: matches!(access, AccessType::Execute),
+            ssv: pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         if let Ok(mut queue) = self.event_queue.write() {

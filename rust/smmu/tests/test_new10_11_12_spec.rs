@@ -299,8 +299,8 @@ fn test_new12_tt_atschk_off_no_recheck() {
     let smmu = make_smmu_s1_with_ats();
     let sid = StreamID::new(1).unwrap();
     let pasid = PASID::new(0).unwrap();
-    // Use an IOVA that is NOT mapped — but ATSCHK=0 so no recheck, must pass.
-    let iova = IOVA::new(0x9000).unwrap();
+    // Use the mapped IOVA — ATSCHK=0 so no extra F_BAD_ATS_TREQ re-check step.
+    let iova = IOVA::new(0x1000).unwrap();
 
     // ATSCHK is bit 4 of CR0 — we keep it 0 (default).
     let result = smmu.translate_with_type(
@@ -311,12 +311,9 @@ fn test_new12_tt_atschk_off_no_recheck() {
         SecurityState::NonSecure,
         TransactionType::AtsTranslated,
     );
-    // Without ATSCHK, a TT request is passed through without validation
-    // (acts as Ordinary).
-    assert!(
-        result.is_ok() || result.is_err(),
-        "TT with ATSCHK=0 must not panic"
-    );
+    // Without ATSCHK, the TT request uses the ordinary translation path;
+    // the mapped page means the translation succeeds with no extra event.
+    assert!(result.is_ok(), "TT with ATSCHK=0 on mapped page must succeed");
     // No F_BAD_ATS_TREQ event must be emitted.
     let events = smmu.get_events();
     let bad_treq = events.iter().any(|e| e.event_type == EventType::FBadAtsTreq);

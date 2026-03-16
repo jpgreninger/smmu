@@ -3736,6 +3736,10 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             case EventType::F_ADDR_SIZE:
             case EventType::F_PERMISSION:
             case EventType::F_ACCESS:
+            case EventType::F_UUT:
+            case EventType::F_TRANSL_FORBIDDEN:
+            case EventType::F_BAD_ATS_TREQ:
+                // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault on the input address.
                 pendingEvent.eventClass = 2u;
                 break;
             default:
@@ -3850,7 +3854,10 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         case EventType::F_ADDR_SIZE:
         case EventType::F_PERMISSION:
         case EventType::F_ACCESS:
-            // §7.3: CLASS=0b10 (IN) — fault is on the input address itself.
+        case EventType::F_UUT:
+        case EventType::F_TRANSL_FORBIDDEN:
+        case EventType::F_BAD_ATS_TREQ:
+            // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault is on the input address itself.
             event.eventClass = 2u;
             break;
         default:
