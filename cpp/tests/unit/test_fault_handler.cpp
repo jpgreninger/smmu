@@ -295,8 +295,9 @@ TEST_F(FaultHandlerTest, RecentFaultsRetrieval) {
     uint64_t timeWindow = 500;  // 500 time units back
     std::vector<FaultRecord> recentFaults = faultHandler->getRecentFaults(currentTime, timeWindow);
     
-    // Should get faults from timestamps: 1000, 900, 800, 700, 600
-    EXPECT_EQ(recentFaults.size(), 5);
+    // BUG-14 fix: getRecentFaults() uses a closed interval [earliestTime, currentTime].
+    // earliestTime = 1000 - 500 = 500, so timestamps 1000, 900, 800, 700, 600, 500 are all included.
+    EXPECT_EQ(recentFaults.size(), 6);
     
     // Verify all recent faults are within the time window
     for (const auto& fault : recentFaults) {

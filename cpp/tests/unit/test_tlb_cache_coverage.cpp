@@ -387,29 +387,30 @@ TEST_F(TLBCacheCoverageTest, AlternativeLookup_ReturnValueSemantics) {
 }
 
 TEST_F(TLBCacheCoverageTest, AlternativeLookup_CompareWithStandardLookup) {
-    // Compare alternative lookup with standard lookup behavior
-    // Note: The alternative lookup doesn't take SecurityState parameter
+    // Compare lookupEntry() (Result-based) with the bool/CacheEntry overload.
+    // (BUG-9 fix: raw TLBEntry* lookup() deleted; use lookupEntry() as the reference.)
     PagePermissions perms(true, true, false);
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     entry.timestamp = 555555;
     tlbCache->insert(entry);
 
-    // Standard lookup (pointer-based) - uses default NonSecure
-    TLBEntry* tlbEntry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    ASSERT_NE(tlbEntry, nullptr);
+    // Result-based lookup — safe copy returned while lock is held
+    Result<TLBEntry> tlbResult = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    ASSERT_TRUE(tlbResult.isOk());
+    const TLBEntry& tlbEntry = tlbResult.getValue();
 
-    // Alternative lookup (reference-based) - no SecurityState parameter
+    // Bool/output-ref lookup (CacheEntry overload) — also safe
     CacheEntry cacheEntry;
     bool found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, cacheEntry);
     ASSERT_TRUE(found);
 
     // Verify both methods return equivalent data
-    EXPECT_EQ(cacheEntry.iova, tlbEntry->iova);
-    EXPECT_EQ(cacheEntry.physicalAddress, tlbEntry->physicalAddress);
-    EXPECT_EQ(cacheEntry.permissions.read, tlbEntry->permissions.read);
-    EXPECT_EQ(cacheEntry.permissions.write, tlbEntry->permissions.write);
-    EXPECT_EQ(cacheEntry.permissions.execute, tlbEntry->permissions.execute);
-    EXPECT_EQ(cacheEntry.timestamp, tlbEntry->timestamp);
+    EXPECT_EQ(cacheEntry.iova, tlbEntry.iova);
+    EXPECT_EQ(cacheEntry.physicalAddress, tlbEntry.physicalAddress);
+    EXPECT_EQ(cacheEntry.permissions.read, tlbEntry.permissions.read);
+    EXPECT_EQ(cacheEntry.permissions.write, tlbEntry.permissions.write);
+    EXPECT_EQ(cacheEntry.permissions.execute, tlbEntry.permissions.execute);
+    EXPECT_EQ(cacheEntry.timestamp, tlbEntry.timestamp);
 }
 
 TEST_F(TLBCacheCoverageTest, AlternativeLookup_OutputParameter) {
@@ -462,12 +463,12 @@ TEST_F(TLBCacheCoverageTest, AlternativeLookup_MultipleSequentialLookups) {
 // ============================================================================
 
 TEST_F(TLBCacheCoverageTest, CacheMiss_EntryNotInCache) {
-    // Test miss counter increments when entry not in cache
+    // Test miss counter increments when entry not in cache — use safe lookupEntry() (BUG-9 fix)
     uint64_t initialMissCount = tlbCache->getMissCount();
 
-    TLBEntry* entry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    Result<TLBEntry> result = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
 
-    EXPECT_EQ(entry, nullptr);
+    EXPECT_TRUE(result.isError());
     EXPECT_EQ(tlbCache->getMissCount(), initialMissCount + 1);
 }
 
@@ -510,11 +511,11 @@ TEST_F(TLBCacheCoverageTest, CacheMiss_CacheWarming) {
 
     uint64_t missCountBefore = tlbCache->getMissCount();
 
-    // Generate 10 misses
+    // Generate 10 misses — use safe lookupEntry() (BUG-9 fix)
     for (int i = 0; i < 10; ++i) {
-        TLBEntry* entry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID,
-                                          TEST_IOVA_1 + (i * PAGE_SIZE));
-        EXPECT_EQ(entry, nullptr);
+        Result<TLBEntry> result = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID,
+                                                       TEST_IOVA_1 + (i * PAGE_SIZE));
+        EXPECT_TRUE(result.isError());
     }
 
     EXPECT_EQ(tlbCache->getMissCount(), missCountBefore + 10);
@@ -529,11 +530,11 @@ TEST_F(TLBCacheCoverageTest, CacheMiss_CacheWarming) {
 
     uint64_t hitCountBefore = tlbCache->getHitCount();
 
-    // Subsequent lookups should hit
+    // Subsequent lookups should hit — use safe lookupEntry() (BUG-9 fix)
     for (int i = 0; i < 10; ++i) {
-        TLBEntry* entry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID,
-                                          TEST_IOVA_1 + (i * PAGE_SIZE));
-        EXPECT_NE(entry, nullptr);
+        Result<TLBEntry> result = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID,
+                                                       TEST_IOVA_1 + (i * PAGE_SIZE));
+        EXPECT_TRUE(result.isOk());
     }
 
     EXPECT_EQ(tlbCache->getHitCount(), hitCountBefore + 10);
@@ -545,12 +546,12 @@ TEST_F(TLBCacheCoverageTest, CacheMiss_StatisticsAccuracy) {
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     tlbCache->insert(entry);
 
-    // Generate mix of hits and misses
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, 0x30000000);   // Miss
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+    // Generate mix of hits and misses — use safe lookupEntry() (BUG-9 fix)
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x30000000);   // Miss
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
 
     EXPECT_EQ(tlbCache->getHitCount(), 3);
     EXPECT_EQ(tlbCache->getMissCount(), 2);
@@ -586,9 +587,9 @@ TEST_F(TLBCacheCoverageTest, InvalidateBySecurityState_Coverage) {
     // Only non-secure entry should remain
     EXPECT_EQ(tlbCache->getSize(), 1);
 
-    TLBEntry* remaining = tlbCache->lookup(TEST_STREAM_ID + 1, TEST_PASID, TEST_IOVA_1,
-                                          SecurityState::NonSecure);
-    EXPECT_NE(remaining, nullptr);
+    // Use safe lookupEntry() (BUG-9 fix)
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID + 1, TEST_PASID, TEST_IOVA_1,
+                                     SecurityState::NonSecure).isOk());
 }
 
 TEST_F(TLBCacheCoverageTest, ConcurrentLookups_EntryConversion) {
@@ -628,9 +629,9 @@ TEST_F(TLBCacheCoverageTest, AtomicStatistics_Coverage) {
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     tlbCache->insert(entry);
 
-    // Generate some activity
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
+    // Generate some activity — use safe lookupEntry() (BUG-9 fix)
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
 
     // Get atomic statistics
     TLBCache::CacheStatistics stats = tlbCache->getAtomicStatistics();
@@ -677,11 +678,11 @@ TEST_F(TLBCacheCoverageTest, InsertCacheEntry_Coverage) {
 
     EXPECT_EQ(tlbCache->getSize(), 1);
 
-    // Verify entry can be retrieved
-    TLBEntry* entry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    ASSERT_NE(entry, nullptr);
-    EXPECT_EQ(entry->iova, TEST_IOVA_1);
-    EXPECT_EQ(entry->physicalAddress, TEST_PA_1);
+    // Verify entry can be retrieved — use safe lookupEntry() (BUG-9 fix)
+    Result<TLBEntry> entry = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    ASSERT_TRUE(entry.isOk());
+    EXPECT_EQ(entry.getValue().iova, TEST_IOVA_1);
+    EXPECT_EQ(entry.getValue().physicalAddress, TEST_PA_1);
 }
 
 TEST_F(TLBCacheCoverageTest, RemoveEntry_Coverage) {
@@ -697,9 +698,8 @@ TEST_F(TLBCacheCoverageTest, RemoveEntry_Coverage) {
 
     EXPECT_EQ(tlbCache->getSize(), 0);
 
-    // Verify entry no longer exists
-    TLBEntry* found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    EXPECT_EQ(found, nullptr);
+    // Verify entry no longer exists — use safe lookupEntry() (BUG-9 fix)
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1).isError());
 }
 
 TEST_F(TLBCacheCoverageTest, InvalidatePage_Alias) {

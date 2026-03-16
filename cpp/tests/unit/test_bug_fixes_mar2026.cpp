@@ -500,3 +500,98 @@ TEST(Bug8PrivilegedOnlyEl1El0, FastPathKeepsPrivilegedOnly) {
     EXPECT_TRUE(data.permissions.privilegedOnly)
         << "BUG-8 control: EL1_EL0 must NOT clear privilegedOnly (privilege checks maintained)";
 }
+
+// ============================================================================
+// BUG-14: getRecentFaults() must use a closed lower bound [earliestTime, currentTime]
+// ============================================================================
+//
+// ARM SMMU fault management requires that any fault whose timestamp equals the
+// exact window start boundary (earliestTime = currentTime - timeWindow) is
+// included in the result.  The original implementation used strict '>' which
+// excluded the boundary point.
+//
+// TDD: this test is written BEFORE the fix so it FAILS in the red state.
+// The fix changes '>' to '>=' on the lower-bound comparison in
+// fault_handler.cpp::getRecentFaults().
+
+#include "smmu/fault_handler.h"
+
+// BUG-14: a fault whose timestamp equals earliestTime must be included.
+TEST(Bug14GetRecentFaultsBoundary, FaultAtExactBoundaryIsIncluded) {
+    FaultHandler handler;
+
+    // Choose a current time and window so that earliestTime = currentTime - timeWindow.
+    const uint64_t currentTime  = 1000u;
+    const uint64_t timeWindow   = 500u;
+    const uint64_t earliestTime = currentTime - timeWindow;  // 500
+
+    // Inject a fault record whose timestamp is exactly at the boundary.
+    FaultRecord boundaryFault;
+    boundaryFault.streamID   = 0x1u;
+    boundaryFault.pasid      = 0u;
+    boundaryFault.address    = 0x1000u;
+    boundaryFault.faultType  = FaultType::TranslationFault;
+    boundaryFault.accessType = AccessType::Read;
+    boundaryFault.timestamp  = earliestTime;   // exactly at the boundary
+
+    handler.recordFault(boundaryFault);
+
+    // Also inject a fault well inside the window and one clearly outside.
+    FaultRecord insideFault  = boundaryFault;
+    insideFault.address      = 0x2000u;
+    insideFault.timestamp    = currentTime - 100u;   // 900 — clearly inside
+
+    FaultRecord outsideFault = boundaryFault;
+    outsideFault.address     = 0x3000u;
+    outsideFault.timestamp   = earliestTime - 1u;    // 499 — clearly outside
+
+    handler.recordFault(insideFault);
+    handler.recordFault(outsideFault);
+
+    auto recent = handler.getRecentFaults(currentTime, timeWindow);
+
+    // The inside fault must always be present.
+    bool foundInside   = false;
+    bool foundBoundary = false;
+    bool foundOutside  = false;
+    for (const auto& f : recent) {
+        if (f.address == 0x2000u) { foundInside   = true; }
+        if (f.address == 0x1000u) { foundBoundary = true; }
+        if (f.address == 0x3000u) { foundOutside  = true; }
+    }
+
+    EXPECT_TRUE(foundInside)
+        << "BUG-14: fault inside the window must always be returned";
+    EXPECT_TRUE(foundBoundary)
+        << "BUG-14: fault at exact boundary (timestamp == earliestTime) must be included "
+           "— closed interval [earliestTime, currentTime] is required";
+    EXPECT_FALSE(foundOutside)
+        << "BUG-14: fault before the window must not be returned";
+}
+
+// BUG-14: a fault at currentTime itself (upper boundary) must be included.
+TEST(Bug14GetRecentFaultsBoundary, FaultAtCurrentTimeIsIncluded) {
+    FaultHandler handler;
+
+    const uint64_t currentTime = 2000u;
+    const uint64_t timeWindow  = 1000u;
+
+    FaultRecord f;
+    f.streamID   = 0x2u;
+    f.pasid      = 0u;
+    f.address    = 0x4000u;
+    f.faultType  = FaultType::PermissionFault;
+    f.accessType = AccessType::Write;
+    f.timestamp  = currentTime;   // exactly at the upper boundary
+
+    handler.recordFault(f);
+
+    auto recent = handler.getRecentFaults(currentTime, timeWindow);
+
+    bool found = false;
+    for (const auto& rec : recent) {
+        if (rec.address == 0x4000u) { found = true; }
+    }
+    EXPECT_TRUE(found)
+        << "BUG-14: fault at exact currentTime must be returned (upper boundary)";
+}

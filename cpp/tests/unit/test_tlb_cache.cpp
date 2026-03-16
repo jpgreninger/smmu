@@ -62,26 +62,27 @@ TEST_F(TLBCacheTest, SingleEntryInsertionAndLookup) {
     tlbCache->insert(entry);
     EXPECT_EQ(tlbCache->getSize(), 1);
     
-    // Lookup entry
-    TLBEntry* foundEntry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    ASSERT_NE(foundEntry, nullptr);
-    
-    EXPECT_EQ(foundEntry->streamID, TEST_STREAM_ID);
-    EXPECT_EQ(foundEntry->pasid, TEST_PASID);
-    EXPECT_EQ(foundEntry->iova, TEST_IOVA_1);
-    EXPECT_EQ(foundEntry->physicalAddress, TEST_PA_1);
-    EXPECT_TRUE(foundEntry->valid);
-    EXPECT_TRUE(foundEntry->permissions.read);
-    EXPECT_TRUE(foundEntry->permissions.write);
-    EXPECT_FALSE(foundEntry->permissions.execute);
+    // Lookup entry — use safe lookupEntry() which returns by value (BUG-9 fix)
+    Result<TLBEntry> foundResult = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    ASSERT_TRUE(foundResult.isOk());
+    const TLBEntry& foundEntry = foundResult.getValue();
+
+    EXPECT_EQ(foundEntry.streamID, TEST_STREAM_ID);
+    EXPECT_EQ(foundEntry.pasid, TEST_PASID);
+    EXPECT_EQ(foundEntry.iova, TEST_IOVA_1);
+    EXPECT_EQ(foundEntry.physicalAddress, TEST_PA_1);
+    EXPECT_TRUE(foundEntry.valid);
+    EXPECT_TRUE(foundEntry.permissions.read);
+    EXPECT_TRUE(foundEntry.permissions.write);
+    EXPECT_FALSE(foundEntry.permissions.execute);
 }
 
 // Test cache miss
 TEST_F(TLBCacheTest, CacheMiss) {
-    // Lookup non-existent entry
-    TLBEntry* foundEntry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    EXPECT_EQ(foundEntry, nullptr);
-    
+    // Lookup non-existent entry — use safe lookupEntry() (BUG-9 fix)
+    Result<TLBEntry> foundResult = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    EXPECT_TRUE(foundResult.isError());
+
     // Hit rate should be 0 (no hits, 1 miss)
     double hitRate = tlbCache->getHitRate();
     EXPECT_EQ(hitRate, 0.0);
@@ -100,19 +101,19 @@ TEST_F(TLBCacheTest, MultipleEntries) {
     
     EXPECT_EQ(tlbCache->getSize(), 2);
     
-    // Lookup both entries
-    TLBEntry* found1 = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    TLBEntry* found2 = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);
-    
-    ASSERT_NE(found1, nullptr);
-    ASSERT_NE(found2, nullptr);
-    
-    EXPECT_EQ(found1->physicalAddress, TEST_PA_1);
-    EXPECT_EQ(found2->physicalAddress, TEST_PA_2);
-    
+    // Lookup both entries — use safe lookupEntry() (BUG-9 fix)
+    Result<TLBEntry> found1 = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    Result<TLBEntry> found2 = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);
+
+    ASSERT_TRUE(found1.isOk());
+    ASSERT_TRUE(found2.isOk());
+
+    EXPECT_EQ(found1.getValue().physicalAddress, TEST_PA_1);
+    EXPECT_EQ(found2.getValue().physicalAddress, TEST_PA_2);
+
     // Verify different permissions
-    EXPECT_FALSE(found1->permissions.write);
-    EXPECT_TRUE(found2->permissions.write);
+    EXPECT_FALSE(found1.getValue().permissions.write);
+    EXPECT_TRUE(found2.getValue().permissions.write);
 }
 
 // Test cache invalidation by entry
@@ -120,17 +121,15 @@ TEST_F(TLBCacheTest, InvalidateEntry) {
     PagePermissions perms(true, true, false);
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     
-    // Insert and verify
+    // Insert and verify — use safe lookupEntry() (BUG-9 fix)
     tlbCache->insert(entry);
-    TLBEntry* found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    ASSERT_NE(found, nullptr);
-    
+    ASSERT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1).isOk());
+
     // Invalidate entry
     tlbCache->invalidate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    
+
     // Verify entry is no longer found
-    found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    EXPECT_EQ(found, nullptr);
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1).isError());
     EXPECT_EQ(tlbCache->getSize(), 0);
 }
 
@@ -155,11 +154,8 @@ TEST_F(TLBCacheTest, InvalidateByStream) {
     // Only stream 0x2000 entry should remain
     EXPECT_EQ(tlbCache->getSize(), 1);
     
-    TLBEntry* found = tlbCache->lookup(0x2000, TEST_PASID, TEST_IOVA_1);
-    EXPECT_NE(found, nullptr);
-    
-    found = tlbCache->lookup(0x1000, TEST_PASID, TEST_IOVA_1);
-    EXPECT_EQ(found, nullptr);
+    EXPECT_TRUE(tlbCache->lookupEntry(0x2000, TEST_PASID, TEST_IOVA_1).isOk());
+    EXPECT_TRUE(tlbCache->lookupEntry(0x1000, TEST_PASID, TEST_IOVA_1).isError());
 }
 
 // Test cache invalidation by PASID
@@ -183,11 +179,8 @@ TEST_F(TLBCacheTest, InvalidateByPASID) {
     // Only PASID 0x2 entry should remain
     EXPECT_EQ(tlbCache->getSize(), 1);
     
-    TLBEntry* found = tlbCache->lookup(TEST_STREAM_ID, 0x2, TEST_IOVA_1);
-    EXPECT_NE(found, nullptr);
-    
-    found = tlbCache->lookup(TEST_STREAM_ID, 0x1, TEST_IOVA_1);
-    EXPECT_EQ(found, nullptr);
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, 0x2, TEST_IOVA_1).isOk());
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, 0x1, TEST_IOVA_1).isError());
 }
 
 // Test cache clear
@@ -209,10 +202,9 @@ TEST_F(TLBCacheTest, CacheClear) {
     
     EXPECT_EQ(tlbCache->getSize(), 0);
     
-    // Verify no entries can be found
+    // Verify no entries can be found — use safe lookupEntry() (BUG-9 fix)
     for (int i = 0; i < 10; ++i) {
-        TLBEntry* found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1 + i * PAGE_SIZE);
-        EXPECT_EQ(found, nullptr);
+        EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1 + i * PAGE_SIZE).isError());
     }
 }
 
@@ -232,10 +224,9 @@ TEST_F(TLBCacheTest, CacheEviction) {
     // Cache should not exceed capacity
     EXPECT_LE(tlbCache->getSize(), capacity);
     
-    // Most recent entries should be present
-    TLBEntry* recentEntry = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, 
-                                            TEST_IOVA_1 + (capacity + 5) * PAGE_SIZE);
-    EXPECT_NE(recentEntry, nullptr);
+    // Most recent entries should be present — use safe lookupEntry() (BUG-9 fix)
+    EXPECT_TRUE(tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID,
+                                     TEST_IOVA_1 + (capacity + 5) * PAGE_SIZE).isOk());
 }
 
 // Test hit rate calculation
@@ -245,14 +236,14 @@ TEST_F(TLBCacheTest, HitRateCalculation) {
     
     tlbCache->insert(entry);
     
-    // 3 hits
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-    
+    // 3 hits — use safe lookupEntry() (BUG-9 fix)
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+
     // 2 misses
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, 0x30000000);
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x30000000);
     
     // Hit rate should be 3/5 = 60%
     double hitRate = tlbCache->getHitRate();
@@ -266,11 +257,11 @@ TEST_F(TLBCacheTest, CacheStatistics) {
     
     tlbCache->insert(entry);
     
-    // Generate some hits and misses
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
-    
+    // Generate some hits and misses — use safe lookupEntry() (BUG-9 fix)
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Miss
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Hit
+
     EXPECT_EQ(tlbCache->getHitCount(), 2);
     EXPECT_EQ(tlbCache->getMissCount(), 1);
     EXPECT_EQ(tlbCache->getTotalLookups(), 3);
@@ -301,18 +292,19 @@ TEST_F(TLBCacheTest, LRUEvictionPolicy) {
     cache->insert(createTLBEntry(TEST_STREAM_ID, TEST_PASID, 0x30000000, 0x60000000, perms));
 
     // All 3 entries fit well within capacity; all must be findable.
-    EXPECT_NE(cache->lookup(TEST_STREAM_ID, TEST_PASID, 0x10000000), nullptr)
+    // Use safe lookupEntry() (BUG-9 fix)
+    EXPECT_TRUE(cache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x10000000).isOk())
         << "LRU: entry at 0x10000000 must be present after insert";
-    EXPECT_NE(cache->lookup(TEST_STREAM_ID, TEST_PASID, 0x20000000), nullptr)
+    EXPECT_TRUE(cache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x20000000).isOk())
         << "LRU: entry at 0x20000000 must be present after insert";
-    EXPECT_NE(cache->lookup(TEST_STREAM_ID, TEST_PASID, 0x30000000), nullptr)
+    EXPECT_TRUE(cache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x30000000).isOk())
         << "LRU: entry at 0x30000000 must be present after insert";
 
     // Insert a 4th entry.
     cache->insert(createTLBEntry(TEST_STREAM_ID, TEST_PASID, 0x40000000, 0x70000000, perms));
 
     // The newly inserted entry must be findable.
-    EXPECT_NE(cache->lookup(TEST_STREAM_ID, TEST_PASID, 0x40000000), nullptr)
+    EXPECT_TRUE(cache->lookupEntry(TEST_STREAM_ID, TEST_PASID, 0x40000000).isOk())
         << "LRU: newly inserted entry at 0x40000000 must be findable";
 
     // The total size must be bounded by the cache capacity (no unbounded growth).
@@ -344,11 +336,11 @@ TEST_F(TLBCacheTest, ConcurrentAccessSimulation) {
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     tlbCache->insert(entry);
     
-    // Multiple lookups (simulating concurrent access)
+    // Multiple lookups (simulating concurrent access) — use safe lookupEntry() (BUG-9 fix)
     for (int i = 0; i < 100; ++i) {
-        TLBEntry* found = tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
-        EXPECT_NE(found, nullptr);
-        EXPECT_EQ(found->physicalAddress, TEST_PA_1);
+        Result<TLBEntry> found = tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);
+        EXPECT_TRUE(found.isOk());
+        EXPECT_EQ(found.getValue().physicalAddress, TEST_PA_1);
     }
     
     EXPECT_EQ(tlbCache->getHitCount(), 100);
@@ -361,8 +353,8 @@ TEST_F(TLBCacheTest, CacheReset) {
     TLBEntry entry = createTLBEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1, TEST_PA_1, perms);
     
     tlbCache->insert(entry);
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Generate hit
-    tlbCache->lookup(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Generate miss
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_1);  // Generate hit (BUG-9 fix)
+    tlbCache->lookupEntry(TEST_STREAM_ID, TEST_PASID, TEST_IOVA_2);  // Generate miss
     
     EXPECT_GT(tlbCache->getSize(), 0);
     EXPECT_GT(tlbCache->getTotalLookups(), 0);

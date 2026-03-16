@@ -120,16 +120,17 @@ public:
     Result<CacheEntry> lookupCacheEntry(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
     void insert(StreamID streamID, PASID pasid, const CacheEntry& entry);
     
-    // Legacy interfaces for backward compatibility - deprecated
-    // Use lookupEntry() instead: the raw pointer is unsafe under concurrent insert/evict.
-#if defined(__GNUC__) || defined(__clang__)
-    __attribute__((deprecated("Use lookupEntry() instead")))
-#endif
-    TLBEntry* lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
     // Deprecated: prefer lookupCacheEntry(). The securityState parameter defaults to NonSecure
     // for backward compatibility; pass SecurityState::Secure for Secure transactions.
     bool lookup(StreamID streamID, PASID pasid, IOVA iova, CacheEntry& entry,
                 SecurityState securityState = SecurityState::NonSecure);
+
+    // BUG-9: TLBEntry* lookup() deleted — it returned a raw pointer into a
+    // std::list node after releasing the stripe mutex, creating a dangling-pointer
+    // hazard under concurrent eviction or reset.  Use lookupEntry() instead;
+    // it returns a by-value copy while holding the lock.
+    TLBEntry* lookup(StreamID streamID, PASID pasid, IOVA iova,
+                     SecurityState securityState = SecurityState::NonSecure) = delete;
     void remove(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState = SecurityState::NonSecure);
 
     // Invalidation operations

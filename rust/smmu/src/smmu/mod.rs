@@ -1481,8 +1481,43 @@ impl SMMU {
     /// let config2 = StreamConfig::stage2_only();
     /// assert!(smmu.configure_stream(stream_id, config2).is_err());
     /// ```
+    #[allow(clippy::too_many_lines)]
     pub fn configure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
         self.check_shutdown()?;
+
+        // (3) Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
+        // Must run BEFORE config.validate() because validate() also rejects this
+        // combination, which would bypass the BUG-11 C_BAD_STE event emission.
+        // Valid encodings: 0b000 (disabled), 0b100 (bypass), 0b101 (S1-only),
+        //                  0b110 (S2-only), 0b111 (S1+S2).
+        // 0b001/0b010/0b011 are reserved — "behave as 0b000" per spec.
+        // translation_enabled=true with no stage selected maps to a reserved encoding.
+        if config.translation_enabled && !config.stage1_enabled && !config.stage2_enabled {
+            // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                if let Ok(mut queue) = self.event_queue.write() {
+                    if queue.len() < self.event_queue_capacity {
+                        queue.push_back(event);
+                        self.event_count.fetch_add(1, Ordering::Relaxed);
+                        let prod = self.eventq_prod.load(Ordering::Relaxed);
+                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                    }
+                }
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: reserved STE.Config — translation_enabled=true requires at least \
+                 one of stage1_enabled or stage2_enabled (ARM §5.2 Table STE.Config)"
+                    .to_string(),
+            ));
+        }
 
         // Validate stream configuration
         config
@@ -1495,6 +1530,27 @@ impl SMMU {
         //     ARM §5.2.2: "If STE.STRW==0b11 (EL3) and the stream security state is
         //     Non-Secure, this is a C_BAD_STE condition."
         if config.security_state == SecurityState::NonSecure && config.strw == crate::types::StreamWorld::El3 {
+            // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
+            // C_BAD_STE must be recorded to the event queue (gated on CR0.EVENTQEN)
+            // whenever an STE is determined illegal during configuration.
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                if let Ok(mut queue) = self.event_queue.write() {
+                    if queue.len() < self.event_queue_capacity {
+                        queue.push_back(event);
+                        self.event_count.fetch_add(1, Ordering::Relaxed);
+                        let prod = self.eventq_prod.load(Ordering::Relaxed);
+                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                    }
+                }
+            }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: STRW=EL3 is forbidden for Non-Secure streams (ARM §5.2.2)".to_string(),
             ));
@@ -1519,25 +1575,31 @@ impl SMMU {
             if oas_bits < 52 {
                 let oas_limit = 1u64 << oas_bits;
                 if config.s2_ttb >= oas_limit {
+                    // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::CBadSte,
+                            stream_id: stream_id.as_u32(),
+                            security_state: config.security_state,
+                            timestamp,
+                            ..EventEntry::zeroed()
+                        };
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            if queue.len() < self.event_queue_capacity {
+                                queue.push_back(event);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                            }
+                        }
+                    }
                     return Err(SMMUError::invalid_configuration(
                         format!("C_BAD_STE: S2TTB 0x{:x} exceeds OAS ({}‐bit, limit 0x{:x}) (ARM §5.2.2)",
                             config.s2_ttb, oas_bits, oas_limit),
                     ));
                 }
             }
-        }
-
-        // (3) Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
-        // Valid encodings: 0b000 (disabled), 0b100 (bypass), 0b101 (S1-only),
-        //                  0b110 (S2-only), 0b111 (S1+S2).
-        // 0b001/0b010/0b011 are reserved — "behave as 0b000" per spec.
-        // translation_enabled=true with no stage selected maps to a reserved encoding.
-        if config.translation_enabled && !config.stage1_enabled && !config.stage2_enabled {
-            return Err(SMMUError::invalid_configuration(
-                "C_BAD_STE: reserved STE.Config — translation_enabled=true requires at least \
-                 one of stage1_enabled or stage2_enabled (ARM §5.2 Table STE.Config)"
-                    .to_string(),
-            ));
         }
 
         let stream_value = stream_id.as_u32();
@@ -1738,12 +1800,24 @@ impl SMMU {
         self.tlb_cache.invalidate_by_stream(stream_id);
 
         // Step 2: remove the stream from the map — after TLB is already clear.
-        self.streams
-            .remove(&stream_value)
-            .ok_or_else(|| SMMUError::stream_not_found(stream_id))?;
-
-        // Decrement atomic counter to match the removed stream slot.
-        self.stream_count.fetch_sub(1, Ordering::Release);
+        //
+        // BUG-13 fix: treat None from remove() as success rather than an error.
+        //
+        // In a concurrent scenario, two callers can both pass the contains_key
+        // check above (step 1), both invalidate the TLB (harmless — invalidating
+        // a non-existent stream is a no-op), and then race on remove().  Only one
+        // gets Some(_); the other gets None.  The desired outcome — stream removed
+        // — is already achieved either way.  Treating None as StreamNotFound here
+        // would produce a spurious error for the losing thread.
+        //
+        // The BUG-4 constraint (TLB invalidation before map removal) is preserved:
+        // invalidate_by_stream() above always runs before this remove().
+        //
+        // stream_count is decremented only when remove() returns Some to prevent
+        // a double-decrement between the two concurrent callers.
+        if self.streams.remove(&stream_value).is_some() {
+            self.stream_count.fetch_sub(1, Ordering::Release);
+        }
 
         Ok(())
     }

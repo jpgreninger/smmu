@@ -130,7 +130,7 @@ std::vector<FaultRecord> FaultHandler::getRecentFaults(uint64_t currentTime, uin
     uint64_t earliestTime = (currentTime > timeWindow) ? (currentTime - timeWindow) : 0;
     
     for (const auto& fault : eventQueue) {
-        if (fault.timestamp > earliestTime && fault.timestamp <= currentTime) {
+        if (fault.timestamp >= earliestTime && fault.timestamp <= currentTime) {
             result.push_back(fault);
         }
     }

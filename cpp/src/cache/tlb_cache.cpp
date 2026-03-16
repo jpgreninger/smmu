@@ -108,32 +108,6 @@ Result<CacheEntry> TLBCache::lookupCacheEntry(StreamID streamID, PASID pasid, IO
     return Result<CacheEntry>(std::move(entry));
 }
 
-// Legacy interfaces for backward compatibility - deprecated
-TLBEntry* TLBCache::lookup(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState) {
-    CacheKey key = makeKey(streamID, pasid, iova, securityState);
-    size_t stripeIndex = getLockStripeIndex(key);
-    std::lock_guard<std::mutex> lock(lockStripes[stripeIndex]);
-
-    CacheStripe& stripe = stripes[stripeIndex];
-    auto it = stripe.map.find(key);
-
-    if (it == stripe.map.end()) {
-        missCount.fetch_add(1, std::memory_order_relaxed);
-        return nullptr;
-    }
-
-    // Move to front (LRU) within this stripe
-    auto listIt = it->second;
-    if (listIt != stripe.list.begin()) {
-        stripe.list.splice(stripe.list.begin(), stripe.list, listIt);
-        stripe.map[key] = stripe.list.begin();
-    }
-
-    hitCount.fetch_add(1, std::memory_order_relaxed);
-
-    return &(stripe.list.begin()->second);
-}
-
 void TLBCache::insert(const TLBEntry& entry) {
     CacheKey key = makeKey(entry.streamID, entry.pasid, entry.iova, entry.securityState);
     size_t stripeIndex = getLockStripeIndex(key);
