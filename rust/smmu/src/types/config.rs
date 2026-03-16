@@ -314,6 +314,20 @@ pub struct StreamConfig {
     /// Encoding: 0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit,
     ///           5=48-bit (default), 6=52-bit.
     pub ips: u8,
+
+    // ---- NEW-12: STE.EATS — Enhanced Address Translation Security (§5.2, §3.9) ----
+
+    /// §5.2 STE.EATS — Enhanced Address Translation Security support level.
+    ///
+    /// Controls whether ATS (Address Translation Service) requests are accepted
+    /// for this stream:
+    ///   - `0` = no ATS — ATS Translation Requests generate F_TRANSL_FORBIDDEN
+    ///   - `1` = ATS enabled (translation must be active, non-bypass)
+    ///   - `2` = ATS+PRI enabled
+    ///   - `3` = ATS+PRI+CMD enabled
+    ///
+    /// Default: `0` (no ATS).
+    pub eats: u8,
 }
 
 impl StreamConfig {
@@ -372,6 +386,7 @@ impl StreamConfig {
             epd1: false,
             tbi: false,
             ips: 5,
+            eats: 0,
         }
     }
 
@@ -415,6 +430,7 @@ impl StreamConfig {
             epd1: false,
             tbi: false,
             ips: 5,
+            eats: 0,
         }
     }
 
@@ -458,6 +474,7 @@ impl StreamConfig {
             epd1: false,
             tbi: false,
             ips: 5,
+            eats: 0,
         }
     }
 
@@ -501,6 +518,7 @@ impl StreamConfig {
             epd1: false,
             tbi: false,
             ips: 5,
+            eats: 0,
         }
     }
 
@@ -686,6 +704,8 @@ pub struct StreamConfigBuilder {
     tbi: bool,
     // GAP-F
     ips: u8,
+    // NEW-12
+    eats: u8,
 }
 
 impl StreamConfigBuilder {
@@ -729,6 +749,7 @@ impl StreamConfigBuilder {
             epd1: false,
             tbi: false,
             ips: 5,
+            eats: 0,
         }
     }
 
@@ -1009,6 +1030,17 @@ impl StreamConfigBuilder {
         self
     }
 
+    // ---- NEW-12: STE.EATS builder method ----
+
+    /// Set STE.EATS — Enhanced Address Translation Security support level (NEW-12, ARM §5.2).
+    ///
+    /// 0 = no ATS, 1 = ATS only, 2 = ATS+PRI, 3 = ATS+PRI+CMD.
+    #[must_use]
+    pub fn eats(mut self, eats: u8) -> Self {
+        self.eats = eats;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -1049,6 +1081,7 @@ impl StreamConfigBuilder {
             epd1: self.epd1,
             tbi: self.tbi,
             ips: self.ips,
+            eats: self.eats,
         };
 
         config.validate()?;

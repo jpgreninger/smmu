@@ -58,7 +58,10 @@ public:
     ~SMMU();
     
     // Main translation API
-    TranslationResult translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState = SecurityState::NonSecure);
+    // NEW-12: extended with defaulted TransactionType parameter (backward compatible).
+    TranslationResult translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType,
+                                SecurityState securityState = SecurityState::NonSecure,
+                                TransactionType transactionType = TransactionType::Ordinary);
     
     // Stream management
     VoidResult configureStream(StreamID streamID, const StreamConfig& config);
@@ -143,6 +146,21 @@ public:
     /// Clear the auto-failure list (call after consuming the responses).
     void clearPRIAutoFailures();
     
+    // NEW-10: ARM §6.3.96 SMMU_EVENTQ_CONS.OVACKFLG — acknowledge event queue overflow.
+    // Copies bit 31 of SMMU_EVENTQ_PROD (OVFLG) into bit 31 of SMMU_EVENTQ_CONS (OVACKFLG)
+    // without discarding queued events or resetting indices.  This is the spec-mandated
+    // handshake by which software signals that it has observed the overflow condition.
+    // Call after draining the event queue to clear the active-overflow indication.
+    void acknowledgeEventQueueOverflow();
+
+    // NEW-11: ARM §7.3.2 F_UUT — Unsupported Upstream Transaction.
+    // Allows a simulation harness to inject an F_UUT event for a stream.
+    // The event is gated by CR0.EVENTQEN (identical to all other events):
+    // when EVENTQEN=0 the event is silently dropped.
+    void reportUnsupportedTransaction(StreamID streamID, PASID pasid,
+                                      IOVA iova, AccessType accessType,
+                                      SecurityState securityState = SecurityState::NonSecure);
+
     // ARM §3.5.1: Circular queue PROD/CONS register accessors (FINDING-M-01)
     uint32_t getCmdqProdIndex() const;
     uint32_t getCmdqConsIndex() const;

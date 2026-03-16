@@ -504,6 +504,9 @@ pub use types::{
 
     // Stream table format
     StreamTableFormat,
+
+    // NEW-12: ATS transaction type
+    TransactionType,
 };
 
 // Re-export builder types for ergonomic API

@@ -182,7 +182,9 @@ SMMU::~SMMU() {
 }
 
 // Main translate() API - Enhanced with Task 5.2: Two-stage translation and TLBCache integration
-TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
+// NEW-12: extended with TransactionType parameter (defaulted to Ordinary for backward compat).
+TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType,
+                                  SecurityState securityState, TransactionType transactionType) {
     // GAP NEW-2: Reset thread-local stage-2 fault context at the start of each translation.
     // This prevents stale context from a prior translation on the same thread from leaking.
     tl_stage2FaultCtx.isStage2 = false;
@@ -432,6 +434,42 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // The streamContextPtr shared_ptr (captured above) keeps the StreamContext alive after
     // the stripe lock is released, so accessing streamContext via the raw pointer is safe.
     lock.unlock();
+
+    // NEW-12: ARM §3.9 ATS Transaction Type enforcement.
+    // These checks are performed after the stripe lock is released so that
+    // generateEvent() can safely acquire queueMutex without creating a deadlock.
+
+    // Check 1 — F_TRANSL_FORBIDDEN (§7.3.8): ATS Translation Request on a stream
+    // that does not support ATS (eats==0) or on a bypass/disabled stream.
+    if (transactionType == TransactionType::AtsTranslationRequest) {
+        bool atsSupported = (streamCfgSnapshot.eats != 0)
+                            && streamCfgSnapshot.translationEnabled
+                            && !streamCfgSnapshot.bypassEnabled;
+        if (!atsSupported) {
+            generateEvent(EventType::F_TRANSL_FORBIDDEN, streamID, pasid, iova,
+                          securityState, false, 0, accessType, false, 0);
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
+    }
+
+    // Check 2 — F_BAD_ATS_TREQ (§7.3.6): ATS Translated transaction with ATSCHK=1.
+    // The SMMU re-translates the address as Ordinary to verify the presented
+    // translation is correct.  If re-translation fails, F_BAD_ATS_TREQ is emitted.
+    if (transactionType == TransactionType::AtsTranslated
+        && (cr0_.load(std::memory_order_acquire) & CR0_ATSCHK) != 0u) {
+        // Re-translate as Ordinary to validate the pre-translated address.
+        TranslationResult recheck = performTwoStageTranslation(
+            streamID, pasid, iova, accessType, securityState,
+            streamContext, currentTime);
+        if (recheck.isError()) {
+            generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
+                          securityState, false, 0, accessType, false, 0);
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
+        // Re-translation succeeded — return the re-translated result as the
+        // canonical answer (the re-translation IS the verification result).
+        return recheck;
+    }
 
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
@@ -2285,6 +2323,36 @@ void SMMU::clearEventQueue() {
 size_t SMMU::getEventQueueSize() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     return eventQueue.size();
+}
+
+// NEW-10: ARM §6.3.96 SMMU_EVENTQ_CONS.OVACKFLG acknowledge.
+// Copies the OVFLG bit (bit 31) of SMMU_EVENTQ_PROD into the OVACKFLG bit
+// (bit 31) of SMMU_EVENTQ_CONS.  This makes the overflow condition inactive
+// (OVFLG == OVACKFLG) without discarding any queued events or resetting the
+// PROD/CONS circular indices.  Software must call this after draining the queue
+// to clear the overflow indication per ARM IHI0070G.b §6.3.96.
+void SMMU::acknowledgeEventQueueOverflow() {
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    uint32_t prodVal = eventqProd.load(std::memory_order_relaxed);
+    uint32_t consVal = eventqCons.load(std::memory_order_relaxed);
+    // Extract current OVFLG (bit 31 of PROD)
+    uint32_t ovflg = prodVal & (1u << 31);
+    // Replace bit 31 of CONS with OVFLG — all other bits unchanged
+    uint32_t newCons = (consVal & ~(1u << 31)) | ovflg;
+    eventqCons.store(newCons, std::memory_order_release);
+}
+
+// NEW-11: ARM §7.3.2 F_UUT — Unsupported Upstream Transaction.
+// Injects an F_UUT event into the event queue on behalf of a simulation harness.
+// Gated by CR0.EVENTQEN (same as all other events): when EVENTQEN=0 the event is
+// silently dropped.  eventClass=2 (IN) per NEW-1 encoding rules.
+void SMMU::reportUnsupportedTransaction(StreamID streamID, PASID pasid,
+                                        IOVA iova, AccessType accessType,
+                                        SecurityState securityState) {
+    // generateEvent() internally gates on CR0.EVENTQEN — no extra check needed here.
+    generateEvent(EventType::F_UUT, streamID, pasid, iova,
+                  securityState, /*isStall=*/false, /*stag=*/0,
+                  accessType, /*isStage2=*/false, /*ipaValue=*/0);
 }
 
 // Task 5.3: Command Queue Processing Simulation (Task 5.3.2)

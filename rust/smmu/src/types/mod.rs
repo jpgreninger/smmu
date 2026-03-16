@@ -34,6 +34,7 @@ mod security_state;
 mod smmu_error;
 mod stream_context_error;
 mod stream_id;
+mod transaction_type;
 mod translation_result;
 pub mod translation_stage;
 mod validation_error;
@@ -54,6 +55,7 @@ pub use stream_context_error::StreamContextError;
 pub use stream_id::StreamID;
 pub use translation_result::{TranslationData, TranslationDataBuilder, TranslationError, TranslationResult};
 pub use stream_table_format::StreamTableFormat;
+pub use transaction_type::TransactionType;
 pub use translation_stage::TranslationStage;
 pub use validation_error::ValidationError;
 

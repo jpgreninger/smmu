@@ -271,6 +271,11 @@ pub struct StreamContext {
     /// STE.S2PS).  After stage-1 produces an IPA the IPA must be within this
     /// range (F_ADDR_SIZE).  Default 5 (48-bit).
     ips: AtomicU8,
+
+    // ---- NEW-12: STE.EATS — Enhanced Address Translation Security (§5.2, §3.9) ----
+
+    /// §5.2 STE.EATS: ATS support level; 0 = no ATS.  Default 0.
+    eats: AtomicU8,
 }
 
 impl StreamContext {
@@ -332,6 +337,7 @@ impl StreamContext {
             epd0: AtomicBool::new(false),
             tbi: AtomicBool::new(false),
             ips: AtomicU8::new(5),
+            eats: AtomicU8::new(0),
         }
     }
 
@@ -852,6 +858,9 @@ impl StreamContext {
 
         // GAP-F: CD.IPS — stage-1 output IPA size (§5.4/§3.4)
         self.ips.store(cfg.ips, Ordering::Release);
+
+        // NEW-12: STE.EATS — ATS support level (§5.2, §3.9)
+        self.eats.store(cfg.eats, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -990,6 +999,15 @@ impl StreamContext {
     #[inline]
     pub fn set_ips(&self, value: u8) {
         self.ips.store(value, Ordering::Release);
+    }
+
+    /// NEW-12: Get STE.EATS — ATS support level (§5.2, §3.9).
+    ///
+    /// Returns `0` when ATS is not supported for this stream.
+    #[inline]
+    #[must_use]
+    pub fn get_eats(&self) -> u8 {
+        self.eats.load(Ordering::Acquire)
     }
 
     /// Removes a PASID and its associated AddressSpace

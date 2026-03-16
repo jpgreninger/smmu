@@ -1336,6 +1336,15 @@ enum class StreamTableFormat {
     TwoLevel = 1 ///< 2-level stream table using L1+L2 index split
 };
 
+/// @brief NEW-12: ARM §3.9 ATS Transaction Type.
+/// Classifies the transaction as an ordinary (non-ATS) request, an ATS
+/// Translation Request (TR), or an ATS Translated (TT) transaction.
+enum class TransactionType : uint8_t {
+    Ordinary              = 0, ///< Normal (non-ATS) upstream transaction
+    AtsTranslationRequest = 1, ///< ATS TR: SMMU must perform full translation
+    AtsTranslated         = 2  ///< ATS TT: upstream device provides pre-translated PA
+};
+
 /// @brief CONF-GAP-18: CMD_SYNC completion signal type (ARM §4.7.3).
 enum class CmdSyncSignalType {
     None = 0, ///< SIG_NONE: no completion signal (CS=0b00)

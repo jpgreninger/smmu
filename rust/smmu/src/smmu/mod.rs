@@ -59,7 +59,7 @@ use crate::stream_context::StreamContext;
 use crate::types::{
     AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
     QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, StreamTableFormat,
-    TranslationError, TranslationResult, IOVA, PA, PASID,
+    TransactionType, TranslationError, TranslationResult, IOVA, PA, PASID,
 };
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -2522,6 +2522,118 @@ impl SMMU {
         access: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
+        self.translate_with_type(stream_id, pasid, iova, access, security_state, TransactionType::Ordinary)
+    }
+
+    /// Translate an IOVA to a PA with explicit transaction type (NEW-12, §3.9).
+    ///
+    /// Extends [`translate`](Self::translate) with ATS transaction-type checks per
+    /// ARM IHI0070G.b §3.9:
+    ///
+    /// - **`Ordinary`** — normal DMA path; identical behaviour to `translate()`.
+    /// - **`AtsTranslationRequest`** — ATS TR; rejected with F_TRANSL_FORBIDDEN when
+    ///   `STE.EATS == 0` or the stream is in bypass/abort mode.
+    /// - **`AtsTranslated`** — ATS TT; when `CR0.ATSCHK == 1` the SMMU re-checks
+    ///   the mapping as an Ordinary translation; failure generates F_BAD_ATS_TREQ.
+    ///   When `CR0.ATSCHK == 0` the TT proceeds identically to Ordinary.
+    #[allow(clippy::too_many_lines)]
+    pub fn translate_with_type(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+        transaction_type: TransactionType,
+    ) -> TranslationResult {
+        // ── NEW-12 §3.9: ATS Translation Request check ────────────────────────
+        // An ATS TR is only allowed on streams where EATS != 0 AND translation
+        // is active (not bypass/abort).  Any other stream generates F_TRANSL_FORBIDDEN
+        // (event 0x07, §7.3.8).
+        if transaction_type == TransactionType::AtsTranslationRequest {
+            let ats_supported = self.streams.get(&stream_id.as_u32()).map_or(false, |r| {
+                let cfg = r.value().get_eats();
+                let s1 = r.value().is_stage1_enabled();
+                let s2 = r.value().is_stage2_enabled();
+                cfg != 0 && (s1 || s2)
+            });
+            if !ats_supported {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::FTranslForbidden,
+                        stream_id: stream_id.as_u32(),
+                        pasid: pasid.as_u32(),
+                        address: iova.as_u64(),
+                        security_state,
+                        timestamp,
+                        event_class: 2,
+                        rnw: matches!(access, AccessType::Write),
+                        ind: matches!(access, AccessType::Execute),
+                        ssv: pasid.as_u32() != 0,
+                        ..EventEntry::zeroed()
+                    };
+                    if let Ok(mut queue) = self.event_queue.write() {
+                        if queue.len() < self.event_queue_capacity {
+                            queue.push_back(event);
+                            self.event_count.fetch_add(1, Ordering::Relaxed);
+                            let prod = self.eventq_prod.load(Ordering::Relaxed);
+                            self.eventq_prod.store(
+                                Self::advance_index(prod, self.eventq_log2size),
+                                Ordering::Release,
+                            );
+                        }
+                    }
+                }
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                return Err(TranslationError::PermissionViolation { access });
+            }
+        }
+
+        // ── NEW-12 §3.9: ATS Translated transaction check ─────────────────────
+        // When CR0.ATSCHK=1 the SMMU re-validates the pre-translated address by
+        // performing an Ordinary translation.  If that check fails, emit
+        // F_BAD_ATS_TREQ (event 0x05, §7.3.6) and abort.
+        if transaction_type == TransactionType::AtsTranslated
+            && (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0
+        {
+            let recheck = self.translate(stream_id, pasid, iova, access, security_state);
+            if recheck.is_err() {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::FBadAtsTreq,
+                        stream_id: stream_id.as_u32(),
+                        pasid: pasid.as_u32(),
+                        address: iova.as_u64(),
+                        security_state,
+                        timestamp,
+                        event_class: 2,
+                        rnw: matches!(access, AccessType::Write),
+                        ind: matches!(access, AccessType::Execute),
+                        ssv: pasid.as_u32() != 0,
+                        ..EventEntry::zeroed()
+                    };
+                    if let Ok(mut queue) = self.event_queue.write() {
+                        if queue.len() < self.event_queue_capacity {
+                            queue.push_back(event);
+                            self.event_count.fetch_add(1, Ordering::Relaxed);
+                            let prod = self.eventq_prod.load(Ordering::Relaxed);
+                            self.eventq_prod.store(
+                                Self::advance_index(prod, self.eventq_log2size),
+                                Ordering::Release,
+                            );
+                        }
+                    }
+                }
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                return Err(TranslationError::PermissionViolation { access });
+            }
+            return recheck;
+        }
+
+        // ── Ordinary translation (and TT with ATSCHK=0) ───────────────────────
+
         // Update statistics
         self.total_translations.0.fetch_add(1, Ordering::Relaxed);
 
@@ -3720,6 +3832,48 @@ impl SMMU {
         self.eventq_cons.store(0, Ordering::Release);
     }
 
+    /// NEW-10 (§6.3.96): Acknowledge event queue overflow.
+    ///
+    /// Copies the current OVFLG bit (bit 31 of `EVENTQ_PROD`) into OVACKFLG
+    /// (bit 31 of `EVENTQ_CONS`) without modifying queue contents or the
+    /// circular PROD/CONS index bits.  Call after draining the event queue
+    /// to clear the overflow indication without discarding events.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    /// // After handling an overflow condition:
+    /// smmu.acknowledge_eventq_overflow();
+    /// // OVFLG and OVACKFLG are now equal — overflow acknowledged.
+    /// assert_eq!(
+    ///     (smmu.get_eventq_prod() >> 31) & 1,
+    ///     (smmu.eventq_cons_index() >> 31) & 1,
+    /// );
+    /// ```
+    pub fn acknowledge_eventq_overflow(&self) {
+        let prod = self.eventq_prod.load(Ordering::Acquire);
+        let ovflg_bit = prod & (1u32 << 31);
+        loop {
+            let cons = self.eventq_cons.load(Ordering::Acquire);
+            let new_cons = (cons & !(1u32 << 31)) | ovflg_bit;
+            if new_cons == cons {
+                break; // already in sync — no-op
+            }
+            if self
+                .eventq_cons
+                .compare_exchange_weak(cons, new_cons, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
+            std::hint::spin_loop();
+        }
+    }
+
     /// Get number of pending stall events waiting to drain into the main queue.
     ///
     /// ARM IHI0070G.b §7.4 / BUG-13: Stall events that could not fit in the main
@@ -3747,6 +3901,76 @@ impl SMMU {
     pub fn get_events_by_stream(&self, stream_id: u32) -> Vec<EventEntry> {
         let queue = self.event_queue.read().unwrap();
         queue.iter().filter(|e| e.stream_id == stream_id).copied().collect()
+    }
+
+    /// NEW-11 (§7.3.2): Report an unsupported upstream transaction.
+    ///
+    /// Generates and queues an `FUut` event record.  Trigger conditions are
+    /// IMPLEMENTATION DEFINED per ARM §7.3.2; call from the simulation harness
+    /// when the incoming transaction type is not supported for a given stream.
+    /// Gated on CR0.EVENTQEN — silently dropped if the event queue is disabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Source stream identifier.
+    /// * `pasid` - Process Address Space ID.
+    /// * `iova` - Faulting input virtual address.
+    /// * `access` - Access type of the unsupported transaction.
+    /// * `security_state` - Security state of the transaction.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, PASID, IOVA, AccessType, SecurityState, EventType};
+    ///
+    /// let smmu = SMMU::new();
+    /// smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    /// let sid = StreamID::new(1).unwrap();
+    /// let pasid = PASID::new(0).unwrap();
+    /// let iova = IOVA::new(0x1000).unwrap();
+    /// smmu.report_unsupported_transaction(sid, pasid, iova, AccessType::Read,
+    ///     SecurityState::NonSecure).unwrap();
+    /// let events = smmu.get_events();
+    /// assert_eq!(events[0].event_type, EventType::FUut);
+    /// ```
+    pub fn report_unsupported_transaction(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        _access: AccessType,
+        security_state: SecurityState,
+    ) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return Ok(());
+        }
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let event = EventEntry {
+            event_type: EventType::FUut,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            address: iova.as_u64(),
+            security_state,
+            timestamp,
+            event_class: 2, // eventClass=2 (0b10=IN) per NEW-1 encoding
+            ..EventEntry::zeroed()
+        };
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                queue.push_back(event);
+                self.event_count.fetch_add(1, Ordering::Relaxed);
+                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                self.eventq_prod.store(
+                    Self::advance_index(prod, self.eventq_log2size),
+                    Ordering::Release,
+                );
+            } else {
+                self.toggle_ovflg_once();
+            }
+        }
+        Ok(())
     }
 
     // ========================================================================
