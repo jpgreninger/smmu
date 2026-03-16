@@ -539,6 +539,9 @@ impl SMMU {
     /// When PTM=1, the SMMU processes NS TLBI commands and invalidates its own TLBs.
     pub const CR2_PTM: u32 = 1 << 2;
 
+    /// CR2 bit 3: REC_CFG_ATS — Record configuration-related errors for ATS (§6.3.12).
+    pub const CR2_REC_CFG_ATS: u32 = 1 << 3;
+
     // ========================================================================
     // ARM §6.3.9: SMMU_CR0 VMW constants (CONF-GAP-12)
     // ========================================================================
@@ -2546,47 +2549,173 @@ impl SMMU {
         security_state: SecurityState,
         transaction_type: TransactionType,
     ) -> TranslationResult {
-        // ── NEW-12 §3.9: ATS Translation Request check ────────────────────────
-        // An ATS TR is only allowed on streams where EATS != 0 AND translation
-        // is active (not bypass/abort).  Any other stream generates F_BAD_ATS_TREQ
-        // (event 0x05, §7.3.6).
-        if transaction_type == TransactionType::AtsTranslationRequest {
-            let ats_supported = self.streams.get(&stream_id.as_u32()).map_or(false, |r| {
-                let cfg = r.value().get_eats();
-                let s1 = r.value().is_stage1_enabled();
-                let s2 = r.value().is_stage2_enabled();
-                cfg != 0 && (s1 || s2)
-            });
-            if !ats_supported {
-                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
-                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                    let event = EventEntry {
-                        event_type: EventType::FBadAtsTreq,
-                        stream_id: stream_id.as_u32(),
-                        pasid: pasid.as_u32(),
-                        address: iova.as_u64(),
-                        security_state,
-                        timestamp,
-                        event_class: 2,
-                        rnw: matches!(access, AccessType::Write),
-                        ind: matches!(access, AccessType::Execute),
-                        ssv: pasid.as_u32() != 0,
-                        ..EventEntry::zeroed()
-                    };
-                    if let Ok(mut queue) = self.event_queue.write() {
-                        if queue.len() < self.event_queue_capacity {
-                            queue.push_back(event);
-                            self.event_count.fetch_add(1, Ordering::Relaxed);
-                            let prod = self.eventq_prod.load(Ordering::Relaxed);
-                            self.eventq_prod.store(
-                                Self::advance_index(prod, self.eventq_log2size),
-                                Ordering::Release,
-                            );
+        // ── NEW-13 §3.9.1.2/3.9.1.3: SMMUEN=0 ATS events ────────────────────
+        // When SMMUEN=0, ATS TR must emit F_BAD_ATS_TREQ (gated on REC_CFG_ATS)
+        // and ATS TT must emit F_TRANSL_FORBIDDEN (always permitted).
+        if !self.enabled.load(Ordering::Acquire) {
+            match transaction_type {
+                TransactionType::AtsTranslationRequest => {
+                    // §7.3.6: F_BAD_ATS_TREQ for SMMUEN=0 requires CR2.REC_CFG_ATS=1.
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0
+                        && (self.cr2.load(Ordering::Acquire) & Self::CR2_REC_CFG_ATS) != 0
+                    {
+                        let timestamp =
+                            self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::FBadAtsTreq,
+                            stream_id: stream_id.as_u32(),
+                            pasid: pasid.as_u32(),
+                            address: iova.as_u64(),
+                            security_state,
+                            timestamp,
+                            event_class: 2,
+                            rnw: matches!(access, AccessType::Write),
+                            ind: matches!(access, AccessType::Execute),
+                            ssv: pasid.as_u32() != 0,
+                            ..EventEntry::zeroed()
+                        };
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            if queue.len() < self.event_queue_capacity {
+                                queue.push_back(event);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(
+                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Ordering::Release,
+                                );
+                            }
                         }
                     }
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(TranslationError::PermissionViolation { access });
                 }
-                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                return Err(TranslationError::PermissionViolation { access });
+                TransactionType::AtsTranslated => {
+                    // §7.3.8: F_TRANSL_FORBIDDEN for SMMUEN=0 is always permitted.
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                        let timestamp =
+                            self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::FTranslForbidden,
+                            stream_id: stream_id.as_u32(),
+                            pasid: pasid.as_u32(),
+                            address: iova.as_u64(),
+                            security_state,
+                            timestamp,
+                            event_class: 2,
+                            rnw: matches!(access, AccessType::Write),
+                            ind: matches!(access, AccessType::Execute),
+                            ssv: pasid.as_u32() != 0,
+                            ..EventEntry::zeroed()
+                        };
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            if queue.len() < self.event_queue_capacity {
+                                queue.push_back(event);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(
+                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Ordering::Release,
+                                );
+                            }
+                        }
+                    }
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(TranslationError::PermissionViolation { access });
+                }
+                TransactionType::Ordinary => {
+                    // Fall through: let translate() handle GBPA bypass.
+                }
+            }
+        }
+
+        // ── NEW-12 §3.9: ATS Translation Request check ────────────────────────
+        // NEW-15: Not-found stream → let translate() emit C_BAD_STREAMID (gated on
+        //   CR2.REC_CFG_ATS + CR2.RECINVSID for ATS TR context).
+        // NEW-19: Disabled stream (abort_mode) → silent UR, no event (§3.9.1.2).
+        // Other unsupported streams (EATS=0, bypass) → F_BAD_ATS_TREQ (§7.3.6).
+        if transaction_type == TransactionType::AtsTranslationRequest {
+            match self.streams.get(&stream_id.as_u32()) {
+                None => {
+                    // NEW-15: Stream not found → C_BAD_STREAMID gated on
+                    //   CR2.REC_CFG_ATS=1 AND CR2.RECINVSID=1 for ATS TR.
+                    let record = (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0
+                        && (self.cr2.load(Ordering::Acquire) & Self::CR2_RECINVSID) != 0
+                        && (self.cr2.load(Ordering::Acquire) & Self::CR2_REC_CFG_ATS) != 0;
+                    if record {
+                        let timestamp =
+                            self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::CBadStreamid,
+                            stream_id: stream_id.as_u32(),
+                            pasid: pasid.as_u32(),
+                            address: iova.as_u64(),
+                            security_state,
+                            timestamp,
+                            event_class: 0,
+                            ..EventEntry::zeroed()
+                        };
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            if queue.len() < self.event_queue_capacity {
+                                queue.push_back(event);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(
+                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Ordering::Release,
+                                );
+                            }
+                        }
+                    }
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(TranslationError::StreamNotConfigured);
+                }
+                Some(stream_ref) => {
+                    let s1 = stream_ref.value().is_stage1_enabled();
+                    let s2 = stream_ref.value().is_stage2_enabled();
+                    let eats = stream_ref.value().get_eats();
+                    let abort = stream_ref.value().is_abort_mode();
+                    // Drop the DashMap reference before any borrow-sensitive operations.
+                    drop(stream_ref);
+
+                    if abort {
+                        // NEW-19: STE.Config=0b000 (abort/disabled) → silent UR, no event.
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        return Err(TranslationError::PermissionViolation { access });
+                    }
+                    let ats_supported = eats != 0 && (s1 || s2);
+                    if !ats_supported {
+                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            let timestamp =
+                                self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                            let event = EventEntry {
+                                event_type: EventType::FBadAtsTreq,
+                                stream_id: stream_id.as_u32(),
+                                pasid: pasid.as_u32(),
+                                address: iova.as_u64(),
+                                security_state,
+                                timestamp,
+                                event_class: 2,
+                                rnw: matches!(access, AccessType::Write),
+                                ind: matches!(access, AccessType::Execute),
+                                ssv: pasid.as_u32() != 0,
+                                ..EventEntry::zeroed()
+                            };
+                            if let Ok(mut queue) = self.event_queue.write() {
+                                if queue.len() < self.event_queue_capacity {
+                                    queue.push_back(event);
+                                    self.event_count.fetch_add(1, Ordering::Relaxed);
+                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                    self.eventq_prod.store(
+                                        Self::advance_index(prod, self.eventq_log2size),
+                                        Ordering::Release,
+                                    );
+                                }
+                            }
+                        }
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        return Err(TranslationError::PermissionViolation { access });
+                    }
+                }
             }
         }
 

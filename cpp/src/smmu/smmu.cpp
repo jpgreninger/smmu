@@ -204,6 +204,21 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // BUG-CPP-NEW-1 fix: use acquire load so that enable()/disable() writes
     // (which use release stores) are visible to this translate() reader.
     if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) == 0u) {
+        // NEW-13: ATS TR/TT get specific events even when SMMUEN=0 (§3.9.1.2/3.9.1.3).
+        if (transactionType == TransactionType::AtsTranslationRequest) {
+            // §7.3.6: F_BAD_ATS_TREQ for SMMUEN=0 requires CR2.REC_CFG_ATS=1.
+            if ((cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u) {
+                generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
+                              securityState, false, 0, accessType, false, 0);
+            }
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
+        if (transactionType == TransactionType::AtsTranslated) {
+            // §7.3.8: F_TRANSL_FORBIDDEN for SMMUEN=0 is always permitted.
+            generateEvent(EventType::F_TRANSL_FORBIDDEN, streamID, pasid, iova,
+                          securityState, false, 0, accessType, false, 0);
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
         if (gbpaAbort_.load(std::memory_order_acquire)) {
             // GBPA.ABORT=1: abort all transactions — no identity mapping, no fault event.
             return makeTranslationError(SMMUError::GbpaAbort);
@@ -252,8 +267,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             fault.securityState = securityState;
             fault.timestamp = getCurrentTimestamp();
             recordFault(fault);
-            if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            {
+                bool recordSid = (cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u;
+                // NEW-15: ATS TR C_BAD_STREAMID also requires CR2.REC_CFG_ATS=1 (§3.9.1.2).
+                if (recordSid && transactionType == TransactionType::AtsTranslationRequest) {
+                    recordSid = (cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u;
+                }
+                if (recordSid) {
+                    generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+                }
             }
             return makeTranslationError(SMMUError::InvalidStreamID);
         }
@@ -287,8 +309,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
                 // event queue when RECINVSID==1.  The fault record and translation error are
                 // always produced unconditionally regardless of the RECINVSID setting.
-                if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-                    generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+                {
+                    bool recordSid = (cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u;
+                    // NEW-15: ATS TR C_BAD_STREAMID also requires CR2.REC_CFG_ATS=1 (§3.9.1.2).
+                    if (recordSid && transactionType == TransactionType::AtsTranslationRequest) {
+                        recordSid = (cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u;
+                    }
+                    if (recordSid) {
+                        generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+                    }
                 }
                 return makeTranslationError(SMMUError::InvalidStreamID);
             }
@@ -322,8 +351,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
         // event queue when RECINVSID==1.  The fault record and translation error are
         // always produced unconditionally regardless of the RECINVSID setting.
-        if ((cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u) {
-            generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+        {
+            bool recordSid = (cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u;
+            // NEW-15: ATS TR C_BAD_STREAMID also requires CR2.REC_CFG_ATS=1 (§3.9.1.2).
+            if (recordSid && transactionType == TransactionType::AtsTranslationRequest) {
+                recordSid = (cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u;
+            }
+            if (recordSid) {
+                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
+            }
         }
         // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID,
         // not StreamNotConfigured (which would imply the stream exists but is disabled).
@@ -440,8 +476,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // generateEvent() can safely acquire queueMutex without creating a deadlock.
 
     // Check 1 — F_BAD_ATS_TREQ (§7.3.6, event 0x05): ATS Translation Request on a
-    // stream that does not support ATS (eats==0) or on a bypass/disabled stream.
+    // stream that does not support ATS.
     if (transactionType == TransactionType::AtsTranslationRequest) {
+        // NEW-19: STE.Config=0b000 (no translation, no bypass) → silent UR, no event (§3.9.1.2).
+        if (!streamCfgSnapshot.translationEnabled && !streamCfgSnapshot.bypassEnabled) {
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
+        // Other unsupported cases (EATS=0, bypass stream) → F_BAD_ATS_TREQ.
         bool atsSupported = (streamCfgSnapshot.eats != 0)
                             && streamCfgSnapshot.translationEnabled
                             && !streamCfgSnapshot.bypassEnabled;
