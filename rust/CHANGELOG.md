@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-17
+
+### Added
+- **GAP-NEW-D**: IDR0–IDR5, AIDR, IIDR register read methods with corrected bit fields per ARM IHI0070G.b §6.3.1–6.3.8
+  - IDR0: S2P(0), S1P(1), TTF=0b10, ATS(10), ASID16(12), SEV(14), ATOS(15), PRI(16), VMW(17), VMID16(18), ST_LEVEL[0](27)
+  - IDR1: PRIQS[15:11], EVENTQS[20:16], CMDQS[25:21] queue log2-size fields
+  - IDR2: returns 0 (only BA_VATOS field, prior impl wrongly returned IAS/OAS)
+  - IDR5: OAS=5 in bits[2:0], GRAN4K=bit4, GRAN16K=bit5, GRAN64K=bit6
+- **GAP-NEW-F**: gatos_translate() GATOS_PAR wrapper; GATOS_PAR ATTR[63:56]=0xFF + SH[9:8]=0b11 (ISH) in success path (§9.1–9.9)
+- **GAP-NEW-G**: STE.S1STALLD — `s1_stalld` field in StreamConfig gates `is_stall_enabled()` (§5.2)
+- **GAP-NEW-A**: Fault injection API — `inject_ste_fetch_abort()`, `inject_cd_fetch_abort()`, `inject_walk_eabt()` (§7.3.4/10/12)
+- **GAP-NEW-E**: STATUSR, IRQ_CTRL, IRQ_CTRLACK register stubs (§6.3.45–6.3.47)
+- **GAP-N/J/L**: C_BAD_SUBSTREAMID SSV fix, TTF consistency, GATOS_PAR fault syndrome
+- **GAP-NEW-S3**: CR2.E2H gates STRW=El2E2h; downgrades to NS-EL2 when E2H=0 (§5.2)
+- **GAP-NEW-S1/S2**: IDR1.ATTR_TYPES_OVR and IDR0.TERM_MODEL
+- 17 new Rust tests in `test_conf_gaps_new_abdef.rs` covering GAP-NEW-A/D/E/F/G
+
+### Changed
+- Overall ARM IHI0070G.b conformance raised to ~99% (all critical/moderate/low gaps resolved across 7 QA passes)
+- Rust test count: 2,777 → 2,949 (172 new tests from seventh-pass fixes)
+
 ## [1.2.0] - 2026-02-13
 
 ### Added

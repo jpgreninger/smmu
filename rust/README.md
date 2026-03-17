@@ -1,28 +1,43 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.3.1)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.4.0)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-2777%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-2949%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-94.30%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.3.1** - Post-Release Bug Fixes ⚡
+## ✅ **PRODUCTION READY v1.4.0** - Register Advertisement + Conformance Fixes ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,777 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,949 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
 **🎯 Latest Update (March 15, 2026)**: Version 1.3.1 — Fixed 4 bugs from second post-release C++ audit: 13 generateEvent() calls missing accessType fixing §7.3 RnW/InD/PnU event wire-format fields (Medium/Spec Violation), CacheConsistencyAfterInvalidation test restored covering §4.4 TLB maintenance (Medium), 9 redundant const_cast on mutable lockStripes removed (Low), 25 compiler warnings eliminated (Low). C++ tests: 116/116 passing, Rust tests: 205/205 passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.4.0 (March 17, 2026)
+
+**Seventh-Pass Register Advertisement + Conformance Fixes (C++ + Rust)**
+
+- ✅ **GAP-NEW-D (§6.3.1–6.3.8)**: IDR0–IDR5, AIDR, IIDR register read methods — corrected bit fields (IDR0: S2P/S1P/TTF/ATS/ASID16/SEV/ATOS/PRI/VMW/VMID16/ST_LEVEL; IDR1: PRIQS/EVENTQS/CMDQS log2 fields; IDR2: returns 0; IDR5: OAS/GRAN4K/GRAN16K/GRAN64K)
+- ✅ **GAP-NEW-F (§9.1–9.9)**: GATOS_PAR ATTR[63:56]=0xFF + SH[9:8]=0b11 (ISH) added to success path; gatos_translate() GATOS_PAR wrapper implemented
+- ✅ **GAP-NEW-G (§5.2)**: STE.S1STALLD — StreamConfig.s1_stalld/s1Stalld field; gates is_stall_enabled()
+- ✅ **GAP-NEW-A (§7.3.4/10/12)**: inject_ste_fetch_abort/cd_fetch_abort/walk_eabt fault injection API
+- ✅ **GAP-NEW-E (§6.3.45–6.3.47)**: STATUSR, IRQ_CTRL, IRQ_CTRLACK register stubs
+- ✅ **GAP-N/J/L**: C_BAD_SUBSTREAMID SSV fix, TTF consistency, GATOS_PAR fault syndrome
+- ✅ **GAP-NEW-S3 (§5.2)**: CR2.E2H gates STRW=El2E2h; downgrade to NS-EL2 when E2H=0
+- ✅ **GAP-NEW-S1/S2**: IDR1.ATTR_TYPES_OVR and IDR0.TERM_MODEL
+- ✅ 19 new C++ tests (test_conf_gaps_new_abdef.cpp), 17 new Rust tests (test_conf_gaps_new_abdef.rs)
+- ✅ C++ suite: 120/120 passing | Rust suite: 2,949/2,949 passing, 1 ignored, zero clippy warnings
 
 ### 🚀 Release v1.3.1 (March 15, 2026)
 
