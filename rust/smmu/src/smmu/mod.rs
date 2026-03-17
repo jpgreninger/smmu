@@ -1123,6 +1123,7 @@ impl SMMU {
         | (1u32 << 16)       // PRI
         | (1u32 << 17)       // VMW
         | (1u32 << 18)       // VMID16
+        | (1u32 << 24)       // STALL_MODEL[0] = 1 (stall supported, not forced; consistent with SEV=1)
         | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
     }
 
@@ -1144,6 +1145,7 @@ impl SMMU {
         | (priqs   << 11)   // PRIQS   in bits[15:11]
         | (eventqs << 16)   // EVENTQS in bits[20:16]
         | (cmdqs   << 21)   // CMDQS   in bits[25:21]
+        | (1u32    << 26)   // ATTR_PERMS_OVR: INSTCFG and PRIVCFG overrides implemented
     }
 
     /// Read SMMU_IDR2 (§6.3.3) — VATOS page base offset.
@@ -1364,8 +1366,11 @@ impl SMMU {
                 attr | sh | addr_field
             }
             Err(_) => {
-                // Fault: bit 0 = 1, all other bits = 0 (§6.3.40).
-                1u64
+                // Fault PAR format (§6.3.40):
+                //   bit 0      = FAULT = 1
+                //   bits[2:1]  = REASON = 0b00 (stage-1 / ATS fault)
+                //   bits[11:4] = FAULTCODE = 0x10 (F_TRANSLATION)
+                1u64 | (0x10u64 << 4)
             }
         }
     }

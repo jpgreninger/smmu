@@ -2423,6 +2423,7 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 16)       // PRI: page request interface supported
          | (1u << 17)       // VMW: VMID wildcard bits in CR0
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
+         | (1u << 24)       // STALL_MODEL[0]=1: stall supported but not forced (§6.3.1)
          | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
 }
 
@@ -2437,7 +2438,8 @@ uint32_t SMMU::getIDR1() const {
          | (0x14u << 6)                       // SSIDSIZE = 20 in bits[10:6]
          | (static_cast<uint32_t>(priqLog2Size)   << 11) // PRIQS
          | (static_cast<uint32_t>(eventqLog2Size) << 16) // EVENTQS
-         | (static_cast<uint32_t>(cmdqLog2Size)   << 21);// CMDQS
+         | (static_cast<uint32_t>(cmdqLog2Size)   << 21) // CMDQS
+         | (1u << 26);                        // ATTR_PERMS_OVR: INSTCFG+PRIVCFG overrides implemented (§6.3.2)
 }
 
 uint32_t SMMU::getIDR2() const {
@@ -2540,7 +2542,11 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                                AccessType accessType, SecurityState securityState) {
     TranslationResult result = translate(streamID, pasid, iova, accessType, securityState);
     if (result.isError()) {
-        return 0x1ULL; // FAULT bit set, all others 0
+        // GATOS_PAR fault format (§6.3.40):
+        //   bit 0       = FAULT=1
+        //   bits[2:1]   = REASON=0b00 (stage-1 or ATS fault)
+        //   bits[11:4]  = FAULTCODE=0x10 (F_TRANSLATION)
+        return 0x1ULL | (static_cast<uint64_t>(0x10u) << 4);
     }
     uint64_t pa         = result.getValue().physicalAddress;
     uint64_t addr_field = pa & 0x00FFFFFFFFFFF000ULL;              // PA bits[55:12]
@@ -3616,9 +3622,11 @@ StreamTableFormat SMMU::getStrtabFormat() const {
 }
 
 void SMMU::setStrtabSplit(uint8_t split) {
-    // Clamp to valid range 1-15 per ARM §6.3.25.
-    if (split < 1u) split = 1u;
-    if (split > 15u) split = 15u;
+    // Only values 6, 8, 10 are architecturally defined (§6.3.25 STRTAB_BASE_CFG.SPLIT).
+    // Reserved values are treated as 6 per the specification.
+    if (split != 6u && split != 8u && split != 10u) {
+        split = 6u;
+    }
     strtabSplit_.store(split, std::memory_order_release);
 }
 

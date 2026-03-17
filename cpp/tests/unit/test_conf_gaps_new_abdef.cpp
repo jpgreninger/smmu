@@ -310,3 +310,64 @@ TEST_F(GapNewFTest, gap_new_f_gatos_translate_unconfigured_stream_fault) {
     EXPECT_EQ((par & 0x1u), 1u)
         << "GATOS must return fault for unconfigured stream";
 }
+
+// =============================================================================
+// GAP-P9: IDR0.STALL_MODEL must be 0b01 when SEV=1 (§6.3.1)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_d_idr0_stall_model_consistent_with_sev) {
+    uint32_t idr0 = smmu_->getIDR0();
+    // SEV (bit 14) = 1 means stall model is supported.
+    // STALL_MODEL[25:24] must be 0b01 (stall supported, not forced) when SEV=1.
+    EXPECT_TRUE((idr0 & (1u << 14)) != 0u) << "IDR0 bit 14 (SEV) must be set";
+    EXPECT_TRUE((idr0 & (1u << 24)) != 0u) << "IDR0 bit 24 (STALL_MODEL[0]) must be set";
+    EXPECT_TRUE((idr0 & (1u << 25)) == 0u) << "IDR0 bit 25 (STALL_MODEL[1]) must be clear";
+}
+
+// =============================================================================
+// GAP-P8: IDR1.ATTR_PERMS_OVR must be set (§6.3.2)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_d_idr1_attr_perms_ovr_set) {
+    uint32_t idr1 = smmu_->getIDR1();
+    // IDR1 bit 26 = ATTR_PERMS_OVR: INSTCFG + PRIVCFG overrides are implemented.
+    EXPECT_TRUE((idr1 & (1u << 26)) != 0u) << "IDR1 bit 26 (ATTR_PERMS_OVR) must be set";
+}
+
+// =============================================================================
+// GAP-P3: setStrtabSplit() must accept only {6, 8, 10} and clamp reserved to 6 (§6.3.25)
+// =============================================================================
+
+TEST(StrtabSplitTest, gap_p3_strtab_split_clamps_invalid_to_six) {
+    SMMU smmu;
+    // Valid values must be accepted as-is.
+    smmu.setStrtabSplit(6u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 6u) << "SPLIT=6 must be accepted";
+    smmu.setStrtabSplit(8u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 8u) << "SPLIT=8 must be accepted";
+    smmu.setStrtabSplit(10u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 10u) << "SPLIT=10 must be accepted";
+    // Reserved values must clamp to 6.
+    smmu.setStrtabSplit(5u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 6u) << "SPLIT=5 (reserved) must clamp to 6";
+    smmu.setStrtabSplit(7u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 6u) << "SPLIT=7 (reserved) must clamp to 6";
+    smmu.setStrtabSplit(15u);
+    EXPECT_EQ(smmu.getStrtabSplit(), 6u) << "SPLIT=15 (reserved) must clamp to 6";
+}
+
+// =============================================================================
+// GAP-P5: GATOS_PAR fault syndrome must include FAULTCODE (§6.3.40)
+// =============================================================================
+
+TEST_F(GapNewFTest, gap_new_f_gatos_fault_par_has_faultcode) {
+    setupStage1Stream(*smmu_, SID, PID, FaultMode::Terminate);
+    // No page mapped — will produce F_TRANSLATION.
+    uint64_t par = smmu_->gatosTranslate(SID, PID, BASE_IOVA, AccessType::Read);
+    EXPECT_EQ((par & 0x1u), 1u) << "GATOS PAR bit 0 must be 1 on fault";
+    // FAULTCODE[11:4] must be 0x10 (F_TRANSLATION).
+    EXPECT_EQ((par >> 4) & 0xFFu, 0x10u)
+        << "GATOS PAR FAULTCODE[11:4] must be 0x10 (F_TRANSLATION)";
+    // REASON[2:1] must be 0b00.
+    EXPECT_EQ((par >> 1) & 0x3u, 0u) << "GATOS PAR REASON[2:1] must be 0b00";
+}

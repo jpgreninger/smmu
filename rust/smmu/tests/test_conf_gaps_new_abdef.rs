@@ -381,6 +381,61 @@ fn test_gap_new_f_gatos_fault_on_unmapped() {
 
     // On fault bit 0 must be 1
     assert_eq!(par & 1, 1, "GATOS_PAR bit 0 must be 1 (FAULT) on translation failure");
-    // All other bits are 0 on fault
-    assert_eq!(par & !1u64, 0, "GATOS_PAR bits[63:1] must be 0 on fault");
+    // FAULTCODE[11:4] = 0x10 (F_TRANSLATION)
+    assert_eq!((par >> 4) & 0xFF, 0x10, "GATOS_PAR FAULTCODE[11:4] must be 0x10");
+    // REASON[2:1] = 0b00
+    assert_eq!((par >> 1) & 0x3, 0, "GATOS_PAR REASON[2:1] must be 0b00");
+}
+
+// ============================================================================
+// GAP-P9: IDR0.STALL_MODEL[25:24] consistent with SEV=1
+// ============================================================================
+
+/// GAP-P9: IDR0.STALL_MODEL[25:24] must be 0b01 (consistent with SEV=1).
+#[test]
+fn test_gap_p9_idr0_stall_model_consistent_with_sev() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_ne!(idr0 & (1 << 14), 0, "IDR0 bit 14 (SEV) must be set");
+    assert_ne!(idr0 & (1 << 24), 0, "IDR0 bit 24 (STALL_MODEL[0]) must be set");
+    assert_eq!(idr0 & (1 << 25), 0, "IDR0 bit 25 (STALL_MODEL[1]) must be clear");
+}
+
+// ============================================================================
+// GAP-P8: IDR1.ATTR_PERMS_OVR (bit 26)
+// ============================================================================
+
+/// GAP-P8: IDR1.ATTR_PERMS_OVR (bit 26) must be set — INSTCFG+PRIVCFG implemented.
+#[test]
+fn test_gap_p8_idr1_attr_perms_ovr_set() {
+    let smmu = SMMU::new();
+    let idr1 = smmu.get_idr1();
+    assert_ne!(idr1 & (1 << 26), 0, "IDR1 bit 26 (ATTR_PERMS_OVR) must be set");
+}
+
+// ============================================================================
+// GAP-P5: GATOS_PAR fault syndrome (§6.3.40)
+// ============================================================================
+
+/// GAP-P5: GATOS_PAR fault syndrome has FAULTCODE[11:4]=0x10 and REASON[2:1]=0b00.
+#[test]
+fn test_gap_p5_gatos_fault_par_has_faultcode() {
+    let smmu = SMMU::new();
+    enable_smmu(&smmu);
+
+    let sid = make_sid(22);
+    let pasid = make_pasid(0);
+    let cfg = StreamConfig::builder()
+        .translation_enabled(true)
+        .stage1_enabled(true)
+        .build()
+        .unwrap();
+    smmu.configure_stream(sid, cfg).unwrap();
+    smmu.create_pasid(sid, pasid).unwrap();
+    // No page mapped — F_TRANSLATION fault.
+
+    let par = smmu.gatos_translate(sid, pasid, make_iova(0x9000), AccessType::Read, SecurityState::NonSecure);
+    assert_eq!(par & 1, 1, "GATOS_PAR bit 0 must be 1 (FAULT)");
+    assert_eq!((par >> 4) & 0xFF, 0x10, "GATOS_PAR FAULTCODE[11:4] must be 0x10 (F_TRANSLATION)");
+    assert_eq!((par >> 1) & 0x3, 0, "GATOS_PAR REASON[2:1] must be 0b00");
 }
