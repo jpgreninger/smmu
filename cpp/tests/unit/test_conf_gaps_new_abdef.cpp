@@ -160,10 +160,25 @@ TEST_F(GapNewDTest, gap_new_d_aidr_iidr_callable) {
     SUCCEED();
 }
 
-// IDR3 and IDR4 should return 0 for this minimal model.
-TEST_F(GapNewDTest, gap_new_d_idr3_idr4_return_zero) {
-    EXPECT_EQ(smmu_->getIDR3(), 0u);
+// IDR4 should return 0 for this minimal model (no VATOS/MPAM fields).
+TEST_F(GapNewDTest, gap_new_d_idr4_returns_zero) {
     EXPECT_EQ(smmu_->getIDR4(), 0u);
+}
+
+// IDR3 must encode RIL(bit10), FWB(bit8), BBML=0b01(bit11), HAD(bit2).
+TEST_F(GapNewDTest, gap_new_d_idr3_capability_bits) {
+    uint32_t idr3 = smmu_->getIDR3();
+    EXPECT_TRUE((idr3 & (1u << 2))  != 0u) << "IDR3 bit 2 (HAD) must be set";
+    EXPECT_TRUE((idr3 & (1u << 8))  != 0u) << "IDR3 bit 8 (FWB) must be set";
+    EXPECT_TRUE((idr3 & (1u << 10)) != 0u) << "IDR3 bit 10 (RIL) must be set";
+    EXPECT_TRUE((idr3 & (1u << 11)) != 0u) << "IDR3 bit 11 (BBML[0]) must be set";
+    EXPECT_TRUE((idr3 & (1u << 12)) == 0u) << "IDR3 bit 12 (BBML[1]) must be clear (BBML=0b01)";
+}
+
+// AIDR must return 0x02 (SMMUv3.2) since RIL, FWB, and T0SZ are implemented.
+TEST_F(GapNewDTest, gap_new_d_aidr_smmuv32) {
+    uint32_t aidr = smmu_->getAIDR();
+    EXPECT_EQ(aidr, 0x02u) << "AIDR must be 0x02 (SMMUv3.2) -- RIL/FWB/T0SZ features are implemented";
 }
 
 // =============================================================================

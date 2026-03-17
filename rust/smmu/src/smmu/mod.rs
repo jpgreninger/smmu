@@ -1156,10 +1156,18 @@ impl SMMU {
         0
     }
 
-    /// Read SMMU_IDR3 (§6.3.4) — all zeros for basic SW model.
+    /// Read SMMU_IDR3 (§6.3.4) — capability bits for SMMUv3.2 features.
+    ///
+    /// - bit 2 (HAD): hierarchical attribute disable supported
+    /// - bit 8 (FWB): stage-2 force write-back attribute control supported
+    /// - bit 10 (RIL): range-based invalidation supported
+    /// - bits \[12:11\] (BBML) = 0b01: BBML level 1 (bit 11 set, bit 12 clear)
     #[must_use]
     pub fn get_idr3(&self) -> u32 {
-        0
+        (1u32 << 2)   // HAD: hierarchical attribute disable
+        | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
+        | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
+        | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
     }
 
     /// Read SMMU_IDR4 (§6.3.5) — all zeros for basic SW model.
@@ -1185,10 +1193,12 @@ impl SMMU {
 
     /// Read SMMU_AIDR (§6.3.7) — architecture implementation version.
     ///
-    /// Returns 0x00 (version 0, implementation-defined).
+    /// Returns 0x02 (SMMUv3.2). This model implements SMMUv3.2-mandatory features:
+    /// RIL range-based TLBI, FWB stage-2 attribute control, T0SZ, and S2T0SZ enforcement.
     #[must_use]
     pub fn get_aidr(&self) -> u32 {
-        0x00
+        // ARM IHI0070G.b §6.3.8: ArchMinorRev=2 (SMMUv3.2).
+        0x02
     }
 
     /// Read SMMU_IIDR (§6.3.8) — implementer and product identification.

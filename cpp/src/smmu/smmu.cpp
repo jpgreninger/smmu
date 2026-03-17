@@ -2447,8 +2447,13 @@ uint32_t SMMU::getIDR2() const {
     return 0u;
 }
 
-// IDR3: reserved — returns 0 for this model.
-uint32_t SMMU::getIDR3() const { return 0u; }
+// IDR3: ARM IHI0070G.b §6.3.4 — capability bits for SMMUv3.2 features implemented.
+uint32_t SMMU::getIDR3() const {
+    return (1u << 2)   // HAD: hierarchical attribute disable supported
+         | (1u << 8)   // FWB: stage-2 force write-back attribute control supported
+         | (1u << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
+         | (1u << 11); // BBML[0]: basic bus master lock level 1 (BBML=0b01)
+}
 
 // IDR4: reserved — returns 0 for this model.
 uint32_t SMMU::getIDR4() const { return 0u; }
@@ -2466,8 +2471,9 @@ uint32_t SMMU::getIDR5() const {
          | (1u << 6);   // GRAN64K
 }
 
-// AIDR: architecture implementation-defined — returns 0.
-uint32_t SMMU::getAIDR() const { return 0u; }
+// AIDR: ARM IHI0070G.b §6.3.8 SMMU_AIDR: ArchMinorRev=2 (SMMUv3.2).
+// This model implements SMMUv3.2-mandatory features: RIL, FWB, T0SZ, S2T0SZ.
+uint32_t SMMU::getAIDR() const { return 0x02u; }
 
 // IIDR: implementer-defined — returns 0.
 uint32_t SMMU::getIIDR() const { return 0u; }

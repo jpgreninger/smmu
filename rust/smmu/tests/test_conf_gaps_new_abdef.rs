@@ -169,12 +169,31 @@ fn test_gap_new_d_idr5_granules() {
 #[test]
 fn test_gap_new_d_aidr_iidr() {
     let smmu = SMMU::new();
-    // AIDR is implementation-defined version 0
+    // AIDR must be 0x02 (SMMUv3.2) since RIL/FWB/T0SZ features are implemented.
     let aidr = smmu.get_aidr();
-    assert_eq!(aidr, 0x00, "AIDR must be 0 for this implementation");
+    assert_eq!(aidr, 0x02, "AIDR must be 0x02 (SMMUv3.2)");
     // IIDR is 0 (no implementer code assigned)
     let iidr = smmu.get_iidr();
     assert_eq!(iidr, 0x0, "IIDR must be 0");
+}
+
+/// GAP-P2: IDR3 must encode RIL(bit10), FWB(bit8), BBML=0b01(bit11), HAD(bit2).
+#[test]
+fn test_gap_p2_idr3_capability_bits() {
+    let smmu = SMMU::new();
+    let idr3 = smmu.get_idr3();
+    assert_ne!(idr3 & (1 << 2),  0, "IDR3 bit 2 (HAD) must be set");
+    assert_ne!(idr3 & (1 << 8),  0, "IDR3 bit 8 (FWB) must be set");
+    assert_ne!(idr3 & (1 << 10), 0, "IDR3 bit 10 (RIL) must be set");
+    assert_ne!(idr3 & (1 << 11), 0, "IDR3 bit 11 (BBML[0]) must be set");
+    assert_eq!(idr3 & (1 << 12), 0, "IDR3 bit 12 (BBML[1]) must be clear (BBML=0b01)");
+}
+
+/// GAP-P1: AIDR must return 0x02 (SMMUv3.2) since RIL/FWB/T0SZ features are implemented.
+#[test]
+fn test_gap_p1_aidr_smmuv32() {
+    let smmu = SMMU::new();
+    assert_eq!(smmu.get_aidr(), 0x02, "AIDR must be 0x02 (SMMUv3.2)");
 }
 
 // ============================================================================
