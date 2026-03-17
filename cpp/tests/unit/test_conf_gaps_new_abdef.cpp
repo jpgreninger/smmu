@@ -312,16 +312,44 @@ TEST_F(GapNewFTest, gap_new_f_gatos_translate_unconfigured_stream_fault) {
 }
 
 // =============================================================================
-// GAP-P9: IDR0.STALL_MODEL must be 0b01 when SEV=1 (§6.3.1)
+// GAP-P9 / GAP-R01: IDR0.STALL_MODEL must be 0b00 (§6.3.1)
 // =============================================================================
 
 TEST_F(GapNewDTest, gap_new_d_idr0_stall_model_consistent_with_sev) {
     uint32_t idr0 = smmu_->getIDR0();
-    // SEV (bit 14) = 1 means stall model is supported.
-    // STALL_MODEL[25:24] must be 0b01 (stall supported, not forced) when SEV=1.
     EXPECT_TRUE((idr0 & (1u << 14)) != 0u) << "IDR0 bit 14 (SEV) must be set";
-    EXPECT_TRUE((idr0 & (1u << 24)) != 0u) << "IDR0 bit 24 (STALL_MODEL[0]) must be set";
-    EXPECT_TRUE((idr0 & (1u << 25)) == 0u) << "IDR0 bit 25 (STALL_MODEL[1]) must be clear";
+    // STALL_MODEL=0b00 means both stall and terminate are supported (correct for this model).
+    EXPECT_EQ((idr0 >> 24) & 0x3u, 0u) << "IDR0 STALL_MODEL[25:24] must be 0b00";
+}
+
+// GAP-R01: STALL_MODEL must be 0b00 (both stall+terminate supported).
+TEST_F(GapNewDTest, gap_new_r01_idr0_stall_model_zero) {
+    uint32_t idr0 = smmu_->getIDR0();
+    EXPECT_EQ((idr0 >> 24) & 0x3u, 0u)
+        << "IDR0.STALL_MODEL[25:24] must be 0b00 (both models supported)";
+    // SEV (bit 14) must still be set.
+    EXPECT_TRUE((idr0 & (1u << 14)) != 0u) << "IDR0.SEV (bit 14) must remain set";
+}
+
+// GAP-R06: IDR5.STALL_MAX must be non-zero when STALL_MODEL==0b00.
+TEST_F(GapNewDTest, gap_new_r06_idr5_stall_max_nonzero) {
+    uint32_t idr5 = smmu_->getIDR5();
+    uint32_t stall_max = (idr5 >> 16) & 0xFFFFu;
+    EXPECT_NE(stall_max, 0u) << "IDR5.STALL_MAX[31:16] must be non-zero when stall is supported";
+}
+
+// GAP-R02: IDR0.Hyp (bit 9) must be set — mandatory for SMMUv3.2 with S1P+S2P.
+TEST_F(GapNewDTest, gap_new_r02_idr0_hyp_set) {
+    uint32_t idr0 = smmu_->getIDR0();
+    EXPECT_TRUE((idr0 & (1u << 9)) != 0u)
+        << "IDR0.Hyp (bit 9) must be set — mandatory for SMMUv3.2 when S1P==1 and S2P==1";
+}
+
+// GAP-R03: IDR3.XNX (bit 4) must be set — mandatory for SMMUv3.1+ when S2P==1.
+TEST_F(GapNewDTest, gap_new_r03_idr3_xnx_set) {
+    uint32_t idr3 = smmu_->getIDR3();
+    EXPECT_TRUE((idr3 & (1u << 4)) != 0u)
+        << "IDR3.XNX (bit 4) must be set — mandatory for SMMUv3.1+ when S2P==1";
 }
 
 // =============================================================================

@@ -2422,9 +2422,10 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
          | (1u << 16)       // PRI: page request interface supported
          | (1u << 17)       // VMW: VMID wildcard bits in CR0
+         | (1u << 9)        // Hyp: hypervisor stage-1 translation — mandatory for SMMUv3.2 with S1P+S2P (§6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
-         | (1u << 24)       // STALL_MODEL[0]=1: stall supported but not forced (§6.3.1)
          | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
+                            // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
 }
 
 uint32_t SMMU::getIDR1() const {
@@ -2452,6 +2453,7 @@ uint32_t SMMU::getIDR2() const {
 // IDR3: ARM IHI0070G.b §6.3.4 — capability bits for SMMUv3.2 features implemented.
 uint32_t SMMU::getIDR3() const {
     return (1u << 2)   // HAD: hierarchical attribute disable supported
+         | (1u << 4)   // XNX: execute-never differentiation for EL0/EL1 — mandatory for SMMUv3.1+ with S2P (§6.3.4)
          | (1u << 8)   // FWB: stage-2 force write-back attribute control supported
          | (1u << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
          | (1u << 11); // BBML[0]: basic bus master lock level 1 (BBML=0b01)
@@ -2470,7 +2472,8 @@ uint32_t SMMU::getIDR5() const {
     return 5u           // OAS = 5 (48-bit) in bits[2:0]
          | (1u << 4)    // GRAN4K
          | (1u << 5)    // GRAN16K
-         | (1u << 6);   // GRAN64K
+         | (1u << 6)    // GRAN64K
+         | (64u << 16); // STALL_MAX[31:16] = 64: max outstanding stall transactions (§6.3.6, non-zero when STALL_MODEL=0b00)
 }
 
 // AIDR: ARM IHI0070G.b §6.3.8 SMMU_AIDR: ArchMinorRev=2 (SMMUv3.2).

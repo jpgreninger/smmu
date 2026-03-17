@@ -391,14 +391,64 @@ fn test_gap_new_f_gatos_fault_on_unmapped() {
 // GAP-P9: IDR0.STALL_MODEL[25:24] consistent with SEV=1
 // ============================================================================
 
-/// GAP-P9: IDR0.STALL_MODEL[25:24] must be 0b01 (consistent with SEV=1).
+/// GAP-P9: IDR0.STALL_MODEL[25:24] must be 0b00 (both stall and terminate models supported).
 #[test]
 fn test_gap_p9_idr0_stall_model_consistent_with_sev() {
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
     assert_ne!(idr0 & (1 << 14), 0, "IDR0 bit 14 (SEV) must be set");
-    assert_ne!(idr0 & (1 << 24), 0, "IDR0 bit 24 (STALL_MODEL[0]) must be set");
-    assert_eq!(idr0 & (1 << 25), 0, "IDR0 bit 25 (STALL_MODEL[1]) must be clear");
+    // STALL_MODEL=0b00: both stall and terminate models supported.
+    assert_eq!((idr0 >> 24) & 0x3, 0, "IDR0 STALL_MODEL[25:24] must be 0b00");
+}
+
+// ============================================================================
+// GAP-R01: IDR0.STALL_MODEL encoding
+// ============================================================================
+
+/// GAP-R01: IDR0.STALL_MODEL[25:24] must be 0b00 (both models supported).
+#[test]
+fn test_gap_r01_idr0_stall_model_zero() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_eq!((idr0 >> 24) & 0x3, 0, "IDR0.STALL_MODEL[25:24] must be 0b00");
+    assert_ne!(idr0 & (1 << 14), 0, "IDR0.SEV (bit 14) must remain set");
+}
+
+// ============================================================================
+// GAP-R06: IDR5.STALL_MAX non-zero
+// ============================================================================
+
+/// GAP-R06: IDR5.STALL_MAX[31:16] must be non-zero when stall is supported.
+#[test]
+fn test_gap_r06_idr5_stall_max_nonzero() {
+    let smmu = SMMU::new();
+    let idr5 = smmu.get_idr5();
+    let stall_max = (idr5 >> 16) & 0xFFFF;
+    assert_ne!(stall_max, 0, "IDR5.STALL_MAX[31:16] must be non-zero when stall is supported");
+}
+
+// ============================================================================
+// GAP-R02: IDR0.Hyp (bit 9)
+// ============================================================================
+
+/// GAP-R02: IDR0.Hyp (bit 9) must be set — mandatory for SMMUv3.2 with S1P+S2P.
+#[test]
+fn test_gap_r02_idr0_hyp_set() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_ne!(idr0 & (1 << 9), 0, "IDR0.Hyp (bit 9) must be set for SMMUv3.2");
+}
+
+// ============================================================================
+// GAP-R03: IDR3.XNX (bit 4)
+// ============================================================================
+
+/// GAP-R03: IDR3.XNX (bit 4) must be set — mandatory for SMMUv3.1+ when S2P==1.
+#[test]
+fn test_gap_r03_idr3_xnx_set() {
+    let smmu = SMMU::new();
+    let idr3 = smmu.get_idr3();
+    assert_ne!(idr3 & (1 << 4), 0, "IDR3.XNX (bit 4) must be set for SMMUv3.1+ with S2P");
 }
 
 // ============================================================================

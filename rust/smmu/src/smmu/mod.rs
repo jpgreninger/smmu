@@ -1103,6 +1103,7 @@ impl SMMU {
     /// - bit  0: S2P    — Stage-2 translation present
     /// - bit  1: S1P    — Stage-1 translation present
     /// - bits 3:2: TTF  — Translation Table Format: 0b10 = AArch64 S1+S2
+    /// - bit  9: Hyp   — Hypervisor stage-1 translation supported (mandatory for SMMUv3.2 with S1P+S2P)
     /// - bit 10: ATS   — PCIe ATS support
     /// - bit 12: ASID16 — 16-bit ASIDs supported
     /// - bit 14: SEV   — Stall model WFE/SEV supported
@@ -1110,6 +1111,7 @@ impl SMMU {
     /// - bit 16: PRI   — Page Request Interface supported
     /// - bit 17: VMW   — VMID Wildcard bits in CR0
     /// - bit 18: VMID16 — 16-bit VMIDs supported
+    /// - bits\[25:24\]: STALL_MODEL — 0b00: both stall and terminate models supported
     /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
     #[must_use]
     pub fn get_idr0(&self) -> u32 {
@@ -1123,7 +1125,8 @@ impl SMMU {
         | (1u32 << 16)       // PRI
         | (1u32 << 17)       // VMW
         | (1u32 << 18)       // VMID16
-        | (1u32 << 24)       // STALL_MODEL[0] = 1 (stall supported, not forced; consistent with SEV=1)
+        | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
+        // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
         | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
     }
 
@@ -1161,12 +1164,14 @@ impl SMMU {
     /// Read SMMU_IDR3 (§6.3.4) — capability bits for SMMUv3.2 features.
     ///
     /// - bit 2 (HAD): hierarchical attribute disable supported
+    /// - bit 4 (XNX): stage-2 execute-never control supported; mandatory for SMMUv3.1+ with S2P
     /// - bit 8 (FWB): stage-2 force write-back attribute control supported
     /// - bit 10 (RIL): range-based invalidation supported
     /// - bits \[12:11\] (BBML) = 0b01: BBML level 1 (bit 11 set, bit 12 clear)
     #[must_use]
     pub fn get_idr3(&self) -> u32 {
         (1u32 << 2)   // HAD: hierarchical attribute disable
+        | (1u32 << 4)   // XNX: stage-2 execute-never control; mandatory for SMMUv3.1+ with S2P (§6.3.4, §2.3)
         | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
@@ -1181,16 +1186,18 @@ impl SMMU {
     /// Read SMMU_IDR5 (§6.3.6) — output address size and granule support.
     ///
     /// Bit layout per ARM IHI0070G.b §6.3.6:
-    /// - bits[2:0]: OAS    — Output Address Size (5 = 48-bit)
-    /// - bit  4:   GRAN4K  — 4KB translation granule supported
-    /// - bit  5:   GRAN16K — 16KB translation granule supported
-    /// - bit  6:   GRAN64K — 64KB translation granule supported
+    /// - bits[2:0]:   OAS       — Output Address Size (5 = 48-bit)
+    /// - bit  4:      GRAN4K    — 4KB translation granule supported
+    /// - bit  5:      GRAN16K   — 16KB translation granule supported
+    /// - bit  6:      GRAN64K   — 64KB translation granule supported
+    /// - bits[31:16]: STALL_MAX — Maximum stall queue depth (64); must be non-zero when STALL_MODEL=0b00
     #[must_use]
     pub fn get_idr5(&self) -> u32 {
-        5u32          // OAS = 5 (48-bit) in bits[2:0]
-        | (1u32 << 4) // GRAN4K
-        | (1u32 << 5) // GRAN16K
-        | (1u32 << 6) // GRAN64K
+        5u32            // OAS = 5 (48-bit) in bits[2:0]
+        | (1u32 << 4)   // GRAN4K
+        | (1u32 << 5)   // GRAN16K
+        | (1u32 << 6)   // GRAN64K
+        | (64u32 << 16) // STALL_MAX: 64 outstanding stall entries (§6.3.6, required when STALL_MODEL=0b00)
     }
 
     /// Read SMMU_AIDR (§6.3.7) — architecture implementation version.
