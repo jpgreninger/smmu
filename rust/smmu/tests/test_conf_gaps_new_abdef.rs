@@ -592,3 +592,29 @@ fn test_gap_r07_idr0_btm_set() {
     let idr0 = smmu.get_idr0();
     assert_ne!(idr0 & (1 << 5), 0, "IDR0.BTM (bit 5) must be set");
 }
+
+// ============================================================================
+// GAP-NEW-S1: IDR1.ATTR_TYPES_OVR (bit 27)
+// ============================================================================
+
+/// GAP-NEW-S1: IDR1.ATTR_TYPES_OVR (bit 27) must be set — MTCFG/SHCFG/ALLOCCFG implemented.
+#[test]
+fn test_gap_new_s1_idr1_attr_types_ovr_set() {
+    let smmu = SMMU::new();
+    let idr1 = smmu.get_idr1();
+    assert_ne!(idr1 & (1 << 27), 0,
+        "IDR1.ATTR_TYPES_OVR (bit 27) must be set — MTCFG/SHCFG/ALLOCCFG are implemented");
+}
+
+// ============================================================================
+// GAP-NEW-S2: IDR0.TERM_MODEL (bit 26)
+// ============================================================================
+
+/// GAP-NEW-S2: IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled, always aborts.
+#[test]
+fn test_gap_new_s2_idr0_term_model_set() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_ne!(idr0 & (1 << 26), 0,
+        "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; implementation always aborts");
+}

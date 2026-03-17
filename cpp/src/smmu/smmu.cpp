@@ -2426,6 +2426,7 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 17)       // VMW: VMID wildcard bits in CR0
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
+         | (1u << 26)       // TERM_MODEL: RAZ/WI termination not supported; all faults abort (CD.A not modeled) — GAP-NEW-S2 §6.3.1/§3.12.1
          | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
                             // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
 }
@@ -2442,7 +2443,8 @@ uint32_t SMMU::getIDR1() const {
          | (static_cast<uint32_t>(priqLog2Size)   << 11) // PRIQS
          | (static_cast<uint32_t>(eventqLog2Size) << 16) // EVENTQS
          | (static_cast<uint32_t>(cmdqLog2Size)   << 21) // CMDQS
-         | (1u << 26);                        // ATTR_PERMS_OVR: INSTCFG+PRIVCFG overrides implemented (§6.3.2)
+         | (1u << 26)                         // ATTR_PERMS_OVR: INSTCFG+PRIVCFG overrides implemented (§6.3.2)
+         | (1u << 27);                        // ATTR_TYPES_OVR: MTCFG/SHCFG/ALLOCCFG overrides implemented (§6.3.2)
 }
 
 uint32_t SMMU::getIDR2() const {

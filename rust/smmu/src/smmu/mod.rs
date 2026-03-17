@@ -1114,6 +1114,7 @@ impl SMMU {
     /// - bit 18: VMID16 — 16-bit VMIDs supported
     /// - bit 23: ATSRECERR — ATS error recovery (CR2.REC_CFG_ATS) implemented
     /// - bits\[25:24\]: STALL_MODEL — 0b00: both stall and terminate models supported
+    /// - bit 26: TERM_MODEL — CD.A not modeled; implementation always aborts (§3.12.1)
     /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
     #[must_use]
     pub fn get_idr0(&self) -> u32 {
@@ -1131,6 +1132,7 @@ impl SMMU {
         | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
         // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
         | (1u32 << 23)       // ATSRECERR: ATS error recovery (CR2.REC_CFG_ATS) implemented (§6.3.1, §2.5)
+        | (1u32 << 26)       // TERM_MODEL: CD.A not modeled; implementation always aborts (§6.3.1, §3.12.1)
         | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
     }
 
@@ -1142,6 +1144,8 @@ impl SMMU {
     /// - bits[15:11]: PRIQS    — PRIQ max log2 entries
     /// - bits[20:16]: EVENTQS  — EVENTQ max log2 entries
     /// - bits[25:21]: CMDQS    — CMDQ max log2 entries
+    /// - bit 26: ATTR_PERMS_OVR — INSTCFG and PRIVCFG overrides implemented
+    /// - bit 27: ATTR_TYPES_OVR — MTCFG/SHCFG/ALLOCCFG overrides implemented (§6.3.2)
     #[must_use]
     pub fn get_idr1(&self) -> u32 {
         let priqs   = self.priq_log2size;
@@ -1153,6 +1157,7 @@ impl SMMU {
         | (eventqs << 16)   // EVENTQS in bits[20:16]
         | (cmdqs   << 21)   // CMDQS   in bits[25:21]
         | (1u32    << 26)   // ATTR_PERMS_OVR: INSTCFG and PRIVCFG overrides implemented
+        | (1u32    << 27)   // ATTR_TYPES_OVR: MTCFG/SHCFG/ALLOCCFG overrides implemented (§6.3.2)
     }
 
     /// Read SMMU_IDR2 (§6.3.3) — VATOS page base offset.

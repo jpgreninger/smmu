@@ -435,3 +435,23 @@ TEST_F(GapNewDTest, gap_new_r07_idr0_btm_set) {
     EXPECT_TRUE((idr0 & (1u << 5)) != 0u)
         << "IDR0.BTM (bit 5) must be set — receiveBroadcastTLBI() is implemented";
 }
+
+// =============================================================================
+// GAP-NEW-S1: IDR1.ATTR_TYPES_OVR (bit 27) must be set (§6.3.2)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_s1_idr1_attr_types_ovr_set) {
+    uint32_t idr1 = smmu_->getIDR1();
+    EXPECT_TRUE((idr1 & (1u << 27)) != 0u)
+        << "IDR1.ATTR_TYPES_OVR (bit 27) must be set — MTCFG/SHCFG/ALLOCCFG are implemented";
+}
+
+// =============================================================================
+// GAP-NEW-S2: IDR0.TERM_MODEL (bit 26) must be set (§6.3.1, §3.12.1)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_s2_idr0_term_model_set) {
+    uint32_t idr0 = smmu_->getIDR0();
+    EXPECT_TRUE((idr0 & (1u << 26)) != 0u)
+        << "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; always aborts";
+}
