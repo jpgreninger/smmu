@@ -2605,6 +2605,7 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
         // during this translate() call, rather than hardcoding 0x10/0b00.
         uint64_t faultCode = 0x10u; // default: F_TRANSLATION
         uint64_t reason    = 0u;    // default: stage-1 fault
+        uint64_t faddr     = 0u;    // default: no IPA (stage-1/config fault)
         {
             std::lock_guard<std::recursive_mutex> lk(queueMutex);
             if (eventQueue.size() > evtSizeBefore) {
@@ -2617,6 +2618,10 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                     // 0b10 = stage-2 during TT walk  (eventClass=1 TTD)
                     // 0b11 = stage-2 on IPA input    (eventClass=2 IN)
                     reason = static_cast<uint64_t>(ev.eventClass) + 1u;
+                    // §9.1.4 NEW-GAP-I: FADDR[55:12] = page-aligned IPA input to stage 2.
+                    // This is the IPA that caused the stage-2 fault (CD address, descriptor
+                    // address, or IPA output of stage-1, depending on REASON value).
+                    faddr = ev.ipa & 0x00FFFFFFFFFFF000ULL;
                 }
             }
         }
@@ -2624,7 +2629,8 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
         //   bit 0       = FAULT=1
         //   bits[2:1]   = REASON
         //   bits[11:4]  = FAULTCODE
-        return 0x1ULL | (reason << 1) | (faultCode << 4);
+        //   bits[55:12] = FADDR (page-aligned IPA, non-zero only when REASON≠0b00)
+        return 0x1ULL | (reason << 1) | (faultCode << 4) | faddr;
     }
     uint64_t pa         = result.getValue().physicalAddress;
     uint64_t addr_field = pa & 0x00FFFFFFFFFFF000ULL;              // PA bits[55:12]

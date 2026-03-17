@@ -1402,7 +1402,7 @@ impl SMMU {
                 // generated event so that config faults (C_BAD_SUBSTREAMID=0x08,
                 // C_BAD_STREAMID=0x02, etc.) are reported correctly instead of
                 // always returning F_TRANSLATION (0x10).
-                let (faultcode, reason) = {
+                let (faultcode, reason, faddr) = {
                     let queue = self.event_queue.read().unwrap();
                     if queue.len() > evt_size_before {
                         let ev = queue.back().unwrap();
@@ -1412,16 +1412,19 @@ impl SMMU {
                         // 0b10 = stage-2 during TT walk  (event_class=1 TTD)
                         // 0b11 = stage-2 on IPA input    (event_class=2 IN)
                         let r = if ev.s2 { u64::from(ev.event_class) + 1 } else { 0u64 };
-                        (fc, r)
+                        // §9.1.4 NEW-GAP-I: FADDR[55:12] = page-aligned IPA on stage-2 fault.
+                        let fa = if ev.s2 { ev.ipa & 0x00FF_FFFF_FFFF_F000_u64 } else { 0u64 };
+                        (fc, r, fa)
                     } else {
-                        (0x10u64, 0u64) // fallback: F_TRANSLATION, stage-1
+                        (0x10u64, 0u64, 0u64) // fallback: F_TRANSLATION, stage-1, no IPA
                     }
                 };
                 // GATOS_PAR fault format (§6.3.40):
-                //   bit 0      = FAULT = 1
-                //   bits[2:1]  = REASON (0=stage-1, 1=stage-2)
-                //   bits[11:4] = FAULTCODE
-                1u64 | (reason << 1) | (faultcode << 4)
+                //   bit 0       = FAULT = 1
+                //   bits[2:1]   = REASON
+                //   bits[11:4]  = FAULTCODE
+                //   bits[55:12] = FADDR (page-aligned IPA, non-zero when REASON≠0b00)
+                1u64 | (reason << 1) | (faultcode << 4) | faddr
             }
         }
     }
