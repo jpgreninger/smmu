@@ -1620,7 +1620,8 @@ TEST_F(AddressSpaceTest, Task32ErrorHandlingAndEdgeCases) {
 // updateAccessFlags sets AF on read when ha=true
 TEST_F(AddressSpaceTest, UpdateAccessFlagsHaSetsAfOnRead) {
     PagePermissions perms(true, true, false);
-    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms);
+    // Pass accessFlag=false to simulate a fresh OS mapping before first hardware access (§3.13).
+    addressSpace->mapPage(TEST_IOVA_1, TEST_PA_1, perms, SecurityState::NonSecure, /*accessFlag=*/false);
 
     EXPECT_FALSE(addressSpace->getPageAccessFlag(TEST_IOVA_1));
     bool changed = addressSpace->updateAccessFlags(TEST_IOVA_1, true, false, AccessType::Read);

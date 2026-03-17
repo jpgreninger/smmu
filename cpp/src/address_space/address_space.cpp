@@ -37,7 +37,8 @@ AddressSpace& AddressSpace::operator=(const AddressSpace& other) {
 
 // Map a page with specified permissions
 // Implements sparse page table storage for ARM SMMU v3 address translation
-VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
+VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permissions,
+                                  SecurityState securityState, bool accessFlag) {
     // Validate IOVA is within supported address space (ARM SMMU v3 supports up to 52-bit)
     if (iova > MAX_VIRTUAL_ADDRESS) {
         return makeVoidError(SMMUError::InvalidAddress);
@@ -69,7 +70,10 @@ VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permis
     // ARM SMMU v3 spec: Each page entry contains PA, permissions, and validity
     PageEntry entry(pa & ~PAGE_MASK, permissions, securityState);  // Align PA to page boundary
     entry.valid = true;
-    
+    // §3.13: Set accessFlag per caller — true means ready-to-use mapping;
+    // false simulates a fresh OS mapping before the first hardware access.
+    entry.accessFlag = accessFlag;
+
     // Insert or update entry in sparse page table
     // Using [] operator allows both insertion and update operations
     pageTable[pageNum] = entry;
@@ -77,6 +81,22 @@ VoidResult AddressSpace::mapPage(IOVA iova, PA pa, const PagePermissions& permis
     // Note: TLB cache integration is handled at higher levels (SMMU/StreamContext)
     // AddressSpace maintains the authoritative page table mapping
     return makeVoidSuccess();
+}
+
+// Map a page as Device memory type (for S2PTW: STE.S2PTW=1 will fault on such pages).
+// Sets deviceMemory=true and accessFlag=true so the page is otherwise accessible.
+VoidResult AddressSpace::mapPageDevice(IOVA iova, PA pa, const PagePermissions& permissions,
+                                        SecurityState securityState) {
+    auto result = mapPage(iova, pa, permissions, securityState, /*accessFlag=*/true);
+    if (!result.isOk()) {
+        return result;
+    }
+    uint64_t pageNum = pageNumber(iova);
+    auto it = pageTable.find(pageNum);
+    if (it != pageTable.end()) {
+        it->second.deviceMemory = true;
+    }
+    return result;
 }
 
 // Unmap a page and clean up resources
@@ -173,8 +193,21 @@ bool AddressSpace::getPageDirty(IOVA iova) const {
     return it->second.dirty;
 }
 
+// Query Device memory type flag of a page entry.
+// Returns true if the page is mapped as Device memory; false if not mapped or Normal memory.
+bool AddressSpace::getPageDeviceMemory(IOVA iova) const {
+    uint64_t pageNum = pageNumber(iova);
+    auto it = pageTable.find(pageNum);
+    if (it == pageTable.end()) {
+        return false;
+    }
+    return it->second.deviceMemory;
+}
+
 // Translate virtual address to physical address with ARM SMMU v3 semantics
-TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, SecurityState securityState) const {
+TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType,
+                                               SecurityState securityState,
+                                               bool ha, bool affd) const {
     // ARM §3.4.1: Address size fault when IOVA >= 2^inputAddressSizeBits.
     // Only checked when the context has been restricted below 52-bit.
     if (inputAddressSizeBits < 52) {
@@ -204,7 +237,14 @@ TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType, 
         // Security fault: requested security state doesn't match page security state
         return makeTranslationError(FaultType::SecurityFault);
     }
-    
+
+    // §3.13.2 NEW-GAP-J: Access flag fault — when HA=0 (HTTU disabled) and AFFD=0 and AF=0.
+    // AF fault takes priority over Permission fault (§3.13.1 — AF is checked first).
+    // When ha=true, hardware manages AF atomically; no fault is raised.
+    if (!ha && !affd && !entry.accessFlag) {
+        return makeTranslationError(FaultType::AccessFlagFault);
+    }
+
     // Check access permissions according to ARM SMMU v3 specification
     if (!checkPermissions(entry.permissions, accessType)) {
         // ARM SMMU v3 fault: Permission fault when access not allowed
@@ -347,10 +387,15 @@ VoidResult AddressSpace::mapRange(IOVA startIova, IOVA endIova, PA startPa, cons
         // Create page entry with current physical address and permissions
         PageEntry entry(currentPa, permissions, securityState);
         entry.valid = true;
-        
+        // §3.13.2 NEW-GAP-J: Set accessFlag=true on freshly mapped pages so that
+        // translatePage (which checks AF when HA=0 and AFFD=0) does not fault on
+        // pages created by mapRange.  This matches the default accessFlag=true
+        // behaviour of AddressSpace::mapPage().
+        entry.accessFlag = true;
+
         // Insert into sparse page table
         pageTable[pageNum] = entry;
-        
+
         // Advance to next page physical address
         currentPa += PAGE_SIZE;
     }
@@ -449,6 +494,8 @@ VoidResult AddressSpace::mapPages(const std::vector<std::pair<IOVA, PA>>& mappin
         // Create and insert page entry with the provided security state
         PageEntry entry(alignedPa, permissions, securityState);
         entry.valid = true;
+        // §3.13.2 NEW-GAP-J: Set accessFlag=true to match mapPage() default.
+        entry.accessFlag = true;
         pageTable[pageNum] = entry;
     }
     

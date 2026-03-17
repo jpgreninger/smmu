@@ -2538,6 +2538,22 @@ impl SMMU {
         result.map_err(SMMUError::from)
     }
 
+    /// Maps a page with AF=false for Access Flag Fault testing (NEW-GAP-J §3.13.2).
+    pub fn map_page_unaccessed(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.map_page_unaccessed(pasid, iova, pa, permissions, security_state)
+            .map_err(SMMUError::from)
+    }
+
     /// Map a page in the Stage-2 address space (IPA → PA)
     ///
     /// For two-stage translation, Stage-2 maps Intermediate Physical Addresses (IPA)
@@ -2592,6 +2608,24 @@ impl SMMU {
         self.check_shutdown()?;
         let stream_context = self.get_stream_context(stream_id)?;
         stream_context.map_stage2_page(ipa, pa, permissions, security_state)
+            .map_err(SMMUError::from)
+    }
+
+    /// Maps a device-memory page into the Stage-2 address space (NEW-GAP-L: §5.2 S2PTW).
+    ///
+    /// Used for testing STE.S2PTW: when `s2ptw=true`, translation through a device-memory
+    /// stage-2 page causes F_PERMISSION per §5.2.
+    pub fn map_stage2_device_page(
+        &self,
+        stream_id: StreamID,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.map_stage2_device_page(ipa, pa, permissions, security_state)
             .map_err(SMMUError::from)
     }
 
@@ -3993,6 +4027,12 @@ impl SMMU {
             // Map to TranslationFault so that if the outer path ever reaches this arm
             // (which it should not), it uses a consistent fault type.
             TranslationError::VaRangeExceeded => FaultType::TranslationFault,
+            // NEW-GAP-J: §3.13.2 — AF=0 with ha=false and affd=false → F_ACCESS (0x12).
+            TranslationError::AccessFlagFault => FaultType::AccessFlagFault,
+            // NEW-GAP-K: §5.4 — WXN/UWXN execute denied on writable page → F_PERMISSION.
+            TranslationError::WxnFault => FaultType::PermissionFault,
+            // NEW-GAP-L: §5.2 — S2PTW device-memory page during table walk → F_PERMISSION.
+            TranslationError::S2PtwFault => FaultType::PermissionFault,
         }
     }
 

@@ -167,39 +167,60 @@ VoidResult StreamContext::addPASID(PASID pasid, std::shared_ptr<AddressSpace> ad
 
 // Map page within specific PASID address space
 // ARM SMMU v3 spec: Per-PASID page mapping with isolation enforcement
-VoidResult StreamContext::mapPage(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
+VoidResult StreamContext::mapPage(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions,
+                                   SecurityState securityState, bool accessFlag) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    
+
     // Validate PASID within ARM SMMU v3 specification limits
     // PASID 0 is valid and commonly used for kernel/hypervisor contexts per ARM SMMU v3 specification
     if (pasid > MAX_PASID) {
         return makeVoidError(SMMUError::InvalidPASID);  // PASID exceeds specification limits
     }
-    
+
     // Find PASID in map
     auto it = pasidMap.find(pasid);
     if (it == pasidMap.end()) {
         return makeVoidError(SMMUError::PASIDNotFound);  // PASID not found - must create PASID first
     }
-    
+
     // Get AddressSpace for this PASID
     std::shared_ptr<AddressSpace> addressSpace = it->second;
     if (!addressSpace) {
         return makeVoidError(SMMUError::InternalError);  // Null AddressSpace indicates corrupted state
     }
-    
+
     // Delegate to AddressSpace for actual mapping
     // ARM SMMU v3: Stage-1 translation managed by per-PASID AddressSpace
-    VoidResult result = addressSpace->mapPage(iova, pa, permissions, securityState);
+    VoidResult result = addressSpace->mapPage(iova, pa, permissions, securityState, accessFlag);
     if (result.isError()) {
         return result;  // Propagate AddressSpace error
     }
-    
+
     return makeVoidSuccess();  // Successful page mapping
 }
 
 // Unmap page from specific PASID address space
 // ARM SMMU v3 spec: Per-PASID page unmapping with proper cleanup
+// Map a stage-2 page as Device memory type (for S2PTW: STE.S2PTW=1 will fault on such pages).
+// Auto-creates the stage-2 AddressSpace if it does not yet exist.
+VoidResult StreamContext::mapStage2DevicePage(IOVA ipa, PA pa, const PagePermissions& permissions,
+                                               SecurityState securityState) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    // §5.2 NEW-GAP-L: If stage2AddressSpace is currently aliased to the PASID-0
+    // stage-1 address space (set by createStreamPASID when stage2Enabled), replace it
+    // with a fresh dedicated stage-2 address space.  Without this, the device page
+    // would be mapped into the stage-1 space and performBothStagesTranslation would
+    // short-circuit via the alias guard (stage2 == stage1), bypassing the S2PTW check.
+    auto pasid0It = pasidMap.find(0u);
+    bool aliasedToPassid0 = (pasid0It != pasidMap.end()) &&
+                            (stage2AddressSpace == pasid0It->second);
+    if (!stage2AddressSpace || aliasedToPassid0) {
+        // Create a new dedicated stage-2 address space.
+        stage2AddressSpace = std::make_shared<AddressSpace>();
+    }
+    return stage2AddressSpace->mapPageDevice(ipa, pa, permissions, securityState);
+}
+
 VoidResult StreamContext::unmapPage(PASID pasid, IOVA iova) {
     std::lock_guard<std::mutex> lock(contextMutex);
     
@@ -1183,12 +1204,40 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
 
         // Perform Stage-1 translation (IOVA -> IPA)
-        stage1Result = stage1AddressSpace->translatePage(iova, effectiveAccessType, securityState);
+        // NEW-GAP-J: pass ha and affd so translatePage can enforce the AF fault rule.
+        // Use (ha || currentConfiguration.ha) so both the direct setHardwareAccessFlag()
+        // path (private member) and the configureStream() path (currentConfiguration.ha)
+        // correctly suppress AF faults when HTTU is enabled.
+        stage1Result = stage1AddressSpace->translatePage(iova, effectiveAccessType, securityState,
+                                                          (ha || currentConfiguration.ha),
+                                                          currentConfiguration.affd);
         if (stage1Result.isError()) {
             // Stage-1 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return stage1Result;
+        }
+
+        // §5.4 NEW-GAP-K: WXN/UWXN write-execute-never permission override.
+        // Applied after stage-1 succeeds, before stage-2 translation.
+        {
+            bool isExec = (effectiveAccessType == AccessType::Execute ||
+                           effectiveAccessType == AccessType::ExecutePrivileged);
+            if (isExec) {
+                const PagePermissions& s1p = stage1Result.getValue().permissions;
+                // WXN: writable page is execute-never for all execute accesses.
+                if (currentConfiguration.wxn && s1p.write) {
+                    streamStatistics.faultCount++;
+                    return makeTranslationError(FaultType::PermissionFault);
+                }
+                // UWXN: privileged execute on an unprivileged-writable page is forbidden.
+                if (currentConfiguration.uwxn &&
+                    effectiveAccessType == AccessType::ExecutePrivileged &&
+                    s1p.write && !s1p.privilegedOnly) {
+                    streamStatistics.faultCount++;
+                    return makeTranslationError(FaultType::PermissionFault);
+                }
+            }
         }
 
         // ARM §3.13: Update AF/dirty bits when hardware management enabled
@@ -1228,12 +1277,24 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         SecurityState ipaSecurityState = stage1Result.isOk()
             ? stage1Result.getValue().securityState
             : securityState;
-        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, ipaSecurityState);
+        // NEW-GAP-J: pass s2ha and s2affd for stage-2 AF fault enforcement.
+        TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read,
+                                                                            ipaSecurityState,
+                                                                            currentConfiguration.s2ha,
+                                                                            currentConfiguration.s2affd);
         if (stage2Result.isError()) {
             // Stage-2 translation failed - propagate fault
             streamStatistics.faultCount++;  // Track fault
             // Note: Fault will be recorded by SMMU controller with proper StreamID
             return stage2Result;
+        }
+
+        // §5.2 NEW-GAP-L: S2PTW — stage-2 translation through a Device-type page is
+        // a Permission fault. This prevents table walk from landing in Device MMIO.
+        if (currentConfiguration.s2ptw &&
+            stage2AddressSpace->getPageDeviceMemory(intermediatePA)) {
+            streamStatistics.faultCount++;
+            return makeTranslationError(FaultType::PermissionFault);
         }
 
         // ARM §3.3.1 / FINDING-NEW-38: effective permissions = Stage-1 ∩ Stage-2.

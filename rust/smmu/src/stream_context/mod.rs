@@ -282,6 +282,29 @@ pub struct StreamContext {
     /// §5.2 STE.S1STALLD: when `true`, abort semantics are used even when
     /// `stall_enabled=true` (CD.S=1).  Default `false`.
     s1_stalld: AtomicBool,
+
+    // ---- NEW-GAP-J: Access Flag Fault management (§3.13.2) ----
+
+    /// CD.AFFD: Access Flag Fault Disable — when true, suppresses F_ACCESS even when AF=0.
+    affd: AtomicBool,
+    /// STE.S2AFFD: Stage-2 Access Flag Fault Disable.
+    s2affd: AtomicBool,
+    /// STE.S2HA: Stage-2 Hardware Access flag update enable.
+    s2ha: AtomicBool,
+    /// STE.S2HD: Stage-2 Hardware Dirty flag update enable.
+    s2hd: AtomicBool,
+
+    // ---- NEW-GAP-K: WXN/UWXN permission modifiers (§5.4) ----
+
+    /// CD.WXN: Write eXecute Never — writable pages are execute-never.
+    wxn: AtomicBool,
+    /// CD.UWXN: Unprivileged Write eXecute Never for privileged accesses.
+    uwxn: AtomicBool,
+
+    // ---- NEW-GAP-L: S2PTW protected table walk (§5.2) ----
+
+    /// STE.S2PTW: Protected Table Walk — device-memory stage-2 page causes F_PERMISSION.
+    s2ptw: AtomicBool,
 }
 
 impl StreamContext {
@@ -345,6 +368,13 @@ impl StreamContext {
             ips: AtomicU8::new(5),
             eats: AtomicU8::new(0),
             s1_stalld: AtomicBool::new(false),
+            affd: AtomicBool::new(false),
+            s2affd: AtomicBool::new(false),
+            s2ha: AtomicBool::new(false),
+            s2hd: AtomicBool::new(false),
+            wxn: AtomicBool::new(false),
+            uwxn: AtomicBool::new(false),
+            s2ptw: AtomicBool::new(false),
         }
     }
 
@@ -891,6 +921,19 @@ impl StreamContext {
 
         // GAP-NEW-G: STE.S1STALLD — stall-disabled override (§5.2)
         self.s1_stalld.store(cfg.s1_stalld, Ordering::Release);
+
+        // NEW-GAP-J: Access Flag Fault management (§3.13.2)
+        self.affd.store(cfg.affd, Ordering::Release);
+        self.s2affd.store(cfg.s2affd, Ordering::Release);
+        self.s2ha.store(cfg.s2ha, Ordering::Release);
+        self.s2hd.store(cfg.s2hd, Ordering::Release);
+
+        // NEW-GAP-K: WXN/UWXN permission modifiers (§5.4)
+        self.wxn.store(cfg.wxn, Ordering::Release);
+        self.uwxn.store(cfg.uwxn, Ordering::Release);
+
+        // NEW-GAP-L: S2PTW protected table walk (§5.2)
+        self.s2ptw.store(cfg.s2ptw, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
@@ -1400,6 +1443,20 @@ impl StreamContext {
         addr_space.map_page(iova, pa, permissions, security_state)
     }
 
+    /// Maps a page in "unaccessed" state (AF=false) for Access Flag Fault testing (NEW-GAP-J §3.13.2).
+    pub fn map_page_unaccessed(
+        &self,
+        pasid: PASID,
+        iova: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        let pasid_value = pasid.as_u32();
+        let addr_space = self.pasid_map.get(&pasid_value).ok_or(AddressSpaceError::InternalError)?;
+        addr_space.map_page_unaccessed(iova, pa, permissions, security_state)
+    }
+
     /// Unmaps a page from the specified PASID's address space
     ///
     /// # Arguments
@@ -1518,6 +1575,22 @@ impl StreamContext {
 
         // Map page through lock-free AddressSpace
         stage2.map_page(ipa, pa, permissions, security_state)
+    }
+
+    /// Maps a device-memory page into the Stage-2 address space (NEW-GAP-L: §5.2 S2PTW).
+    ///
+    /// Used to test STE.S2PTW: when `s2ptw=true`, a translation through a device-memory
+    /// stage-2 page causes F_PERMISSION.
+    pub fn map_stage2_device_page(
+        &self,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        let stage2_guard = self.stage2_address_space.read().unwrap();
+        let stage2 = stage2_guard.as_ref().ok_or(AddressSpaceError::InternalError)?;
+        stage2.map_page_device(ipa, pa, permissions, security_state)
     }
 
     // ========================================================================
@@ -1734,6 +1807,7 @@ impl StreamContext {
     /// Mirrors `translate_two_stage` but additionally returns `Some(ipa)` when
     /// Stage-2 translation fails, so the SMMU can populate the IPA field in the
     /// event record per ARM §7.3.13.
+    #[allow(clippy::too_many_lines)]
     fn translate_two_stage_with_ipa(
         &self,
         pasid: PASID,
@@ -1757,6 +1831,15 @@ impl StreamContext {
             }
         };
 
+        // NEW-GAP-J: §3.13.2 — Access Flag fault check (two-stage path).
+        {
+            let ha = self.ha.load(Ordering::Acquire);
+            let affd = self.affd.load(Ordering::Acquire);
+            if !ha && !affd && addr_space.get_page_access_flag(iova) == Some(false) {
+                return (Err(TranslationError::AccessFlagFault), None);
+            }
+        }
+
         // Stage-1: IOVA → IPA
         let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
             Ok(data) => {
@@ -1776,6 +1859,19 @@ impl StreamContext {
             Ok(i) => i,
             Err(_) => return (Err(TranslationError::AddressSizeError), None),
         };
+
+        // NEW-GAP-K: §5.4 — WXN permission check on stage-1 result (two-stage path).
+        {
+            let is_exec = matches!(access_type, AccessType::Execute
+                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
+            if is_exec {
+                let wxn = self.wxn.load(Ordering::Acquire);
+                let perms = stage1_result.permissions();
+                if wxn && perms.write() {
+                    return (Err(TranslationError::WxnFault), None);
+                }
+            }
+        }
 
         // GAP-F fix: §5.4/§3.4 — CD.IPS: stage-1 output IPA must be within IPS range → F_ADDR_SIZE.
         // The IPS field bounds the stage-1 output address (IPA).  Violation maps to
@@ -1833,6 +1929,16 @@ impl StreamContext {
             }
         }
 
+        // NEW-GAP-L: §5.2 S2PTW — protected table walk (two-stage-with-ipa path).
+        if self.s2ptw.load(Ordering::Acquire) {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            if let Some(stage2) = stage2_guard.as_ref() {
+                if stage2.get_page_device_memory(ipa) {
+                    return (Err(TranslationError::S2PtwFault), Some(ipa_raw));
+                }
+            }
+        }
+
         // Permission intersection (same as translate_two_stage)
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
         let access_denied = match access_type {
@@ -1885,6 +1991,17 @@ impl StreamContext {
             }
         };
 
+        // NEW-GAP-J: §3.13.2 — Access Flag fault check.
+        // If AF=0 and ha=false (no HTTU) and affd=false (AF fault not disabled) → F_ACCESS.
+        // This takes priority over permission faults per the spec.
+        {
+            let ha = self.ha.load(Ordering::Acquire);
+            let affd = self.affd.load(Ordering::Acquire);
+            if !ha && !affd && addr_space.get_page_access_flag(iova) == Some(false) {
+                return Err(TranslationError::AccessFlagFault);
+            }
+        }
+
         // Perform Stage-1 translation (no RwLock needed - AddressSpace is lock-free)
         let result = addr_space.translate_page(iova, access_type, security_state);
 
@@ -1908,6 +2025,23 @@ impl StreamContext {
         }
 
         let data = result.unwrap();
+
+        // NEW-GAP-K: §5.4 — WXN permission modifier check.
+        // WXN=1: any writable page is execute-never.
+        // Note: UWXN (unprivileged WXN for privileged accesses) is stored but not
+        // enforced in the Rust model — the Rust AccessType has no ExecutePrivileged
+        // variant to distinguish privileged from unprivileged execute.
+        {
+            let is_exec = matches!(access_type, AccessType::Execute
+                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
+            if is_exec {
+                let wxn = self.wxn.load(Ordering::Acquire);
+                let perms = data.permissions();
+                if wxn && perms.write() {
+                    return Err(TranslationError::WxnFault);
+                }
+            }
+        }
 
         // §5.2 GAP-2 / NEW-4: Check privileged_only against STRW/PRIVCFG suppression.
         // PRIVCFG=3 (Force Privileged) overrides STRW to always suppress.
@@ -1969,6 +2103,16 @@ impl StreamContext {
             }
         }
 
+        // NEW-GAP-L: §5.2 S2PTW — protected table walk (stage-2-only path).
+        if self.s2ptw.load(Ordering::Acquire) {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            if let Some(stage2) = stage2_guard.as_ref() {
+                if stage2.get_page_device_memory(ipa) {
+                    return Err(TranslationError::S2PtwFault);
+                }
+            }
+        }
+
         // §5.2 GAP-2 / NEW-4: Check privileged_only against STRW/PRIVCFG suppression.
         // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
         if data.permissions().privileged_only() && !self.effective_priv_suppresses_check() {
@@ -2001,6 +2145,15 @@ impl StreamContext {
             }
         };
 
+        // NEW-GAP-J: §3.13.2 — Access Flag fault check (stage-1 path).
+        {
+            let ha = self.ha.load(Ordering::Acquire);
+            let affd = self.affd.load(Ordering::Acquire);
+            if !ha && !affd && addr_space.get_page_access_flag(iova) == Some(false) {
+                return Err(TranslationError::AccessFlagFault);
+            }
+        }
+
         // Stage-1: IOVA → IPA; use explicit match to avoid fragile unwrap()
         let stage1_result = match addr_space.translate_page(iova, access_type, security_state) {
             Ok(data) => {
@@ -2024,6 +2177,20 @@ impl StreamContext {
                 return Err(error);
             },
         };
+
+        // NEW-GAP-K: §5.4 — WXN permission modifier check on stage-1 result.
+        // Note: UWXN is stored but not enforced — Rust AccessType has no ExecutePrivileged.
+        {
+            let is_exec = matches!(access_type, AccessType::Execute
+                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
+            if is_exec {
+                let wxn = self.wxn.load(Ordering::Acquire);
+                let perms = stage1_result.permissions();
+                if wxn && perms.write() {
+                    return Err(TranslationError::WxnFault);
+                }
+            }
+        }
 
         // IPA is the physical address from Stage-1
         let ipa_raw = stage1_result.physical_address().as_u64();
@@ -2085,6 +2252,18 @@ impl StreamContext {
                 let pa_limit: u64 = 1u64 << pa_bits;
                 if s2_data.physical_address().as_u64() >= pa_limit {
                     return Err(TranslationError::AddressSizeError);
+                }
+            }
+        }
+
+        // NEW-GAP-L: §5.2 S2PTW — protected table walk.
+        // If STE.S2PTW=1 and the stage-2 page is device memory, deny the translation
+        // (prevents TTW hitting device MMIO) → F_PERMISSION.
+        if self.s2ptw.load(Ordering::Acquire) {
+            let stage2_guard = self.stage2_address_space.read().unwrap();
+            if let Some(stage2) = stage2_guard.as_ref() {
+                if stage2.get_page_device_memory(ipa) {
+                    return Err(TranslationError::S2PtwFault);
                 }
             }
         }

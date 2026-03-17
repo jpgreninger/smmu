@@ -2265,18 +2265,20 @@ TEST_F(StreamContextTest, HardwareAccessFlagSetAfterTranslate) {
     perms.read = true;
     perms.write = true;
 
-    streamContext->mapPage(pasid, iova, pa, perms);
+    // Pass accessFlag=false to simulate a fresh OS mapping before first hardware access (§3.13).
+    // ha=true is set above: translatePage will bypass the AF fault check and update AF to true.
+    streamContext->mapPage(pasid, iova, pa, perms, SecurityState::NonSecure, /*accessFlag=*/false);
 
-    // Before translate: AF should be false
+    // Before translate: AF should be false (freshly mapped, not yet accessed)
     std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_FALSE(as->getPageAccessFlag(iova));
 
-    // Translate triggers AF update
+    // Translate triggers AF update (ha=true bypasses AF fault and sets AF=1 via updateAccessFlags)
     TranslationResult result = streamContext->translate(pasid, iova, AccessType::Read);
     EXPECT_TRUE(result.isOk());
 
-    // After translate: AF should be true
+    // After translate: AF should be true (set by HTTU on first access)
     EXPECT_TRUE(as->getPageAccessFlag(iova));
     // Dirty should still be false (read access, hd=false)
     EXPECT_FALSE(as->getPageDirty(iova));
@@ -2296,6 +2298,7 @@ TEST_F(StreamContextTest, HardwareDirtyStateSetAfterWriteTranslate) {
     perms.read = true;
     perms.write = true;
 
+    // Default mapPage sets accessFlag=true so translate succeeds (ha=false won't fault on AF).
     streamContext->mapPage(pasid, iova, pa, perms);
 
     TranslationResult result = streamContext->translate(pasid, iova, AccessType::Write);
@@ -2304,11 +2307,12 @@ TEST_F(StreamContextTest, HardwareDirtyStateSetAfterWriteTranslate) {
     std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
     EXPECT_TRUE(as->getPageDirty(iova));
-    // AF was NOT enabled, so should remain false
-    EXPECT_FALSE(as->getPageAccessFlag(iova));
+    // ha was NOT enabled: updateAccessFlags() is not called for AF, AF remains true from mapPage.
+    EXPECT_TRUE(as->getPageAccessFlag(iova));
 }
 
-// With ha=false and hd=false, AF and dirty remain false after translate
+// With ha=false and hd=false, HTTU does not modify AF or dirty after translate.
+// mapPage defaults to accessFlag=true; translate leaves it unchanged when ha=false.
 TEST_F(StreamContextTest, NoFlagUpdateWhenHaHdDisabled) {
     streamContext->setHardwareAccessFlag(false);
     streamContext->setHardwareDirtyState(false);
@@ -2323,12 +2327,15 @@ TEST_F(StreamContextTest, NoFlagUpdateWhenHaHdDisabled) {
     perms.read = true;
     perms.write = true;
 
+    // Default mapPage sets accessFlag=true so translate succeeds (ha=false won't fault on AF).
     streamContext->mapPage(pasid, iova, pa, perms);
     streamContext->translate(pasid, iova, AccessType::Write);
 
     std::shared_ptr<AddressSpace> as = streamContext->getPASIDAddressSpace(pasid);
     ASSERT_NE(as, nullptr);
-    EXPECT_FALSE(as->getPageAccessFlag(iova));
+    // ha=false: updateAccessFlags not called; AF stays true (set by mapPage).
+    EXPECT_TRUE(as->getPageAccessFlag(iova));
+    // hd=false: dirty not set.
     EXPECT_FALSE(as->getPageDirty(iova));
 }
 

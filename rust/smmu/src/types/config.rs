@@ -338,6 +338,42 @@ pub struct StreamConfig {
     ///
     /// Default: `false` (stall mode honoured when CD.S=1).
     pub s1_stalld: bool,
+
+    // ---- NEW-GAP-J: Access Flag Fault management (§3.13.2 / §5.4) ----
+
+    /// §5.4 CD.AFFD — Access Flag Fault Disable (stage-1).
+    /// When `true`, disables F_ACCESS for stage-1: a page with AF=0 does not fault.
+    /// When `false` (default) and `ha=false`, AF=0 causes F_ACCESS (§3.13.2).
+    pub affd: bool,
+
+    /// §5.2 STE.S2AFFD — Stage-2 Access Flag Fault Disable.
+    /// When `true`, disables F_ACCESS for stage-2 AF=0 pages.
+    pub s2affd: bool,
+
+    /// §5.2 STE.S2HA — Stage-2 Hardware Access Flag management.
+    /// When `true`, hardware sets stage-2 AF=1 on first access (no F_ACCESS fault).
+    pub s2ha: bool,
+
+    /// §5.2 STE.S2HD — Stage-2 Hardware Dirty State management.
+    pub s2hd: bool,
+
+    // ---- NEW-GAP-K: WXN / UWXN write-execute-never (§5.4) ----
+
+    /// §5.4 CD.WXN — Write eXecute Never.
+    /// When `true`, any writable page is also non-executable.
+    /// Execute or ExecutePrivileged access to a write-permitted page → F_PERMISSION.
+    pub wxn: bool,
+
+    /// §5.4 CD.UWXN — Unprivileged Write eXecute Never.
+    /// When `true`, ExecutePrivileged access to an unprivileged-writable page → F_PERMISSION.
+    pub uwxn: bool,
+
+    // ---- NEW-GAP-L: STE.S2PTW — Protected Table Walk (§5.2) ----
+
+    /// §5.2 STE.S2PTW — Protected Table Walk.
+    /// When `true` in a two-stage stream, translation through a Device-memory stage-2
+    /// page → F_PERMISSION (prevents TTW from reaching Device MMIO regions).
+    pub s2ptw: bool,
 }
 
 impl StreamConfig {
@@ -398,6 +434,13 @@ impl StreamConfig {
             ips: 5,
             eats: 0,
             s1_stalld: false,
+            affd: false,
+            s2affd: false,
+            s2ha: false,
+            s2hd: false,
+            wxn: false,
+            uwxn: false,
+            s2ptw: false,
         }
     }
 
@@ -443,6 +486,13 @@ impl StreamConfig {
             ips: 5,
             eats: 0,
             s1_stalld: false,
+            affd: false,
+            s2affd: false,
+            s2ha: false,
+            s2hd: false,
+            wxn: false,
+            uwxn: false,
+            s2ptw: false,
         }
     }
 
@@ -488,6 +538,13 @@ impl StreamConfig {
             ips: 5,
             eats: 0,
             s1_stalld: false,
+            affd: false,
+            s2affd: false,
+            s2ha: false,
+            s2hd: false,
+            wxn: false,
+            uwxn: false,
+            s2ptw: false,
         }
     }
 
@@ -533,6 +590,13 @@ impl StreamConfig {
             ips: 5,
             eats: 0,
             s1_stalld: false,
+            affd: false,
+            s2affd: false,
+            s2ha: false,
+            s2hd: false,
+            wxn: false,
+            uwxn: false,
+            s2ptw: false,
         }
     }
 
@@ -722,6 +786,16 @@ pub struct StreamConfigBuilder {
     eats: u8,
     // GAP-NEW-G
     s1_stalld: bool,
+    // NEW-GAP-J
+    affd: bool,
+    s2affd: bool,
+    s2ha: bool,
+    s2hd: bool,
+    // NEW-GAP-K
+    wxn: bool,
+    uwxn: bool,
+    // NEW-GAP-L
+    s2ptw: bool,
 }
 
 impl StreamConfigBuilder {
@@ -767,6 +841,13 @@ impl StreamConfigBuilder {
             ips: 5,
             eats: 0,
             s1_stalld: false,
+            affd: false,
+            s2affd: false,
+            s2ha: false,
+            s2hd: false,
+            wxn: false,
+            uwxn: false,
+            s2ptw: false,
         }
     }
 
@@ -777,6 +858,55 @@ impl StreamConfigBuilder {
     #[must_use]
     pub fn s1_stalld(mut self, s1_stalld: bool) -> Self {
         self.s1_stalld = s1_stalld;
+        self
+    }
+
+    /// Set CD.AFFD — Access Flag Fault Disable (NEW-GAP-J, §3.13.2).
+    #[must_use]
+    pub fn affd(mut self, affd: bool) -> Self {
+        self.affd = affd;
+        self
+    }
+
+    /// Set STE.S2AFFD — Stage-2 Access Flag Fault Disable (NEW-GAP-J).
+    #[must_use]
+    pub fn s2affd(mut self, s2affd: bool) -> Self {
+        self.s2affd = s2affd;
+        self
+    }
+
+    /// Set STE.S2HA — Stage-2 Hardware Access Flag management (NEW-GAP-J).
+    #[must_use]
+    pub fn s2ha(mut self, s2ha: bool) -> Self {
+        self.s2ha = s2ha;
+        self
+    }
+
+    /// Set STE.S2HD — Stage-2 Hardware Dirty State management (NEW-GAP-J).
+    #[must_use]
+    pub fn s2hd(mut self, s2hd: bool) -> Self {
+        self.s2hd = s2hd;
+        self
+    }
+
+    /// Set CD.WXN — Write eXecute Never (NEW-GAP-K, §5.4).
+    #[must_use]
+    pub fn wxn(mut self, wxn: bool) -> Self {
+        self.wxn = wxn;
+        self
+    }
+
+    /// Set CD.UWXN — Unprivileged Write eXecute Never (NEW-GAP-K, §5.4).
+    #[must_use]
+    pub fn uwxn(mut self, uwxn: bool) -> Self {
+        self.uwxn = uwxn;
+        self
+    }
+
+    /// Set STE.S2PTW — Protected Table Walk (NEW-GAP-L, §5.2).
+    #[must_use]
+    pub fn s2ptw(mut self, s2ptw: bool) -> Self {
+        self.s2ptw = s2ptw;
         self
     }
 
@@ -1110,6 +1240,13 @@ impl StreamConfigBuilder {
             ips: self.ips,
             eats: self.eats,
             s1_stalld: self.s1_stalld,
+            affd: self.affd,
+            s2affd: self.s2affd,
+            s2ha: self.s2ha,
+            s2hd: self.s2hd,
+            wxn: self.wxn,
+            uwxn: self.uwxn,
+            s2ptw: self.s2ptw,
         };
 
         config.validate()?;

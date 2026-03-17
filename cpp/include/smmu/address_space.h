@@ -19,11 +19,24 @@ public:
     ~AddressSpace();
     
     // Page mapping operations
-    VoidResult mapPage(IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);
+    // accessFlag=true (default) marks the page as already-accessed.
+    // Pass accessFlag=false to simulate a fresh OS mapping before first hardware access.
+    VoidResult mapPage(IOVA iova, PA pa, const PagePermissions& permissions,
+                       SecurityState securityState = SecurityState::NonSecure,
+                       bool accessFlag = true);
     VoidResult unmapPage(IOVA iova);
+
+    // Map a page as Device memory type (for S2PTW testing).
+    // Sets deviceMemory=true and accessFlag=true.
+    VoidResult mapPageDevice(IOVA iova, PA pa, const PagePermissions& permissions,
+                             SecurityState securityState = SecurityState::NonSecure);
     
     // Translation operations
-    TranslationResult translatePage(IOVA iova, AccessType accessType, SecurityState securityState = SecurityState::NonSecure) const;
+    // ha=true: HTTU hardware manages AF — AF=0 does not generate F_ACCESS.
+    // affd=true: AF fault disabled — AF=0 does not generate F_ACCESS.
+    TranslationResult translatePage(IOVA iova, AccessType accessType,
+                                    SecurityState securityState = SecurityState::NonSecure,
+                                    bool ha = false, bool affd = false) const;
     
     // Address range mapping operations
     VoidResult mapRange(IOVA startIova, IOVA endIova, PA startPa, const PagePermissions& permissions,
@@ -68,6 +81,8 @@ public:
     // Query AF/dirty state of a page entry (for testing/inspection)
     bool getPageAccessFlag(IOVA iova) const;
     bool getPageDirty(IOVA iova) const;
+    // Returns true if the mapped page is Device memory type; false if not mapped or Normal memory.
+    bool getPageDeviceMemory(IOVA iova) const;
 
     // Cache invalidation mechanisms
     void invalidateRange(IOVA startIova, IOVA endIova);

@@ -25,8 +25,14 @@ public:
     VoidResult addPASID(PASID pasid, std::shared_ptr<AddressSpace> addressSpace);
     
     // Page mapping operations
-    VoidResult mapPage(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);
+    VoidResult mapPage(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions,
+                       SecurityState securityState = SecurityState::NonSecure,
+                       bool accessFlag = true);
     VoidResult unmapPage(PASID pasid, IOVA iova);
+
+    // Map a stage-2 page as Device memory type (for S2PTW testing).
+    VoidResult mapStage2DevicePage(IOVA ipa, PA pa, const PagePermissions& permissions,
+                                   SecurityState securityState = SecurityState::NonSecure);
     
     // Translation operations
     TranslationResult translate(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState = SecurityState::NonSecure);

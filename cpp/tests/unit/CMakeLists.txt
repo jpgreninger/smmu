@@ -113,6 +113,7 @@ set(UNIT_TEST_SOURCES
     test_conf_gaps_new_abdef.cpp
     test_gatos_faultcode_idr0_httu.cpp
     test_conf_gaps_17mar2026.cpp
+    test_conf_gaps_jkl.cpp
     ../test_thread_safety.cpp
 )
 

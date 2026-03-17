@@ -146,6 +146,28 @@ pub enum TranslationError {
     /// so the outer error-handling path must NOT generate a second event.
     #[error("IOVA exceeds T0SZ VA range limit (§3.4.1 F_TRANSLATION)")]
     VaRangeExceeded,
+
+    /// Access flag fault (ARM §3.13.2, NEW-GAP-J)
+    ///
+    /// Returned when a page entry has `access_flag=false` (AF=0) and the
+    /// stream has `ha=false` (no hardware AF update) and `affd=false` (AF
+    /// fault not disabled).  Generates `F_ACCESS` (event 0x12).
+    #[error("Access flag fault — AF=0 and HTTU disabled (§3.13.2 F_ACCESS)")]
+    AccessFlagFault,
+
+    /// WXN/UWXN permission fault (ARM §5.4, NEW-GAP-K)
+    ///
+    /// Returned when `CD.WXN` or `CD.UWXN` causes an execute access to be
+    /// denied on a writable page.  Generates `F_PERMISSION` (event 0x13).
+    #[error("WXN/UWXN permission fault — execute on writable page denied (§5.4 F_PERMISSION)")]
+    WxnFault,
+
+    /// S2PTW device-memory page fault (ARM §5.2, NEW-GAP-L)
+    ///
+    /// Returned when `STE.S2PTW=1` and the stage-2 translation lands on a
+    /// device-memory page during a table walk.  Generates `F_PERMISSION` (event 0x13).
+    #[error("S2PTW fault — device-memory stage-2 page during table walk (§5.2 F_PERMISSION)")]
+    S2PtwFault,
 }
 
 /// Translation result data structure

@@ -672,6 +672,10 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 case SMMUError::InvalidAddress:
                     stallEventType = EventType::F_ADDR_SIZE;
                     break;
+                case SMMUError::AccessFlagFaultError:
+                    // §3.13.2 NEW-GAP-J: Access flag fault stall event → F_ACCESS.
+                    stallEventType = EventType::F_ACCESS;
+                    break;
                 case SMMUError::PageNotMapped:
                 default:
                     stallEventType = EventType::F_TRANSLATION;
@@ -922,15 +926,31 @@ VoidResult SMMU::setStreamInputAddressSize(StreamID streamID, PASID pasid, uint8
 }
 
 // Per-stream per-PASID page operations
-VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState) {
+VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa,
+                          const PagePermissions& permissions, SecurityState securityState,
+                          bool accessFlag) {
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         return makeVoidError(SMMUError::StreamNotFound);
     }
-    
-    return streamIt->second->mapPage(pasid, iova, pa, permissions, securityState);
+
+    return streamIt->second->mapPage(pasid, iova, pa, permissions, securityState, accessFlag);
+}
+
+// Map a stage-2 page as Device memory type (for S2PTW testing).
+VoidResult SMMU::mapStage2DevicePage(StreamID streamID, IOVA ipa, PA pa,
+                                      const PagePermissions& permissions,
+                                      SecurityState securityState) {
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return makeVoidError(SMMUError::StreamNotFound);
+    }
+
+    return streamIt->second->mapStage2DevicePage(ipa, pa, permissions, securityState);
 }
 
 VoidResult SMMU::unmapPage(StreamID streamID, PASID pasid, IOVA iova) {
@@ -1677,7 +1697,9 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     }
     
     // Perform Stage-1 translation: IOVA -> IPA
-    TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState);
+    // NEW-GAP-J: pass ha and affd so translatePage can enforce the AF fault rule.
+    TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState,
+                                                                        config.ha, config.affd);
     if (stage1Result.isError()) {
         // Stage-1 translation failed - record fault with comprehensive syndrome
         // BUG-CPP-DBGR-6 fix: §7.3.14/§7.3.16 — classify each error correctly
@@ -1704,6 +1726,10 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
                 break;
+            case SMMUError::AccessFlagFaultError:
+                // §3.13.2 NEW-GAP-J: Access flag fault → F_ACCESS (0x12).
+                faultType = FaultType::AccessFlagFault;
+                break;
             default:
                 faultType = FaultType::AccessFault;
                 break;
@@ -1715,6 +1741,29 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
     // Stage 1 success - IPA is now in stage1Result.physicalAddress
     IPA intermediatePA = stage1Result.getValue().physicalAddress;
+
+    // §5.4 NEW-GAP-K: WXN/UWXN write-execute-never permission override.
+    // Applied after stage-1 succeeds, before stage-2 translation.
+    {
+        bool isExec = (accessType == AccessType::Execute ||
+                       accessType == AccessType::ExecutePrivileged);
+        if (isExec) {
+            const PagePermissions& s1p = stage1Result.getValue().permissions;
+            // WXN: writable page is execute-never for all execute accesses.
+            if (config.wxn && s1p.write) {
+                recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
+                                        accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
+                return makeTranslationError(SMMUError::PagePermissionViolation);
+            }
+            // UWXN: privileged execute on an unprivileged-writable page is forbidden.
+            if (config.uwxn && accessType == AccessType::ExecutePrivileged &&
+                s1p.write && !s1p.privilegedOnly) {
+                recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
+                                        accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
+                return makeTranslationError(SMMUError::PagePermissionViolation);
+            }
+        }
+    }
 
     // GAP-F fix: ARM IHI0070G.b §5.4/§3.4 — CD.IPS: stage-1 output IPA must lie
     // within the IPS output address range.  Violation → F_ADDR_SIZE (§7.3.14).
@@ -1795,7 +1844,10 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // For Non-secure streams both values are equal (NonSecure), so this is a no-op in the
     // common case.  For Secure streams with NS-output overrides this is load-bearing.
     const TranslationData& stage1DataRef = stage1Result.getValue();
-    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read, stage1DataRef.securityState);
+    // NEW-GAP-J: pass s2ha and s2affd for stage-2 AF fault enforcement.
+    TranslationResult stage2Result = stage2AddressSpace->translatePage(intermediatePA, AccessType::Read,
+                                                                        stage1DataRef.securityState,
+                                                                        config.s2ha, config.s2affd);
     if (stage2Result.isError()) {
         // ARM SMMU v3 spec Section 7.3.3: Stage-2 fault attribution
         // BUG-CPP-DBGR-6 fix: §7.3.14/§7.3.16 — classify each Stage-2 error correctly.
@@ -1833,6 +1885,14 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         tl_stage2FaultCtx.ipa      = intermediatePA;
 
         return stage2Result;
+    }
+
+    // §5.2 NEW-GAP-L: S2PTW — translation through a Device-type stage-2 page is
+    // a Permission fault. Prevents table walk from landing in Device MMIO regions.
+    if (config.s2ptw && stage2AddressSpace->getPageDeviceMemory(intermediatePA)) {
+        recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
+                                accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+        return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
     // Both stages successful - create final translation result
@@ -1924,6 +1984,10 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                 fault.faultType = FaultType::AddressSizeFault;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
                               false, 0, accessType);
+                break;
+            case SMMUError::AccessFlagFaultError:
+                // §3.13.2 NEW-GAP-J: Access flag fault → F_ACCESS (0x12).
+                fault.faultType = FaultType::AccessFlagFault;
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;

@@ -157,7 +157,11 @@ enum class SMMUError {
     ///        §5.2 / §7.3.7: transaction aborts AND F_STREAM_DISABLED (0x06)
     ///        is recorded.  Distinct from SMMUError::StreamDisabled which is
     ///        the STE.Config==0b000 silent-abort with NO event.
-    SubstreamDisabled
+    SubstreamDisabled,
+
+    /// @brief Access Flag Fault: page has AF=0, HA=0, and AFFD=0 (§3.13.2, NEW-GAP-J).
+    ///        The transaction must fault with F_ACCESS (EventType 0x12).
+    AccessFlagFaultError
 };
 
 /**
@@ -926,8 +930,10 @@ inline SMMUError faultTypeToSMMUError(FaultType faultType) {
             // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID.
             return SMMUError::InvalidStreamID;
 
-        case FaultType::AccessFault:
         case FaultType::AccessFlagFault:
+            return SMMUError::AccessFlagFaultError;
+
+        case FaultType::AccessFault:
         case FaultType::DirtyBitFault:
         case FaultType::TLBConflictFault:
         case FaultType::ExternalAbort:
@@ -1031,6 +1037,8 @@ inline FaultType smmUErrorToFaultType(SMMUError error) {
             return FaultType::TranslationTableFormatFault;
         case SMMUError::CacheOperationFailed:
             return FaultType::ConfigurationCacheFault;
+        case SMMUError::AccessFlagFaultError:
+            return FaultType::AccessFlagFault;
         case SMMUError::StreamNotConfigured:
         case SMMUError::PASIDNotFound:
         case SMMUError::InvalidStreamID:
@@ -1051,16 +1059,17 @@ struct PageEntry {
     PagePermissions permissions;
     bool valid;
     SecurityState securityState;
-    bool accessFlag;  // Hardware Access Flag (AF) — set on first access when CD.HA=1
-    bool dirty;       // Hardware Dirty State — set on write when CD.HD=1
+    bool accessFlag;    // Hardware Access Flag (AF) — set on first access when CD.HA=1
+    bool dirty;         // Hardware Dirty State — set on write when CD.HD=1
+    bool deviceMemory;  // §S2PTW: page mapped as Device memory type; defaults to false
 
     PageEntry() : physicalAddress(0), valid(false), securityState(SecurityState::NonSecure),
-                  accessFlag(false), dirty(false) {
+                  accessFlag(false), dirty(false), deviceMemory(false) {
     }
 
     PageEntry(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms), valid(true),
                                               securityState(SecurityState::NonSecure),
-                                              accessFlag(false), dirty(false) {
+                                              accessFlag(false), dirty(false), deviceMemory(false) {
     }
 
     PageEntry(PA pa, PagePermissions perms, SecurityState secState) : physicalAddress(pa),
@@ -1068,7 +1077,8 @@ struct PageEntry {
                                                                        valid(true),
                                                                        securityState(secState),
                                                                        accessFlag(false),
-                                                                       dirty(false) {
+                                                                       dirty(false),
+                                                                       deviceMemory(false) {
     }
 };
 
@@ -1210,6 +1220,36 @@ struct StreamConfig {
     /// Default false (backward compatible: stall mode operates normally).
     bool s1Stalld;  ///< STE.S1STALLD; defaults to false
 
+    /// NEW-GAP-J: ARM IHI0070G.b §5.4 CD.AFFD — Access Flag Fault Disable.
+    /// When true, disables F_ACCESS generation for stage-1 (AF=0 does not fault).
+    /// When false (default) and HA=false, AF=0 causes F_ACCESS (§3.13.2).
+    bool affd;   ///< CD.AFFD; defaults to false
+
+    /// NEW-GAP-J: ARM IHI0070G.b §5.2 STE.S2AFFD — Stage-2 Access Flag Fault Disable.
+    /// When true, disables F_ACCESS generation for stage-2 (AF=0 does not fault).
+    bool s2affd;  ///< STE.S2AFFD; defaults to false
+
+    /// NEW-GAP-J: ARM IHI0070G.b §5.2 STE.S2HA — Stage-2 Hardware AF management.
+    /// When true, hardware sets stage-2 AF=1 on first access (no F_ACCESS).
+    bool s2ha;   ///< STE.S2HA; defaults to false
+
+    /// NEW-GAP-J: ARM IHI0070G.b §5.2 STE.S2HD — Stage-2 Hardware Dirty management.
+    bool s2hd;   ///< STE.S2HD; defaults to false
+
+    /// NEW-GAP-K: ARM IHI0070G.b §5.4 CD.WXN — Write eXecute Never.
+    /// When true, any writable page is also non-executable.
+    /// Execute or ExecutePrivileged access to a write-permitted page → F_PERMISSION.
+    bool wxn;    ///< CD.WXN; defaults to false
+
+    /// NEW-GAP-K: ARM IHI0070G.b §5.4 CD.UWXN — Unprivileged Write eXecute Never.
+    /// When true, privileged Execute to an unprivileged-writable page → F_PERMISSION.
+    bool uwxn;   ///< CD.UWXN; defaults to false
+
+    /// NEW-GAP-L: ARM IHI0070G.b §5.2 STE.S2PTW — Protected Table Walk.
+    /// When true in a two-stage stream, translation through a Device-memory stage-2
+    /// page → F_PERMISSION (prevents TTW from hitting device MMIO regions).
+    bool s2ptw;  ///< STE.S2PTW; defaults to false
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1221,7 +1261,10 @@ struct StreamConfig {
                     securityState(SecurityState::NonSecure),
                     mev(false), s2s(false), eats(0),
                     tbi(false), ips(6),
-                    s1Stalld(false) {
+                    s1Stalld(false),
+                    affd(false), s2affd(false), s2ha(false), s2hd(false),
+                    wxn(false), uwxn(false),
+                    s2ptw(false) {
     }
 };
 

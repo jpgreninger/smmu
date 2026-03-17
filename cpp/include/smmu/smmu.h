@@ -84,8 +84,19 @@ public:
     VoidResult setStreamInputAddressSize(StreamID streamID, PASID pasid, uint8_t bits);
     
     // Page mapping operations
-    VoidResult mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions, SecurityState securityState = SecurityState::NonSecure);
+    // accessFlag=true (default): marks the page as already-accessed (AF=1).
+    // accessFlag=false: simulates a fresh OS mapping before first hardware access (AF=0).
+    VoidResult mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa,
+                       const PagePermissions& permissions,
+                       SecurityState securityState = SecurityState::NonSecure,
+                       bool accessFlag = true);
     VoidResult unmapPage(StreamID streamID, PASID pasid, IOVA iova);
+
+    // Map a stage-2 page as Device memory type (for S2PTW testing).
+    // STE.S2PTW=1 will cause F_PERMISSION on two-stage translation through such pages.
+    VoidResult mapStage2DevicePage(StreamID streamID, IOVA ipa, PA pa,
+                                   const PagePermissions& permissions,
+                                   SecurityState securityState = SecurityState::NonSecure);
 
     // Stage-2 address space configuration.
     // Associates a hypervisor-managed Stage-2 address space with the given stream.

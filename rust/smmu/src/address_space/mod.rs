@@ -431,8 +431,11 @@ impl AddressSpace {
         // Align PA to page boundary
         let aligned_pa = PA::new(pa.as_u64() & !PAGE_MASK).unwrap();
 
-        // Create page entry
-        let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state);
+        // Create page entry — accessFlag=true means "ready-to-use mapping" (§3.13: OS has
+        // already set AF=1; this is the normal state for pages in active use).
+        // Use map_page_unaccessed() to create entries with AF=false for AF-management tests.
+        let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state)
+            .with_access_flag(true);
 
         // Insert or update entry in page table
         self.page_table.insert(page_num, entry);
@@ -482,6 +485,52 @@ impl AddressSpace {
         self.page_table.remove(&page_num);
 
         Ok(())
+    }
+
+    /// Maps a page in "unaccessed" state (accessFlag=false), for AF-management tests (§3.13).
+    ///
+    /// Use this when simulating an OS creating a fresh page table entry that has not yet
+    /// been accessed (AF=0). When `ha=false` and `affd=false`, a translate on this page
+    /// will generate F_ACCESS per §3.13.2. Normal test code should use `map_page()`.
+    pub fn map_page_unaccessed(
+        &self,
+        iova: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        self.map_page(iova, pa, permissions, security_state)?;
+        let page_num = self.page_number(iova);
+        if let Some(mut entry) = self.page_table.get_mut(&page_num) {
+            *entry = entry.clone().with_access_flag(false);
+        }
+        Ok(())
+    }
+
+    /// Maps a page as Device memory type (for S2PTW testing, §5.2 STE.S2PTW).
+    ///
+    /// Creates a ready-to-use mapping (accessFlag=true) marked as Device memory.
+    /// When a two-stage stream has S2PTW=1, translating through this stage-2 page
+    /// will generate F_PERMISSION per §5.2.
+    pub fn map_page_device(
+        &self,
+        iova: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        self.map_page(iova, pa, permissions, security_state)?;
+        let page_num = self.page_number(iova);
+        if let Some(mut entry) = self.page_table.get_mut(&page_num) {
+            *entry = entry.clone().with_device_memory(true);
+        }
+        Ok(())
+    }
+
+    /// Returns true if the mapped page is Device memory type; false if not mapped or Normal memory.
+    pub fn get_page_device_memory(&self, iova: IOVA) -> bool {
+        let page_num = self.page_number(iova);
+        self.page_table.get(&page_num).map_or(false, |e| e.is_device_memory())
     }
 
     /// Translates a virtual address to physical address with permission checking
@@ -1366,7 +1415,7 @@ impl AddressSpace {
     /// let addr_space = AddressSpace::new();
     /// let iova = IOVA::new(0x1000).unwrap();
     /// let pa = PA::new(0x2000).unwrap();
-    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page_unaccessed(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     ///
     /// let changed = addr_space.update_access_flags(iova, true, false, AccessType::Read);
     /// assert!(changed);
@@ -1413,7 +1462,7 @@ impl AddressSpace {
     /// let addr_space = AddressSpace::new();
     /// let iova = IOVA::new(0x1000).unwrap();
     /// let pa = PA::new(0x2000).unwrap();
-    /// addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+    /// addr_space.map_page_unaccessed(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
     /// assert_eq!(addr_space.get_page_access_flag(iova), Some(false));
     /// ```
     #[must_use]
@@ -1532,9 +1581,10 @@ mod tests {
         let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        // Use map_page_unaccessed() to simulate AF=false (fresh OS mapping, §3.13).
+        addr_space.map_page_unaccessed(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
-        // AF should be false initially
+        // AF should be false initially (unaccessed mapping)
         assert_eq!(addr_space.get_page_access_flag(iova), Some(false));
 
         // After update with ha=true, AF should be set
@@ -1548,7 +1598,7 @@ mod tests {
         let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space.map_page_unaccessed(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
         assert_eq!(addr_space.get_page_dirty(iova), Some(false));
 
@@ -1562,7 +1612,7 @@ mod tests {
         let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
-        addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
+        addr_space.map_page_unaccessed(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
 
         addr_space.update_access_flags(iova, false, true, AccessType::Read);
         assert_eq!(addr_space.get_page_dirty(iova), Some(false));
@@ -1573,11 +1623,9 @@ mod tests {
         let addr_space = AddressSpace::new();
         let iova = IOVA::new(0x1000).unwrap();
         let pa = PA::new(0x2000).unwrap();
+        // Map with AF=true (default), then verify second update_access_flags is no-op
         addr_space.map_page(iova, pa, PagePermissions::read_write(), SecurityState::NonSecure).unwrap();
-
-        // Set AF once
-        addr_space.update_access_flags(iova, true, false, AccessType::Read);
-        // Second call should return false (no change)
+        // AF already true → update should return false (no change)
         let changed = addr_space.update_access_flags(iova, true, false, AccessType::Read);
         assert!(!changed);
     }
