@@ -1135,6 +1135,7 @@ impl SMMU {
         | (1u32 << 16)       // PRI
         | (1u32 << 17)       // VMW
         | (1u32 << 18)       // VMID16
+        | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
         | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
         | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
         // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
@@ -1373,6 +1374,14 @@ impl SMMU {
         access: AccessType,
         security_state: SecurityState,
     ) -> u64 {
+        // GAP-2 fix: ARM §9.1.4/§6.3.40 — snapshot event queue length BEFORE
+        // calling translate() so we can identify any new event appended by this
+        // call and derive the correct FAULTCODE from it.  The read guard is
+        // dropped immediately so translate() can acquire the write lock when
+        // generating events.
+        let evt_size_before = {
+            self.event_queue.read().unwrap().len() // RwLock guard dropped here
+        };
         match self.translate(stream_id, pasid, iova, access, security_state) {
             Ok(result) => {
                 // Success path: build GATOS_PAR per ARM IHI0070G.b §6.3.40.
@@ -1389,12 +1398,55 @@ impl SMMU {
                 attr | sh | addr_field
             }
             Err(_) => {
-                // Fault PAR format (§6.3.40):
+                // GAP-2 fix: derive FAULTCODE and REASON from the most-recently
+                // generated event so that config faults (C_BAD_SUBSTREAMID=0x08,
+                // C_BAD_STREAMID=0x02, etc.) are reported correctly instead of
+                // always returning F_TRANSLATION (0x10).
+                let (faultcode, reason) = {
+                    let queue = self.event_queue.read().unwrap();
+                    if queue.len() > evt_size_before {
+                        let ev = queue.back().unwrap();
+                        let fc = Self::event_type_to_gatos_faultcode(ev.event_type);
+                        let r = if ev.s2 { 1u64 } else { 0u64 };
+                        (fc, r)
+                    } else {
+                        (0x10u64, 0u64) // fallback: F_TRANSLATION, stage-1
+                    }
+                };
+                // GATOS_PAR fault format (§6.3.40):
                 //   bit 0      = FAULT = 1
-                //   bits[2:1]  = REASON = 0b00 (stage-1 / ATS fault)
-                //   bits[11:4] = FAULTCODE = 0x10 (F_TRANSLATION)
-                1u64 | (0x10u64 << 4)
+                //   bits[2:1]  = REASON (0=stage-1, 1=stage-2)
+                //   bits[11:4] = FAULTCODE
+                1u64 | (reason << 1) | (faultcode << 4)
             }
+        }
+    }
+
+    /// Maps an [`EventType`] to the FAULTCODE byte for GATOS_PAR per ARM IHI0070G.b §9.1.5.
+    fn event_type_to_gatos_faultcode(t: EventType) -> u64 {
+        match t {
+            EventType::FUut             => 0x01,
+            EventType::CBadStreamid     => 0x02,
+            EventType::FSteFetch        => 0x03,
+            EventType::CBadSte          => 0x04,
+            EventType::FBadAtsTreq      => 0x05,
+            EventType::FStreamDisabled  => 0x06,
+            EventType::FTranslForbidden => 0x07,
+            EventType::CBadSubstreamid  => 0x08,
+            EventType::FCdFetch         => 0x09,
+            EventType::CBadCd           => 0x0A,
+            EventType::FWalkEabt        => 0x0B,
+            EventType::FTranslation     => 0x10,
+            EventType::FAddrSize        => 0x11,
+            EventType::FAccess          => 0x12,
+            EventType::FPermission      => 0x13,
+            EventType::FTlbConflict     => 0x20,
+            EventType::FCfgConflict     => 0x21,
+            // Implementation-defined and other events: fall back to F_TRANSLATION.
+            EventType::EPageRequest
+            | EventType::FVmsFetch
+            | EventType::CommandSyncCompletion
+            | EventType::AtcInvalidateCompletion => 0x10,
         }
     }
 

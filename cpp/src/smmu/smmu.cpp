@@ -2077,6 +2077,13 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 // below takes the explicit no-op case and does not emit a wrong event.
                 faultType = FaultType::BadStreamID;
                 break;
+            case SMMUError::InvalidPASID:
+            case SMMUError::PASIDNotFound:
+                // §7.3.9: C_BAD_SUBSTREAMID was already emitted in performTwoStageTranslation()
+                // before returning this error.  Map to BadSubstreamId (no-op in recovery switch)
+                // so no secondary F_TRANSLATION event is generated.
+                faultType = FaultType::BadSubstreamId;
+                break;
             case SMMUError::InvalidConfiguration:
                 // BUG-NEW-C fix: §3.12.2 / §7.2 — "The SMMU does not record more than one
                 // fault for each incoming transaction."  C_BAD_CD was already emitted by
@@ -2425,6 +2432,7 @@ uint32_t SMMU::getIDR0() const {
     return (1u << 0)        // S2P: stage-2 translation present
          | (1u << 1)        // S1P: stage-1 translation present
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
+         | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
          | (1u << 9)        // Hyp: hypervisor stage-1 translation — mandatory for SMMUv3.2 with S1P+S2P (§6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
@@ -2557,18 +2565,25 @@ uint32_t SMMU::getIrqCtrlAck() const {
 // GAP-L: ARM §9.1.4 / §6.3.40 — GATOS_PAR FAULTCODE mapping.
 // Returns the FAULTCODE byte corresponding to the given EventType.
 uint64_t SMMU::mapEventTypeToGatosFaultCode(EventType t) {
+    // ARM IHI0070G.b §9.1.5 Table: ATOS_PAR.FAULTCODE encodings
     switch (t) {
         case EventType::F_UUT:               return 0x01u;
-        case EventType::C_BAD_STE:           return 0x02u;
+        case EventType::C_BAD_STREAMID:      return 0x02u;
+        case EventType::F_STE_FETCH:         return 0x03u;
+        case EventType::C_BAD_STE:           return 0x04u;
         case EventType::F_BAD_ATS_TREQ:      return 0x05u;
-        case EventType::C_BAD_SUBSTREAMID:   return 0x06u;
+        case EventType::F_STREAM_DISABLED:   return 0x06u;
         case EventType::F_TRANSL_FORBIDDEN:  return 0x07u;
+        case EventType::C_BAD_SUBSTREAMID:   return 0x08u;
+        case EventType::F_CD_FETCH:          return 0x09u;
         case EventType::C_BAD_CD:            return 0x0Au;
         case EventType::F_WALK_EABT:         return 0x0Bu;
         case EventType::F_TRANSLATION:       return 0x10u;
         case EventType::F_ADDR_SIZE:         return 0x11u;
         case EventType::F_ACCESS:            return 0x12u;
         case EventType::F_PERMISSION:        return 0x13u;
+        case EventType::F_TLB_CONFLICT:      return 0x20u;
+        case EventType::F_CFG_CONFLICT:      return 0x21u;
         default:                             return 0x10u; // fallback: F_TRANSLATION
     }
 }
