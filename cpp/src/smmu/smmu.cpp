@@ -107,7 +107,11 @@ SMMU::SMMU()
       cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
-      stagCounter_(1) {
+      stagCounter_(1),
+      // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
+      statusr_(0),
+      irqCtrl_(0),
+      irqCtrlAck_(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -158,7 +162,11 @@ SMMU::SMMU(const SMMUConfiguration& config)
       cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
-      stagCounter_(1) {
+      stagCounter_(1),
+      // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
+      statusr_(0),
+      irqCtrl_(0),
+      irqCtrlAck_(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -552,7 +560,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
         // If the stream is configured for stall, enqueue a StallRecord and return
         // Stalled instead of the original error — software must issue CMD_RESUME.
-        bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall);
+        // GAP-NEW-G: STE.S1STALLD=1 forces abort semantics — override stall mode.
+        bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall &&
+                            !streamContext->isS1StallDisabled());
         // BUG-NEW-02 fix: ARM §3.12.2 — configuration-class faults must always
         // abort immediately and must never be stalled.  Only F_TRANSLATION,
         // F_PERMISSION, and F_ADDR_SIZE are eligible for stall mode.
@@ -2395,6 +2405,117 @@ void SMMU::reportUnsupportedTransaction(StreamID streamID, PASID pasid,
     generateEvent(EventType::F_UUT, streamID, pasid, iova,
                   securityState, /*isStall=*/false, /*stag=*/0,
                   accessType, /*isStage2=*/false, /*ipaValue=*/0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-NEW-D: IDR registers — capability bitmasks (ARM §6.3.1–6.3.8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// IDR0: S1P=bit0, S2P=bit1, TT4K=bit2, TT64K=bit3, TT16K=bit4,
+//       SEV=bit8 (stall supported), ASID16=bit16.
+uint32_t SMMU::getIDR0() const {
+    return (1u << 0)  // S1P: stage-1 translation supported
+         | (1u << 1)  // S2P: stage-2 translation supported
+         | (1u << 2)  // TT4K: 4KB translation granule supported
+         | (1u << 3)  // TT64K: 64KB translation granule supported
+         | (1u << 4)  // TT16K: 16KB translation granule supported
+         | (1u << 8)  // SEV: stall model supported
+         | (1u << 16); // ASID16: 16-bit ASIDs supported
+}
+
+// IDR1: SIDSIZE[5:0]=32 (32-bit StreamIDs), SSIDSIZE[10:6]=20 (20-bit SubstreamIDs).
+uint32_t SMMU::getIDR1() const {
+    return 0x20u           // SIDSIZE = 32 in bits[5:0]
+         | (0x14u << 6);   // SSIDSIZE = 20 in bits[10:6]
+}
+
+// IDR2: IAS[3:0]=5 (48-bit input), OAS[7:4]=5 (48-bit output).
+uint32_t SMMU::getIDR2() const {
+    return 0x5u           // IAS = 5 (48-bit) in bits[3:0]
+         | (0x5u << 4);   // OAS = 5 (48-bit) in bits[7:4]
+}
+
+// IDR3: reserved — returns 0 for this model.
+uint32_t SMMU::getIDR3() const { return 0u; }
+
+// IDR4: reserved — returns 0 for this model.
+uint32_t SMMU::getIDR4() const { return 0u; }
+
+// IDR5: OAS[5:3]=5 (48-bit output), GRAN4K|GRAN16K|GRAN64K in bits[2:0].
+uint32_t SMMU::getIDR5() const {
+    return (5u << 3)  // OAS = 5 (48-bit) in bits[5:3]
+         | 0x7u;      // All three granules (4K/16K/64K) supported in bits[2:0]
+}
+
+// AIDR: architecture implementation-defined — returns 0.
+uint32_t SMMU::getAIDR() const { return 0u; }
+
+// IIDR: implementer-defined — returns 0.
+uint32_t SMMU::getIIDR() const { return 0u; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-NEW-A: Fault injection — structure-fetch and walk external aborts
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Inject F_STE_FETCH (§7.3.4) into the event queue, gated on CR0.EVENTQEN.
+void SMMU::injectSteFetchAbort(StreamID streamID, SecurityState ss) {
+    generateEvent(EventType::F_STE_FETCH, streamID, 0, 0,
+                  ss, /*isStall=*/false, /*stag=*/0,
+                  AccessType::Read, /*isStage2=*/false, /*ipaValue=*/0);
+}
+
+// Inject F_CD_FETCH (§7.3.10) into the event queue, gated on CR0.EVENTQEN.
+void SMMU::injectCdFetchAbort(StreamID streamID, PASID pasid, SecurityState ss) {
+    generateEvent(EventType::F_CD_FETCH, streamID, pasid, 0,
+                  ss, /*isStall=*/false, /*stag=*/0,
+                  AccessType::Read, /*isStage2=*/false, /*ipaValue=*/0);
+}
+
+// Inject F_WALK_EABT (§7.3.12) into the event queue, gated on CR0.EVENTQEN.
+void SMMU::injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova, SecurityState ss) {
+    generateEvent(EventType::F_WALK_EABT, streamID, pasid, iova,
+                  ss, /*isStall=*/false, /*stag=*/0,
+                  AccessType::Read, /*isStage2=*/false, /*ipaValue=*/0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-NEW-E: STATUSR / IRQ_CTRL / CTRLACK registers (§6.3.45–6.3.47)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// SMMU_STATUSR: bit 0 = DORMANT.  This SW model has no dormant state — always 0.
+uint32_t SMMU::getStatusr() const {
+    return statusr_.load(std::memory_order_acquire);
+}
+
+// SMMU_IRQ_CTRL write: store v and echo immediately to SMMU_IRQ_CTRLACK
+// (synchronous handshake — hardware would echo after internal synchronization).
+void SMMU::setIrqCtrl(uint32_t v) {
+    irqCtrl_.store(v, std::memory_order_release);
+    irqCtrlAck_.store(v, std::memory_order_release);
+}
+
+// SMMU_IRQ_CTRLACK read.
+uint32_t SMMU::getIrqCtrlAck() const {
+    return irqCtrlAck_.load(std::memory_order_acquire);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP-NEW-F: GATOS address translation wrapper (§9.1–9.9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Returns a 64-bit GATOS_PAR value:
+//   bit 0 = 0 → success; bits[63:12] = page-aligned PA.
+//   bit 0 = 1 → fault; remaining bits are 0.
+// The internal translate() call may produce side-effects (events, stalls) but
+// those are acceptable — GATOS is a full translation that records faults.
+uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
+                               AccessType accessType, SecurityState securityState) {
+    TranslationResult result = translate(streamID, pasid, iova, accessType, securityState);
+    if (result.isError()) {
+        return 0x1ULL; // FAULT bit set, PA = 0
+    }
+    // Success: return page-aligned PA (clear low 12 bits; spec defines them as zero).
+    return result.getValue().physicalAddress & ~static_cast<uint64_t>(0xFFF);
 }
 
 // Task 5.3: Command Queue Processing Simulation (Task 5.3.2)

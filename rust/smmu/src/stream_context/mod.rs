@@ -276,6 +276,12 @@ pub struct StreamContext {
 
     /// §5.2 STE.EATS: ATS support level; 0 = no ATS.  Default 0.
     eats: AtomicU8,
+
+    // ---- GAP-NEW-G: STE.S1STALLD — stall-disabled override (§5.2) ----
+
+    /// §5.2 STE.S1STALLD: when `true`, abort semantics are used even when
+    /// `stall_enabled=true` (CD.S=1).  Default `false`.
+    s1_stalld: AtomicBool,
 }
 
 impl StreamContext {
@@ -338,6 +344,7 @@ impl StreamContext {
             tbi: AtomicBool::new(false),
             ips: AtomicU8::new(5),
             eats: AtomicU8::new(0),
+            s1_stalld: AtomicBool::new(false),
         }
     }
 
@@ -475,10 +482,15 @@ impl StreamContext {
         self.vmid.store(vmid, Ordering::Release);
     }
 
-    /// Returns whether stall fault mode is enabled for this stream (ARM §3.12.2).
+    /// Returns whether stall fault mode is active for this stream (ARM §3.12.2).
+    ///
+    /// Stall is active only when `CD.S=1` (`stall_enabled=true`) AND
+    /// `STE.S1STALLD=0` (`s1_stalld=false`).  When `S1STALLD=1` the STE forces
+    /// abort semantics even if the CD requests stall (ARM §5.2 STE.S1STALLD).
     #[inline]
     pub fn is_stall_enabled(&self) -> bool {
         self.stall_enabled.load(Ordering::Relaxed)
+            && !self.s1_stalld.load(Ordering::Relaxed)
     }
 
     /// Enables or disables stall fault mode for this stream (ARM §3.12.2).
@@ -488,6 +500,21 @@ impl StreamContext {
     #[inline]
     pub fn set_stall_enabled(&self, enabled: bool) {
         self.stall_enabled.store(enabled, Ordering::Release);
+    }
+
+    /// Returns whether the S1STALLD override is set (GAP-NEW-G, ARM §5.2).
+    ///
+    /// When `true`, stall semantics are suppressed regardless of `CD.S`.
+    #[inline]
+    #[must_use]
+    pub fn is_s1_stalld_set(&self) -> bool {
+        self.s1_stalld.load(Ordering::Relaxed)
+    }
+
+    /// Sets the S1STALLD override flag (GAP-NEW-G, ARM §5.2).
+    #[inline]
+    pub fn set_s1_stalld(&self, v: bool) {
+        self.s1_stalld.store(v, Ordering::Release);
     }
 
     /// Returns whether hardware Access Flag management is enabled (CD.HA, ARM SMMU v3 §3.13).
@@ -861,6 +888,9 @@ impl StreamContext {
 
         // NEW-12: STE.EATS — ATS support level (§5.2, §3.9)
         self.eats.store(cfg.eats, Ordering::Release);
+
+        // GAP-NEW-G: STE.S1STALLD — stall-disabled override (§5.2)
+        self.s1_stalld.store(cfg.s1_stalld, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).

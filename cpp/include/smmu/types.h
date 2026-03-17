@@ -1203,6 +1203,13 @@ struct StreamConfig {
     /// Default 6 (52-bit, no effective restriction).
     uint8_t ips;  ///< CD.IPS 3-bit encoding; defaults to 6 (52-bit)
 
+    /// GAP-NEW-G: ARM IHI0070G.b §5.2 STE.S1STALLD — Stage-1 Stall Disabled.
+    /// When true, forces abort semantics even when faultMode == FaultMode::Stall.
+    /// Translations for this stream will never enter stall mode; they abort
+    /// immediately and generate an event as if FaultMode::Terminate were set.
+    /// Default false (backward compatible: stall mode operates normally).
+    bool s1Stalld;  ///< STE.S1STALLD; defaults to false
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1213,7 +1220,8 @@ struct StreamConfig {
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
                     securityState(SecurityState::NonSecure),
                     mev(false), s2s(false), eats(0),
-                    tbi(false), ips(6) {
+                    tbi(false), ips(6),
+                    s1Stalld(false) {
     }
 };
 

@@ -302,6 +302,40 @@ public:
     /// Clears all recorded resume outcomes (e.g. on reset or software flush).
     void clearResumeOutcomes();
 
+    // GAP-NEW-D: ARM §6.3.1–6.3.8 IDR registers — capability bitmasks (read-only).
+    uint32_t getIDR0() const;  ///< IDR0: S1P, S2P, granule support, stall, ASID16
+    uint32_t getIDR1() const;  ///< IDR1: SIDSIZE[5:0]=32, SSIDSIZE[10:6]=20
+    uint32_t getIDR2() const;  ///< IDR2: IAS[3:0]=5(48-bit), OAS[7:4]=5(48-bit)
+    uint32_t getIDR3() const;  ///< IDR3: reserved — returns 0
+    uint32_t getIDR4() const;  ///< IDR4: reserved — returns 0
+    uint32_t getIDR5() const;  ///< IDR5: OAS[5:3]=5(48-bit), 4K/16K/64K granule bits
+    uint32_t getAIDR() const;  ///< AIDR: architecture implementation-defined; returns 0
+    uint32_t getIIDR() const;  ///< IIDR: implementer-defined; returns 0
+
+    // GAP-NEW-A: Fault injection — structure-fetch and walk external aborts.
+    // All three methods generate the corresponding spec event into the event queue,
+    // gated on CR0.EVENTQEN.  Callers are responsible for ensuring the injected
+    // StreamID / PASID / IOVA are meaningful for the test or simulation scenario.
+    void injectSteFetchAbort(StreamID streamID,
+                             SecurityState ss = SecurityState::NonSecure);
+    void injectCdFetchAbort(StreamID streamID, PASID pasid,
+                            SecurityState ss = SecurityState::NonSecure);
+    void injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova,
+                        SecurityState ss = SecurityState::NonSecure);
+
+    // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
+    uint32_t getStatusr() const;        ///< SMMU_STATUSR: bit 0 = DORMANT; always 0 in this model
+    void     setIrqCtrl(uint32_t v);    ///< SMMU_IRQ_CTRL: write interrupt-enable bits
+    uint32_t getIrqCtrlAck() const;     ///< SMMU_IRQ_CTRLACK: synchronous mirror of IRQ_CTRL
+
+    // GAP-NEW-F: GATOS address translation wrapper (§9.1–9.9).
+    // Translates (streamID, pasid, iova, accessType) and returns a 64-bit GATOS_PAR value:
+    //   bit 0 = 0: translation succeeded; bits[63:12] = PA page base.
+    //   bit 0 = 1: translation faulted; remaining bits are 0.
+    uint64_t gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
+                            AccessType accessType,
+                            SecurityState securityState = SecurityState::NonSecure);
+
     // Statistics and debugging
     size_t getStreamCount() const;
     uint64_t getTotalTranslations() const;
@@ -432,6 +466,13 @@ private:
     std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map
     std::atomic<uint16_t> stagCounter_;                       ///< Monotonically incrementing STAG generator
     mutable std::mutex stallQueueMutex_;                      ///< Protects stallQueue_
+
+    // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
+    // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).
+    // IRQ_CTRL/CTRLACK use synchronous echo: setIrqCtrl() stores v in both atomics.
+    std::atomic<uint32_t> statusr_;     ///< SMMU_STATUSR; init 0
+    std::atomic<uint32_t> irqCtrl_;    ///< SMMU_IRQ_CTRL; init 0
+    std::atomic<uint32_t> irqCtrlAck_; ///< SMMU_IRQ_CTRLACK; mirrors irqCtrl_ on write
 
     // CONF-GAP-24: ARM §4.6 CMD_RESUME outcome recording.
     // Maps STAG -> ResumeOutcome so software can observe what happened to each

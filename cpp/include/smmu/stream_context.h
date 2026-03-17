@@ -51,6 +51,9 @@ public:
     bool isHardwareDirtyStateEnabled() const;
     /// Returns the current fault mode for this stream context.
     FaultMode getFaultMode() const;
+    /// GAP-NEW-G: Returns true when STE.S1STALLD=1, forcing abort semantics
+    /// even when faultMode == FaultMode::Stall (ARM IHI0070G.b §5.2).
+    bool isS1StallDisabled() const;
     
     // Query operations
     bool hasPASID(PASID pasid) const;
@@ -230,6 +233,7 @@ private:
     bool stage1Enabled;
     bool stage2Enabled;
     FaultMode faultMode;
+    bool s1Stalld_;  ///< GAP-NEW-G: STE.S1STALLD — forces abort when true (§5.2)
 
     // Task 4.2: Stream Operations Support Members
     StreamConfig currentConfiguration;

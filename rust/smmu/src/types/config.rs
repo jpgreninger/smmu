@@ -328,6 +328,16 @@ pub struct StreamConfig {
     ///
     /// Default: `0` (no ATS).
     pub eats: u8,
+
+    // ---- GAP-NEW-G: STE.S1STALLD — stall-disabled override (§5.2) ----
+
+    /// §5.2 STE.S1STALLD: Stage-1 Stall Disabled.
+    ///
+    /// When `true`, stall semantics are suppressed even if `CD.S=1` (stall mode
+    /// is enabled via `FaultMode::Stall`).  All faults use abort semantics.
+    ///
+    /// Default: `false` (stall mode honoured when CD.S=1).
+    pub s1_stalld: bool,
 }
 
 impl StreamConfig {
@@ -387,6 +397,7 @@ impl StreamConfig {
             tbi: false,
             ips: 5,
             eats: 0,
+            s1_stalld: false,
         }
     }
 
@@ -431,6 +442,7 @@ impl StreamConfig {
             tbi: false,
             ips: 5,
             eats: 0,
+            s1_stalld: false,
         }
     }
 
@@ -475,6 +487,7 @@ impl StreamConfig {
             tbi: false,
             ips: 5,
             eats: 0,
+            s1_stalld: false,
         }
     }
 
@@ -519,6 +532,7 @@ impl StreamConfig {
             tbi: false,
             ips: 5,
             eats: 0,
+            s1_stalld: false,
         }
     }
 
@@ -706,6 +720,8 @@ pub struct StreamConfigBuilder {
     ips: u8,
     // NEW-12
     eats: u8,
+    // GAP-NEW-G
+    s1_stalld: bool,
 }
 
 impl StreamConfigBuilder {
@@ -750,7 +766,18 @@ impl StreamConfigBuilder {
             tbi: false,
             ips: 5,
             eats: 0,
+            s1_stalld: false,
         }
+    }
+
+    /// Set STE.S1STALLD — stall-disabled override (GAP-NEW-G, ARM §5.2).
+    ///
+    /// When `true`, stall semantics are suppressed even if `FaultMode::Stall` is
+    /// configured. All faults use abort semantics.
+    #[must_use]
+    pub fn s1_stalld(mut self, s1_stalld: bool) -> Self {
+        self.s1_stalld = s1_stalld;
+        self
     }
 
     /// Enable or disable translation.
@@ -1082,6 +1109,7 @@ impl StreamConfigBuilder {
             tbi: self.tbi,
             ips: self.ips,
             eats: self.eats,
+            s1_stalld: self.s1_stalld,
         };
 
         config.validate()?;

@@ -110,6 +110,7 @@ set(UNIT_TEST_SOURCES
     test_bug_fixes_mar2026.cpp
     test_new10_11_12_spec.cpp
     test_new13_15_19_spec.cpp
+    test_conf_gaps_new_abdef.cpp
     ../test_thread_safety.cpp
 )
 

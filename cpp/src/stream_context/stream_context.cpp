@@ -23,6 +23,7 @@ StreamContext::StreamContext()
     : stage1Enabled(true),     // internal flag: allows direct translate() calls (backward compat)
       stage2Enabled(false),    // ARM SMMU v3: Stage-2 disabled until configured
       faultMode(FaultMode::Terminate),  // Default to immediate DMA termination
+      s1Stalld_(false),        // GAP-NEW-G: STE.S1STALLD defaults to false (stall mode operates normally)
       streamEnabled(false),    // Stream disabled by default per ARM SMMU v3
       configurationChanged(false),  // Configuration initially unchanged
       maxPASIDsPerStream(1024),  // Default PASID limit per stream (configurable)
@@ -343,6 +344,14 @@ FaultMode StreamContext::getFaultMode() const {
     return faultMode;
 }
 
+// GAP-NEW-G: Return STE.S1STALLD for this stream context (ARM IHI0070G.b §5.2).
+// When true, stall mode is suppressed — the stream aborts immediately on fault
+// regardless of the faultMode setting.
+bool StreamContext::isS1StallDisabled() const {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    return s1Stalld_;
+}
+
 // Query if specific PASID exists in this stream context
 // ARM SMMU v3 spec: PASID existence check for management operations
 bool StreamContext::hasPASID(PASID pasid) const {
@@ -463,6 +472,7 @@ VoidResult StreamContext::updateConfiguration(const StreamConfig& config) {
     stage1Enabled = config.stage1Enabled;
     stage2Enabled = config.stage2Enabled;
     faultMode = config.faultMode;
+    s1Stalld_ = config.s1Stalld;  // GAP-NEW-G: propagate STE.S1STALLD
     // Note: streamEnabled state is independent and managed by enableStream/disableStream methods
     
     // Mark configuration as changed

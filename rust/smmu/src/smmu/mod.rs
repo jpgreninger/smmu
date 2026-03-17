@@ -459,6 +459,17 @@ pub struct SMMU {
     /// StreamID is split at this bit: upper bits index L1, lower bits index L2.
     /// Default: 6 (64-entry L2 pages).
     strtab_split: AtomicU8,
+
+    // ---- GAP-NEW-E: IRQ_CTRL / IRQ_CTRLACK registers (§6.3.45–6.3.47) ----
+
+    /// SMMU_IRQ_CTRL register (§6.3.45): IRQ enable bits.
+    ///
+    /// In the synchronous SW model, writing IRQ_CTRL immediately mirrors to
+    /// IRQ_CTRLACK (same handshake pattern as CR0/CR0ACK).
+    irq_ctrl: AtomicU32,
+
+    /// SMMU_IRQ_CTRLACK register (§6.3.46): mirrors `irq_ctrl` after each write.
+    irq_ctrlack: AtomicU32,
 }
 
 impl SMMU {
@@ -777,6 +788,9 @@ impl SMMU {
             // CONF-GAP-3: default Linear format, split=6.
             strtab_fmt: AtomicU32::new(0),
             strtab_split: AtomicU8::new(6),
+            // GAP-NEW-E: IRQ_CTRL / IRQ_CTRLACK reset to 0 (§6.3.45–6.3.46).
+            irq_ctrl: AtomicU32::new(0),
+            irq_ctrlack: AtomicU32::new(0),
         }
     }
 
@@ -1073,6 +1087,265 @@ impl SMMU {
     #[must_use]
     pub fn get_cr1(&self) -> u32 {
         self.cr1.load(Ordering::Acquire)
+    }
+
+    // ========================================================================
+    // GAP-NEW-D: IDR registers (§6.3.1–6.3.8)
+    // ========================================================================
+
+    /// Encode an address-space size in bits to the ARM 3-bit IAS/OAS encoding.
+    ///
+    /// Mapping (ARM IHI0070G.b §6.3.1 SMMU_IDR0):
+    ///   32-bit→0, 36-bit→1, 40-bit→2, 42-bit→3, 44-bit→4, 48-bit→5, 52-bit→6.
+    fn encode_address_size(bits: u8) -> u32 {
+        match bits {
+            32 => 0,
+            36 => 1,
+            40 => 2,
+            42 => 3,
+            44 => 4,
+            48 => 5,
+            52 => 6,
+            _ => 5, // default to 48-bit encoding
+        }
+    }
+
+    /// Read SMMU_IDR0 (§6.3.1) — implementation feature capability bitmask.
+    ///
+    /// Returned bit layout:
+    /// - bit  0: S1P  — Stage-1 translation supported (always 1)
+    /// - bit  1: S2P  — Stage-2 translation supported (always 1)
+    /// - bit  2: TT4K — 4KB translation granule supported (always 1)
+    /// - bit  3: TT64K — 64KB translation granule supported (always 1)
+    /// - bit  4: TT16K — 16KB translation granule supported (always 1)
+    /// - bit  8: SEV  — Stall Event model supported (always 1)
+    /// - bit 10: TTENDIAN — Translation table little-endian (1)
+    /// - bit 16: ASID16 — 16-bit ASIDs supported (1)
+    #[must_use]
+    pub fn get_idr0(&self) -> u32 {
+        // S1P=bit0, S2P=bit1, TT4K=bit2, TT64K=bit3, TT16K=bit4,
+        // SEV=bit8, TTENDIAN=bit10, ASID16=bit16.
+        (1 << 0)  // S1P
+        | (1 << 1)  // S2P
+        | (1 << 2)  // TT4K
+        | (1 << 3)  // TT64K
+        | (1 << 4)  // TT16K
+        | (1 << 8)  // SEV
+        | (1 << 10) // TTENDIAN
+        | (1 << 16) // ASID16
+    }
+
+    /// Read SMMU_IDR1 (§6.3.2) — stream and substream ID size capability.
+    ///
+    /// - bits[ 5: 0]: SIDSIZE  — StreamID bits (32, encoded as 0x20)
+    /// - bits[10: 6]: SSIDSIZE — SubstreamID bits (20, encoded as 0x14 shifted left 6)
+    #[must_use]
+    pub fn get_idr1(&self) -> u32 {
+        // bits[5:0]  = SIDSIZE  = 32 (0x20)
+        // bits[10:6] = SSIDSIZE = 20 (0x14 << 6)
+        0x20u32 | (0x14u32 << 6)
+    }
+
+    /// Read SMMU_IDR2 (§6.3.3) — input/output address size encoding.
+    ///
+    /// - bits[ 3: 0]: IAS — Input Address Size (IOVA bits encoded)
+    /// - bits[ 7: 4]: OAS — Output Address Size (PA bits encoded)
+    #[must_use]
+    pub fn get_idr2(&self) -> u32 {
+        let cfg = self.config.read().unwrap();
+        let ias = Self::encode_address_size(cfg.address_config.max_iova_bits);
+        let oas = Self::encode_address_size(cfg.address_config.max_pa_bits);
+        ias | (oas << 4)
+    }
+
+    /// Read SMMU_IDR3 (§6.3.4) — all zeros for basic SW model.
+    #[must_use]
+    pub fn get_idr3(&self) -> u32 {
+        0
+    }
+
+    /// Read SMMU_IDR4 (§6.3.5) — all zeros for basic SW model.
+    #[must_use]
+    pub fn get_idr4(&self) -> u32 {
+        0
+    }
+
+    /// Read SMMU_IDR5 (§6.3.6) — output address size and granule support.
+    ///
+    /// - bits[ 2: 0]: OAS encoding (default 5 = 48-bit)
+    /// - bits[ 5: 3]: granule support flags: bit3=GRAN4K, bit4=GRAN16K, bit5=GRAN64K
+    #[must_use]
+    pub fn get_idr5(&self) -> u32 {
+        let oas_bits:   u32 = 5;       // 48-bit default OAS
+        let gran_flags: u32 = 0b111 << 3; // 4K | 16K | 64K all supported
+        oas_bits | gran_flags
+    }
+
+    /// Read SMMU_AIDR (§6.3.7) — architecture implementation version.
+    ///
+    /// Returns 0x00 (version 0, implementation-defined).
+    #[must_use]
+    pub fn get_aidr(&self) -> u32 {
+        0x00
+    }
+
+    /// Read SMMU_IIDR (§6.3.8) — implementer and product identification.
+    ///
+    /// Returns 0x0 (no implementer code assigned for this SW model).
+    #[must_use]
+    pub fn get_iidr(&self) -> u32 {
+        0x0
+    }
+
+    // ========================================================================
+    // GAP-NEW-E: STATUSR / IRQ_CTRL / IRQ_CTRLACK registers (§6.3.45–6.3.47)
+    // ========================================================================
+
+    /// Read SMMU_STATUSR (§6.3.47) — SMMU status register.
+    ///
+    /// Bit layout:
+    /// - bit 0: DORMANT — 1 when SMMU is shut down (not servicing transactions).
+    ///
+    /// The DORMANT bit is set after `shutdown()` completes.
+    #[must_use]
+    pub fn get_statusr(&self) -> u32 {
+        // bit 0: DORMANT — 1 when SMMU is shut down.
+        u32::from(self.shutdown.load(Ordering::Acquire))
+    }
+
+    /// Write SMMU_IRQ_CTRL (§6.3.45) — interrupt enable control register.
+    ///
+    /// In the synchronous SW model, IRQ_CTRLACK is updated immediately to mirror
+    /// the new IRQ_CTRL value (same handshake pattern as CR0/CR0ACK).
+    pub fn set_irq_ctrl(&self, value: u32) {
+        self.irq_ctrl.store(value, Ordering::Release);
+        // Synchronous model: IRQ_CTRLACK mirrors IRQ_CTRL immediately.
+        self.irq_ctrlack.store(value, Ordering::Release);
+    }
+
+    /// Read SMMU_IRQ_CTRLACK (§6.3.46) — interrupt control acknowledge register.
+    ///
+    /// Mirrors `IRQ_CTRL` after each write in the synchronous SW model.
+    #[must_use]
+    pub fn get_irq_ctrlack(&self) -> u32 {
+        self.irq_ctrlack.load(Ordering::Acquire)
+    }
+
+    // ========================================================================
+    // GAP-NEW-A: Structure-fetch fault injection (§7.3.4, §7.3.10, §7.3.12)
+    // ========================================================================
+
+    /// Inject an STE fetch abort event (F_STE_FETCH, §7.3.4).
+    ///
+    /// Simulates an external abort during STE fetch from memory.  The event is
+    /// recorded to the event queue only when `CR0.EVENTQEN=1`.
+    pub fn inject_ste_fetch_abort(&self, stream_id: StreamID) {
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let event = EventEntry {
+            event_type: EventType::FSteFetch,
+            stream_id: stream_id.as_u32(),
+            timestamp,
+            ..EventEntry::zeroed()
+        };
+        self.enqueue_event(event);
+    }
+
+    /// Inject a CD fetch abort event (F_CD_FETCH, §7.3.10).
+    ///
+    /// Simulates an external abort during CD fetch from memory for the given
+    /// stream and PASID.  The event is recorded only when `CR0.EVENTQEN=1`.
+    pub fn inject_cd_fetch_abort(&self, stream_id: StreamID, pasid: PASID) {
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let event = EventEntry {
+            event_type: EventType::FCdFetch,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            timestamp,
+            ..EventEntry::zeroed()
+        };
+        self.enqueue_event(event);
+    }
+
+    /// Inject a page-table walk external abort event (F_WALK_EABT, §7.3.12).
+    ///
+    /// Simulates an external abort during a translation table walk for the
+    /// given stream, PASID, and IOVA.  The event is recorded only when
+    /// `CR0.EVENTQEN=1`.
+    pub fn inject_walk_eabt(&self, stream_id: StreamID, pasid: PASID, iova: IOVA) {
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let event = EventEntry {
+            event_type: EventType::FWalkEabt,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            address: iova.as_u64(),
+            timestamp,
+            ..EventEntry::zeroed()
+        };
+        self.enqueue_event(event);
+    }
+
+    /// Internal helper: push an `EventEntry` into the event queue.
+    ///
+    /// Advances `eventq_prod` on success; silently discards when queue is full.
+    fn enqueue_event(&self, event: EventEntry) {
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                queue.push_back(event);
+                self.event_count.fetch_add(1, Ordering::Relaxed);
+                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                self.eventq_prod
+                    .store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+            }
+        }
+    }
+
+    // ========================================================================
+    // GAP-NEW-F: GATOS address translation wrapper (§9.1–9.9)
+    // ========================================================================
+
+    /// GATOS (Generic Address Translation Operation Service) translation wrapper.
+    ///
+    /// Performs a full SMMU address translation and returns the result in the
+    /// GATOS_PAR (Physical Address Register) format per ARM §9.3.3:
+    ///
+    /// - On **success**: returns `pa_bits[63:12]` in bits[63:12] (bit 0 = 0).
+    /// - On **fault**:   returns `1` (bit 0 = 1, all other bits = 0).
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` — stream to translate through
+    /// * `pasid`     — PASID / substream identifier
+    /// * `iova`      — input virtual address to translate
+    /// * `access`    — access type for permission checks
+    /// * `security_state` — security state of the request
+    #[must_use]
+    pub fn gatos_translate(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+    ) -> u64 {
+        match self.translate(stream_id, pasid, iova, access, security_state) {
+            Ok(result) => {
+                // Success: encode PA into bits[63:12] with bit 0 = 0 (no fault).
+                result.physical_address().as_u64() & !0xFFFu64
+            }
+            Err(_) => {
+                // Fault: bit 0 = 1, all other bits = 0 (§9.3.3).
+                1u64
+            }
+        }
     }
 
     // ========================================================================
