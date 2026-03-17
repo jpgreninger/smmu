@@ -617,6 +617,10 @@ private:
                        bool isStage2 = false,
                        uint64_t ipaValue = 0);
     uint64_t getCurrentTimestamp() const;
+
+    // GAP-L: ARM §9.1.4 / §6.3.40 GATOS_PAR FAULTCODE mapping helper.
+    // Maps an EventType to the corresponding FAULTCODE byte for the GATOS_PAR register.
+    static uint64_t mapEventTypeToGatosFaultCode(EventType t);
 };
 
 } // namespace smmu

@@ -4041,7 +4041,10 @@ impl SMMU {
             ipa,
             rnw: matches!(access, AccessType::Write),
             ind: matches!(access, AccessType::Execute),
-            ssv: pasid.as_u32() != 0,
+            // GAP-N / ARM IHI0070G.b §7.3.9: C_BAD_SUBSTREAMID always has SSV=true —
+            // "In this event, SubstreamID is always valid (there is no SSV qualifier)."
+            // For all other event types, SSV reflects whether a non-zero PASID was presented.
+            ssv: matches!(event_type, EventType::CBadSubstreamid) || pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
 

@@ -691,3 +691,64 @@ fn test_gap_new_s3_strw_el2e2h_downgrades_when_e2h_zero() {
         "Translation must succeed even with CR2.E2H=0 + STRW=El2E2h: {result:?}"
     );
 }
+
+// ============================================================================
+// GAP-J: IDR0.TTF=0b10 makes AA64=0 rejection consistent (§5.4, §6.3.1)
+// ============================================================================
+
+/// GAP-J: IDR0.TTF[3:2]=0b10 (VMSAv8-64 only) makes AA64=0 rejection with C_BAD_CD
+/// spec-consistent per §6.3.1. Software that reads TTF=0b10 must not configure AA64=0 CDs.
+#[test]
+fn test_gap_j_idr0_ttf_vmsa64_only_consistent_with_aa64_rejection() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    let ttf = (idr0 >> 2) & 0x3;
+    assert_eq!(
+        ttf, 2u32,
+        "IDR0.TTF[3:2] must be 0b10 (VMSAv8-64 only) — makes AA64=0 rejection spec-consistent per §6.3.1"
+    );
+}
+
+// ============================================================================
+// GAP-N: C_BAD_SUBSTREAMID event must have ssv=true (§7.3.9)
+// ============================================================================
+
+/// GAP-N: C_BAD_SUBSTREAMID event must always have ssv=true per §7.3.9.
+/// The spec states: "In this event, SubstreamID is always valid (there is no SSV qualifier)."
+/// Trigger by presenting a PASID >= 2^S1CDMax on a substream-capable stage-1 stream.
+#[test]
+fn test_gap_n_c_bad_substreamid_ssv_always_true() {
+    let smmu = SMMU::new();
+    enable_smmu(&smmu);
+
+    let sid = make_sid(60);
+    // s1cd_max=1 → valid PASIDs are 0 and 1; PASID=2 is out of range → C_BAD_SUBSTREAMID
+    let cfg = StreamConfig::builder()
+        .translation_enabled(true)
+        .stage1_enabled(true)
+        .s1cd_max(1)
+        .build()
+        .unwrap();
+    smmu.configure_stream(sid, cfg).unwrap();
+
+    // Use PASID=2 which is >= 2^1=2, triggering C_BAD_SUBSTREAMID
+    let pasid_out_of_range = make_pasid(2);
+    smmu.create_pasid(sid, make_pasid(0)).unwrap();
+
+    let _ = smmu.translate(
+        sid,
+        pasid_out_of_range,
+        make_iova(0x1000),
+        AccessType::Read,
+        SecurityState::NonSecure,
+    );
+
+    let events = smmu.get_events();
+    let bad_ss = events.iter().find(|e| e.event_type == smmu::types::EventType::CBadSubstreamid);
+    assert!(bad_ss.is_some(), "Expected C_BAD_SUBSTREAMID event for out-of-range PASID");
+    assert!(
+        bad_ss.unwrap().ssv,
+        "C_BAD_SUBSTREAMID event must have ssv=true per §7.3.9 \
+         (SubstreamID is always valid in this event — no SSV qualifier)"
+    );
+}

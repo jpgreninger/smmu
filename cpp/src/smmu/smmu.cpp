@@ -2554,15 +2554,57 @@ uint32_t SMMU::getIrqCtrlAck() const {
 //   bits[63:56] = ATTR (0xFF = Normal WB/WA cacheable)
 // The internal translate() call may produce side-effects (events, stalls) but
 // those are acceptable — GATOS is a full translation that records faults.
+// GAP-L: ARM §9.1.4 / §6.3.40 — GATOS_PAR FAULTCODE mapping.
+// Returns the FAULTCODE byte corresponding to the given EventType.
+uint64_t SMMU::mapEventTypeToGatosFaultCode(EventType t) {
+    switch (t) {
+        case EventType::F_UUT:               return 0x01u;
+        case EventType::C_BAD_STE:           return 0x02u;
+        case EventType::F_BAD_ATS_TREQ:      return 0x05u;
+        case EventType::C_BAD_SUBSTREAMID:   return 0x06u;
+        case EventType::F_TRANSL_FORBIDDEN:  return 0x07u;
+        case EventType::C_BAD_CD:            return 0x0Au;
+        case EventType::F_WALK_EABT:         return 0x0Bu;
+        case EventType::F_TRANSLATION:       return 0x10u;
+        case EventType::F_ADDR_SIZE:         return 0x11u;
+        case EventType::F_ACCESS:            return 0x12u;
+        case EventType::F_PERMISSION:        return 0x13u;
+        default:                             return 0x10u; // fallback: F_TRANSLATION
+    }
+}
+
 uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                                AccessType accessType, SecurityState securityState) {
+    // Snapshot the event queue size before translation so we can identify
+    // any new event appended by the translation (GAP-L fix).
+    size_t evtSizeBefore = 0u;
+    {
+        std::lock_guard<std::recursive_mutex> lk(queueMutex);
+        evtSizeBefore = eventQueue.size();
+    }
     TranslationResult result = translate(streamID, pasid, iova, accessType, securityState);
     if (result.isError()) {
+        // GAP-L fix: ARM §9.1.4 / §6.3.40 — GATOS_PAR fault syndrome.
+        // Determine FAULTCODE and REASON from the most recent event appended
+        // during this translate() call, rather than hardcoding 0x10/0b00.
+        uint64_t faultCode = 0x10u; // default: F_TRANSLATION
+        uint64_t reason    = 0u;    // default: stage-1 fault
+        {
+            std::lock_guard<std::recursive_mutex> lk(queueMutex);
+            if (eventQueue.size() > evtSizeBefore) {
+                // Use the last event that was added by this translate() call.
+                const EventEntry& ev = eventQueue.back();
+                faultCode = mapEventTypeToGatosFaultCode(ev.type);
+                if (ev.s2) {
+                    reason = 1u; // stage-2 fault
+                }
+            }
+        }
         // GATOS_PAR fault format (§6.3.40):
         //   bit 0       = FAULT=1
-        //   bits[2:1]   = REASON=0b00 (stage-1 or ATS fault)
-        //   bits[11:4]  = FAULTCODE=0x10 (F_TRANSLATION)
-        return 0x1ULL | (static_cast<uint64_t>(0x10u) << 4);
+        //   bits[2:1]   = REASON
+        //   bits[11:4]  = FAULTCODE
+        return 0x1ULL | (reason << 1) | (faultCode << 4);
     }
     uint64_t pa         = result.getValue().physicalAddress;
     uint64_t addr_field = pa & 0x00FFFFFFFFFFF000ULL;              // PA bits[55:12]
@@ -3942,7 +3984,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         pendingEvent.stag = stag;
         pendingEvent.errorCode = 0;
         // §7.3 wire-format fields — must match the normal path derivations.
-        pendingEvent.ssv = (pasid != 0);
+        // GAP-N fix: §7.3.9 — C_BAD_SUBSTREAMID SSV is always 1 (no SSV qualifier).
+        if (type == EventType::C_BAD_SUBSTREAMID) {
+            pendingEvent.ssv = true;
+        } else {
+            pendingEvent.ssv = (pasid != 0);
+        }
         switch (type) {
             case EventType::C_BAD_STREAMID:
             case EventType::C_BAD_STE:
@@ -4054,7 +4101,14 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // Fields that require the AccessType are populated by call sites that have it
     // (translate-path code sets rnw/ind/pnu before calling generateEvent via the
     // stallPending path; here we set reasonable defaults for generic events).
-    event.ssv = (pasid != 0);
+    // GAP-N fix: ARM IHI0070G.b §7.3.9 — for C_BAD_SUBSTREAMID "SubstreamID is
+    // always valid (there is no SSV qualifier)".  SSV must be set to 1 regardless
+    // of the PASID value.  All other event types follow the standard rule.
+    if (type == EventType::C_BAD_SUBSTREAMID) {
+        event.ssv = true;
+    } else {
+        event.ssv = (pasid != 0);
+    }
 
     // GAP NEW-1 fix: ARM IHI0070G.b §7.3 CLASS field (2-bit) encoding.
     // The CLASS field is defined ONLY for F_* translation events:
