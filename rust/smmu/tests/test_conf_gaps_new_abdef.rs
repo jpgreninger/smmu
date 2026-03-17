@@ -489,3 +489,106 @@ fn test_gap_p5_gatos_fault_par_has_faultcode() {
     assert_eq!((par >> 4) & 0xFF, 0x10, "GATOS_PAR FAULTCODE[11:4] must be 0x10 (F_TRANSLATION)");
     assert_eq!((par >> 1) & 0x3, 0, "GATOS_PAR REASON[2:1] must be 0b00");
 }
+
+// ============================================================================
+// GAP-R05/R08: F_UUT, F_TRANSL_FORBIDDEN, F_BAD_ATS_TREQ must have event_class=0
+// ============================================================================
+
+/// GAP-R05/R08: F_UUT, F_TRANSL_FORBIDDEN, F_BAD_ATS_TREQ must have event_class=0.
+///
+/// The ARM spec wire formats for these event types have no CLASS field — those
+/// bit positions are RES0. event_class must be 0, not 2.
+#[test]
+fn test_gap_r05_r08_ats_uut_forbidden_event_class_zero() {
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+
+    // Trigger F_UUT via report_unsupported_transaction
+    let sid = make_sid(0xAB);
+    let pasid = make_pasid(0);
+    let iova = make_iova(0x1000);
+    smmu.report_unsupported_transaction(sid, pasid, iova, AccessType::Read, smmu::types::SecurityState::NonSecure).unwrap();
+
+    let events = smmu.get_events();
+    assert!(!events.is_empty(), "Expected at least one event from report_unsupported_transaction");
+    let ev = &events[events.len() - 1];
+    assert_eq!(
+        ev.event_type,
+        smmu::types::EventType::FUut,
+        "Expected FUut event"
+    );
+    assert_eq!(ev.event_class, 0, "F_UUT must have event_class=0 (CLASS field is RES0)");
+}
+
+/// GAP-R05/R08: F_TRANSL_FORBIDDEN (SMMUEN=0 ATS TT path) must have event_class=0.
+#[test]
+fn test_gap_r05_r08_transl_forbidden_smmuen0_event_class_zero() {
+    use smmu::types::TransactionType;
+    let smmu = SMMU::new();
+    // SMMUEN=0, EVENTQEN=1 only
+    smmu.set_cr0(SMMU::CR0_EVENTQEN);
+
+    let sid = make_sid(0xCD);
+    let pasid = make_pasid(0);
+    let iova = make_iova(0x2000);
+
+    // ATS TT with SMMUEN=0 must emit F_TRANSL_FORBIDDEN (always permitted per spec)
+    let _ = smmu.translate_with_type(sid, pasid, iova, AccessType::Read, smmu::types::SecurityState::NonSecure, TransactionType::AtsTranslated);
+
+    let events = smmu.get_events();
+    let forbidden = events.iter().find(|e| e.event_type == smmu::types::EventType::FTranslForbidden);
+    assert!(forbidden.is_some(), "Expected F_TRANSL_FORBIDDEN event for ATS TT when SMMUEN=0");
+    assert_eq!(
+        forbidden.unwrap().event_class, 0,
+        "F_TRANSL_FORBIDDEN must have event_class=0 (CLASS field is RES0)"
+    );
+}
+
+/// GAP-R05/R08: F_BAD_ATS_TREQ (SMMUEN=0 ATS TR path) must have event_class=0.
+#[test]
+fn test_gap_r05_r08_bad_ats_treq_smmuen0_event_class_zero() {
+    use smmu::types::TransactionType;
+    let smmu = SMMU::new();
+    // SMMUEN=0, EVENTQEN=1, REC_CFG_ATS=1 (bit 0 of CR2)
+    smmu.set_cr0(SMMU::CR0_EVENTQEN);
+    smmu.set_cr2(SMMU::CR2_REC_CFG_ATS);
+
+    let sid = make_sid(0xDE);
+    let pasid = make_pasid(0);
+    let iova = make_iova(0x3000);
+
+    // ATS TR with SMMUEN=0 must emit F_BAD_ATS_TREQ (gated on CR2.REC_CFG_ATS=1)
+    let _ = smmu.translate_with_type(sid, pasid, iova, AccessType::Read, smmu::types::SecurityState::NonSecure, TransactionType::AtsTranslationRequest);
+
+    let events = smmu.get_events();
+    let treq_ev = events.iter().find(|e| e.event_type == smmu::types::EventType::FBadAtsTreq);
+    assert!(treq_ev.is_some(), "Expected F_BAD_ATS_TREQ event for ATS TR when SMMUEN=0 and REC_CFG_ATS=1");
+    assert_eq!(
+        treq_ev.unwrap().event_class, 0,
+        "F_BAD_ATS_TREQ must have event_class=0 (CLASS field is RES0)"
+    );
+}
+
+// ============================================================================
+// GAP-R04: IDR0.ATSRECERR (bit 23) must be set
+// ============================================================================
+
+/// GAP-R04: IDR0.ATSRECERR (bit 23) must be set — REC_CFG_ATS is implemented.
+#[test]
+fn test_gap_r04_idr0_atsrecerr_set() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_ne!(idr0 & (1 << 23), 0, "IDR0.ATSRECERR (bit 23) must be set");
+}
+
+// ============================================================================
+// GAP-R07: IDR0.BTM (bit 5) must be set
+// ============================================================================
+
+/// GAP-R07: IDR0.BTM (bit 5) must be set — broadcast TLBI is implemented.
+#[test]
+fn test_gap_r07_idr0_btm_set() {
+    let smmu = SMMU::new();
+    let idr0 = smmu.get_idr0();
+    assert_ne!(idr0 & (1 << 5), 0, "IDR0.BTM (bit 5) must be set");
+}

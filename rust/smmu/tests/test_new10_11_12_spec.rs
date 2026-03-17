@@ -129,7 +129,9 @@ fn test_new11_fuut_emitted_when_eventqen() {
     assert_eq!(ev.pasid, 0, "pasid must match");
     assert_eq!(ev.address, 0x2000, "address must match");
     assert_eq!(ev.security_state, SecurityState::NonSecure, "security_state must match");
-    assert_eq!(ev.event_class, 2, "event_class must be 2 (IN) per NEW-1");
+    // GAP-R05/R08: F_UUT has no CLASS field in the wire format — those bits are RES0.
+    // event_class must be 0, not 2. (Corrected from initial NEW-1 interpretation.)
+    assert_eq!(ev.event_class, 0, "event_class must be 0 for F_UUT (CLASS field is RES0)");
 }
 
 /// NEW-11: `report_unsupported_transaction()` must silently drop the event when

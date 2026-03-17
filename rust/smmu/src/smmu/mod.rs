@@ -1103,6 +1103,7 @@ impl SMMU {
     /// - bit  0: S2P    — Stage-2 translation present
     /// - bit  1: S1P    — Stage-1 translation present
     /// - bits 3:2: TTF  — Translation Table Format: 0b10 = AArch64 S1+S2
+    /// - bit  5: BTM    — Broadcast TLB Maintenance (receiveBroadcastTLBI + CR2.PTM gating)
     /// - bit  9: Hyp   — Hypervisor stage-1 translation supported (mandatory for SMMUv3.2 with S1P+S2P)
     /// - bit 10: ATS   — PCIe ATS support
     /// - bit 12: ASID16 — 16-bit ASIDs supported
@@ -1111,6 +1112,7 @@ impl SMMU {
     /// - bit 16: PRI   — Page Request Interface supported
     /// - bit 17: VMW   — VMID Wildcard bits in CR0
     /// - bit 18: VMID16 — 16-bit VMIDs supported
+    /// - bit 23: ATSRECERR — ATS error recovery (CR2.REC_CFG_ATS) implemented
     /// - bits\[25:24\]: STALL_MODEL — 0b00: both stall and terminate models supported
     /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
     #[must_use]
@@ -1125,8 +1127,10 @@ impl SMMU {
         | (1u32 << 16)       // PRI
         | (1u32 << 17)       // VMW
         | (1u32 << 18)       // VMID16
+        | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
         | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
         // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
+        | (1u32 << 23)       // ATSRECERR: ATS error recovery (CR2.REC_CFG_ATS) implemented (§6.3.1, §2.5)
         | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
     }
 
@@ -2875,7 +2879,8 @@ impl SMMU {
                             address: iova.as_u64(),
                             security_state,
                             timestamp,
-                            event_class: 2,
+                            // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
+                            event_class: 0,
                             rnw: matches!(access, AccessType::Write),
                             ind: matches!(access, AccessType::Execute),
                             ssv: pasid.as_u32() != 0,
@@ -2908,7 +2913,8 @@ impl SMMU {
                             address: iova.as_u64(),
                             security_state,
                             timestamp,
-                            event_class: 2,
+                            // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
+                            event_class: 0,
                             rnw: matches!(access, AccessType::Write),
                             ind: matches!(access, AccessType::Execute),
                             ssv: pasid.as_u32() != 0,
@@ -3001,7 +3007,8 @@ impl SMMU {
                                 address: iova.as_u64(),
                                 security_state,
                                 timestamp,
-                                event_class: 2,
+                                // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
+                                event_class: 0,
                                 rnw: matches!(access, AccessType::Write),
                                 ind: matches!(access, AccessType::Execute),
                                 ssv: pasid.as_u32() != 0,
@@ -3059,7 +3066,8 @@ impl SMMU {
                         address: iova.as_u64(),
                         security_state,
                         timestamp,
-                        event_class: 2,
+                        // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
+                        event_class: 0,
                         rnw: matches!(access, AccessType::Write),
                         ind: matches!(access, AccessType::Execute),
                         ssv: pasid.as_u32() != 0,
@@ -4405,7 +4413,8 @@ impl SMMU {
             address: iova.as_u64(),
             security_state,
             timestamp,
-            event_class: 2, // eventClass=2 (0b10=IN) per §7.3 NEW-1 encoding
+            // §7.3.2: F_UUT has no CLASS field — those bits are RES0, must be 0.
+            event_class: 0,
             rnw: matches!(access, AccessType::Write),
             ind: matches!(access, AccessType::Execute),
             ssv: pasid.as_u32() != 0,

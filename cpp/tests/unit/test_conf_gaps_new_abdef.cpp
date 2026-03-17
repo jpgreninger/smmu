@@ -399,3 +399,39 @@ TEST_F(GapNewFTest, gap_new_f_gatos_fault_par_has_faultcode) {
     // REASON[2:1] must be 0b00.
     EXPECT_EQ((par >> 1) & 0x3u, 0u) << "GATOS PAR REASON[2:1] must be 0b00";
 }
+
+// =============================================================================
+// GAP-R05: F_UUT / F_TRANSL_FORBIDDEN / F_BAD_ATS_TREQ eventClass must be 0
+// §7.3.2, §7.3.7, §7.3.8 — those wire formats have no CLASS field (RES0)
+// =============================================================================
+
+TEST_F(GapNewATest, gap_new_r05_f_uut_event_class_is_zero) {
+    // Inject F_UUT directly via the simulation harness API (§7.3.2).
+    // The CLASS field position in the F_UUT wire format is RES0, so eventClass must be 0.
+    smmu_->reportUnsupportedTransaction(SID, PID, BASE_IOVA, AccessType::Read);
+    auto events = smmu_->getEventQueue();
+    ASSERT_FALSE(events.empty()) << "Expected F_UUT event in queue after reportUnsupportedTransaction";
+    ASSERT_EQ(events.front().type, EventType::F_UUT) << "First event must be F_UUT";
+    EXPECT_EQ(events.front().eventClass, 0u)
+        << "F_UUT eventClass must be 0 (no CLASS field in wire format §7.3.2)";
+}
+
+// =============================================================================
+// GAP-R04: IDR0.ATSRECERR (bit 23) must be set (§6.3.1, §2.5)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_r04_idr0_atsrecerr_set) {
+    uint32_t idr0 = smmu_->getIDR0();
+    EXPECT_TRUE((idr0 & (1u << 23)) != 0u)
+        << "IDR0.ATSRECERR (bit 23) must be set — REC_CFG_ATS is implemented";
+}
+
+// =============================================================================
+// GAP-R07: IDR0.BTM (bit 5) must be set (§6.3.1)
+// =============================================================================
+
+TEST_F(GapNewDTest, gap_new_r07_idr0_btm_set) {
+    uint32_t idr0 = smmu_->getIDR0();
+    EXPECT_TRUE((idr0 & (1u << 5)) != 0u)
+        << "IDR0.BTM (bit 5) must be set — receiveBroadcastTLBI() is implemented";
+}

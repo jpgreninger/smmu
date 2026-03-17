@@ -2416,14 +2416,16 @@ uint32_t SMMU::getIDR0() const {
     return (1u << 0)        // S2P: stage-2 translation present
          | (1u << 1)        // S1P: stage-1 translation present
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
+         | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
+         | (1u << 9)        // Hyp: hypervisor stage-1 translation — mandatory for SMMUv3.2 with S1P+S2P (§6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
          | (1u << 16)       // PRI: page request interface supported
          | (1u << 17)       // VMW: VMID wildcard bits in CR0
-         | (1u << 9)        // Hyp: hypervisor stage-1 translation — mandatory for SMMUv3.2 with S1P+S2P (§6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
+         | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
          | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
                             // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
 }
@@ -3942,11 +3944,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             case EventType::F_ADDR_SIZE:
             case EventType::F_PERMISSION:
             case EventType::F_ACCESS:
+                // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault on the input address.
+                pendingEvent.eventClass = 2u;
+                break;
             case EventType::F_UUT:
             case EventType::F_TRANSL_FORBIDDEN:
             case EventType::F_BAD_ATS_TREQ:
-                // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault on the input address.
-                pendingEvent.eventClass = 2u;
+                // GAP-R05: §7.3.2/§7.3.7/§7.3.8 — CLASS field positions are RES0 for these
+                // event types; their wire formats have no CLASS encoding.  Must be 0.
+                pendingEvent.eventClass = 0u;
                 break;
             default:
                 pendingEvent.eventClass = 0u;
@@ -4060,11 +4066,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         case EventType::F_ADDR_SIZE:
         case EventType::F_PERMISSION:
         case EventType::F_ACCESS:
+            // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault is on the input address itself.
+            event.eventClass = 2u;
+            break;
         case EventType::F_UUT:
         case EventType::F_TRANSL_FORBIDDEN:
         case EventType::F_BAD_ATS_TREQ:
-            // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault is on the input address itself.
-            event.eventClass = 2u;
+            // GAP-R05: §7.3.2/§7.3.7/§7.3.8 — CLASS field positions are RES0 for these
+            // event types; their wire formats have no CLASS encoding.  Must be 0.
+            event.eventClass = 0u;
             break;
         default:
             event.eventClass = 0u;
