@@ -1097,65 +1097,63 @@ impl SMMU {
     ///
     /// Mapping (ARM IHI0070G.b §6.3.1 SMMU_IDR0):
     ///   32-bit→0, 36-bit→1, 40-bit→2, 42-bit→3, 44-bit→4, 48-bit→5, 52-bit→6.
-    fn encode_address_size(bits: u8) -> u32 {
-        match bits {
-            32 => 0,
-            36 => 1,
-            40 => 2,
-            42 => 3,
-            44 => 4,
-            48 => 5,
-            52 => 6,
-            _ => 5, // default to 48-bit encoding
-        }
-    }
-
     /// Read SMMU_IDR0 (§6.3.1) — implementation feature capability bitmask.
     ///
-    /// Returned bit layout:
-    /// - bit  0: S1P  — Stage-1 translation supported (always 1)
-    /// - bit  1: S2P  — Stage-2 translation supported (always 1)
-    /// - bit  2: TT4K — 4KB translation granule supported (always 1)
-    /// - bit  3: TT64K — 64KB translation granule supported (always 1)
-    /// - bit  4: TT16K — 16KB translation granule supported (always 1)
-    /// - bit  8: SEV  — Stall Event model supported (always 1)
-    /// - bit 10: TTENDIAN — Translation table little-endian (1)
-    /// - bit 16: ASID16 — 16-bit ASIDs supported (1)
+    /// Bit layout per ARM IHI0070G.b §6.3.1:
+    /// - bit  0: S2P    — Stage-2 translation present
+    /// - bit  1: S1P    — Stage-1 translation present
+    /// - bits 3:2: TTF  — Translation Table Format: 0b10 = AArch64 S1+S2
+    /// - bit 10: ATS   — PCIe ATS support
+    /// - bit 12: ASID16 — 16-bit ASIDs supported
+    /// - bit 14: SEV   — Stall model WFE/SEV supported
+    /// - bit 15: ATOS  — Address Translation Operations (GATOS) supported
+    /// - bit 16: PRI   — Page Request Interface supported
+    /// - bit 17: VMW   — VMID Wildcard bits in CR0
+    /// - bit 18: VMID16 — 16-bit VMIDs supported
+    /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
     #[must_use]
     pub fn get_idr0(&self) -> u32 {
-        // S1P=bit0, S2P=bit1, TT4K=bit2, TT64K=bit3, TT16K=bit4,
-        // SEV=bit8, TTENDIAN=bit10, ASID16=bit16.
-        (1 << 0)  // S1P
-        | (1 << 1)  // S2P
-        | (1 << 2)  // TT4K
-        | (1 << 3)  // TT64K
-        | (1 << 4)  // TT16K
-        | (1 << 8)  // SEV
-        | (1 << 10) // TTENDIAN
-        | (1 << 16) // ASID16
+          (1u32 << 0)        // S2P
+        | (1u32 << 1)        // S1P
+        | (0b10u32 << 2)     // TTF = AArch64 S1+S2
+        | (1u32 << 10)       // ATS
+        | (1u32 << 12)       // ASID16
+        | (1u32 << 14)       // SEV (stall model)
+        | (1u32 << 15)       // ATOS (GATOS implemented)
+        | (1u32 << 16)       // PRI
+        | (1u32 << 17)       // VMW
+        | (1u32 << 18)       // VMID16
+        | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
     }
 
-    /// Read SMMU_IDR1 (§6.3.2) — stream and substream ID size capability.
+    /// Read SMMU_IDR1 (§6.3.2) — stream/substream ID sizes and queue capacity.
     ///
-    /// - bits[ 5: 0]: SIDSIZE  — StreamID bits (32, encoded as 0x20)
-    /// - bits[10: 6]: SSIDSIZE — SubstreamID bits (20, encoded as 0x14 shifted left 6)
+    /// Bit layout per ARM IHI0070G.b §6.3.2:
+    /// - bits[ 5: 0]: SIDSIZE  — StreamID bits (32)
+    /// - bits[10: 6]: SSIDSIZE — SubstreamID bits (20)
+    /// - bits[15:11]: PRIQS    — PRIQ max log2 entries
+    /// - bits[20:16]: EVENTQS  — EVENTQ max log2 entries
+    /// - bits[25:21]: CMDQS    — CMDQ max log2 entries
     #[must_use]
     pub fn get_idr1(&self) -> u32 {
-        // bits[5:0]  = SIDSIZE  = 32 (0x20)
-        // bits[10:6] = SSIDSIZE = 20 (0x14 << 6)
-        0x20u32 | (0x14u32 << 6)
+        let priqs   = self.priq_log2size;
+        let eventqs = self.eventq_log2size;
+        let cmdqs   = self.cmdq_log2size;
+        32u32               // SIDSIZE = 32 in bits[5:0]
+        | (20u32 << 6)      // SSIDSIZE = 20 in bits[10:6]
+        | (priqs   << 11)   // PRIQS   in bits[15:11]
+        | (eventqs << 16)   // EVENTQS in bits[20:16]
+        | (cmdqs   << 21)   // CMDQS   in bits[25:21]
     }
 
-    /// Read SMMU_IDR2 (§6.3.3) — input/output address size encoding.
+    /// Read SMMU_IDR2 (§6.3.3) — VATOS page base offset.
     ///
-    /// - bits[ 3: 0]: IAS — Input Address Size (IOVA bits encoded)
-    /// - bits[ 7: 4]: OAS — Output Address Size (PA bits encoded)
+    /// Per ARM IHI0070G.b §6.3.3, IDR2 only contains BA_VATOS[9:0].
+    /// This model does not implement VATOS, so IDR2 returns 0.
     #[must_use]
     pub fn get_idr2(&self) -> u32 {
-        let cfg = self.config.read().unwrap();
-        let ias = Self::encode_address_size(cfg.address_config.max_iova_bits);
-        let oas = Self::encode_address_size(cfg.address_config.max_pa_bits);
-        ias | (oas << 4)
+        // Only field is BA_VATOS[9:0]; VATOS not implemented.
+        0
     }
 
     /// Read SMMU_IDR3 (§6.3.4) — all zeros for basic SW model.
@@ -1172,13 +1170,17 @@ impl SMMU {
 
     /// Read SMMU_IDR5 (§6.3.6) — output address size and granule support.
     ///
-    /// - bits[ 2: 0]: OAS encoding (default 5 = 48-bit)
-    /// - bits[ 5: 3]: granule support flags: bit3=GRAN4K, bit4=GRAN16K, bit5=GRAN64K
+    /// Bit layout per ARM IHI0070G.b §6.3.6:
+    /// - bits[2:0]: OAS    — Output Address Size (5 = 48-bit)
+    /// - bit  4:   GRAN4K  — 4KB translation granule supported
+    /// - bit  5:   GRAN16K — 16KB translation granule supported
+    /// - bit  6:   GRAN64K — 64KB translation granule supported
     #[must_use]
     pub fn get_idr5(&self) -> u32 {
-        let oas_bits:   u32 = 5;       // 48-bit default OAS
-        let gran_flags: u32 = 0b111 << 3; // 4K | 16K | 64K all supported
-        oas_bits | gran_flags
+        5u32          // OAS = 5 (48-bit) in bits[2:0]
+        | (1u32 << 4) // GRAN4K
+        | (1u32 << 5) // GRAN16K
+        | (1u32 << 6) // GRAN64K
     }
 
     /// Read SMMU_AIDR (§6.3.7) — architecture implementation version.
@@ -1338,11 +1340,21 @@ impl SMMU {
     ) -> u64 {
         match self.translate(stream_id, pasid, iova, access, security_state) {
             Ok(result) => {
-                // Success: encode PA into bits[63:12] with bit 0 = 0 (no fault).
-                result.physical_address().as_u64() & !0xFFFu64
+                // Success path: build GATOS_PAR per ARM IHI0070G.b §6.3.40.
+                // bit  0:     FAULT = 0
+                // bits[9:8]:  SH    = 0b11 (Inner Shareable)
+                // bit  11:    SIZE  = 0 (4KB page)
+                // bits[55:12]: ADDR = PA[55:12]
+                // bits[63:56]: ATTR = 0xFF (Normal, WB/WA cacheable)
+                let pa = result.physical_address().as_u64();
+                let addr_field: u64 = pa & 0x00FF_FFFF_FFFF_F000_u64; // bits[55:12]
+                let sh:         u64 = 0b11_u64 << 8;                   // bits[9:8] = ISH
+                let attr:       u64 = 0xFF_u64 << 56;                  // bits[63:56]
+                // SIZE (bit 11) = 0 (4KB page) — left at zero
+                attr | sh | addr_field
             }
             Err(_) => {
-                // Fault: bit 0 = 1, all other bits = 0 (§9.3.3).
+                // Fault: bit 0 = 1, all other bits = 0 (§6.3.40).
                 1u64
             }
         }

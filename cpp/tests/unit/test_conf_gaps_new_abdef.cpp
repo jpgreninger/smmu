@@ -119,11 +119,13 @@ protected:
     std::unique_ptr<SMMU> smmu_;
 };
 
-// IDR0 must have bit 0 set (S1P — stage-1 supported).
-TEST_F(GapNewDTest, gap_new_d_idr0_s1p_bit_set) {
+// IDR0 must have bit 0 (S2P) and bit 1 (S1P) set with correct ARM §6.3.1 encoding.
+TEST_F(GapNewDTest, gap_new_d_idr0_s1p_s2p_correct_bits) {
     uint32_t idr0 = smmu_->getIDR0();
     EXPECT_NE(idr0, 0u) << "IDR0 must be non-zero";
-    EXPECT_TRUE((idr0 & 0x1u) != 0u) << "IDR0 bit 0 (S1P) must be set";
+    EXPECT_TRUE((idr0 & (1u << 0)) != 0u) << "IDR0 bit 0 (S2P) must be set";
+    EXPECT_TRUE((idr0 & (1u << 1)) != 0u) << "IDR0 bit 1 (S1P) must be set";
+    EXPECT_TRUE((idr0 & (1u << 27)) != 0u) << "IDR0 bit 27 (ST_LEVEL[0]) must be set";
 }
 
 // IDR1 must encode SIDSIZE=32 in bits[5:0].
@@ -134,16 +136,20 @@ TEST_F(GapNewDTest, gap_new_d_idr1_sidsize_32) {
     EXPECT_EQ(sidsize, 0x20u) << "IDR1 SIDSIZE must be 32 (0x20)";
 }
 
-// IDR2 must have valid IAS/OAS fields (non-zero).
-TEST_F(GapNewDTest, gap_new_d_idr2_ias_oas_nonzero) {
+// IDR2 has only BA_VATOS[9:0]; this model has VATOS=0 → IDR2=0.
+TEST_F(GapNewDTest, gap_new_d_idr2_returns_zero_no_vatos) {
+    // IDR2 has only BA_VATOS[9:0]; this model has VATOS=0 → IDR2=0
     uint32_t idr2 = smmu_->getIDR2();
-    EXPECT_NE(idr2, 0u) << "IDR2 must be non-zero";
+    EXPECT_EQ(idr2, 0u) << "IDR2 must be 0 (only BA_VATOS field; VATOS not implemented)";
 }
 
-// IDR5 must have OAS encoding and granule bits.
-TEST_F(GapNewDTest, gap_new_d_idr5_oas_granules) {
+// IDR5 must encode OAS=5 (48-bit) in bits[2:0] and set all three granule bits.
+TEST_F(GapNewDTest, gap_new_d_idr5_oas_and_granule_bits) {
     uint32_t idr5 = smmu_->getIDR5();
-    EXPECT_NE(idr5, 0u) << "IDR5 must be non-zero";
+    EXPECT_EQ(idr5 & 0x7u, 5u)               << "IDR5 OAS (bits[2:0]) must be 5 (48-bit)";
+    EXPECT_TRUE((idr5 & (1u << 4)) != 0u)    << "IDR5 GRAN4K (bit 4) must be set";
+    EXPECT_TRUE((idr5 & (1u << 5)) != 0u)    << "IDR5 GRAN16K (bit 5) must be set";
+    EXPECT_TRUE((idr5 & (1u << 6)) != 0u)    << "IDR5 GRAN64K (bit 6) must be set";
 }
 
 // AIDR and IIDR are defined and callable (may return 0 for this model).
@@ -266,9 +272,10 @@ TEST_F(GapNewFTest, gap_new_f_gatos_translate_success_returns_pa) {
     EXPECT_EQ((par & 0x1u), 0u)
         << "GATOS PAR bit 0 must be 0 on success; got 0x"
         << std::hex << par;
-    // The returned value should contain the PA (page-aligned).
-    EXPECT_EQ(par & ~0xFFFULL, BASE_PA & ~0xFFFULL)
-        << "GATOS PAR must contain the translated PA";
+    // ARM IHI0070G.b §6.3.40: bits[55:12] = PA[55:12]; ATTR/SH fields also populated.
+    constexpr uint64_t PAR_ADDR_MASK = 0x00FFFFFFFFFFF000ULL; // bits[55:12]
+    EXPECT_EQ(par & PAR_ADDR_MASK, BASE_PA & PAR_ADDR_MASK)
+        << "GATOS PAR bits[55:12] must hold the translated PA";
 }
 
 // gatosTranslate faults for an unmapped page → returns value with bit 0 = 1.

@@ -114,15 +114,16 @@ fn test_gap_new_g_stall_suppressed_when_s1stalld_true() {
 // GAP-NEW-D: IDR registers
 // ============================================================================
 
-/// GAP-NEW-D test 1: get_idr0() returns nonzero (S1P bit is set).
+/// GAP-NEW-D test 1: get_idr0() returns nonzero (S2P at bit 0, S1P at bit 1).
 #[test]
 fn test_gap_new_d_idr0_nonzero_s1p_set() {
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
 
-    // Bit 0 = S1P (stage-1 present) must be 1
+    // ARM IHI0070G.b §6.3.1: bit 0 = S2P, bit 1 = S1P
     assert_ne!(idr0, 0, "IDR0 must be nonzero");
-    assert_ne!(idr0 & 1, 0, "IDR0 bit 0 (S1P) must be set");
+    assert_ne!(idr0 & (1 << 1), 0, "IDR0 bit 1 (S1P) must be set");
+    assert_ne!(idr0 & (1 << 0), 0, "IDR0 bit 0 (S2P) must be set");
 }
 
 /// GAP-NEW-D test 2: get_idr1() returns nonzero (SIDSIZE=32 in bits[5:0]).
@@ -136,28 +137,32 @@ fn test_gap_new_d_idr1_sidsize_32() {
     assert_eq!(idr1 & 0x3F, 0x20, "IDR1 SIDSIZE (bits[5:0]) must be 32");
 }
 
-/// GAP-NEW-D test 3: get_idr2() returns encoded IAS/OAS bits.
+/// GAP-NEW-D test 3: get_idr2() returns 0 (only BA_VATOS[9:0], VATOS not implemented).
 #[test]
-fn test_gap_new_d_idr2_ias_oas_encoded() {
+fn test_gap_new_d_idr2_returns_zero() {
     let smmu = SMMU::new();
     let idr2 = smmu.get_idr2();
 
-    // IAS encoding in bits[3:0], OAS in bits[7:4] — both must be nonzero for any reasonable config
-    // Default config has 48-bit IOVA (IAS encoding=5) and 52-bit PA (OAS encoding=6)
-    let ias = idr2 & 0xF;
-    let oas = (idr2 >> 4) & 0xF;
-    assert!(ias > 0, "IDR2 IAS must be nonzero for 36-bit+ IOVA");
-    assert!(oas > 0, "IDR2 OAS must be nonzero for 36-bit+ PA");
+    // ARM IHI0070G.b §6.3.3: IDR2 only has BA_VATOS[9:0]; IAS/OAS are NOT in IDR2.
+    // This model does not implement VATOS, so IDR2 must be 0.
+    assert_eq!(idr2, 0, "IDR2 must be 0 (no IAS/OAS fields; only BA_VATOS which is unused)");
 }
 
-/// GAP-NEW-D test 4: get_idr5() bits[2:0] granule flags.
+/// GAP-NEW-D test 4: get_idr5() — OAS in bits[2:0], granule flags in bits[6:4].
 #[test]
 fn test_gap_new_d_idr5_granules() {
     let smmu = SMMU::new();
     let idr5 = smmu.get_idr5();
 
-    // bits[2:0] = granule support flags — at minimum GRAN4K (bit 0) is set
-    assert_ne!(idr5 & 0b111, 0, "IDR5 granule bits must be nonzero");
+    // ARM IHI0070G.b §6.3.6:
+    //   bits[2:0] = OAS = 5 (48-bit)
+    //   bit  4    = GRAN4K
+    //   bit  5    = GRAN16K
+    //   bit  6    = GRAN64K
+    assert_eq!(idr5 & 0b111, 5, "IDR5 OAS (bits[2:0]) must be 5 (48-bit)");
+    assert_ne!(idr5 & (1 << 4), 0, "IDR5 GRAN4K (bit 4) must be set");
+    assert_ne!(idr5 & (1 << 5), 0, "IDR5 GRAN16K (bit 5) must be set");
+    assert_ne!(idr5 & (1 << 6), 0, "IDR5 GRAN64K (bit 6) must be set");
 }
 
 /// GAP-NEW-D test 5: get_aidr() and get_iidr() return expected values.
@@ -300,6 +305,10 @@ fn test_gap_new_e_irq_ctrlack_initial_zero() {
 // GAP-NEW-F: GATOS address translation
 // ============================================================================
 
+// ARM IHI0070G.b §6.3.40: bits[55:12] are the PA address field in GATOS_PAR.
+// ATTR[63:56] and SH[9:8] overlay the upper/middle bits; this mask isolates [55:12].
+const PAR_ADDR_MASK: u64 = 0x00FF_FFFF_FFFF_F000;
+
 /// GAP-NEW-F test 1: gatos_translate on a successfully mapped page returns PA.
 #[test]
 fn test_gap_new_f_gatos_success_returns_pa() {
@@ -321,10 +330,13 @@ fn test_gap_new_f_gatos_success_returns_pa() {
 
     let par = smmu.gatos_translate(sid, pasid, make_iova(0x2000), AccessType::Read, SecurityState::NonSecure);
 
-    // On success bit 0 must be 0 (no fault) and bits[63:12] hold the PA
+    // On success bit 0 must be 0 (no fault)
     assert_eq!(par & 1, 0, "GATOS_PAR bit 0 must be 0 (no fault) on success");
-    // The PA in the PAR is the page-aligned PA (bits[63:12])
-    assert_eq!(par & !0xFFF, 0xABC0_0000, "GATOS_PAR bits[63:12] must hold the PA");
+    assert_eq!(
+        par & PAR_ADDR_MASK,
+        0xABC0_0000,
+        "GATOS_PAR bits[55:12] must hold the PA"
+    );
 }
 
 /// GAP-NEW-F test 2: gatos_translate on an unmapped address returns FAULT (bit 0 = 1).

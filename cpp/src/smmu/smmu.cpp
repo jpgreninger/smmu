@@ -2411,28 +2411,40 @@ void SMMU::reportUnsupportedTransaction(StreamID streamID, PASID pasid,
 // GAP-NEW-D: IDR registers — capability bitmasks (ARM §6.3.1–6.3.8)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// IDR0: S1P=bit0, S2P=bit1, TT4K=bit2, TT64K=bit3, TT16K=bit4,
-//       SEV=bit8 (stall supported), ASID16=bit16.
 uint32_t SMMU::getIDR0() const {
-    return (1u << 0)  // S1P: stage-1 translation supported
-         | (1u << 1)  // S2P: stage-2 translation supported
-         | (1u << 2)  // TT4K: 4KB translation granule supported
-         | (1u << 3)  // TT64K: 64KB translation granule supported
-         | (1u << 4)  // TT16K: 16KB translation granule supported
-         | (1u << 8)  // SEV: stall model supported
-         | (1u << 16); // ASID16: 16-bit ASIDs supported
+    // ARM IHI0070G.b §6.3.1 SMMU_IDR0 — verified bit positions:
+    return (1u << 0)        // S2P: stage-2 translation present
+         | (1u << 1)        // S1P: stage-1 translation present
+         | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
+         | (1u << 10)       // ATS: PCIe ATS supported
+         | (1u << 12)       // ASID16: 16-bit ASIDs supported
+         | (1u << 14)       // SEV: stall model (WFE/SEV) supported
+         | (1u << 15)       // ATOS: address translation operations (GATOS) supported
+         | (1u << 16)       // PRI: page request interface supported
+         | (1u << 17)       // VMW: VMID wildcard bits in CR0
+         | (1u << 18)       // VMID16: 16-bit VMIDs supported
+         | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
 }
 
-// IDR1: SIDSIZE[5:0]=32 (32-bit StreamIDs), SSIDSIZE[10:6]=20 (20-bit SubstreamIDs).
 uint32_t SMMU::getIDR1() const {
-    return 0x20u           // SIDSIZE = 32 in bits[5:0]
-         | (0x14u << 6);   // SSIDSIZE = 20 in bits[10:6]
+    // ARM IHI0070G.b §6.3.2 SMMU_IDR1:
+    // bits[ 5: 0]: SIDSIZE  = 32 (32-bit StreamIDs)
+    // bits[10: 6]: SSIDSIZE = 20 (20-bit SubstreamIDs)
+    // bits[15:11]: PRIQS    = priqLog2Size
+    // bits[20:16]: EVENTQS  = eventqLog2Size
+    // bits[25:21]: CMDQS    = cmdqLog2Size
+    return 0x20u                              // SIDSIZE = 32 in bits[5:0]
+         | (0x14u << 6)                       // SSIDSIZE = 20 in bits[10:6]
+         | (static_cast<uint32_t>(priqLog2Size)   << 11) // PRIQS
+         | (static_cast<uint32_t>(eventqLog2Size) << 16) // EVENTQS
+         | (static_cast<uint32_t>(cmdqLog2Size)   << 21);// CMDQS
 }
 
-// IDR2: IAS[3:0]=5 (48-bit input), OAS[7:4]=5 (48-bit output).
 uint32_t SMMU::getIDR2() const {
-    return 0x5u           // IAS = 5 (48-bit) in bits[3:0]
-         | (0x5u << 4);   // OAS = 5 (48-bit) in bits[7:4]
+    // ARM IHI0070G.b §6.3.3 SMMU_IDR2:
+    // Only field is BA_VATOS[9:0] (VATOS page base address offset).
+    // This model does not implement VATOS — return 0.
+    return 0u;
 }
 
 // IDR3: reserved — returns 0 for this model.
@@ -2441,10 +2453,17 @@ uint32_t SMMU::getIDR3() const { return 0u; }
 // IDR4: reserved — returns 0 for this model.
 uint32_t SMMU::getIDR4() const { return 0u; }
 
-// IDR5: OAS[5:3]=5 (48-bit output), GRAN4K|GRAN16K|GRAN64K in bits[2:0].
 uint32_t SMMU::getIDR5() const {
-    return (5u << 3)  // OAS = 5 (48-bit) in bits[5:3]
-         | 0x7u;      // All three granules (4K/16K/64K) supported in bits[2:0]
+    // ARM IHI0070G.b §6.3.6 SMMU_IDR5:
+    // bits[2:0]: OAS    = 5 (48-bit output address size)
+    // bit  3:   RES0
+    // bit  4:   GRAN4K  — 4KB granule supported
+    // bit  5:   GRAN16K — 16KB granule supported
+    // bit  6:   GRAN64K — 64KB granule supported
+    return 5u           // OAS = 5 (48-bit) in bits[2:0]
+         | (1u << 4)    // GRAN4K
+         | (1u << 5)    // GRAN16K
+         | (1u << 6);   // GRAN64K
 }
 
 // AIDR: architecture implementation-defined — returns 0.
@@ -2503,19 +2522,26 @@ uint32_t SMMU::getIrqCtrlAck() const {
 // GAP-NEW-F: GATOS address translation wrapper (§9.1–9.9)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Returns a 64-bit GATOS_PAR value:
-//   bit 0 = 0 → success; bits[63:12] = page-aligned PA.
-//   bit 0 = 1 → fault; remaining bits are 0.
+// Returns a 64-bit GATOS_PAR value per ARM IHI0070G.b §6.3.40:
+//   bit 0     = FAULT (1 = fault)
+//   bits[9:8] = SH (shareability; 0b11 = Inner Shareable)
+//   bit 11    = SIZE (0 = 4KB page — implicit)
+//   bits[55:12] = ADDR (PA[55:12], page-aligned PA)
+//   bits[63:56] = ATTR (0xFF = Normal WB/WA cacheable)
 // The internal translate() call may produce side-effects (events, stalls) but
 // those are acceptable — GATOS is a full translation that records faults.
 uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                                AccessType accessType, SecurityState securityState) {
     TranslationResult result = translate(streamID, pasid, iova, accessType, securityState);
     if (result.isError()) {
-        return 0x1ULL; // FAULT bit set, PA = 0
+        return 0x1ULL; // FAULT bit set, all others 0
     }
-    // Success: return page-aligned PA (clear low 12 bits; spec defines them as zero).
-    return result.getValue().physicalAddress & ~static_cast<uint64_t>(0xFFF);
+    uint64_t pa         = result.getValue().physicalAddress;
+    uint64_t addr_field = pa & 0x00FFFFFFFFFFF000ULL;              // PA bits[55:12]
+    uint64_t sh         = static_cast<uint64_t>(3u) << 8;         // ISH (0b11=3) in bits[9:8]
+    uint64_t attr       = static_cast<uint64_t>(0xFFu) << 56;     // Normal WB/WA in bits[63:56]
+    return attr | sh | addr_field;
+    // SIZE (bit 11) = 0 (4KB page — implicit)
 }
 
 // Task 5.3: Command Queue Processing Simulation (Task 5.3.2)
