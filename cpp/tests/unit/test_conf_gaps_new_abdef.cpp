@@ -455,3 +455,203 @@ TEST_F(GapNewDTest, gap_new_s2_idr0_term_model_set) {
     EXPECT_TRUE((idr0 & (1u << 26)) != 0u)
         << "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; always aborts";
 }
+
+// =============================================================================
+// GAP-NEW-S3: CR2.E2H — STRW=EL2_E2H downgrade when CR2.E2H=0 (§6.3.12, §3.17.5)
+//
+// When CR2.E2H=0 (VHE not enabled), a stream configured with STRW=EL2_E2H
+// must behave as NS-EL2 (STRW=EL2).  This means TLB entries must be installed
+// with ASID=0 (no ASID tagging), matching NS-EL2 semantics.
+//
+// Test strategy: install a TLB entry via a successful translation with
+// STRW=EL2_E2H while CR2.E2H=0.  Then perform an ASID-scoped invalidation
+// for the stream's configured ASID.  Because the entry was installed with
+// ASID=0 (NS-EL2 semantics), the ASID-scoped TLBI must NOT remove it —
+// a subsequent translate must still hit the TLB (or page-walk successfully)
+// without faulting.
+//
+// Conversely, when CR2.E2H=1, the entry IS installed with the stream's ASID,
+// so the ASID-scoped TLBI removes it.  We verify the TLB entry ASID tagging
+// changed by checking that after setting E2H=1 and mapping a new page, the
+// ASID-scoped TLBI does clear the entry (the translate still succeeds via
+// page-walk, which is acceptable — the key is no fault is produced).
+// =============================================================================
+
+class CR2E2HTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        smmu_ = std::make_unique<SMMU>();
+        smmu_->enable();
+        smmu_->setCR0(smmu_->getCR0() | SMMU::CR0_EVENTQEN);
+    }
+    void TearDown() override { smmu_.reset(); }
+    std::unique_ptr<SMMU> smmu_;
+
+    static constexpr StreamID SID2   = 0x30;
+    static constexpr PASID    PID2   = 0;
+    static constexpr uint16_t ASID2  = 0x42;
+    static constexpr IOVA     IOVA2  = 0x5000;
+    static constexpr PA       PA2    = 0xE000'0000ULL;
+
+    void configureEl2E2hStream() {
+        StreamConfig cfg;
+        cfg.translationEnabled = true;
+        cfg.stage1Enabled      = true;
+        cfg.stage2Enabled      = false;
+        cfg.strw               = StreamWorld::EL2_E2H;
+        cfg.asid               = ASID2;
+        cfg.t0sz               = 0; // no VA range restriction
+        ASSERT_TRUE(smmu_->configureStream(SID2, cfg).isOk());
+        ASSERT_TRUE(smmu_->enableStream(SID2).isOk());
+        ASSERT_TRUE(smmu_->createStreamPASID(SID2, PID2).isOk());
+        PagePermissions perms;
+        perms.read    = true;
+        perms.write   = true;
+        perms.execute = false;
+        ASSERT_TRUE(smmu_->mapPage(SID2, PID2, IOVA2, PA2, perms).isOk());
+    }
+};
+
+// CR2_E2H must be defined as bit 0 (value 1).
+TEST_F(CR2E2HTest, gap_new_s3_cr2_e2h_constant_is_bit_zero) {
+    EXPECT_EQ(SMMU::CR2_E2H, 1u)
+        << "CR2_E2H must be bit 0 per ARM IHI0070G.b §6.3.12";
+}
+
+// CR2.E2H must read back 0 by default (reset value).
+TEST_F(CR2E2HTest, gap_new_s3_cr2_e2h_default_zero) {
+    EXPECT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, 0u)
+        << "CR2.E2H must default to 0 at reset";
+}
+
+// CR2.E2H must read back the value written via setCR2.
+TEST_F(CR2E2HTest, gap_new_s3_cr2_e2h_set_and_read_back) {
+    smmu_->setCR2(smmu_->getCR2() | SMMU::CR2_E2H);
+    EXPECT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, SMMU::CR2_E2H)
+        << "CR2.E2H must read back 1 after setCR2 sets bit 0";
+    smmu_->setCR2(smmu_->getCR2() & ~SMMU::CR2_E2H);
+    EXPECT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, 0u)
+        << "CR2.E2H must read back 0 after setCR2 clears bit 0";
+}
+
+// GAP-NEW-S3 core: with CR2.E2H=0, STRW=EL2_E2H stream must install TLB entries
+// with ASID=0 (NS-EL2 semantics, no ASID tagging).
+//
+// Observable invariant: after an ASID-scoped TLBI for ASID2, the TLB entry
+// that was installed with ASID=0 must survive (not be evicted).  The second
+// translation must therefore be a TLB cache HIT, not a miss.
+//
+// Before the fix the entry is erroneously tagged with ASID2, so the ASID-scoped
+// TLBI evicts it and the second translate is a MISS — this test fails red.
+// After the fix the entry is tagged ASID=0, survives the TLBI, and the second
+// translate is a HIT — the test goes green.
+TEST_F(CR2E2HTest, gap_new_s3_strw_el2e2h_with_e2h_zero_uses_asid_zero) {
+    // Verify pre-condition: CR2.E2H=0.
+    ASSERT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, 0u)
+        << "Pre-condition: CR2.E2H must be 0 for this test";
+
+    configureEl2E2hStream();
+
+    // Populate the TLB with a successful translation (cache miss — slow path).
+    smmu_->resetStatistics();
+    auto r1 = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    ASSERT_TRUE(r1.isOk()) << "First translation must succeed (page is mapped)";
+    // After the first translate the entry should be in the TLB.
+
+    // Confirm that a second translate before any TLBI is a cache hit.
+    smmu_->resetStatistics();
+    auto r_hit = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    ASSERT_TRUE(r_hit.isOk());
+    uint64_t hitsBeforeTlbi = smmu_->getCacheStatistics().hitCount;
+    ASSERT_GT(hitsBeforeTlbi, 0u)
+        << "Second translate (before TLBI) must be a TLB hit — TLB not populated";
+
+    // Issue an ASID-scoped TLBI for ASID2.
+    // With CR2.E2H=0 the entry must have been installed with ASID=0, so this
+    // TLBI must NOT evict it.
+    CommandEntry tlbiCmd;
+    tlbiCmd.type = CommandType::TLBI_NH_ASID;
+    tlbiCmd.asid = ASID2;
+    ASSERT_TRUE(smmu_->submitCommand(tlbiCmd).isOk());
+    smmu_->processCommandQueue();
+
+    // The third translate must STILL be a cache hit (entry was not evicted).
+    smmu_->resetStatistics();
+    auto r2 = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    EXPECT_TRUE(r2.isOk())
+        << "Translation must succeed after ASID-scoped TLBI (page still mapped)";
+
+    uint64_t hitsAfterTlbi = smmu_->getCacheStatistics().hitCount;
+    uint64_t missesAfterTlbi = smmu_->getCacheStatistics().missCount;
+
+    // KEY INVARIANT: with CR2.E2H=0 the entry was installed with ASID=0, so
+    // the ASID2-scoped TLBI must NOT have evicted it.  The translate after the
+    // TLBI must be a TLB cache HIT (not a miss that forces a page-walk).
+    EXPECT_GT(hitsAfterTlbi, 0u)
+        << "After ASID-scoped TLBI (ASID2), the TLB entry tagged ASID=0 must "
+           "survive — third translate must be a cache HIT. "
+           "Hits=" << hitsAfterTlbi << " Misses=" << missesAfterTlbi;
+    EXPECT_EQ(missesAfterTlbi, 0u)
+        << "No cache misses expected after TLBI when entry has ASID=0 "
+           "(CR2.E2H=0 forces NS-EL2 / no-ASID semantics for EL2_E2H streams). "
+           "Hits=" << hitsAfterTlbi << " Misses=" << missesAfterTlbi;
+
+    // No fault events must be present.
+    auto events = smmu_->getEventQueue();
+    EXPECT_TRUE(events.empty()) << "No fault events expected";
+}
+
+// GAP-NEW-S3 complement: with CR2.E2H=1, STRW=EL2_E2H stream installs TLB
+// entries WITH the stream's ASID (EL2-VHE semantics).  An ASID-scoped TLBI
+// for ASID2 must remove that entry — the subsequent translate must be a
+// cache MISS (page-walk re-execution), not a hit.
+TEST_F(CR2E2HTest, gap_new_s3_strw_el2e2h_with_e2h_one_uses_stream_asid) {
+    // Enable E2H before configuring the stream.
+    smmu_->setCR2(smmu_->getCR2() | SMMU::CR2_E2H);
+    ASSERT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, SMMU::CR2_E2H);
+
+    configureEl2E2hStream();
+
+    // Populate TLB (first translate = miss, installs entry with ASID2).
+    auto r1 = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    ASSERT_TRUE(r1.isOk()) << "First translation must succeed";
+
+    // Confirm second translate is a cache hit (entry is present with ASID2).
+    smmu_->resetStatistics();
+    auto r_hit = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    ASSERT_TRUE(r_hit.isOk());
+    ASSERT_GT(smmu_->getCacheStatistics().hitCount, 0u)
+        << "Second translate (before TLBI, E2H=1) must be a TLB hit";
+
+    // ASID-scoped TLBI for ASID2 — with E2H=1 the entry was tagged ASID2,
+    // so this must evict it.
+    CommandEntry tlbiCmd;
+    tlbiCmd.type = CommandType::TLBI_NH_ASID;
+    tlbiCmd.asid = ASID2;
+    ASSERT_TRUE(smmu_->submitCommand(tlbiCmd).isOk());
+    smmu_->processCommandQueue();
+
+    // Translate again — page is still mapped so must succeed, but via page walk
+    // (cache MISS) because the ASID2 entry was evicted.
+    smmu_->resetStatistics();
+    auto r2 = smmu_->translate(SID2, PID2, IOVA2, AccessType::Read);
+    EXPECT_TRUE(r2.isOk())
+        << "Translation must succeed after TLBI (page still mapped, re-walked)";
+
+    uint64_t hitsAfter = smmu_->getCacheStatistics().hitCount;
+    uint64_t missesAfter = smmu_->getCacheStatistics().missCount;
+
+    // KEY INVARIANT: with E2H=1 the ASID2-scoped TLBI evicted the entry.
+    // The translate after the TLBI must be a cache MISS.
+    EXPECT_EQ(hitsAfter, 0u)
+        << "With CR2.E2H=1, ASID-scoped TLBI must evict the EL2_E2H entry "
+           "(tagged ASID2) — third translate must be a cache MISS. "
+           "Hits=" << hitsAfter << " Misses=" << missesAfter;
+    EXPECT_GT(missesAfter, 0u)
+        << "Cache miss expected after TLBI evicted the ASID2-tagged entry. "
+           "Hits=" << hitsAfter << " Misses=" << missesAfter;
+
+    // No fault events expected.
+    auto events = smmu_->getEventQueue();
+    EXPECT_TRUE(events.empty()) << "No fault events expected";
+}

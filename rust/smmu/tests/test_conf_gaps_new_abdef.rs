@@ -618,3 +618,76 @@ fn test_gap_new_s2_idr0_term_model_set() {
     assert_ne!(idr0 & (1 << 26), 0,
         "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; implementation always aborts");
 }
+
+// ============================================================================
+// GAP-NEW-S3: CR2.E2H gates STRW=El2E2h validity (§6.3.12, §3.17.5)
+// ============================================================================
+
+/// GAP-NEW-S3: CR2_E2H constant must be defined as bit 0 (value 1).
+#[test]
+fn test_gap_new_s3_cr2_e2h_constant_defined() {
+    assert_eq!(SMMU::CR2_E2H, 1u32, "CR2_E2H must be bit 0 per §6.3.12");
+}
+
+/// GAP-NEW-S3: CR2.E2H defaults to 0; can be set and read back.
+#[test]
+fn test_gap_new_s3_cr2_e2h_readback() {
+    let smmu = SMMU::new();
+    // Default: CR2.E2H=0
+    assert_eq!(smmu.get_cr2() & SMMU::CR2_E2H, 0, "CR2.E2H must be 0 by default");
+    // Set E2H=1
+    smmu.set_cr2(smmu.get_cr2() | SMMU::CR2_E2H);
+    assert_eq!(
+        smmu.get_cr2() & SMMU::CR2_E2H,
+        SMMU::CR2_E2H,
+        "CR2.E2H must read back 1 after set"
+    );
+}
+
+/// GAP-NEW-S3: With CR2.E2H=0, a stream configured STRW=El2E2h behaves as NS-EL2.
+/// Translation must still succeed (downgrade is transparent to caller).
+#[test]
+fn test_gap_new_s3_strw_el2e2h_downgrades_when_e2h_zero() {
+    use smmu::types::StreamWorld;
+    let smmu = SMMU::new();
+    enable_smmu(&smmu);
+
+    let sid = make_sid(50);
+    let pasid = make_pasid(0);
+
+    // CR2.E2H = 0 (default — E2H bit not set)
+    assert_eq!(smmu.get_cr2() & SMMU::CR2_E2H, 0, "CR2.E2H must be 0 by default");
+
+    // Configure stream with STRW=El2E2h
+    let cfg = StreamConfig::builder()
+        .translation_enabled(true)
+        .stage1_enabled(true)
+        .strw(StreamWorld::El2E2h)
+        .build()
+        .unwrap();
+
+    smmu.configure_stream(sid, cfg).unwrap();
+    smmu.create_pasid(sid, pasid).unwrap();
+    smmu.map_page(
+        sid,
+        pasid,
+        make_iova(0x6000),
+        make_pa(0xE000_0000),
+        smmu::types::PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    // Translation must succeed — downgrade is transparent to caller
+    let result = smmu.translate(
+        sid,
+        pasid,
+        make_iova(0x6000),
+        AccessType::Read,
+        SecurityState::NonSecure,
+    );
+    assert!(
+        result.is_ok(),
+        "Translation must succeed even with CR2.E2H=0 + STRW=El2E2h: {result:?}"
+    );
+}

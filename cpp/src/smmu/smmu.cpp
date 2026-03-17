@@ -554,6 +554,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 // Stage-2 only: no ASID tagging
                 entryAsid = 0;
             }
+            // GAP-NEW-S3: ARM IHI0070G.b §6.3.12 / §3.17.5 — STRW=EL2_E2H (VHE) is only
+            // valid when CR2.E2H=1.  When CR2.E2H=0, STRW=EL2_E2H must be treated as
+            // NS-EL2 (STRW=EL2): no ASID tagging on TLB entries.  ASID-based TLBI
+            // commands (e.g. CMD_TLBI_NH_ASID) must therefore NOT match these entries,
+            // which is achieved by tagging them with ASID=0 (same as plain NS-EL2).
+            if (streamCfg.strw == StreamWorld::EL2_E2H &&
+                (cr2_.load(std::memory_order_acquire) & CR2_E2H) == 0u) {
+                entryAsid = 0;
+            }
             cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid);
         }
     } else if (result.isError()) {

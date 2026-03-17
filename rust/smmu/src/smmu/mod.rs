@@ -534,6 +534,13 @@ impl SMMU {
     // ARM §6.3.12: SMMU_CR2 bit constants (public for downstream testing)
     // ========================================================================
 
+    /// CR2 bit 0: E2H — EL2-E2H (VHE) mode enable (§6.3.12, §3.17.5).
+    ///
+    /// When E2H=1 and `IDR0.Hyp=1`, `STRW=0b10` selects EL2 with VHE (E2H) mode.
+    /// When E2H=0, a stream configured with `STRW=El2E2h` (0b10) must be treated as
+    /// NS-EL2 (STRW=0b01, no ASID tagging on TLB entries) per ARM §6.3.12 and §3.17.5.
+    pub const CR2_E2H: u32 = 1 << 0;
+
     /// CR2 bit 1: RECINVSID — Record C_BAD_STREAMID events in the event queue (§6.3.12 / §7.3.3).
     ///
     /// When 0 (reset default), C_BAD_STREAMID events triggered by CMD_CFGI_STE
@@ -3261,7 +3268,17 @@ impl SMMU {
         // can be tagged and routing decisions made without re-locking the map.
         let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt) =
             if let Some(stream_ref) = stream_guard {
-                let asid = stream_ref.value().get_pasid_asid_or_default(pasid);
+                let raw_asid = stream_ref.value().get_pasid_asid_or_default(pasid);
+                // GAP-NEW-S3 fix: §6.3.12 / §3.17.5 — STRW=El2E2h (0b10) is only valid
+                // when CR2.E2H=1.  When CR2.E2H=0, downgrade El2E2h to NS-EL2 behavior:
+                // no ASID tagging on TLB entries (ASID=0), matching the El2 (STRW=0b01) path.
+                let asid = if stream_ref.value().get_strw() == crate::types::StreamWorld::El2E2h
+                    && (self.cr2.load(Ordering::Acquire) & Self::CR2_E2H) == 0
+                {
+                    0u16 // downgrade: CR2.E2H=0 ⇒ NS-EL2 behavior, no ASID tagging
+                } else {
+                    raw_asid
+                };
                 let vmid = stream_ref.value().get_vmid();
                 let stall = stream_ref.value().is_stall_enabled();
                 let s1_en = stream_ref.value().is_stage1_enabled();

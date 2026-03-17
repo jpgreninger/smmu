@@ -37,6 +37,7 @@ public:
     // RECINVSID (bit 1): when 1, C_BAD_STREAMID events are recorded in the event queue.
     // When 0 (reset default), C_BAD_STREAMID events are suppressed (not recorded).
     // GERROR.CMDQ_ERR is always toggled unconditionally for CMD_CFGI_STE with bad StreamID.
+    static constexpr uint32_t CR2_E2H        = (1u << 0); ///< bit 0: EL2-E2H (VHE) mode enable — §6.3.12
     static constexpr uint32_t CR2_RECINVSID  = (1u << 1); ///< bit 1: Record invalid StreamID events
     // CONF-GAP-11: CR2.PTM — broadcast TLB maintenance participation (§6.3.12)
     static constexpr uint32_t CR2_PTM        = (1u << 2); ///< bit 2: Participate in TLB maintenance
