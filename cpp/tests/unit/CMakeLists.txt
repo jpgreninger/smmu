@@ -112,6 +112,7 @@ set(UNIT_TEST_SOURCES
     test_new13_15_19_spec.cpp
     test_conf_gaps_new_abdef.cpp
     test_gatos_faultcode_idr0_httu.cpp
+    test_conf_gaps_17mar2026.cpp
     ../test_thread_safety.cpp
 )
 

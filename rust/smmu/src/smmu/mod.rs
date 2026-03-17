@@ -1407,7 +1407,11 @@ impl SMMU {
                     if queue.len() > evt_size_before {
                         let ev = queue.back().unwrap();
                         let fc = Self::event_type_to_gatos_faultcode(ev.event_type);
-                        let r = if ev.s2 { 1u64 } else { 0u64 };
+                        // §9.1.4: REASON encodes the stage-2 context (NEW-GAP-A fix):
+                        // 0b01 = stage-2 during CD fetch (event_class=0 CD)
+                        // 0b10 = stage-2 during TT walk  (event_class=1 TTD)
+                        // 0b11 = stage-2 on IPA input    (event_class=2 IN)
+                        let r = if ev.s2 { u64::from(ev.event_class) + 1 } else { 0u64 };
                         (fc, r)
                     } else {
                         (0x10u64, 0u64) // fallback: F_TRANSLATION, stage-1
@@ -1442,9 +1446,10 @@ impl SMMU {
             EventType::FPermission      => 0x13,
             EventType::FTlbConflict     => 0x20,
             EventType::FCfgConflict     => 0x21,
+            // §9.1.5 / NEW-GAP-B: F_VMS_FETCH has its own faultcode 0x25.
+            EventType::FVmsFetch => 0x25,
             // Implementation-defined and other events: fall back to F_TRANSLATION.
             EventType::EPageRequest
-            | EventType::FVmsFetch
             | EventType::CommandSyncCompletion
             | EventType::AtcInvalidateCompletion => 0x10,
         }

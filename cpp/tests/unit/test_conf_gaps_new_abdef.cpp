@@ -754,7 +754,7 @@ TEST_F(GapNewFTest, gap_new_l_gatos_par_faultcode_reflects_actual_event) {
 TEST_F(GapNewFTest, gap_new_l_gatos_par_reason_set_for_stage2_fault) {
     // Set up a two-stage stream: stage-1 maps IOVA->IPA (success), but stage-2
     // has no mapping for that IPA (fault).  The resulting event has s2=true,
-    // so GATOS_PAR REASON must be 0b01 per ARM §9.1.4.
+    // eventClass=2 (IN), so GATOS_PAR REASON = eventClass+1 = 3 = 0b11 per §9.1.4.
     static constexpr StreamID SID_2S = 0x50;
     static constexpr PA       IPA_VAL = 0x2000'0000ULL; // stage-1 output IPA
 
@@ -782,7 +782,9 @@ TEST_F(GapNewFTest, gap_new_l_gatos_par_reason_set_for_stage2_fault) {
     // Translate: stage-1 succeeds (IOVA->IPA), stage-2 faults (IPA not mapped).
     uint64_t par = smmu_->gatosTranslate(SID_2S, PID, BASE_IOVA, AccessType::Read);
     EXPECT_EQ(par & 1u, 1u) << "FAULT bit must be set";
-    // REASON=0b01 means stage-2 fault per §9.1.4.
+    // NEW-GAP-A fix: §9.1.4 REASON encodes the stage-2 context via eventClass+1.
+    // F_TRANSLATION faults have eventClass=2 (IN), so REASON = 2+1 = 3 = 0b11
+    // (stage-2 fault on IPA input).  The old value of 1 was incorrect.
     uint64_t reason = (par >> 1) & 0x3u;
-    EXPECT_EQ(reason, 1u) << "REASON must be 0b01 for stage-2 fault";
+    EXPECT_EQ(reason, 3u) << "REASON must be 0b11 (3) for stage-2 IPA-input fault per §9.1.4";
 }

@@ -2584,6 +2584,7 @@ uint64_t SMMU::mapEventTypeToGatosFaultCode(EventType t) {
         case EventType::F_PERMISSION:        return 0x13u;
         case EventType::F_TLB_CONFLICT:      return 0x20u;
         case EventType::F_CFG_CONFLICT:      return 0x21u;
+        case EventType::F_VMS_FETCH:         return 0x25u; // §9.1.5 / NEW-GAP-B
         default:                             return 0x10u; // fallback: F_TRANSLATION
     }
 }
@@ -2611,7 +2612,11 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                 const EventEntry& ev = eventQueue.back();
                 faultCode = mapEventTypeToGatosFaultCode(ev.type);
                 if (ev.s2) {
-                    reason = 1u; // stage-2 fault
+                    // §9.1.4: REASON encodes the stage-2 translation context:
+                    // 0b01 = stage-2 during CD fetch (eventClass=0 CD)
+                    // 0b10 = stage-2 during TT walk  (eventClass=1 TTD)
+                    // 0b11 = stage-2 on IPA input    (eventClass=2 IN)
+                    reason = static_cast<uint64_t>(ev.eventClass) + 1u;
                 }
             }
         }
@@ -4411,18 +4416,11 @@ FaultStage SMMU::determineFaultStage(const StreamConfig& config, FaultType fault
 }
 
 PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityState securityState) const {
-    // Suppress unused-parameter warning: accessType is retained in the signature
-    // for API stability and potential future use (e.g. AxPROT[1] decoding).
-    (void)accessType;
-    // TODO(BUG-CPP-09): Privilege level should be a transaction attribute supplied
-    // by the initiating master (ARM SMMU v3 §3.6 STREAM_WORLD / AxPROT[1]).
-    // This is a heuristic approximation only; accurate privilege level requires the
-    // initiating master to supply it as part of the transaction descriptor.
-    //
-    // BUG-CPP-5 fix: Use security state only; Root→EL3 and Realm→EL2 remain
-    // correct (those states canonically imply specific exception levels).
-    // Secure and NonSecure default to EL0 per ARM §13.1.3 (spec default for
-    // unknown privilege is Unprivileged).
+    // §3.6 / §13.1 (NEW-GAP-C fix): Derive privilege from caller-supplied AxPROT[1],
+    // encoded as *Privileged AccessType variants.  Root→EL3 and Realm→EL2 remain
+    // fixed by security state per the spec.  For Secure/NonSecure streams, inspect
+    // the accessType: *Privileged variants indicate EL1 (privileged), unprivileged
+    // variants indicate EL0 (ARM §13.1.3 default for unknown privilege is Unprivileged).
     switch (securityState) {
         case SecurityState::Root:
             return PrivilegeLevel::EL3;
@@ -4431,14 +4429,16 @@ PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityStat
         case SecurityState::Secure:
         case SecurityState::NonSecure:
         default:
-            // BUG-CPP-5 fix: ARM §13.1.3 states the spec default for missing
-            // PRIV is Unprivileged (EL0), regardless of security state.
-            // The previous heuristic (EL1 for data, EL0 for execute) was wrong:
-            // Secure/NonSecure do not imply a specific exception level; a
-            // Secure-EL2 hypervisor running DMA would receive incorrect EL1 bits
-            // in the fault syndrome.  Return EL0 (Unprivileged) for ALL access
-            // types to conform to §13.1.3.
-            return PrivilegeLevel::EL0;
+            // AxPROT[1]=1 (privileged) is encoded as *Privileged AccessType variants.
+            switch (accessType) {
+                case AccessType::ReadPrivileged:
+                case AccessType::WritePrivileged:
+                case AccessType::ExecutePrivileged:
+                case AccessType::ReadWritePrivileged:
+                    return PrivilegeLevel::EL1;
+                default:
+                    return PrivilegeLevel::EL0;
+            }
     }
 }
 
