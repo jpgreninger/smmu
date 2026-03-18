@@ -610,13 +610,18 @@ fn test_gap_new_s1_idr1_attr_types_ovr_set() {
 // GAP-NEW-S2: IDR0.TERM_MODEL (bit 26)
 // ============================================================================
 
-/// GAP-NEW-S2: IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled, always aborts.
+/// GAP-NEW-S2 (updated by Bug-2 fix): IDR0.TERM_MODEL (bit 26) must be 0.
+///
+/// Bug 2 fix: TERM_MODEL=1 would require C_BAD_CD when CD.A=0, which the model
+/// does not implement.  Clearing bit 26 correctly reports that RAZ/WI termination
+/// IS supported (ARM IHI0070G.b §6.3.1).
 #[test]
 fn test_gap_new_s2_idr0_term_model_set() {
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
-    assert_ne!(idr0 & (1 << 26), 0,
-        "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; implementation always aborts");
+    assert_eq!(idr0 & (1 << 26), 0,
+        "IDR0.TERM_MODEL (bit 26) must be 0 — Bug-2 fix: model supports RAZ/WI termination \
+         and does not validate CD.A=1 (ARM IHI0070G.b §6.3.1)");
 }
 
 // ============================================================================
