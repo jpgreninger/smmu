@@ -115,6 +115,7 @@ set(UNIT_TEST_SOURCES
     test_conf_gaps_17mar2026.cpp
     test_conf_gaps_jkl.cpp
     test_conf_gaps_pnu_nsipa_uwxn.cpp
+    test_bugfix_impl_quality.cpp
     ../test_thread_safety.cpp
 )
 

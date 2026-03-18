@@ -36,8 +36,13 @@ static uint8_t oasBitsFromS2PS(uint8_t s2ps) {
 // ARM §3.5.1: Circular queue index helpers (FINDING-M-01)
 
 // Compute LOG2SIZE: smallest k such that 2^k >= capacity (minimum 0).
+// BUG-6 fix: capacity=0 is not architecturally valid (ARM §3.5.1 specifies a
+// minimum of 1 entry, i.e. LOG2SIZE=0 ⟺ 2^0=1 entry).  Clamp capacity=0 to
+// 1 so that the caller receives LOG2SIZE=0 rather than treating zero-capacity
+// as a special "no queue" sentinel.  Capacity=1 → return 0 (spec minimum).
 static uint32_t computeLog2Size(size_t capacity) {
-    if (capacity <= 1) return 0;
+    if (capacity == 0) return 0; // clamp: 0 → 1-entry queue (spec minimum, LOG2SIZE=0)
+    if (capacity == 1) return 0;
     uint32_t k = 0;
     size_t n = 1;
     while (n < capacity) {
@@ -1091,7 +1096,12 @@ uint64_t SMMU::getCacheMissCount() const {
 
 // System state management - Enhanced with TLBCache statistics (Task 5.2)
 void SMMU::resetStatistics() {
-    translationCount = 0;
+    // BUG-8 fix: use explicit relaxed store, not the implicit seq_cst assignment
+    // operator.  cacheHits and cacheMisses already use memory_order_relaxed; the
+    // inconsistency (seq_cst for translationCount, relaxed for the others) is a
+    // code-quality defect — there is no ordering requirement between a statistics
+    // reset and any other operation, so relaxed is correct and consistent here.
+    translationCount.store(0, std::memory_order_relaxed);
     // BUG-25 fix: reset local cache-hit/miss counters that were previously left stale.
     cacheHits.store(0, std::memory_order_relaxed);
     cacheMisses.store(0, std::memory_order_relaxed);
@@ -1136,8 +1146,18 @@ void SMMU::reset() {
     // Both GERROR and GERRORN are reset to 0 at power-on reset.
     // BUG-CPP-NEW-1 fix: use release store so that subsequent acquire loads in
     // translate() observe the zeroed values.
-    gerrorStatus.store(0, std::memory_order_release);
-    gerrorNStatus.store(0, std::memory_order_release);
+    // BUG-5 fix: hold queueMutex when zeroing gerrorStatus and gerrorNStatus.
+    // signalGerror() and clearGerror() both hold queueMutex when reading/writing
+    // these atomics.  A concurrent clearGerror() computes
+    //   activeBits = gerrorStatus XOR gerrorNStatus
+    // as two separate reads; if reset() zeroes one between those two reads, the
+    // XOR is computed against a stale value and clearGerror() toggles the wrong
+    // bits.  Holding queueMutex here serialises reset() against those callers.
+    {
+        std::lock_guard<std::recursive_mutex> glock(queueMutex);
+        gerrorStatus.store(0, std::memory_order_release);
+        gerrorNStatus.store(0, std::memory_order_release);
+    }
 
     // ARM §6.3.9: Reset returns SMMU to disabled state (SMMUEN=0, GBPA.ABORT=0).
     // BUG-NEW3-04 fix: ARM §6.3.9 — reset returns SMMU to disabled state (all CR0 bits clear).
@@ -2507,7 +2527,10 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 17)       // VMW: VMID wildcard bits in CR0
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
-         | (1u << 26)       // TERM_MODEL: RAZ/WI termination not supported; all faults abort (CD.A not modeled) — GAP-NEW-S2 §6.3.1/§3.12.1
+         // BUG-2 fix: TERM_MODEL (bit 26) cleared — model implements both stall and
+         // terminate behaviors and does NOT validate CD.A=1.  ARM IHI0070G.b §6.3.1:
+         // when TERM_MODEL=1, C_BAD_CD must fire if CD.A=0.  Setting TERM_MODEL=0
+         // (RAZ/WI IS supported) matches the model's actual behaviour.
          | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
                             // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
 }
@@ -3244,11 +3267,13 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
                 tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
                                                  iova, computeRILRangeEnd(iova, tg, num, scale));
             } else {
-                // Single-page IPA invalidation: IPA is page-aligned; invalidate
-                // entries whose ipa is within the same 4KB page.
+                // BUG-9 fix: use PAGE_MASK (from types.h) instead of the literal 0xFFFu.
+                // Single-page IPA invalidation: align the IPA down to the 4KB page base
+                // and compute the end of the page using PAGE_MASK (= PAGE_SIZE - 1 = 0xFFF).
+                IOVA pageBase = iova & ~static_cast<IOVA>(PAGE_MASK);
                 tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
-                                                 iova & ~static_cast<IOVA>(0xFFFu),
-                                                 (iova & ~static_cast<IOVA>(0xFFFu)) | 0xFFFu);
+                                                 pageBase,
+                                                 pageBase | static_cast<IOVA>(PAGE_MASK));
             }
             break;
 
@@ -3263,9 +3288,12 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
                 tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
                                                  iova, computeRILRangeEnd(iova, tg, num, scale));
             } else {
+                // BUG-9 fix: use PAGE_MASK instead of the literal 0xFFFu (consistent with
+                // TLBI_S2_IPA fix above).
+                IOVA pageBase = iova & ~static_cast<IOVA>(PAGE_MASK);
                 tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
-                                                 iova & ~static_cast<IOVA>(0xFFFu),
-                                                 (iova & ~static_cast<IOVA>(0xFFFu)) | 0xFFFu);
+                                                 pageBase,
+                                                 pageBase | static_cast<IOVA>(PAGE_MASK));
             }
             break;
 
@@ -3785,8 +3813,18 @@ uint8_t SMMU::getStrtabSplit() const {
 bool SMMU::validateStreamID2Level(StreamID streamID) const {
     // 2-level validation: L1 index = streamID >> split, L2 index = streamID & ((1<<split)-1)
     // L1 table size = 2^(log2size - split), L2 table size = 2^split
+    // BUG-7 fix: acquire queueMutex before reading both strtabLog2Size_ and
+    // strtabSplit_.  A concurrent reconfiguration that changes both fields creates
+    // a TOCTOU window: a mixed snapshot (new log2size + old split) can cause
+    // l1Bits = log2sz - split to underflow.  Holding queueMutex here serialises
+    // against setStrtabLog2Size() / setStrtabSplit() which also hold queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     uint8_t log2sz = strtabLog2Size_.load(std::memory_order_acquire);
     uint8_t split  = strtabSplit_.load(std::memory_order_acquire);
+    // Guard against inconsistent snapshot (new log2size + old split underflow).
+    if (log2sz < split) {
+        return false; // inconsistent snapshot — conservatively reject
+    }
     if (split >= log2sz) {
         // All StreamIDs map to a single L2 table — only check upper log2sz bits
         uint64_t limit = (uint64_t)1u << log2sz;
@@ -3996,6 +4034,24 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         return;
     }
 
+    // BUG-1 fix: snapshot mev flag BEFORE acquiring queueMutex.
+    // Lock-order invariant: stripe_lock → queueMutex (stripe lock must come first).
+    // The original code acquired queueMutex first, then a stripe lock inside the
+    // MEV block — an ABBA deadlock with processCommandQueue() which holds queueMutex
+    // and then acquires stripe locks on the CFGI_STE path.
+    // Fix: acquire stripe lock, snapshot mev, release stripe lock; then acquire
+    // queueMutex and use the snapshotted mev value.  If the stream was removed
+    // concurrently (find returns end()), treat as mev=false (allow the event).
+    bool mevEnabled = false;
+    {
+        size_t stripe = getStreamStripe(streamID);
+        std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
+        auto streamIt = streamMap.find(streamID);
+        if (streamIt != streamMap.end() && streamIt->second) {
+            mevEnabled = streamIt->second->getStreamConfiguration().mev;
+        }
+    }
+
     // ARM SMMU v3 spec: Generate event for event queue processing.
     // BUG-03 fix: protect eventQueue with queueMutex. Uses recursive_mutex so
     // that callers already holding queueMutex (e.g. processCommandQueue) can
@@ -4006,18 +4062,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // When the stream has MEV=true, skip inserting this event if an identical
     // event (same type + streamID) already exists in the event queue.
     // MEV merging applies only within the event queue (not across queue drains).
-    {
-        size_t stripe = getStreamStripe(streamID);
-        std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
-        auto streamIt = streamMap.find(streamID);
-        if (streamIt != streamMap.end() && streamIt->second) {
-            const StreamConfig& scfg = streamIt->second->getStreamConfiguration();
-            if (scfg.mev) {
-                for (const auto& existing : eventQueue) {
-                    if (existing.type == type && existing.streamID == streamID) {
-                        return; // suppress duplicate
-                    }
-                }
+    // mevEnabled was snapshotted above under the stripe lock (before queueMutex was
+    // acquired) to preserve the stripe_lock → queueMutex lock order.
+    if (mevEnabled) {
+        for (const auto& existing : eventQueue) {
+            if (existing.type == type && existing.streamID == streamID) {
+                return; // suppress duplicate
             }
         }
     }

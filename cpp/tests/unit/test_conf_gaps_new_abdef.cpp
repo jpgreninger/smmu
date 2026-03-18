@@ -447,13 +447,21 @@ TEST_F(GapNewDTest, gap_new_s1_idr1_attr_types_ovr_set) {
 }
 
 // =============================================================================
-// GAP-NEW-S2: IDR0.TERM_MODEL (bit 26) must be set (§6.3.1, §3.12.1)
+// BUG-2 fix: IDR0.TERM_MODEL (bit 26) must be CLEAR (§6.3.1, §3.12.1)
+//
+// The original test incorrectly asserted TERM_MODEL=1.  The model implements
+// both stall and terminate behaviors and does NOT validate CD.A=1.  ARM
+// IHI0070G.b §6.3.1: when TERM_MODEL=1, C_BAD_CD must fire if CD.A=0 —
+// that validation is absent from this model.  Clearing TERM_MODEL=0 (RAZ/WI
+// IS supported) correctly matches the model's actual behaviour.
 // =============================================================================
 
 TEST_F(GapNewDTest, gap_new_s2_idr0_term_model_set) {
     uint32_t idr0 = smmu_->getIDR0();
-    EXPECT_TRUE((idr0 & (1u << 26)) != 0u)
-        << "IDR0.TERM_MODEL (bit 26) must be set — CD.A not modeled; always aborts";
+    EXPECT_EQ((idr0 & (1u << 26)), 0u)
+        << "IDR0.TERM_MODEL (bit 26) must be 0 — model supports both stall and "
+           "terminate; TERM_MODEL=1 requires CD.A validation which is not implemented "
+           "(BUG-2 fix, ARM IHI0070G.b §6.3.1)";
 }
 
 // =============================================================================
