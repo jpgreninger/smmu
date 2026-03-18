@@ -734,6 +734,10 @@ bool AddressSpace::checkPermissions(const PagePermissions& perms, AccessType acc
         case AccessType::ReadWritePrivileged:
             return perms.read && perms.write;
 
+        case AccessType::ReadExecutePrivileged:
+            // Bug B fix: privileged combined read+execute (no privilegedOnly restriction).
+            return perms.read && perms.execute;
+
         default:
             // Unknown access type - deny by default for security
             return false;

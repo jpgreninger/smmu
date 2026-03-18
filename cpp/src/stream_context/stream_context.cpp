@@ -534,23 +534,31 @@ VoidResult StreamContext::applyConfigurationChanges(const StreamConfig& newConfi
         mergedConfig.faultMode = newConfig.faultMode;
         hasChanges = true;
     }
-    
+
+    // Bug NEW-3 fix: also detect and merge s1Stalld changes.
+    if (newConfig.s1Stalld != currentConfiguration.s1Stalld) {
+        mergedConfig.s1Stalld = newConfig.s1Stalld;
+        hasChanges = true;
+    }
+
     // No changes detected
     if (!hasChanges) {
         return makeVoidSuccess();  // Success - no changes needed
     }
-    
+
     // Validate merged configuration
     Result<bool> validResult = isConfigurationValid(mergedConfig);
     if (validResult.isError() || !validResult.getValue()) {
         return makeVoidError(SMMUError::InvalidConfiguration);  // Invalid merged configuration rejected
     }
-    
+
     // Apply merged configuration directly (already locked)
     currentConfiguration = mergedConfig;
     stage1Enabled = mergedConfig.stage1Enabled;
     stage2Enabled = mergedConfig.stage2Enabled;
     faultMode = mergedConfig.faultMode;
+    // Bug NEW-3 fix: sync s1Stalld_ mirror (was omitted; now also detected in merge above).
+    s1Stalld_ = mergedConfig.s1Stalld;
     // Note: streamEnabled state is independent and managed by enableStream/disableStream methods
     configurationChanged = true;
     streamStatistics.configurationUpdateCount++;
@@ -1084,9 +1092,9 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged; break;
             case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged; break;
             case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
-            // Bug-6: ReadExecute — execute is the security-relevant component;
-            // promote to ExecutePrivileged for an all-privileged STRW stream.
-            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
+            // Bug B fix: ReadExecute in an all-privileged stream promotes to
+            // ReadExecutePrivileged (requires BOTH read AND execute, privileged).
+            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ReadExecutePrivileged; break;
             default: break;
         }
     }
@@ -1112,6 +1120,12 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             effectiveAccessType = AccessType::Read;
         } else if (effectiveAccessType == AccessType::ExecutePrivileged) {
             effectiveAccessType = AccessType::ReadPrivileged;
+        } else if (effectiveAccessType == AccessType::ReadExecute) {
+            // Bug F fix: INSTCFG=2 (Force Data) demotes ReadExecute to Read.
+            effectiveAccessType = AccessType::Read;
+        } else if (effectiveAccessType == AccessType::ReadExecutePrivileged) {
+            // Bug B+F fix: INSTCFG=2 demotes ReadExecutePrivileged to ReadPrivileged.
+            effectiveAccessType = AccessType::ReadPrivileged;
         }
     }
 
@@ -1121,22 +1135,23 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
     if (currentConfiguration.privCfg == 2u) {
         // Force Unprivileged: strip Privileged suffix
         switch (effectiveAccessType) {
-            case AccessType::ReadPrivileged:       effectiveAccessType = AccessType::Read;      break;
-            case AccessType::WritePrivileged:      effectiveAccessType = AccessType::Write;     break;
-            case AccessType::ExecutePrivileged:    effectiveAccessType = AccessType::Execute;   break;
-            case AccessType::ReadWritePrivileged:  effectiveAccessType = AccessType::ReadWrite; break;
+            case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;      break;
+            case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;     break;
+            case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;   break;
+            case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite; break;
+            // Bug B fix: demote ReadExecutePrivileged back to ReadExecute.
+            case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
             default: break;
         }
     } else if (currentConfiguration.privCfg == 3u) {
         // Force Privileged: add Privileged suffix
         switch (effectiveAccessType) {
-            case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;       break;
-            case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;      break;
-            case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;    break;
-            case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged;  break;
-            // Bug-6: ReadExecute — execute component dominates privilege promotion;
-            // treat as ExecutePrivileged for privileged-force semantics.
-            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
+            case AccessType::Read:      effectiveAccessType = AccessType::ReadPrivileged;          break;
+            case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;         break;
+            case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;       break;
+            case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+            // Bug B fix: ReadExecute promotes to ReadExecutePrivileged (keeps the read requirement).
+            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ReadExecutePrivileged; break;
             default: break;
         }
     }
@@ -1228,7 +1243,9 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         // Applied after stage-1 succeeds, before stage-2 translation.
         {
             bool isExec = (effectiveAccessType == AccessType::Execute ||
-                           effectiveAccessType == AccessType::ExecutePrivileged);
+                           effectiveAccessType == AccessType::ExecutePrivileged ||
+                           effectiveAccessType == AccessType::ReadExecute ||
+                           effectiveAccessType == AccessType::ReadExecutePrivileged);
             if (isExec) {
                 const PagePermissions& s1p = stage1Result.getValue().permissions;
                 // WXN: writable page is execute-never for all execute accesses.
@@ -1238,7 +1255,8 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
                 }
                 // UWXN: privileged execute on an unprivileged-writable page is forbidden.
                 if (currentConfiguration.uwxn &&
-                    effectiveAccessType == AccessType::ExecutePrivileged &&
+                    (effectiveAccessType == AccessType::ExecutePrivileged ||
+                     effectiveAccessType == AccessType::ReadExecutePrivileged) &&
                     s1p.write && !s1p.privilegedOnly) {
                     streamStatistics.faultCount++;
                     return makeTranslationError(FaultType::PermissionFault);
@@ -1326,11 +1344,13 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             case AccessType::Execute:             permOk = intersected.execute && !intersected.privilegedOnly; break;
             case AccessType::ReadWrite:           permOk = intersected.read && intersected.write && !intersected.privilegedOnly; break;
             // Bug-6: ReadExecute combined access type.
-            case AccessType::ReadExecute:         permOk = intersected.read && intersected.execute && !intersected.privilegedOnly; break;
-            case AccessType::ReadPrivileged:      permOk = intersected.read; break;
-            case AccessType::WritePrivileged:     permOk = intersected.write; break;
-            case AccessType::ExecutePrivileged:   permOk = intersected.execute; break;
-            case AccessType::ReadWritePrivileged: permOk = intersected.read && intersected.write; break;
+            case AccessType::ReadExecute:             permOk = intersected.read && intersected.execute && !intersected.privilegedOnly; break;
+            case AccessType::ReadPrivileged:          permOk = intersected.read; break;
+            case AccessType::WritePrivileged:         permOk = intersected.write; break;
+            case AccessType::ExecutePrivileged:       permOk = intersected.execute; break;
+            case AccessType::ReadWritePrivileged:     permOk = intersected.read && intersected.write; break;
+            // Bug B fix: ReadExecutePrivileged — privileged combined read+execute (no privilegedOnly restriction).
+            case AccessType::ReadExecutePrivileged:   permOk = intersected.read && intersected.execute; break;
             default: permOk = false; break;
         }
         if (!permOk) {

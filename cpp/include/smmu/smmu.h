@@ -598,6 +598,9 @@ private:
                 return permissions.execute;
             case AccessType::ReadWritePrivileged:
                 return permissions.read && permissions.write;
+            case AccessType::ReadExecutePrivileged:
+                // Bug B fix: privileged combined read+execute (no privilegedOnly restriction).
+                return permissions.read && permissions.execute;
             default:
                 return false; // Unknown access type
         }

@@ -427,13 +427,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
                 case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;   break;
                 case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
-                // Bug-6: ReadExecute — execute is the security-relevant component;
-                // promote to ExecutePrivileged for an all-privileged stream.
-                case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
+                // Bug B fix: ReadExecute promotes to ReadExecutePrivileged (keeps read requirement).
+                case AccessType::ReadExecute:  effectiveAccessType = AccessType::ReadExecutePrivileged; break;
                 case AccessType::ReadPrivileged:
                 case AccessType::WritePrivileged:
                 case AccessType::ExecutePrivileged:
                 case AccessType::ReadWritePrivileged:
+                case AccessType::ReadExecutePrivileged:
                     break;
             }
         }
@@ -1771,9 +1771,43 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
     // §5.4 NEW-GAP-K: WXN/UWXN write-execute-never permission override.
     // Applied after stage-1 succeeds, before stage-2 translation.
+    // Bug D fix: derive effectiveAccessType for WXN/UWXN the same way translateUnlocked() does,
+    // so that INSTCFG/PRIVCFG/STRW overrides are reflected before the execute check.
     {
-        bool isExec = (accessType == AccessType::Execute ||
-                       accessType == AccessType::ExecutePrivileged);
+        AccessType wxnEffective = accessType;
+        // STRW promotion (mirrors translateUnlocked logic, guarded by !stage2Enabled).
+        // (performBothStagesTranslation is only called for two-stage streams so stage2Enabled=true
+        //  and STRW is always ignored — no STRW promotion needed here.)
+        // INSTCFG override.
+        if (config.instCfg == 1u) {
+            if (wxnEffective == AccessType::Read)           wxnEffective = AccessType::Execute;
+            else if (wxnEffective == AccessType::ReadPrivileged) wxnEffective = AccessType::ExecutePrivileged;
+        } else if (config.instCfg == 2u) {
+            if (wxnEffective == AccessType::Execute)              wxnEffective = AccessType::Read;
+            else if (wxnEffective == AccessType::ExecutePrivileged)    wxnEffective = AccessType::ReadPrivileged;
+            else if (wxnEffective == AccessType::ReadExecute)          wxnEffective = AccessType::Read;
+            else if (wxnEffective == AccessType::ReadExecutePrivileged) wxnEffective = AccessType::ReadPrivileged;
+        }
+        // PRIVCFG override.
+        if (config.privCfg == 2u) {
+            if (wxnEffective == AccessType::ReadPrivileged)         wxnEffective = AccessType::Read;
+            else if (wxnEffective == AccessType::WritePrivileged)   wxnEffective = AccessType::Write;
+            else if (wxnEffective == AccessType::ExecutePrivileged) wxnEffective = AccessType::Execute;
+            else if (wxnEffective == AccessType::ReadWritePrivileged) wxnEffective = AccessType::ReadWrite;
+            else if (wxnEffective == AccessType::ReadExecutePrivileged) wxnEffective = AccessType::ReadExecute;
+        } else if (config.privCfg == 3u) {
+            if (wxnEffective == AccessType::Read)          wxnEffective = AccessType::ReadPrivileged;
+            else if (wxnEffective == AccessType::Write)    wxnEffective = AccessType::WritePrivileged;
+            else if (wxnEffective == AccessType::Execute)  wxnEffective = AccessType::ExecutePrivileged;
+            else if (wxnEffective == AccessType::ReadWrite) wxnEffective = AccessType::ReadWritePrivileged;
+            else if (wxnEffective == AccessType::ReadExecute) wxnEffective = AccessType::ReadExecutePrivileged;
+        }
+
+        // Bug A fix: isExec now includes ReadExecute and ReadExecutePrivileged.
+        bool isExec = (wxnEffective == AccessType::Execute ||
+                       wxnEffective == AccessType::ExecutePrivileged ||
+                       wxnEffective == AccessType::ReadExecute ||
+                       wxnEffective == AccessType::ReadExecutePrivileged);
         if (isExec) {
             const PagePermissions& s1p = stage1Result.getValue().permissions;
             // WXN: writable page is execute-never for all execute accesses.
@@ -1783,7 +1817,9 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 return makeTranslationError(SMMUError::PagePermissionViolation);
             }
             // UWXN: privileged execute on an unprivileged-writable page is forbidden.
-            if (config.uwxn && accessType == AccessType::ExecutePrivileged &&
+            if (config.uwxn &&
+                (wxnEffective == AccessType::ExecutePrivileged ||
+                 wxnEffective == AccessType::ReadExecutePrivileged) &&
                 s1p.write && !s1p.privilegedOnly) {
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
                                         accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
@@ -2079,6 +2115,13 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                 // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
                 fault.faultType = FaultType::AddressSizeFault;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, accessType);
+                break;
+            case SMMUError::AccessFlagFaultError:
+                // Bug NEW-2 fix: §3.13.2 — Access flag fault → F_ACCESS (0x12).
+                // Previously missing from stage-2-only path; fell through to AccessFault.
+                fault.faultType = FaultType::AccessFlagFault;
+                generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState,
                               false, 0, accessType);
                 break;
             default:
@@ -4199,51 +4242,67 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                 pendingEvent.eventClass = 0u;
                 break;
         }
+        // RnW-GAP fix: ARM §7.3 — RnW=1 means Read (instruction or data),
+        // RnW=0 means Write.  Previous code had this inverted.
         switch (accessType) {
             case AccessType::Write:
-                pendingEvent.rnw = true;
+                // RnW=0 for writes (ARM §7.3).
+                pendingEvent.rnw = false;
                 pendingEvent.ind = false;
                 pendingEvent.pnu = false;
                 break;
             case AccessType::Execute:
-                pendingEvent.rnw = false;
+                // Execute is a read (instruction fetch); RnW=1.
+                pendingEvent.rnw = true;
                 pendingEvent.ind = true;
                 pendingEvent.pnu = false;
                 break;
             case AccessType::ReadWrite:
-                pendingEvent.rnw = true;
+                // Atomic RMW is write-class per ARM §3.24; RnW=0.
+                pendingEvent.rnw = false;
                 pendingEvent.ind = false;
                 pendingEvent.pnu = false;
                 break;
             case AccessType::ReadExecute:
-                // Bug-6 fix: read + execute combined access — no write, has execute.
-                pendingEvent.rnw = false;
+                // Read component present, no write; RnW=1.  Has execute component: ind=1.
+                pendingEvent.rnw = true;
                 pendingEvent.ind = true;
                 pendingEvent.pnu = false;
                 break;
             case AccessType::ReadPrivileged:
-                pendingEvent.rnw = false;
+                // Read, privileged; RnW=1.
+                pendingEvent.rnw = true;
                 pendingEvent.ind = false;
                 pendingEvent.pnu = true;
                 break;
             case AccessType::WritePrivileged:
-                pendingEvent.rnw = true;
+                // Write, privileged; RnW=0.
+                pendingEvent.rnw = false;
                 pendingEvent.ind = false;
                 pendingEvent.pnu = true;
                 break;
             case AccessType::ExecutePrivileged:
-                pendingEvent.rnw = false;
+                // Execute (instruction fetch), privileged; RnW=1.
+                pendingEvent.rnw = true;
                 pendingEvent.ind = true;
                 pendingEvent.pnu = true;
                 break;
             case AccessType::ReadWritePrivileged:
-                pendingEvent.rnw = true;
+                // Atomic RMW, privileged; write-class; RnW=0.
+                pendingEvent.rnw = false;
                 pendingEvent.ind = false;
+                pendingEvent.pnu = true;
+                break;
+            case AccessType::ReadExecutePrivileged:
+                // Bug B new type: read+execute, privileged; RnW=1.
+                pendingEvent.rnw = true;
+                pendingEvent.ind = true;
                 pendingEvent.pnu = true;
                 break;
             case AccessType::Read:
             default:
-                pendingEvent.rnw = false;
+                // Read (default); RnW=1.
+                pendingEvent.rnw = true;
                 pendingEvent.ind = false;
                 pendingEvent.pnu = false;
                 break;
@@ -4337,52 +4396,67 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             break;
     }
 
-    // CONF-GAP-20: populate rnw/ind/pnu from the accessType parameter (§7.3).
+    // CONF-GAP-20 + RnW-GAP fix: populate rnw/ind/pnu from the accessType parameter (§7.3).
+    // ARM §7.3: RnW=1 means Read (instruction or data read), RnW=0 means Write.
     switch (accessType) {
         case AccessType::Write:
-            event.rnw = true;
+            // RnW=0 for writes (ARM §7.3).
+            event.rnw = false;
             event.ind = false;
             event.pnu = false;
             break;
         case AccessType::Execute:
-            event.rnw = false;
+            // Execute is a read (instruction fetch); RnW=1.
+            event.rnw = true;
             event.ind = true;
             event.pnu = false;
             break;
         case AccessType::ReadWrite:
-            event.rnw = true;   // atomic RMW is write-class per ARM §3.24
+            // Atomic RMW is write-class per ARM §3.24; RnW=0.
+            event.rnw = false;
             event.ind = false;
             event.pnu = false;
             break;
         case AccessType::ReadExecute:
-            // Bug-6 fix: read + execute combined access — no write, has execute.
-            event.rnw = false;
+            // Read+execute: has read component (no write); RnW=1.  Has execute: ind=1.
+            event.rnw = true;
             event.ind = true;
             event.pnu = false;
             break;
         case AccessType::ReadPrivileged:
-            event.rnw = false;
+            // Read, privileged; RnW=1.
+            event.rnw = true;
             event.ind = false;
             event.pnu = true;
             break;
         case AccessType::WritePrivileged:
-            event.rnw = true;
+            // Write, privileged; RnW=0.
+            event.rnw = false;
             event.ind = false;
             event.pnu = true;
             break;
         case AccessType::ExecutePrivileged:
-            event.rnw = false;
+            // Execute (instruction fetch), privileged; RnW=1.
+            event.rnw = true;
             event.ind = true;
             event.pnu = true;
             break;
         case AccessType::ReadWritePrivileged:
-            event.rnw = true;
+            // Atomic RMW, privileged; write-class; RnW=0.
+            event.rnw = false;
             event.ind = false;
+            event.pnu = true;
+            break;
+        case AccessType::ReadExecutePrivileged:
+            // Bug B new type: read+execute, privileged; RnW=1.
+            event.rnw = true;
+            event.ind = true;
             event.pnu = true;
             break;
         case AccessType::Read:
         default:
-            event.rnw = false;
+            // Read (default); RnW=1.
+            event.rnw = true;
             event.ind = false;
             event.pnu = false;
             break;
@@ -4501,9 +4575,12 @@ FaultSyndrome SMMU::generateFaultSyndrome(FaultType faultType, FaultStage stage,
                         accessType == AccessType::ReadWritePrivileged);
     // InD is set for execute-class accesses only when there is no write component.
     // Per spec: InD must be 0 when RnW (writeAccess) is 1.
+    // Bug NEW-1 fix: also set InD for ReadExecute and ReadExecutePrivileged.
     bool instructionFetch = (!writeAccess) &&
                             (accessType == AccessType::Execute ||
-                             accessType == AccessType::ExecutePrivileged);
+                             accessType == AccessType::ExecutePrivileged ||
+                             accessType == AccessType::ReadExecute ||
+                             accessType == AccessType::ReadExecutePrivileged);
     
     // Encode the syndrome register according to ARM SMMU v3 specification
     uint32_t syndromeRegister = encodeFaultSyndromeRegister(faultType, stage, faultLevel, writeAccess, instructionFetch);
@@ -4614,6 +4691,8 @@ PrivilegeLevel SMMU::determinePrivilegeLevel(AccessType accessType, SecurityStat
                 case AccessType::WritePrivileged:
                 case AccessType::ExecutePrivileged:
                 case AccessType::ReadWritePrivileged:
+                // Bug B: ReadExecutePrivileged is also a privileged variant.
+                case AccessType::ReadExecutePrivileged:
                     return PrivilegeLevel::EL1;
                 default:
                     return PrivilegeLevel::EL0;
@@ -4632,6 +4711,8 @@ AccessClassification SMMU::classifyAccess(AccessType accessType) const {
         // Bug-6: ReadExecute has an execute component — classify as InstructionFetch
         // so that ind=true is consistent with syndrome derivation.
         case AccessType::ReadExecute:
+        // Bug B: ReadExecutePrivileged also has execute component.
+        case AccessType::ReadExecutePrivileged:
             return AccessClassification::InstructionFetch;
         case AccessType::Read:
         case AccessType::Write:

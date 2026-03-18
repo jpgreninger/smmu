@@ -2,7 +2,7 @@
 //
 // ARM IHI0070G.b §7.3 specifies that event record fields RnW, InD, and PnU must
 // reflect the actual transaction access type:
-//   RnW: 0=read/execute, 1=write
+//   RnW: 1=read/execute, 0=write  (RnW-GAP fix: spec RnW=1=Read, RnW=0=Write)
 //   InD: 0=data,         1=instruction (execute)
 //   PnU: 0=unprivileged, 1=privileged
 //
@@ -118,11 +118,10 @@ TEST_F(EventAccessTypeFix, Site1_BypassOAS_WriteAccess_RnWMustBeTrue) {
     ASSERT_NE(found, nullptr)
         << "An F_ADDR_SIZE event must exist in the event queue";
 
-    // Bug 2: generateEvent() at line 1246 omits accessType → rnw defaults to false.
-    // After the fix accessType=Write must propagate: rnw=true (write), ind=false (data).
-    EXPECT_TRUE(found->rnw)
-        << "Bug2 Site1: F_ADDR_SIZE bypass OAS event rnw must be true for Write access "
-        << "(ARM IHI0070G.b §7.3 RnW field)";
+    // RnW-GAP fix: ARM §7.3 RnW=1=Read, RnW=0=Write.  Write access → rnw=false.
+    EXPECT_FALSE(found->rnw)
+        << "Bug2 Site1: F_ADDR_SIZE bypass OAS event rnw must be false for Write access "
+        << "(ARM IHI0070G.b §7.3 RnW=0=Write)";
     EXPECT_FALSE(found->ind)
         << "Bug2 Site1: ind must be false for a data Write access";
 }
@@ -167,10 +166,10 @@ TEST_F(EventAccessTypeFix, Site3_T0SZRangeExceeded_WriteAccess_RnWMustBeTrue) {
     ASSERT_NE(found, nullptr)
         << "An F_TRANSLATION event must exist in the event queue";
 
-    // Bug 2: generateEvent() at line 1352 omits accessType → rnw defaults to false.
-    EXPECT_TRUE(found->rnw)
-        << "Bug2 Site3: F_TRANSLATION T0SZ event rnw must be true for Write access "
-        << "(ARM IHI0070G.b §7.3 RnW field)";
+    // RnW-GAP fix: ARM §7.3 RnW=0=Write. Write access → rnw=false.
+    EXPECT_FALSE(found->rnw)
+        << "Bug2 Site3: F_TRANSLATION T0SZ event rnw must be false for Write access "
+        << "(ARM IHI0070G.b §7.3 RnW=0=Write)";
     EXPECT_FALSE(found->ind)
         << "Bug2 Site3: ind must be false for a data Write access";
 }
@@ -216,8 +215,10 @@ TEST_F(EventAccessTypeFix, Site4_EPD0Disabled_ExecuteAccess_IndMustBeTrue) {
     EXPECT_TRUE(found->ind)
         << "Bug2 Site4: F_TRANSLATION EPD0 event ind must be true for Execute access "
         << "(ARM IHI0070G.b §7.3 InD field)";
-    EXPECT_FALSE(found->rnw)
-        << "Bug2 Site4: rnw must be false for an Execute (non-write) access";
+    // RnW-GAP fix: ARM §7.3 RnW=1=Read. Execute is a read; rnw=true.
+    EXPECT_TRUE(found->rnw)
+        << "Bug2 Site4: rnw must be true for an Execute (read/instruction) access "
+        << "(ARM IHI0070G.b §7.3 RnW=1=Read)";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,10 +265,10 @@ TEST_F(EventAccessTypeFix, Site5_S2T0SZRangeExceeded_WriteAccess_RnWMustBeTrue) 
     ASSERT_NE(found, nullptr)
         << "An F_TRANSLATION event must exist in the event queue";
 
-    // Bug 2: generateEvent() at line 1408 omits accessType → rnw defaults to false.
-    EXPECT_TRUE(found->rnw)
-        << "Bug2 Site5: F_TRANSLATION S2T0SZ event rnw must be true for Write access "
-        << "(ARM IHI0070G.b §7.3 RnW field)";
+    // RnW-GAP fix: ARM §7.3 RnW=0=Write. Write access → rnw=false.
+    EXPECT_FALSE(found->rnw)
+        << "Bug2 Site5: F_TRANSLATION S2T0SZ event rnw must be false for Write access "
+        << "(ARM IHI0070G.b §7.3 RnW=0=Write)";
     EXPECT_FALSE(found->ind)
         << "Bug2 Site5: ind must be false for a data Write access";
 }
@@ -323,10 +324,10 @@ TEST_F(EventAccessTypeFix, Site7_CDIPSExceeded_WriteAccess_RnWMustBeTrue) {
     ASSERT_NE(found, nullptr)
         << "An F_ADDR_SIZE event must exist in the event queue";
 
-    // Bug 2: generateEvent() at line 1594 omits accessType → rnw defaults to false.
-    EXPECT_TRUE(found->rnw)
-        << "Bug2 Site7: F_ADDR_SIZE CD.IPS event rnw must be true for Write access "
-        << "(ARM IHI0070G.b §7.3 RnW field)";
+    // RnW-GAP fix: ARM §7.3 RnW=0=Write. Write access → rnw=false.
+    EXPECT_FALSE(found->rnw)
+        << "Bug2 Site7: F_ADDR_SIZE CD.IPS event rnw must be false for Write access "
+        << "(ARM IHI0070G.b §7.3 RnW=0=Write)";
     EXPECT_FALSE(found->ind)
         << "Bug2 Site7: ind must be false for a data Write access";
 }
@@ -381,6 +382,8 @@ TEST_F(EventAccessTypeFix, Site10_S2PSExceeded_ExecuteAccess_IndMustBeTrue) {
     EXPECT_TRUE(found->ind)
         << "Bug2 Site10: F_ADDR_SIZE S2PS event ind must be true for Execute access "
         << "(ARM IHI0070G.b §7.3 InD field)";
-    EXPECT_FALSE(found->rnw)
-        << "Bug2 Site10: rnw must be false for an Execute (non-write) access";
+    // RnW-GAP fix: ARM §7.3 RnW=1=Read. Execute is a read; rnw=true.
+    EXPECT_TRUE(found->rnw)
+        << "Bug2 Site10: rnw must be true for an Execute (read/instruction) access "
+        << "(ARM IHI0070G.b §7.3 RnW=1=Read)";
 }

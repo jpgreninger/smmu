@@ -291,7 +291,8 @@ TEST(ConfGapModerate, Gap20_WriteAccess_SetsRnW) {
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
         if (e.streamID == 20) {
-            EXPECT_TRUE(e.rnw) << "Write fault event must have rnw=true (CONF-GAP-20)";
+            // RnW-GAP fix: ARM §7.3 RnW=0=Write. Write fault → rnw=false.
+            EXPECT_FALSE(e.rnw) << "Write fault event must have rnw=false (ARM §7.3 RnW=0=Write)";
             found = true;
             break;
         }
@@ -316,7 +317,8 @@ TEST(ConfGapModerate, Gap20_ReadAccess_RnWFalse) {
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
         if (e.streamID == 21) {
-            EXPECT_FALSE(e.rnw) << "Read fault event must have rnw=false (CONF-GAP-20)";
+            // RnW-GAP fix: ARM §7.3 RnW=1=Read. Read fault → rnw=true.
+            EXPECT_TRUE(e.rnw) << "Read fault event must have rnw=true (ARM §7.3 RnW=1=Read)";
             found = true;
             break;
         }

@@ -82,9 +82,10 @@ static EventEntry getEventForAccessType(AccessType at) {
 }
 
 TEST(AccessTypeEventWireFormatTest, ReadExecuteRnwFalseIndTrue) {
-    // ReadExecute: has execute component → ind=true; no write → rnw=false; unprivileged → pnu=false
+    // RnW-GAP fix: ARM §7.3 RnW=1=Read.
+    // ReadExecute: has execute component → ind=true; no write → rnw=true (read); unprivileged → pnu=false
     EventEntry ev = getEventForAccessType(AccessType::ReadExecute);
-    EXPECT_FALSE(ev.rnw) << "ReadExecute: rnw must be false (no write component)";
+    EXPECT_TRUE(ev.rnw) << "ReadExecute: rnw must be true (ARM §7.3 RnW=1=Read, no write component)";
     EXPECT_TRUE(ev.ind) << "ReadExecute: ind must be true (has execute component)";
     EXPECT_FALSE(ev.pnu) << "ReadExecute: pnu must be false (unprivileged)";
 }
@@ -93,23 +94,24 @@ TEST(AccessTypeEventWireFormatTest, ReadExecuteRnwFalseIndTrue) {
 // Instruction fetches can never be writes. WriteExecute was removed from AccessType.
 
 // Regression: verify existing access types remain correct after adding new ones
+// RnW-GAP fix: ARM §7.3 RnW=1=Read, RnW=0=Write. Updated all rnw expectations.
 TEST(AccessTypeEventWireFormatTest, ReadRnwFalseIndFalsePnuFalse) {
     EventEntry ev = getEventForAccessType(AccessType::Read);
-    EXPECT_FALSE(ev.rnw);
+    EXPECT_TRUE(ev.rnw);    // RnW-GAP: Read → rnw=true (ARM §7.3 RnW=1=Read)
     EXPECT_FALSE(ev.ind);
     EXPECT_FALSE(ev.pnu);
 }
 
 TEST(AccessTypeEventWireFormatTest, WriteRnwTrueIndFalsePnuFalse) {
     EventEntry ev = getEventForAccessType(AccessType::Write);
-    EXPECT_TRUE(ev.rnw);
+    EXPECT_FALSE(ev.rnw);   // RnW-GAP: Write → rnw=false (ARM §7.3 RnW=0=Write)
     EXPECT_FALSE(ev.ind);
     EXPECT_FALSE(ev.pnu);
 }
 
 TEST(AccessTypeEventWireFormatTest, ExecuteRnwFalseIndTruePnuFalse) {
     EventEntry ev = getEventForAccessType(AccessType::Execute);
-    EXPECT_FALSE(ev.rnw);
+    EXPECT_TRUE(ev.rnw);    // RnW-GAP: Execute is a read; rnw=true (ARM §7.3 RnW=1=Read)
     EXPECT_TRUE(ev.ind);
     EXPECT_FALSE(ev.pnu);
 }

@@ -200,10 +200,11 @@ TEST(Bug3StallPendingFields, StallPendingEvent_HasCorrectRnWField) {
         << "Stall event must be present in event queue after flush from stallPending_";
 
     // BUG: rnw is zero-initialized in stallPending_ path.
-    // After fix: rnw must be true because AccessType::WritePrivileged is a write.
-    EXPECT_TRUE(stallEvent->rnw)
-        << "Bug 3: rnw must be true for WritePrivileged access; "
-           "stall-pending path does not copy accessType-derived fields (§7.3 RnW)";
+    // After Bug3 fix: rnw/ind/pnu must be populated from accessType.
+    // RnW-GAP fix: ARM §7.3 RnW=0=Write. WritePrivileged is a write → rnw=false.
+    EXPECT_FALSE(stallEvent->rnw)
+        << "Bug 3 + RnW-GAP: rnw must be false for WritePrivileged access "
+           "(ARM §7.3 RnW=0=Write); stall-pending path must populate accessType fields";
 }
 
 // ---------------------------------------------------------------------------
