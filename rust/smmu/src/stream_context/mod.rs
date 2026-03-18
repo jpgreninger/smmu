@@ -1871,10 +1871,17 @@ impl StreamContext {
                     return (Err(TranslationError::WxnFault), None);
                 }
                 // UWXN (§5.4): privileged execute on a page writable by unprivileged code → F_PERMISSION.
-                // Applies only when: UWXN=1 AND the access is privileged AND the page is
-                // writable AND NOT restricted to privileged-only code.
+                // Bug-3 fix: UWXN is IGNORED when StreamWorld=EL2/EL3 (all-privileged).
+                // Per §5.4: "In configurations for which all accesses are considered privileged,
+                // for example StreamWorld == any-EL2 or StreamWorld == EL3, this field has no effect
+                // and is IGNORED."  The previous condition (effective_priv_suppresses_check) was
+                // inverted — it fired UWXN for EL2/EL3 streams when it should be ignored.
+                // Correct condition: UWXN=1 AND stream is NOT all-privileged
+                //                    AND the access is effectively privileged (PRIVCFG or STRW)
+                //                    AND the page is writable AND NOT privileged-only.
                 if self.uwxn.load(Ordering::Acquire)
-                    && self.effective_priv_suppresses_check()
+                    && !self.stream_is_all_privileged()
+                    && self.is_access_effectively_privileged()
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -2049,8 +2056,11 @@ impl StreamContext {
                     return Err(TranslationError::WxnFault);
                 }
                 // UWXN: privileged execute on an unprivileged-writable page.
+                // Bug-3 fix: UWXN is IGNORED when StreamWorld=EL2/EL3 (all-privileged).
+                // See translate_two_stage_with_ipa for the full rationale.
                 if self.uwxn.load(Ordering::Acquire)
-                    && self.effective_priv_suppresses_check()
+                    && !self.stream_is_all_privileged()
+                    && self.is_access_effectively_privileged()
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -2206,8 +2216,11 @@ impl StreamContext {
                     return Err(TranslationError::WxnFault);
                 }
                 // UWXN (§5.4): privileged execute on an unprivileged-writable page.
+                // Bug-3 fix: UWXN is IGNORED when StreamWorld=EL2/EL3 (all-privileged).
+                // See translate_two_stage_with_ipa for the full rationale.
                 if self.uwxn.load(Ordering::Acquire)
-                    && self.effective_priv_suppresses_check()
+                    && !self.stream_is_all_privileged()
+                    && self.is_access_effectively_privileged()
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -2382,6 +2395,44 @@ impl StreamContext {
     #[inline]
     pub(crate) fn is_access_privileged(&self) -> bool {
         self.effective_priv_suppresses_check()
+    }
+
+    // ---- Bug-3 fix: UWXN §5.4 — stream_is_all_privileged / is_access_effectively_privileged ----
+
+    /// Returns `true` when StreamWorld is entirely privileged (EL2 or EL3), making UWXN
+    /// irrelevant per ARM IHI0070G.b §5.4.
+    ///
+    /// ARM §5.4: "In configurations for which all accesses are considered privileged,
+    /// for example StreamWorld == any-EL2 or StreamWorld == EL3, this field has no
+    /// effect and is IGNORED."
+    ///
+    /// Note: `El2E2h` (VHE) is a variant of EL2 and is also all-privileged.
+    /// `PRIVCFG=3` (Force Privileged) is NOT included here: it promotes individual
+    /// accesses to privileged but does not make the entire StreamWorld all-privileged.
+    #[inline]
+    pub(crate) fn stream_is_all_privileged(&self) -> bool {
+        matches!(
+            self.get_strw(),
+            StreamWorld::El2 | StreamWorld::El2E2h | StreamWorld::El3
+        )
+    }
+
+    /// Returns `true` when the access should be treated as privileged for UWXN purposes.
+    ///
+    /// This combines stream-level (STRW) and per-transaction (PRIVCFG) privilege:
+    /// - STRW ∈ {El2, El2E2h, El3}: all accesses are privileged → `true`
+    /// - PRIVCFG=3 (Force Privileged): override to privileged → `true`
+    /// - PRIVCFG=2 (Force Unprivileged): override to unprivileged → `false`
+    /// - PRIVCFG=0/1 (Use Incoming): falls back to STRW-based check (El1El0 → `false`)
+    ///
+    /// Used to determine whether the UWXN check should fire.
+    #[inline]
+    pub(crate) fn is_access_effectively_privileged(&self) -> bool {
+        match self.priv_cfg.load(Ordering::Acquire) {
+            3 => true,  // Force Privileged
+            2 => false, // Force Unprivileged
+            _ => self.stream_is_all_privileged(),
+        }
     }
 
     // ---- NEW-8 helper: S2PS encoding → PA bit width ----

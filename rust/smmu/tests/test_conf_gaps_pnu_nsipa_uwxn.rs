@@ -365,19 +365,22 @@ fn gap3_uwxn_true_unprivileged_stream_no_fault() {
         "Gap 3: UWXN=true but unprivileged stream must NOT fault on execute: {result:?}");
 }
 
-/// Gap 3: UWXN=true, STRW=El2 (privileged), writable non-priv-only page → F_PERMISSION.
+/// Gap 3 (updated by Bug-3 fix): UWXN=true, El1El0+PRIVCFG=3, writable page → F_PERMISSION.
 ///
-/// The page has write=true and !privileged_only (accessible by unprivileged code).
-/// A privileged execute (El2 STRW) on such a page violates UWXN.
+/// Bug-3 fix: UWXN is IGNORED for El2/El3 all-privileged streams per ARM §5.4.
+/// The correct case for UWXN firing is: El1El0 StreamWorld + PRIVCFG=3 (Force
+/// Privileged) — the access is privileged but the stream is NOT all-privileged,
+/// so UWXN is active.
 ///
-/// BEFORE FIX: UWXN not enforced → translate returns Ok → test FAILS before the fix.
-/// AFTER FIX:  UWXN check fires → F_PERMISSION fault → translate returns Err.
+/// BEFORE BUG-3 FIX: UWXN incorrectly fired for El2 → previous test used El2.
+/// AFTER BUG-3 FIX:  El2 correctly ignores UWXN; El1El0+PRIVCFG=3 still fires.
 #[test]
 fn gap3_uwxn_true_privileged_stream_faults_on_writable_nonpriv_page() {
     let smmu = make_smmu();
     let stream_id = sid(0xC2);
     let mut cfg = StreamConfig::stage1_only();
-    cfg.strw = StreamWorld::El2; // privileged stream
+    cfg.strw = StreamWorld::El1El0; // not all-privileged world — UWXN is active
+    cfg.priv_cfg = 3;               // PRIVCFG=3: Force Privileged (individual access override)
     cfg.uwxn = true;
     cfg.wxn = false; // UWXN only — no WXN
     cfg.t0sz = 0;
@@ -390,7 +393,8 @@ fn gap3_uwxn_true_privileged_stream_faults_on_writable_nonpriv_page() {
     let result = smmu.translate(stream_id, pasid(0), iova(0x1000),
         AccessType::Execute, SecurityState::NonSecure);
     assert!(result.is_err(),
-        "Gap 3: UWXN=true + El2 (privileged) must fault on writable unprivileged page: {result:?}");
+        "Gap 3: UWXN=true + El1El0+PRIVCFG=3 (privileged, non-all-priv world) must fault \
+         on writable unprivileged page: {result:?}");
 
     let events = smmu.get_events();
     assert!(!events.is_empty(), "Expected F_PERMISSION event");
