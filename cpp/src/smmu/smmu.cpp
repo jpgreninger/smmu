@@ -4151,7 +4151,9 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         }
         pendingEvent.s2    = isStage2;
         pendingEvent.ipa   = isStage2 ? ipaValue : 0u;
-        pendingEvent.nsipa = false;
+        // §7.3: NSIPA=1 when S2=1 and the IPA is in Non-Secure PA space.
+        // A stream is Non-Secure when securityState == SecurityState::NonSecure.
+        pendingEvent.nsipa = (isStage2 && securityState == SecurityState::NonSecure);
         stallPending_.push_back(pendingEvent);
         return;
     }
@@ -4285,7 +4287,9 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // the intermediate physical address (stage-1 output) that was looked up in stage-2.
     event.s2    = isStage2;
     event.ipa   = isStage2 ? ipaValue : 0u;
-    event.nsipa = false;
+    // §7.3: NSIPA=1 when S2=1 and the IPA is in Non-Secure PA space.
+    // A stream is Non-Secure when securityState == SecurityState::NonSecure.
+    event.nsipa = (isStage2 && securityState == SecurityState::NonSecure);
 
     // Add to event queue
     eventQueue.push_back(event);

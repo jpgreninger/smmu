@@ -3534,7 +3534,9 @@ impl SMMU {
             if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
                 let oas_error = TranslationError::AddressSizeError;
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0);
+                let pnu = self.streams.get(&stream_id.as_u32())
+                    .map_or(false, |ctx| ctx.is_access_privileged());
+                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false);
                 return Err(oas_error);
             }
         }
@@ -3592,8 +3594,10 @@ impl SMMU {
         {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let substreamid_error = TranslationError::BadSubstreamId;
+            let pnu = self.streams.get(&stream_id.as_u32())
+                .map_or(false, |ctx| ctx.is_access_privileged());
             self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0,
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false,
             );
             return Err(substreamid_error);
         }
@@ -3711,8 +3715,10 @@ impl SMMU {
                     if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
                         let oas_error = TranslationError::AddressSizeError;
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        let pnu = self.streams.get(&stream_id.as_u32())
+                            .map_or(false, |ctx| ctx.is_access_privileged());
                         self.record_translation_fault(
-                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0,
+                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false,
                         );
                         return Err(oas_error);
                     }
@@ -3813,9 +3819,13 @@ impl SMMU {
                                 let (fault_s2, fault_ipa) = stage2_ipa_opt
                                     .map(|ip| (true, ip))
                                     .unwrap_or((false, 0));
+                                let pnu = self.streams.get(&stream_id.as_u32())
+                                    .map_or(false, |ctx| ctx.is_access_privileged());
+                                let nsipa = fault_s2
+                                    && security_state == SecurityState::NonSecure;
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, access, security_state,
-                                    error, false, 0, fault_s2, fault_ipa,
+                                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa,
                                 );
                                 return Err(TranslationError::StallQueueFull);
                             }
@@ -3831,9 +3841,12 @@ impl SMMU {
             let (fault_s2, fault_ipa) = stage2_ipa_opt
                 .map(|ip| (true, ip))
                 .unwrap_or((false, 0));
+            let pnu = self.streams.get(&stream_id.as_u32())
+                .map_or(false, |ctx| ctx.is_access_privileged());
+            let nsipa = fault_s2 && security_state == SecurityState::NonSecure;
             self.record_translation_fault(
                 stream_id, pasid, iova, access, security_state,
-                error, is_stall, stag, fault_s2, fault_ipa,
+                error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa,
             );
 
             if is_stall {
@@ -4061,6 +4074,8 @@ impl SMMU {
         stag: u16,
         s2: bool,
         ipa: u64,
+        pnu: bool,
+        nsipa: bool,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -4141,11 +4156,14 @@ impl SMMU {
             ipa,
             rnw: matches!(access, AccessType::Write),
             ind: matches!(access, AccessType::Execute),
+            // §7.3 PnU — true when the access is privileged (STRW=El2/El3 or PRIVCFG=3).
+            pnu,
+            // §7.3 NSIPA — true when the IPA is in the Non-Secure PA space (s2 + NonSecure).
+            nsipa,
             // GAP-N / ARM IHI0070G.b §7.3.9: C_BAD_SUBSTREAMID always has SSV=true —
             // "In this event, SubstreamID is always valid (there is no SSV qualifier)."
             // For all other event types, SSV reflects whether a non-zero PASID was presented.
             ssv: matches!(event_type, EventType::CBadSubstreamid) || pasid.as_u32() != 0,
-            ..EventEntry::zeroed()
         };
 
         if let Ok(mut queue) = self.event_queue.write() {

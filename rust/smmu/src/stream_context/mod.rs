@@ -1860,14 +1860,24 @@ impl StreamContext {
             Err(_) => return (Err(TranslationError::AddressSizeError), None),
         };
 
-        // NEW-GAP-K: §5.4 — WXN permission check on stage-1 result (two-stage path).
+        // NEW-GAP-K: §5.4 — WXN/UWXN permission check on stage-1 result (two-stage path).
         {
             let is_exec = matches!(access_type, AccessType::Execute
                 | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
             if is_exec {
-                let wxn = self.wxn.load(Ordering::Acquire);
                 let perms = stage1_result.permissions();
-                if wxn && perms.write() {
+                // WXN: any writable page is execute-never (applies to all privilege levels).
+                if self.wxn.load(Ordering::Acquire) && perms.write() {
+                    return (Err(TranslationError::WxnFault), None);
+                }
+                // UWXN (§5.4): privileged execute on a page writable by unprivileged code → F_PERMISSION.
+                // Applies only when: UWXN=1 AND the access is privileged AND the page is
+                // writable AND NOT restricted to privileged-only code.
+                if self.uwxn.load(Ordering::Acquire)
+                    && self.effective_priv_suppresses_check()
+                    && perms.write()
+                    && !perms.privileged_only()
+                {
                     return (Err(TranslationError::WxnFault), None);
                 }
             }
@@ -2028,16 +2038,22 @@ impl StreamContext {
 
         // NEW-GAP-K: §5.4 — WXN permission modifier check.
         // WXN=1: any writable page is execute-never.
-        // Note: UWXN (unprivileged WXN for privileged accesses) is stored but not
-        // enforced in the Rust model — the Rust AccessType has no ExecutePrivileged
-        // variant to distinguish privileged from unprivileged execute.
+        // UWXN (§5.4): privileged execute on a page writable by unprivileged code → F_PERMISSION.
         {
             let is_exec = matches!(access_type, AccessType::Execute
                 | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
             if is_exec {
-                let wxn = self.wxn.load(Ordering::Acquire);
                 let perms = data.permissions();
-                if wxn && perms.write() {
+                // WXN: applies to all privilege levels.
+                if self.wxn.load(Ordering::Acquire) && perms.write() {
+                    return Err(TranslationError::WxnFault);
+                }
+                // UWXN: privileged execute on an unprivileged-writable page.
+                if self.uwxn.load(Ordering::Acquire)
+                    && self.effective_priv_suppresses_check()
+                    && perms.write()
+                    && !perms.privileged_only()
+                {
                     return Err(TranslationError::WxnFault);
                 }
             }
@@ -2124,6 +2140,7 @@ impl StreamContext {
     }
 
     /// Two-stage translation: IOVA → IPA → PA
+    #[allow(clippy::too_many_lines)]
     fn translate_two_stage(
         &self,
         pasid: PASID,
@@ -2178,15 +2195,22 @@ impl StreamContext {
             },
         };
 
-        // NEW-GAP-K: §5.4 — WXN permission modifier check on stage-1 result.
-        // Note: UWXN is stored but not enforced — Rust AccessType has no ExecutePrivileged.
+        // NEW-GAP-K: §5.4 — WXN/UWXN permission modifier check on stage-1 result.
         {
             let is_exec = matches!(access_type, AccessType::Execute
                 | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
             if is_exec {
-                let wxn = self.wxn.load(Ordering::Acquire);
                 let perms = stage1_result.permissions();
-                if wxn && perms.write() {
+                // WXN: applies to all privilege levels.
+                if self.wxn.load(Ordering::Acquire) && perms.write() {
+                    return Err(TranslationError::WxnFault);
+                }
+                // UWXN (§5.4): privileged execute on an unprivileged-writable page.
+                if self.uwxn.load(Ordering::Acquire)
+                    && self.effective_priv_suppresses_check()
+                    && perms.write()
+                    && !perms.privileged_only()
+                {
                     return Err(TranslationError::WxnFault);
                 }
             }
@@ -2342,6 +2366,22 @@ impl StreamContext {
             2 => false, // Force Unprivileged: never suppress privileged_only check
             _ => self.strw_suppresses_priv(),
         }
+    }
+
+    /// Returns `true` when the effective privilege level of this stream means the
+    /// access is privileged for PnU wire-format purposes (ARM IHI0070G.b §7.3).
+    ///
+    /// This mirrors `effective_priv_suppresses_check()`: the same PRIVCFG/STRW logic
+    /// that determines whether to suppress the `privileged_only` page-permission check
+    /// also determines whether the transaction should be reported as privileged in the
+    /// event record PnU field.
+    ///
+    /// - PRIVCFG=3 (Force Privileged): always privileged → `true`
+    /// - PRIVCFG=2 (Force Unprivileged): always unprivileged → `false`
+    /// - Otherwise: STRW=El2/El2E2h/El3 → privileged (`true`); STRW=El1El0 → `false`
+    #[inline]
+    pub(crate) fn is_access_privileged(&self) -> bool {
+        self.effective_priv_suppresses_check()
     }
 
     // ---- NEW-8 helper: S2PS encoding → PA bit width ----
