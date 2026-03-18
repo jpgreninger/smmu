@@ -1930,6 +1930,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidSecurityState:
                 stage2FaultType = FaultType::SecurityFault;
                 break;
+            case SMMUError::AccessFlagFaultError:
+                // §7.3.15 / NEW-B fix: Stage-2 AF fault must produce AccessFlagFault
+                // (→ F_ACCESS with s2=true), not Stage2PermissionFault.
+                // Previously fell to default → Stage2PermissionFault → no F_ACCESS emitted.
+                stage2FaultType = FaultType::AccessFlagFault;
+                break;
             default:
                 stage2FaultType = FaultType::Stage2PermissionFault;
                 break;
@@ -2118,11 +2124,12 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                               false, 0, accessType);
                 break;
             case SMMUError::AccessFlagFaultError:
-                // Bug NEW-2 fix: §3.13.2 — Access flag fault → F_ACCESS (0x12).
-                // Previously missing from stage-2-only path; fell through to AccessFault.
+                // §7.3.15 / NEW-C fix: set fault type but do NOT call generateEvent() here.
+                // handleTranslationFailure() (fixed by NEW-A) owns the single event emission
+                // per §7.2 / §3.12.2 — one fault event per transaction.
+                // Previously this path called generateEvent(F_ACCESS) inline AND returned the
+                // error, causing handleTranslationFailure to emit a second F_ACCESS.
                 fault.faultType = FaultType::AccessFlagFault;
-                generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
                 break;
             default:
                 fault.faultType = FaultType::AccessFault;
@@ -2192,6 +2199,12 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
+                break;
+            case SMMUError::AccessFlagFaultError:
+                // §7.3.15 / NEW-A fix: AccessFlagFaultError must map to AccessFlagFault
+                // so the recovery switch emits F_ACCESS (0x12), not F_TRANSLATION (0x10).
+                // Previously fell to default → classifyTranslationFault() → TranslationFault.
+                faultType = FaultType::AccessFlagFault;
                 break;
             case SMMUError::StreamDisabled:
                 // §7.3.7 last line / §5.2 Config table: STE.Config==0b000 terminates without
@@ -2328,8 +2341,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::AccessFlagFault:
             // §7.3.15: Access flag fault → F_ACCESS (0x12).  This is the ONLY
             // fault type in this group that correctly emits F_ACCESS.
+            // NEW-B fix: pass tl_stage2FaultCtx so that stage-2 AF faults carry
+            // s2=true and the correct IPA in the generated EventEntry (§7.3.13).
             generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, accessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             break;
 
         case FaultType::DirtyBitFault:
