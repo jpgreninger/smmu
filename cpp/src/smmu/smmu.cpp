@@ -427,12 +427,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;     break;
                 case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;   break;
                 case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
-                // Bug-6: ReadExecute/WriteExecute combined access types — promote to
-                // privileged variants by using ExecutePrivileged (execute is the
-                // security-relevant component; read/write+execute in a privileged stream
-                // is treated as a privileged execute for permission checking).
+                // Bug-6: ReadExecute — execute is the security-relevant component;
+                // promote to ExecutePrivileged for an all-privileged stream.
                 case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
-                case AccessType::WriteExecute: effectiveAccessType = AccessType::ExecutePrivileged; break;
                 case AccessType::ReadPrivileged:
                 case AccessType::WritePrivileged:
                 case AccessType::ExecutePrivileged:
@@ -4224,12 +4221,6 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                 pendingEvent.ind = true;
                 pendingEvent.pnu = false;
                 break;
-            case AccessType::WriteExecute:
-                // Bug-6 fix: write + execute combined access — has write, has execute.
-                pendingEvent.rnw = true;
-                pendingEvent.ind = true;
-                pendingEvent.pnu = false;
-                break;
             case AccessType::ReadPrivileged:
                 pendingEvent.rnw = false;
                 pendingEvent.ind = false;
@@ -4366,12 +4357,6 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         case AccessType::ReadExecute:
             // Bug-6 fix: read + execute combined access — no write, has execute.
             event.rnw = false;
-            event.ind = true;
-            event.pnu = false;
-            break;
-        case AccessType::WriteExecute:
-            // Bug-6 fix: write + execute combined access — has write, has execute.
-            event.rnw = true;
             event.ind = true;
             event.pnu = false;
             break;
@@ -4644,10 +4629,9 @@ AccessClassification SMMU::classifyAccess(AccessType accessType) const {
         case AccessType::Execute:
         case AccessType::ExecutePrivileged:
             return AccessClassification::InstructionFetch;
-        // Bug-6: ReadExecute/WriteExecute have an execute component — classify as
-        // InstructionFetch so that ind=true is consistent with syndrome derivation.
+        // Bug-6: ReadExecute has an execute component — classify as InstructionFetch
+        // so that ind=true is consistent with syndrome derivation.
         case AccessType::ReadExecute:
-        case AccessType::WriteExecute:
             return AccessClassification::InstructionFetch;
         case AccessType::Read:
         case AccessType::Write:

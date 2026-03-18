@@ -590,8 +590,6 @@ private:
                 return permissions.read && permissions.write && !permissions.privilegedOnly;
             case AccessType::ReadExecute:
                 return permissions.read && permissions.execute && !permissions.privilegedOnly;
-            case AccessType::WriteExecute:
-                return permissions.write && permissions.execute && !permissions.privilegedOnly;
             case AccessType::ReadPrivileged:
                 return permissions.read;
             case AccessType::WritePrivileged:

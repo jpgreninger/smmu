@@ -89,13 +89,8 @@ TEST(AccessTypeEventWireFormatTest, ReadExecuteRnwFalseIndTrue) {
     EXPECT_FALSE(ev.pnu) << "ReadExecute: pnu must be false (unprivileged)";
 }
 
-TEST(AccessTypeEventWireFormatTest, WriteExecuteRnwTrueIndTrue) {
-    // WriteExecute: has write + execute → rnw=true, ind=true; unprivileged → pnu=false
-    EventEntry ev = getEventForAccessType(AccessType::WriteExecute);
-    EXPECT_TRUE(ev.rnw) << "WriteExecute: rnw must be true (has write component)";
-    EXPECT_TRUE(ev.ind) << "WriteExecute: ind must be true (has execute component)";
-    EXPECT_FALSE(ev.pnu) << "WriteExecute: pnu must be false (unprivileged)";
-}
+// WriteExecute is architecturally impossible per ARM §7.3: "InD==0 when RnW==0 (write)".
+// Instruction fetches can never be writes. WriteExecute was removed from AccessType.
 
 // Regression: verify existing access types remain correct after adding new ones
 TEST(AccessTypeEventWireFormatTest, ReadRnwFalseIndFalsePnuFalse) {

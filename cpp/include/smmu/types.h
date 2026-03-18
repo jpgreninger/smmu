@@ -485,8 +485,6 @@ enum class AccessType {
     ReadWrite,
     /// @brief Read and Execute access (code pages allowing both load and fetch)
     ReadExecute,
-    /// @brief Write and Execute access (unusual but valid combined permission)
-    WriteExecute,
     /// @brief Read access in privileged mode (ignores privilegedOnly check)
     ReadPrivileged,
     /// @brief Write access in privileged mode (ignores privilegedOnly check)
