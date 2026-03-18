@@ -1,7 +1,9 @@
 // Tests for bugs found in newBugs17Mar2026_9pm.md
 // TDD: tests written before fixes, then verified green after.
 //
-// Bug 3: setStrtabLog2Size() accepts values > 24 — max valid LOG2SIZE is 24 per ARM §6.3.25.
+// Bug 3 (corrected): LOG2SIZE clamp is 32 (max SIDSIZE per ARM §6.3.4 IDR1).
+//   Per §6.3.25 the field is 6 bits; effective range = MIN(LOG2SIZE, SIDSIZE),
+//   SIDSIZE max = 32. Values 0–32 are valid; values > 32 are clamped to 32.
 // Bug 6: ReadExecute/WriteExecute missing from C++ AccessType enum and generateEvent() switch.
 
 #include <gtest/gtest.h>
@@ -10,25 +12,33 @@
 
 using namespace smmu;
 
-// ===== Bug 3: LOG2SIZE clamped to 24 =====
+// ===== Bug 3 (corrected): LOG2SIZE clamp is 32, not 24 =====
 
-TEST(StrtabLog2SizeTest, Log2SizeClampedTo24WhenPassedMax32) {
+TEST(StrtabLog2SizeTest, Log2Size32Accepted) {
+    // 32 is the maximum valid value (matches max SIDSIZE per ARM §6.3.4 IDR1).
     SMMU smmu;
     smmu.setStrtabLog2Size(32);
-    // Bug 3 fix: values > 24 are architecturally undefined; must be clamped to 24.
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
 }
 
-TEST(StrtabLog2SizeTest, Log2Size25ClampedTo24) {
+TEST(StrtabLog2SizeTest, Log2Size33ClampedTo32) {
+    // Values > 32 exceed max SIDSIZE and must be clamped to 32.
+    SMMU smmu;
+    smmu.setStrtabLog2Size(33);
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
+}
+
+TEST(StrtabLog2SizeTest, Log2Size64ClampedTo32) {
+    SMMU smmu;
+    smmu.setStrtabLog2Size(64);
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
+}
+
+TEST(StrtabLog2SizeTest, Log2Size25Accepted) {
+    // 25 is a valid value (25 <= 32).
     SMMU smmu;
     smmu.setStrtabLog2Size(25);
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
-}
-
-TEST(StrtabLog2SizeTest, Log2Size24Accepted) {
-    SMMU smmu;
-    smmu.setStrtabLog2Size(24);
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 25u);
 }
 
 TEST(StrtabLog2SizeTest, Log2Size0Accepted) {

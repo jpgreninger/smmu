@@ -110,10 +110,9 @@ SMMU::SMMU()
       cmdqSyncMsiAddr_(0),
       cmdqSyncMsiData_(0),
       cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
-      // Bug-3 fix: default is 24 (max architecturally valid LOG2SIZE per ARM §6.3.25).
-      // The old default of 32 was outside the spec-defined range; 24 accepts 2^24=16M
-      // entries which covers the full 20-bit StreamID space used by ARM hardware.
-      strtabLog2Size_(24),
+      // Default: 32 — matches max SIDSIZE per ARM §6.3.4 IDR1 (SIDSIZE bits [5:0], 0–32).
+      // Per §6.3.25 the effective range is MIN(LOG2SIZE, SIDSIZE); values 0–32 are valid.
+      strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
@@ -168,8 +167,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       cmdqSyncMsiAddr_(0),
       cmdqSyncMsiData_(0),
       cmdSyncLastSig_(static_cast<uint8_t>(CmdSyncSignalType::None)),
-      // Bug-3 fix: default is 24 (max architecturally valid LOG2SIZE per ARM §6.3.25).
-      strtabLog2Size_(24),
+      // Default: 32 — matches max SIDSIZE per ARM §6.3.4 IDR1 (SIDSIZE bits [5:0], 0–32).
+      strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
@@ -1195,11 +1194,11 @@ void SMMU::reset() {
     cmdqSyncMsiData_.store(0, std::memory_order_release);
     cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::None), std::memory_order_release);
 
-    // BUG-R2-CPP-1 fix / Bug-3 fix: restore strtabLog2Size_ to 24 (max valid
-    // LOG2SIZE per ARM §6.3.25) and cr2_ to 0 (RECINVSID=0 — events suppressed)
-    // per ARM IHI0070G.b §6.3.4 and §6.3.12 reset-value requirements.
-    // The old reset value was 32, which is outside the spec-defined range.
-    strtabLog2Size_.store(24u, std::memory_order_release);
+    // BUG-R2-CPP-1 fix: restore strtabLog2Size_ to 32 and cr2_ to 0 on reset.
+    // 32 is the maximum SIDSIZE per ARM §6.3.4 IDR1; LOG2SIZE is clamped at 32
+    // to match the max SIDSIZE the model can advertise (per §6.3.25 effective
+    // range = MIN(LOG2SIZE, SIDSIZE)).
+    strtabLog2Size_.store(32u, std::memory_order_release);
     cr2_.store(0u, std::memory_order_release);
 
     // ARM §3.12.2: Clear stall queue and resume outcomes on reset.
@@ -3910,12 +3909,12 @@ void SMMU::setStrtabLog2Size(uint8_t log2size) {
     // Without this lock a concurrent stream-ID validation racing with a LOG2SIZE
     // update could observe a mixed snapshot and underflow l1Bits.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    // Bug-3 fix: clamp to 24 — values > 24 are architecturally undefined per ARM
-    // §6.3.25 (STRTAB_BASE_CFG.LOG2SIZE field is 5 bits; max valid value is 24,
-    // which gives 2^24 = 16 million entries covering the full 20-bit StreamID space).
-    // The previous clamp was 32, which is outside the spec-defined range.
-    if (log2size > 24u) {
-        log2size = 24u;
+    // Clamp to 32 — matches max SIDSIZE per ARM §6.3.4 IDR1 (SIDSIZE field is
+    // bits [5:0], range 0–32 inclusive).  Per §6.3.25 the effective LOG2SIZE used
+    // for range checking is MIN(LOG2SIZE, SIDSIZE); values 33–63 are representable
+    // in the 6-bit field but exceed the maximum SIDSIZE (32) and add no coverage.
+    if (log2size > 32u) {
+        log2size = 32u;
     }
     // BUG-NEW-CPP-1 fix: use release store so that concurrent translate() readers
     // that use acquire loads observe the updated value without a data race.

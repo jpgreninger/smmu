@@ -35,24 +35,23 @@ namespace test_new_bugs_mar2026 {
 // BUG-NEW-CPP-1: strtabLog2Size_ atomic read/write
 // ---------------------------------------------------------------------------
 
-// Basic functional: default is 24 (max valid LOG2SIZE per ARM §6.3.25 after Bug-3 fix).
-TEST(BugNewCpp1, StrtabLog2SizeDefaultIs24) {
+// Basic functional: default is 32 (max SIDSIZE per ARM §6.3.4 IDR1).
+TEST(BugNewCpp1, StrtabLog2SizeDefaultIs32) {
     SMMU smmu;
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u)
-        << "Bug-3: default strtabLog2Size_ must be 24 (max valid per ARM §6.3.25)";
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u)
+        << "default strtabLog2Size_ must be 32 (max SIDSIZE per ARM §6.3.4 IDR1)";
 }
 
 TEST(BugNewCpp1, StrtabLog2SizeAtomicReadWrite) {
     SMMU smmu;
-    // Default should be 24 (max architecturally valid LOG2SIZE per ARM §6.3.25).
-    // Bug-3 fix: old default was 32 which is outside the spec-defined range.
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
+    // Default is 32 (max SIDSIZE per ARM §6.3.4 IDR1).
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
     // Set and verify in-range value
     smmu.setStrtabLog2Size(16);
     EXPECT_EQ(smmu.getStrtabLog2Size(), 16u);
-    // Bug-3 fix: values > 24 are clamped to 24 (max valid LOG2SIZE per §6.3.25).
-    smmu.setStrtabLog2Size(32);
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
+    // Values > 32 are clamped to 32 (max SIDSIZE per §6.3.4 IDR1 / §6.3.25).
+    smmu.setStrtabLog2Size(64);
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
 }
 
 // Structural: with log2size=4, StreamID 16 must be rejected (range check uses
@@ -90,26 +89,26 @@ TEST(BugNewCpp1, BoundaryStreamIdAcceptedWithLog2Size4) {
 
 // Concurrent: concurrent getStrtabLog2Size() and setStrtabLog2Size() must not
 // crash or produce torn reads.  This is primarily a TSan/ASan regression guard.
-// Bug-3 fix: values > 24 are clamped to 24. The writer alternates between 8 and 24.
+// The writer alternates between 8 and 32 (max valid LOG2SIZE per §6.3.4 IDR1).
 TEST(BugNewCpp1, ConcurrentSetAndGetStrtabLog2Size) {
     SMMU smmu;
-    smmu.setStrtabLog2Size(24); // 24 is max valid per ARM §6.3.25 (was 32 before Bug-3 fix)
+    smmu.setStrtabLog2Size(32); // 32 is max SIDSIZE per ARM §6.3.4 IDR1
 
     std::atomic<bool> stop{false};
     std::atomic<uint32_t> badReads{0};
 
-    // Writer thread: alternate between 8 and 24 (24 is max valid LOG2SIZE after Bug-3 fix).
+    // Writer thread: alternate between 8 and 32.
     std::thread writer([&smmu, &stop]() {
         for (int i = 0; i < 2000 && !stop.load(std::memory_order_relaxed); ++i) {
             smmu.setStrtabLog2Size(8);
-            smmu.setStrtabLog2Size(24);
+            smmu.setStrtabLog2Size(32);
         }
     });
 
-    // Reader: getStrtabLog2Size() must always return 8 or 24 — never garbage.
+    // Reader: getStrtabLog2Size() must always return 8 or 32 — never garbage.
     for (int i = 0; i < 2000; ++i) {
         uint8_t v = smmu.getStrtabLog2Size();
-        if (v != 8u && v != 24u) {
+        if (v != 8u && v != 32u) {
             badReads.fetch_add(1, std::memory_order_relaxed);
         }
     }

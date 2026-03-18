@@ -469,8 +469,8 @@ private:
 
     // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
     // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
-    // Bug-3 fix: Default 24 (max architecturally valid per ARM §6.3.25).
-    // Values > 24 are clamped to 24 in setStrtabLog2Size().
+    // Default 32 (max SIDSIZE per ARM §6.3.4 IDR1). Per §6.3.25 effective
+    // LOG2SIZE = MIN(LOG2SIZE, SIDSIZE); values > 32 are clamped to 32.
     // BUG-NEW-CPP-1 fix: std::atomic<uint8_t> eliminates the data race between
     // translate() (reader, no lock) and setStrtabLog2Size() (writer).
     std::atomic<uint8_t> strtabLog2Size_;   // 0-24; default 24

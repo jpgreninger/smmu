@@ -6,7 +6,7 @@
 // BUG-R2-CPP-1: reset() does not restore strtabLog2Size_ to its default value
 //   or cr2_ to 0.  After reset() a previously set strtabLog2Size_=4 persists,
 //   causing StreamIDs 16-UINT32_MAX to be incorrectly rejected.
-//   Bug-3 fix: the reset-default is now 24 (max valid per ARM §6.3.25), not 32.
+//   Default is 32 (max SIDSIZE per ARM §6.3.4 IDR1; §6.3.25 effective = MIN(LOG2SIZE,SIDSIZE)).
 //
 // BUG-R2-CPP-2: getCR0() uses an implicit seq_cst load on cr0_ instead of
 //   the explicit memory_order_acquire used everywhere else.  Semantically
@@ -35,8 +35,8 @@ namespace smmu {
 namespace test_bug_r2_bugs_cpp {
 
 // ---------------------------------------------------------------------------
-// BUG-R2-CPP-1: reset() must restore strtabLog2Size_ to 24 (default) and cr2_ to 0
-// Bug-3 fix: default is 24 (max valid per ARM §6.3.25); old default was 32.
+// BUG-R2-CPP-1: reset() must restore strtabLog2Size_ to 32 (default) and cr2_ to 0
+// Default is 32 (max SIDSIZE per ARM §6.3.4 IDR1; §6.3.25 effective = MIN(LOG2SIZE,SIDSIZE)).
 // ---------------------------------------------------------------------------
 
 TEST(BugR2Cpp1, ResetRestoresStrtabLog2Size) {
@@ -44,8 +44,8 @@ TEST(BugR2Cpp1, ResetRestoresStrtabLog2Size) {
     smmu.setStrtabLog2Size(4);
     EXPECT_EQ(smmu.getStrtabLog2Size(), 4u);
     smmu.reset();
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u)
-        << "reset() must restore strtabLog2Size_ to 24 (max valid per ARM §6.3.25)";
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u)
+        << "reset() must restore strtabLog2Size_ to 32 (max SIDSIZE per ARM §6.3.4 IDR1)";
 }
 
 TEST(BugR2Cpp1, ResetRestoresCR2) {
@@ -71,8 +71,8 @@ TEST(BugR2Cpp1, AfterResetHighStreamIDAccepted) {
 
     smmu.reset();
 
-    // After reset, strtabLog2Size_ must be 24 (max valid per ARM §6.3.25; Bug-3 fix).
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);
+    // After reset, strtabLog2Size_ must be 32 (max SIDSIZE per ARM §6.3.4 IDR1).
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);
 
     // Re-enable SMMUEN so translations are attempted (reset clears SMMUEN=0).
     smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
@@ -82,8 +82,8 @@ TEST(BugR2Cpp1, AfterResetHighStreamIDAccepted) {
     // must NOT produce InvalidStreamID from the strtab range check.
     // With CR2_RECINVSID=0 (reset default), no C_BAD_STREAMID events are
     // enqueued — but the stream-not-found path still returns InvalidStreamID.
-    // We confirm by checking that getStrtabLog2Size() is back to 24 (the
-    // primary assertion) and that re-setting log2size=24 allows StreamID 16
+    // We confirm by checking that getStrtabLog2Size() is back to 32 (the
+    // primary assertion) and that StreamID 16 is within the 2^32 range
     // to at least reach the stream-lookup stage (not earlier range rejection).
     auto evts = smmu.getEvents();
     // With RECINVSID=0 (reset default) no C_BAD_STREAMID events are queued.
@@ -101,15 +101,15 @@ TEST(BugR2Cpp1, DoubleResetRestoresDefaults) {
     smmu.setCR2(SMMU::CR2_RECINVSID);
     // First reset.
     smmu.reset();
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u);  // Bug-3 fix: default is 24, not 32
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u);  // default is 32 (max SIDSIZE per §6.3.4)
     EXPECT_EQ(smmu.getCR2(), 0u);
     // Set again.
     smmu.setStrtabLog2Size(16);
     smmu.setCR2(SMMU::CR2_RECINVSID);
     // Second reset.
     smmu.reset();
-    EXPECT_EQ(smmu.getStrtabLog2Size(), 24u)
-        << "second reset() must also restore strtabLog2Size_ to 24 (max valid per ARM §6.3.25)";
+    EXPECT_EQ(smmu.getStrtabLog2Size(), 32u)
+        << "second reset() must also restore strtabLog2Size_ to 32 (max SIDSIZE per ARM §6.3.4)";
     EXPECT_EQ(smmu.getCR2(), 0u)
         << "second reset() must also restore CR2 to 0";
 }
