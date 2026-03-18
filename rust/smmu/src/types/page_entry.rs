@@ -244,6 +244,12 @@ impl PagePermissions {
             AccessType::ReadExecute => self.read() && self.execute(),
             AccessType::WriteExecute => self.write() && self.execute(),
             AccessType::ReadWriteExecute => self.read() && self.write() && self.execute(),
+            // Bug-4 fix: privileged variants — privilege bit does not affect R/W/X permission check;
+            // the privilege level is handled separately by the UWXN/PRIVCFG path.
+            AccessType::ReadPrivileged => self.read(),
+            AccessType::WritePrivileged => self.write(),
+            AccessType::ReadWritePrivileged => self.read() && self.write(),
+            AccessType::ExecutePrivileged => self.execute(),
         }
     }
 

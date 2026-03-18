@@ -1861,10 +1861,9 @@ impl StreamContext {
         };
 
         // NEW-GAP-K: §5.4 — WXN/UWXN permission check on stage-1 result (two-stage path).
+        // Bug-4 fix: use can_execute() so ExecutePrivileged is correctly detected.
         {
-            let is_exec = matches!(access_type, AccessType::Execute
-                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
-            if is_exec {
+            if access_type.can_execute() {
                 let perms = stage1_result.permissions();
                 // WXN: any writable page is execute-never (applies to all privilege levels).
                 if self.wxn.load(Ordering::Acquire) && perms.write() {
@@ -1881,7 +1880,7 @@ impl StreamContext {
                 //                    AND the page is writable AND NOT privileged-only.
                 if self.uwxn.load(Ordering::Acquire)
                     && !self.stream_is_all_privileged()
-                    && self.is_access_effectively_privileged()
+                    && self.is_access_effectively_privileged(access_type)
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -1958,16 +1957,10 @@ impl StreamContext {
 
         // Permission intersection (same as translate_two_stage)
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
-        let access_denied = match access_type {
-            AccessType::Read => !final_perms.read(),
-            AccessType::Write => !final_perms.write(),
-            AccessType::Execute => !final_perms.execute(),
-            AccessType::ReadWrite => !final_perms.read() || !final_perms.write(),
-            AccessType::ReadExecute => !final_perms.read() || !final_perms.execute(),
-            AccessType::WriteExecute => !final_perms.write() || !final_perms.execute(),
-            AccessType::ReadWriteExecute => !final_perms.read() || !final_perms.write() || !final_perms.execute(),
-            AccessType::None => false,
-        };
+        // Bug-4 fix: use can_read/write/execute() to handle privileged variants correctly.
+        let access_denied = (access_type.can_read() && !final_perms.read())
+            || (access_type.can_write() && !final_perms.write())
+            || (access_type.can_execute() && !final_perms.execute());
         if access_denied {
             // Permission fault occurred AFTER stage-2 succeeded — IPA is the stage-2 input.
             return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
@@ -2046,10 +2039,9 @@ impl StreamContext {
         // NEW-GAP-K: §5.4 — WXN permission modifier check.
         // WXN=1: any writable page is execute-never.
         // UWXN (§5.4): privileged execute on a page writable by unprivileged code → F_PERMISSION.
+        // Bug-4 fix: use can_execute() so ExecutePrivileged is correctly detected.
         {
-            let is_exec = matches!(access_type, AccessType::Execute
-                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
-            if is_exec {
+            if access_type.can_execute() {
                 let perms = data.permissions();
                 // WXN: applies to all privilege levels.
                 if self.wxn.load(Ordering::Acquire) && perms.write() {
@@ -2060,7 +2052,7 @@ impl StreamContext {
                 // See translate_two_stage_with_ipa for the full rationale.
                 if self.uwxn.load(Ordering::Acquire)
                     && !self.stream_is_all_privileged()
-                    && self.is_access_effectively_privileged()
+                    && self.is_access_effectively_privileged(access_type)
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -2206,10 +2198,9 @@ impl StreamContext {
         };
 
         // NEW-GAP-K: §5.4 — WXN/UWXN permission modifier check on stage-1 result.
+        // Bug-4 fix: use can_execute() so ExecutePrivileged is correctly detected.
         {
-            let is_exec = matches!(access_type, AccessType::Execute
-                | AccessType::ReadExecute | AccessType::WriteExecute | AccessType::ReadWriteExecute);
-            if is_exec {
+            if access_type.can_execute() {
                 let perms = stage1_result.permissions();
                 // WXN: applies to all privilege levels.
                 if self.wxn.load(Ordering::Acquire) && perms.write() {
@@ -2220,7 +2211,7 @@ impl StreamContext {
                 // See translate_two_stage_with_ipa for the full rationale.
                 if self.uwxn.load(Ordering::Acquire)
                     && !self.stream_is_all_privileged()
-                    && self.is_access_effectively_privileged()
+                    && self.is_access_effectively_privileged(access_type)
                     && perms.write()
                     && !perms.privileged_only()
                 {
@@ -2307,16 +2298,10 @@ impl StreamContext {
 
         let final_perms = stage1_result.permissions().intersection(s2_data.permissions());
 
-        let access_denied = match access_type {
-            AccessType::Read => !final_perms.read(),
-            AccessType::Write => !final_perms.write(),
-            AccessType::Execute => !final_perms.execute(),
-            AccessType::ReadWrite => !final_perms.read() || !final_perms.write(),
-            AccessType::ReadExecute => !final_perms.read() || !final_perms.execute(),
-            AccessType::WriteExecute => !final_perms.write() || !final_perms.execute(),
-            AccessType::ReadWriteExecute => !final_perms.read() || !final_perms.write() || !final_perms.execute(),
-            AccessType::None => false,
-        };
+        // Bug-4 fix: use can_read/write/execute() to handle privileged variants correctly.
+        let access_denied = (access_type.can_read() && !final_perms.read())
+            || (access_type.can_write() && !final_perms.write())
+            || (access_type.can_execute() && !final_perms.execute());
         // §3.12.2 fix: no record_fault_internal — SMMU caller records the fault.
         if access_denied {
             return Err(TranslationError::PermissionViolation { access: access_type });
@@ -2381,20 +2366,19 @@ impl StreamContext {
         }
     }
 
-    /// Returns `true` when the effective privilege level of this stream means the
-    /// access is privileged for PnU wire-format purposes (ARM IHI0070G.b §7.3).
+    /// Returns `true` when the access is privileged for PnU wire-format purposes
+    /// (ARM IHI0070G.b §7.3).
     ///
-    /// This mirrors `effective_priv_suppresses_check()`: the same PRIVCFG/STRW logic
-    /// that determines whether to suppress the `privileged_only` page-permission check
-    /// also determines whether the transaction should be reported as privileged in the
-    /// event record PnU field.
+    /// Bug-4 fix: For PRIVCFG=Use Incoming (0b00/0b01), pnu must reflect the
+    /// AxPROT\[1\] bit of the incoming transaction, represented by `access_type.is_privileged()`.
     ///
     /// - PRIVCFG=3 (Force Privileged): always privileged → `true`
     /// - PRIVCFG=2 (Force Unprivileged): always unprivileged → `false`
-    /// - Otherwise: STRW=El2/El2E2h/El3 → privileged (`true`); STRW=El1El0 → `false`
+    /// - PRIVCFG=0/1 (Use Incoming): delegates to `is_access_effectively_privileged(access_type)`,
+    ///   which uses the incoming `AccessType`'s `is_privileged()` flag.
     #[inline]
-    pub(crate) fn is_access_privileged(&self) -> bool {
-        self.effective_priv_suppresses_check()
+    pub(crate) fn is_access_privileged(&self, access_type: AccessType) -> bool {
+        self.is_access_effectively_privileged(access_type)
     }
 
     // ---- Bug-3 fix: UWXN §5.4 — stream_is_all_privileged / is_access_effectively_privileged ----
@@ -2419,19 +2403,32 @@ impl StreamContext {
 
     /// Returns `true` when the access should be treated as privileged for UWXN purposes.
     ///
-    /// This combines stream-level (STRW) and per-transaction (PRIVCFG) privilege:
+    /// This combines stream-level (STRW), per-transaction (PRIVCFG), and incoming
+    /// access type privilege (Bug-4 fix):
+    ///
     /// - STRW ∈ {El2, El2E2h, El3}: all accesses are privileged → `true`
     /// - PRIVCFG=3 (Force Privileged): override to privileged → `true`
     /// - PRIVCFG=2 (Force Unprivileged): override to unprivileged → `false`
-    /// - PRIVCFG=0/1 (Use Incoming): falls back to STRW-based check (El1El0 → `false`)
+    /// - PRIVCFG=0/1 (Use Incoming): `access_type.is_privileged()` — reflects AxPROT\[1\]
+    ///   of the incoming transaction (Bug-4 fix: ARM IHI0070G.b §7.3 EventEntry.PnU)
     ///
-    /// Used to determine whether the UWXN check should fire.
+    /// Used to determine whether the UWXN check should fire, and (after Bug-4 fix)
+    /// to derive the pnu field of the EventEntry for PRIVCFG=Use Incoming streams.
     #[inline]
-    pub(crate) fn is_access_effectively_privileged(&self) -> bool {
+    pub(crate) fn is_access_effectively_privileged(&self, access_type: AccessType) -> bool {
         match self.priv_cfg.load(Ordering::Acquire) {
-            3 => true,  // Force Privileged
-            2 => false, // Force Unprivileged
-            _ => self.stream_is_all_privileged(),
+            3 => true,  // Force Privileged — overrides incoming access type
+            2 => false, // Force Unprivileged — overrides incoming access type
+            _ => {
+                // PRIVCFG=0/1 (Use Incoming): use the stream-level STRW if it's all-privileged;
+                // otherwise fall back to the incoming transaction's privilege level.
+                if self.stream_is_all_privileged() {
+                    true
+                } else {
+                    // Bug-4 fix: use the AxPROT[1] bit from the incoming access type.
+                    access_type.is_privileged()
+                }
+            }
         }
     }
 

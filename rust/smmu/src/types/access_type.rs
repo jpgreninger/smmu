@@ -18,14 +18,18 @@ use core::fmt;
 /// Memory access type
 ///
 /// Represents the type of memory access being performed or permitted.
-/// Corresponds to ARM SMMU v3 access permission bits (R/W/X).
+/// Corresponds to ARM SMMU v3 access permission bits (R/W/X) plus a privilege bit.
 ///
 /// # Encoding
 ///
-/// The ARM SMMU v3 uses a 3-bit encoding:
+/// Bits 0-2 encode R/W/X; bit 3 encodes the privilege flag (AxPROT[1]):
 /// - Bit 0: Read
 /// - Bit 1: Write
 /// - Bit 2: Execute
+/// - Bit 3: Privileged (set for *Privileged variants — see `is_privileged()`)
+///
+/// The `can_read()`, `can_write()`, `can_execute()` methods mask out bit 3,
+/// so `ReadPrivileged.can_read() == true` and `ReadPrivileged.can_write() == false`.
 ///
 /// # Example
 ///
@@ -36,6 +40,12 @@ use core::fmt;
 /// assert!(rw.can_read());
 /// assert!(rw.can_write());
 /// assert!(!rw.can_execute());
+/// assert!(!rw.is_privileged());
+///
+/// let rp = AccessType::ReadPrivileged;
+/// assert!(rp.can_read());
+/// assert!(!rp.can_write());
+/// assert!(rp.is_privileged());
 ///
 /// // Check permissions
 /// let page_perms = AccessType::ReadWriteExecute;
@@ -47,32 +57,52 @@ use core::fmt;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AccessType {
     /// No permissions
-    None = 0b000,
+    None = 0b0000,
 
     /// Read access only
-    Read = 0b001,
+    Read = 0b0001,
 
     /// Write access only (unusual but valid)
-    Write = 0b010,
+    Write = 0b0010,
 
     /// Read and Write access
-    ReadWrite = 0b011,
+    ReadWrite = 0b0011,
 
     /// Execute access only
-    Execute = 0b100,
+    Execute = 0b0100,
 
     /// Read and Execute access
-    ReadExecute = 0b101,
+    ReadExecute = 0b0101,
 
     /// Write and Execute access (unusual but valid)
-    WriteExecute = 0b110,
+    WriteExecute = 0b0110,
 
     /// Full permissions (Read + Write + Execute)
-    ReadWriteExecute = 0b111,
+    ReadWriteExecute = 0b0111,
+
+    // ---- Bug-4 fix: privileged variants (AxPROT[1]=1) ----
+    // Bit 3 set signals that the transaction is a privileged access.
+    // can_read/write/execute() mask off bit 3 so the R/W/X semantics
+    // are preserved for all callers.
+
+    /// Privileged read access — AxPROT[1]=1, AxPROT[2]=0 (data read, privileged).
+    ReadPrivileged = 0b1001,
+
+    /// Privileged write access — AxPROT[1]=1 (data write, privileged).
+    WritePrivileged = 0b1010,
+
+    /// Privileged read+write access.
+    ReadWritePrivileged = 0b1011,
+
+    /// Privileged execute access — AxPROT[1]=1, AxPROT[2]=1 (instruction, privileged).
+    ExecutePrivileged = 0b1100,
 }
 
 impl AccessType {
     /// Check if read access is permitted
+    ///
+    /// Returns true for both `Read` and `ReadPrivileged` (and any combined variant
+    /// that includes the read bit).  Bit 3 (privilege flag) is masked out.
     ///
     /// # Example
     ///
@@ -81,6 +111,8 @@ impl AccessType {
     /// assert!(AccessType::Read.can_read());
     /// assert!(AccessType::ReadWrite.can_read());
     /// assert!(!AccessType::Write.can_read());
+    /// assert!(AccessType::ReadPrivileged.can_read());
+    /// assert!(!AccessType::WritePrivileged.can_read());
     /// ```
     #[inline]
     #[must_use]
@@ -90,6 +122,9 @@ impl AccessType {
 
     /// Check if write access is permitted
     ///
+    /// Returns true for both `Write` and `WritePrivileged` (and combined variants).
+    /// Bit 3 (privilege flag) is masked out.
+    ///
     /// # Example
     ///
     /// ```
@@ -97,6 +132,8 @@ impl AccessType {
     /// assert!(AccessType::Write.can_write());
     /// assert!(AccessType::ReadWrite.can_write());
     /// assert!(!AccessType::Read.can_write());
+    /// assert!(AccessType::WritePrivileged.can_write());
+    /// assert!(!AccessType::ReadPrivileged.can_write());
     /// ```
     #[inline]
     #[must_use]
@@ -106,6 +143,9 @@ impl AccessType {
 
     /// Check if execute access is permitted
     ///
+    /// Returns true for both `Execute` and `ExecutePrivileged`.
+    /// Bit 3 (privilege flag) is masked out.
+    ///
     /// # Example
     ///
     /// ```
@@ -113,11 +153,40 @@ impl AccessType {
     /// assert!(AccessType::Execute.can_execute());
     /// assert!(AccessType::ReadExecute.can_execute());
     /// assert!(!AccessType::Read.can_execute());
+    /// assert!(AccessType::ExecutePrivileged.can_execute());
+    /// assert!(!AccessType::ReadPrivileged.can_execute());
     /// ```
     #[inline]
     #[must_use]
     pub const fn can_execute(self) -> bool {
         (self as u8 & 0b100) != 0
+    }
+
+    /// Check if this is a privileged access (AxPROT\[1\]=1).
+    ///
+    /// Returns `true` for the four `*Privileged` variants:
+    /// `ReadPrivileged`, `WritePrivileged`, `ReadWritePrivileged`, `ExecutePrivileged`.
+    /// Returns `false` for all other (non-privileged) variants.
+    ///
+    /// Bug-4 fix: ARM IHI0070G.b §7.3 (EventEntry.PnU) — for PRIVCFG=Use Incoming,
+    /// pnu must reflect the AxPROT\[1\] bit of the incoming transaction.  Use
+    /// `is_privileged()` to determine whether the incoming AccessType is privileged.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use smmu::AccessType;
+    /// assert!(!AccessType::Read.is_privileged());
+    /// assert!(!AccessType::ReadWrite.is_privileged());
+    /// assert!(AccessType::ReadPrivileged.is_privileged());
+    /// assert!(AccessType::WritePrivileged.is_privileged());
+    /// assert!(AccessType::ReadWritePrivileged.is_privileged());
+    /// assert!(AccessType::ExecutePrivileged.is_privileged());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn is_privileged(self) -> bool {
+        (self as u8 & 0b1000) != 0
     }
 
     /// Const version of can_read for compile-time evaluation
@@ -217,9 +286,13 @@ impl AccessType {
 
     /// Create from ARM SMMU v3 bit representation
     ///
+    /// Accepts non-privileged values 0b0000-0b0111 and privileged values
+    /// 0b1001-0b1100 (bit 3 set).  Bit pattern 0b1000 (privilege-only, no R/W/X)
+    /// and reserved patterns (0b1101-0b1111) return an error.
+    ///
     /// # Errors
     ///
-    /// Returns `Err` if the bit pattern is invalid (> 0b111).
+    /// Returns `Err` if the bit pattern is invalid.
     ///
     /// # Example
     ///
@@ -227,28 +300,36 @@ impl AccessType {
     /// use smmu::AccessType;
     /// assert_eq!(AccessType::from_bits(0b001).unwrap(), AccessType::Read);
     /// assert_eq!(AccessType::from_bits(0b011).unwrap(), AccessType::ReadWrite);
-    /// assert!(AccessType::from_bits(0b1000).is_err());
+    /// assert_eq!(AccessType::from_bits(0b1001).unwrap(), AccessType::ReadPrivileged);
+    /// assert!(AccessType::from_bits(0b1000).is_err()); // privilege-only, no R/W/X
+    /// assert!(AccessType::from_bits(0b1000_0000).is_err());
     /// ```
     #[inline]
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
-        if bits > 0b111 {
-            return Err(ValidationError::InvalidAccessType { bits });
+        match bits {
+            0b0000..=0b0111 | 0b1001 | 0b1010 | 0b1011 | 0b1100 => {
+                Ok(Self::from_bits_unchecked(bits))
+            }
+            _ => Err(ValidationError::InvalidAccessType { bits }),
         }
-        Ok(Self::from_bits_unchecked(bits))
     }
 
     /// Create from bits without validation (internal use)
     #[inline]
     const fn from_bits_unchecked(bits: u8) -> Self {
         match bits {
-            0b000 => Self::None,
-            0b001 => Self::Read,
-            0b010 => Self::Write,
-            0b011 => Self::ReadWrite,
-            0b100 => Self::Execute,
-            0b101 => Self::ReadExecute,
-            0b110 => Self::WriteExecute,
-            0b111 => Self::ReadWriteExecute,
+            0b0000 => Self::None,
+            0b0001 => Self::Read,
+            0b0010 => Self::Write,
+            0b0011 => Self::ReadWrite,
+            0b0100 => Self::Execute,
+            0b0101 => Self::ReadExecute,
+            0b0110 => Self::WriteExecute,
+            0b0111 => Self::ReadWriteExecute,
+            0b1001 => Self::ReadPrivileged,
+            0b1010 => Self::WritePrivileged,
+            0b1011 => Self::ReadWritePrivileged,
+            0b1100 => Self::ExecutePrivileged,
             _ => Self::None, // Fallback for invalid bits
         }
     }
@@ -292,6 +373,10 @@ impl fmt::Display for AccessType {
             Self::ReadExecute => "ReadExecute",
             Self::WriteExecute => "WriteExecute",
             Self::ReadWriteExecute => "ReadWriteExecute",
+            Self::ReadPrivileged => "ReadPrivileged",
+            Self::WritePrivileged => "WritePrivileged",
+            Self::ReadWritePrivileged => "ReadWritePrivileged",
+            Self::ExecutePrivileged => "ExecutePrivileged",
         };
         write!(f, "{s}")
     }

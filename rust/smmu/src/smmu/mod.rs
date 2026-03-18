@@ -2990,8 +2990,8 @@ impl SMMU {
                             timestamp,
                             // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
                             event_class: 0,
-                            rnw: matches!(access, AccessType::Write),
-                            ind: matches!(access, AccessType::Execute),
+                            rnw: access.can_write(),
+                            ind: access.can_execute(),
                             ssv: pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
@@ -3024,8 +3024,8 @@ impl SMMU {
                             timestamp,
                             // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
                             event_class: 0,
-                            rnw: matches!(access, AccessType::Write),
-                            ind: matches!(access, AccessType::Execute),
+                            rnw: access.can_write(),
+                            ind: access.can_execute(),
                             ssv: pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
@@ -3118,8 +3118,8 @@ impl SMMU {
                                 timestamp,
                                 // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
                                 event_class: 0,
-                                rnw: matches!(access, AccessType::Write),
-                                ind: matches!(access, AccessType::Execute),
+                                rnw: access.can_write(),
+                                ind: access.can_execute(),
                                 ssv: pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
@@ -3177,8 +3177,8 @@ impl SMMU {
                         timestamp,
                         // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
                         event_class: 0,
-                        rnw: matches!(access, AccessType::Write),
-                        ind: matches!(access, AccessType::Execute),
+                        rnw: access.can_write(),
+                        ind: access.can_execute(),
                         ssv: pasid.as_u32() != 0,
                         ..EventEntry::zeroed()
                     };
@@ -3538,7 +3538,7 @@ impl SMMU {
                 let oas_error = TranslationError::AddressSizeError;
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                 let pnu = self.streams.get(&stream_id.as_u32())
-                    .map_or(false, |ctx| ctx.is_access_privileged());
+                    .map_or(false, |ctx| ctx.is_access_privileged(access));
                 self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false);
                 return Err(oas_error);
             }
@@ -3598,7 +3598,7 @@ impl SMMU {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let substreamid_error = TranslationError::BadSubstreamId;
             let pnu = self.streams.get(&stream_id.as_u32())
-                .map_or(false, |ctx| ctx.is_access_privileged());
+                .map_or(false, |ctx| ctx.is_access_privileged(access));
             self.record_translation_fault(
                 stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false,
             );
@@ -3693,8 +3693,8 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
-                        rnw: matches!(access, AccessType::Write),
-                        ind: matches!(access, AccessType::Execute),
+                        rnw: access.can_write(),
+                        ind: access.can_execute(),
                         ssv: pasid.as_u32() != 0,
                         ..EventEntry::zeroed()
                     };
@@ -3719,7 +3719,7 @@ impl SMMU {
                         let oas_error = TranslationError::AddressSizeError;
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                         let pnu = self.streams.get(&stream_id.as_u32())
-                            .map_or(false, |ctx| ctx.is_access_privileged());
+                            .map_or(false, |ctx| ctx.is_access_privileged(access));
                         self.record_translation_fault(
                             stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false,
                         );
@@ -3823,7 +3823,7 @@ impl SMMU {
                                     .map(|ip| (true, ip))
                                     .unwrap_or((false, 0));
                                 let pnu = self.streams.get(&stream_id.as_u32())
-                                    .map_or(false, |ctx| ctx.is_access_privileged());
+                                    .map_or(false, |ctx| ctx.is_access_privileged(access));
                                 let nsipa = fault_s2
                                     && security_state == SecurityState::NonSecure;
                                 self.record_translation_fault(
@@ -3845,7 +3845,7 @@ impl SMMU {
                 .map(|ip| (true, ip))
                 .unwrap_or((false, 0));
             let pnu = self.streams.get(&stream_id.as_u32())
-                .map_or(false, |ctx| ctx.is_access_privileged());
+                .map_or(false, |ctx| ctx.is_access_privileged(access));
             let nsipa = fault_s2 && security_state == SecurityState::NonSecure;
             self.record_translation_fault(
                 stream_id, pasid, iova, access, security_state,
@@ -4157,8 +4157,8 @@ impl SMMU {
             // GAP NEW-2: §7.3.13 — S2 and IPA fields for two-stage faults.
             s2,
             ipa,
-            rnw: matches!(access, AccessType::Write),
-            ind: matches!(access, AccessType::Execute),
+            rnw: access.can_write(),
+            ind: access.can_execute(),
             // §7.3 PnU — true when the access is privileged (STRW=El2/El3 or PRIVCFG=3).
             pnu,
             // §7.3 NSIPA — true when the IPA is in the Non-Secure PA space (s2 + NonSecure).
@@ -4284,8 +4284,8 @@ impl SMMU {
             stag: 0,
             // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
             event_class: 0,
-            rnw: matches!(access, AccessType::Write),
-            ind: matches!(access, AccessType::Execute),
+            rnw: access.can_write(),
+            ind: access.can_execute(),
             ssv: pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
@@ -4561,8 +4561,8 @@ impl SMMU {
             timestamp,
             // §7.3.2: F_UUT has no CLASS field — those bits are RES0, must be 0.
             event_class: 0,
-            rnw: matches!(access, AccessType::Write),
-            ind: matches!(access, AccessType::Execute),
+            rnw: access.can_write(),
+            ind: access.can_execute(),
             ssv: pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };

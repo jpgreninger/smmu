@@ -1433,10 +1433,8 @@ impl AddressSpace {
             } else {
                 false
             };
-            let is_write = matches!(
-                access_type,
-                AccessType::Write | AccessType::ReadWrite | AccessType::WriteExecute | AccessType::ReadWriteExecute
-            );
+            // Bug-4 fix: include WritePrivileged and ReadWritePrivileged for dirty-flag tracking.
+            let is_write = access_type.can_write();
             let dirty_changed = if hd && is_write && !entry.is_dirty() {
                 *entry = entry.clone().with_dirty(true);
                 true

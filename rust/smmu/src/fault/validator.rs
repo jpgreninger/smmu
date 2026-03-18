@@ -82,6 +82,11 @@ impl PermissionValidator {
             AccessType::ReadWriteExecute => {
                 Self::can_read(permissions) && Self::can_write(permissions) && Self::can_execute(permissions)
             },
+            // Bug-4 fix: privileged variants — privilege bit does not affect R/W/X permission check.
+            AccessType::ReadPrivileged => Self::can_read(permissions),
+            AccessType::WritePrivileged => Self::can_write(permissions),
+            AccessType::ReadWritePrivileged => Self::can_read(permissions) && Self::can_write(permissions),
+            AccessType::ExecutePrivileged => Self::can_execute(permissions),
         }
     }
 
@@ -113,6 +118,11 @@ impl PermissionValidator {
             AccessType::ReadExecute => "read+execute",
             AccessType::WriteExecute => "write+execute",
             AccessType::ReadWriteExecute => "read+write+execute",
+            // Bug-4 fix: privileged variants.
+            AccessType::ReadPrivileged => "read(privileged)",
+            AccessType::WritePrivileged => "write(privileged)",
+            AccessType::ReadWritePrivileged => "read+write(privileged)",
+            AccessType::ExecutePrivileged => "execute(privileged)",
         };
 
         format!(

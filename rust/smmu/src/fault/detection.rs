@@ -208,6 +208,11 @@ impl PermissionFaultDetector {
             AccessType::ReadExecute => permissions.read() && permissions.execute(),
             AccessType::WriteExecute => permissions.write() && permissions.execute(),
             AccessType::ReadWriteExecute => permissions.read() && permissions.write() && permissions.execute(),
+            // Bug-4 fix: privileged variants — privilege bit does not affect R/W/X permission check.
+            AccessType::ReadPrivileged => permissions.read(),
+            AccessType::WritePrivileged => permissions.write(),
+            AccessType::ReadWritePrivileged => permissions.read() && permissions.write(),
+            AccessType::ExecutePrivileged => permissions.execute(),
         }
     }
 

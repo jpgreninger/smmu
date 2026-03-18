@@ -159,16 +159,19 @@ fn test_from_bits_valid_all() {
 
 #[test]
 fn test_from_bits_invalid() {
-    let invalid_bits = [0b1000, 0b1001, 0b1111, 0xFF, 0x10, 0x20];
+    // Bug-4 fix: 0b1001/0b1010/0b1011/0b1100 are now valid (ReadPrivileged etc.).
+    // Only truly invalid patterns remain: 0b1000 (priv-only no R/W/X), 0b1101-0b1111
+    // (reserved combinations), and values >= 0b1_0000.
+    let invalid_bits = [0b1000, 0b1101, 0b1110, 0b1111, 0xFF, 0x10, 0x20];
 
     for &bits in &invalid_bits {
         let result = AccessType::from_bits(bits);
-        assert!(result.is_err());
+        assert!(result.is_err(), "Expected error for bits=0b{bits:08b} ({bits})");
         match result {
             Err(ValidationError::InvalidAccessType { bits: b }) => {
                 assert_eq!(b, bits);
             },
-            _ => panic!("Expected InvalidAccessType error"),
+            _ => panic!("Expected InvalidAccessType error for bits={bits}"),
         }
     }
 }
