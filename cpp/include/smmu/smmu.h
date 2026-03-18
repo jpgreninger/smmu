@@ -469,10 +469,11 @@ private:
 
     // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
     // StreamIDs >= 2^strtabLog2Size_ generate C_BAD_STREAMID.
-    // Default 32 (all 32-bit StreamIDs accepted).
+    // Bug-3 fix: Default 24 (max architecturally valid per ARM §6.3.25).
+    // Values > 24 are clamped to 24 in setStrtabLog2Size().
     // BUG-NEW-CPP-1 fix: std::atomic<uint8_t> eliminates the data race between
     // translate() (reader, no lock) and setStrtabLog2Size() (writer).
-    std::atomic<uint8_t> strtabLog2Size_;   // 0-32; default 32
+    std::atomic<uint8_t> strtabLog2Size_;   // 0-24; default 24
 
     // ARM §3.12.2: Stall queue for stalled transactions (FINDING-NEW-08)
     std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map
@@ -587,6 +588,10 @@ private:
                 // ARM §3.24: atomic read-modify-write is write-class; requires both
                 // read and write permissions.
                 return permissions.read && permissions.write && !permissions.privilegedOnly;
+            case AccessType::ReadExecute:
+                return permissions.read && permissions.execute && !permissions.privilegedOnly;
+            case AccessType::WriteExecute:
+                return permissions.write && permissions.execute && !permissions.privilegedOnly;
             case AccessType::ReadPrivileged:
                 return permissions.read;
             case AccessType::WritePrivileged:

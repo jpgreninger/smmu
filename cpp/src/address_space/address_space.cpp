@@ -718,6 +718,14 @@ bool AddressSpace::checkPermissions(const PagePermissions& perms, AccessType acc
             // Read-write (atomic) requires both read and write permissions
             return perms.read && perms.write && !perms.privilegedOnly;
 
+        case AccessType::ReadExecute:
+            // Bug-6: combined read + execute access type
+            return perms.read && perms.execute && !perms.privilegedOnly;
+
+        case AccessType::WriteExecute:
+            // Bug-6: combined write + execute access type
+            return perms.write && perms.execute && !perms.privilegedOnly;
+
         case AccessType::ReadPrivileged:
             return perms.read;
 

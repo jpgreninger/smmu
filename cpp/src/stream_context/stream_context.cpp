@@ -1084,6 +1084,10 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged; break;
             case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged; break;
             case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged; break;
+            // Bug-6: ReadExecute/WriteExecute — execute is the security-relevant component;
+            // promote to ExecutePrivileged for an all-privileged STRW stream.
+            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
+            case AccessType::WriteExecute: effectiveAccessType = AccessType::ExecutePrivileged; break;
             default: break;
         }
     }
@@ -1131,6 +1135,10 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             case AccessType::Write:     effectiveAccessType = AccessType::WritePrivileged;      break;
             case AccessType::Execute:   effectiveAccessType = AccessType::ExecutePrivileged;    break;
             case AccessType::ReadWrite: effectiveAccessType = AccessType::ReadWritePrivileged;  break;
+            // Bug-6: ReadExecute/WriteExecute — execute component dominates privilege
+            // promotion; treat as ExecutePrivileged for privileged-force semantics.
+            case AccessType::ReadExecute:  effectiveAccessType = AccessType::ExecutePrivileged; break;
+            case AccessType::WriteExecute: effectiveAccessType = AccessType::ExecutePrivileged; break;
             default: break;
         }
     }
@@ -1319,6 +1327,9 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             case AccessType::Write:               permOk = intersected.write && !intersected.privilegedOnly; break;
             case AccessType::Execute:             permOk = intersected.execute && !intersected.privilegedOnly; break;
             case AccessType::ReadWrite:           permOk = intersected.read && intersected.write && !intersected.privilegedOnly; break;
+            // Bug-6: ReadExecute/WriteExecute combined access types.
+            case AccessType::ReadExecute:         permOk = intersected.read && intersected.execute && !intersected.privilegedOnly; break;
+            case AccessType::WriteExecute:        permOk = intersected.write && intersected.execute && !intersected.privilegedOnly; break;
             case AccessType::ReadPrivileged:      permOk = intersected.read; break;
             case AccessType::WritePrivileged:     permOk = intersected.write; break;
             case AccessType::ExecutePrivileged:   permOk = intersected.execute; break;

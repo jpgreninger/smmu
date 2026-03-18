@@ -4321,6 +4321,10 @@ impl SMMU {
     // Section 5.3.1: Event Queue Operations
     // ========================================================================
 
+    // LOCK ORDER INVARIANT: event_queue (RwLock) → stall_pending (Mutex).
+    // All functions that nest these two locks MUST acquire event_queue first.
+    // Functions that follow this order: record_translation_fault, get_events, submit_event.
+
     /// Submit an event to the event queue
     ///
     /// Adds an event entry to the FIFO event queue. Returns error if queue capacity is exceeded
@@ -4345,8 +4349,12 @@ impl SMMU {
             // path already implements them correctly via the same helpers.
             if event.stall {
                 // Stall events: redirect to stall_pending (ARM §7.4: not discarded).
-                // Must NOT trigger OVFLG.
-                drop(queue); // release write lock before acquiring stall_pending
+                // Bug-7 fix: hold the event_queue write-lock while acquiring stall_pending
+                // to maintain the lock order event_queue → stall_pending, consistent with
+                // record_translation_fault() and get_events() which also hold both locks
+                // simultaneously (event_queue first, then stall_pending).
+                // The previous code dropped the queue lock before acquiring stall_pending,
+                // creating an inconsistent lock ordering that could deadlock under contention.
                 if let Ok(mut pending) = self.stall_pending.lock() {
                     pending.push_back(event);
                 }

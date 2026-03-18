@@ -2390,14 +2390,18 @@ impl StreamContext {
     /// for example StreamWorld == any-EL2 or StreamWorld == EL3, this field has no
     /// effect and is IGNORED."
     ///
-    /// Note: `El2E2h` (VHE) is a variant of EL2 and is also all-privileged.
+    /// Note: `El2E2h` (VHE) retains EL1-like privilege separation (AP\[1\] is meaningful)
+    /// and is NOT all-privileged per ARM §D5.1.3.  Only the pure EL2 and EL3 worlds
+    /// are unconditionally all-privileged.
     /// `PRIVCFG=3` (Force Privileged) is NOT included here: it promotes individual
     /// accesses to privileged but does not make the entire StreamWorld all-privileged.
     #[inline]
     pub(crate) fn stream_is_all_privileged(&self) -> bool {
+        // Bug-4 fix: El2E2h removed — VHE maintains EL1-like privilege separation,
+        // so UWXN and privilege checks remain active for El2E2h streams.
         matches!(
             self.get_strw(),
-            StreamWorld::El2 | StreamWorld::El2E2h | StreamWorld::El3
+            StreamWorld::El2 | StreamWorld::El3
         )
     }
 
@@ -2406,7 +2410,7 @@ impl StreamContext {
     /// This combines stream-level (STRW), per-transaction (PRIVCFG), and incoming
     /// access type privilege (Bug-4 fix):
     ///
-    /// - STRW ∈ {El2, El2E2h, El3}: all accesses are privileged → `true`
+    /// - STRW ∈ {El2, El3}: all accesses are privileged → `true`
     /// - PRIVCFG=3 (Force Privileged): override to privileged → `true`
     /// - PRIVCFG=2 (Force Unprivileged): override to unprivileged → `false`
     /// - PRIVCFG=0/1 (Use Incoming): `access_type.is_privileged()` — reflects AxPROT\[1\]
