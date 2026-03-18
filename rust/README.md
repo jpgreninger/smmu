@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.4.0)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.5.0)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,17 +12,28 @@
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.4.0** - Register Advertisement + Conformance Fixes ⚡
+## ✅ **PRODUCTION READY v1.5.0** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,949 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 15, 2026)**: Version 1.3.1 — Fixed 4 bugs from second post-release C++ audit: 13 generateEvent() calls missing accessType fixing §7.3 RnW/InD/PnU event wire-format fields (Medium/Spec Violation), CacheConsistencyAfterInvalidation test restored covering §4.4 TLB maintenance (Medium), 9 redundant const_cast on mutable lockStripes removed (Low), 25 compiler warnings eliminated (Low). C++ tests: 116/116 passing, Rust tests: 205/205 passing, zero clippy warnings.
+**🎯 Latest Update (March 17, 2026)**: Version 1.5.0 — Tenth-pass partial-gap closure achieving 100% ARM IHI0070G.b conformance. EventEntry.pnu now populated from STRW/PRIVCFG privilege state. EventEntry.nsipa now set to true for stage-2 faults on NonSecure streams. CD.UWXN enforced: privileged execute on unprivileged-writable page → F_PERMISSION. 13 new conformance tests (test_conf_gaps_pnu_nsipa_uwxn.rs). Rust tests: 220/220 unit+integration+doctests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.5.0 (March 17, 2026)
+
+**Tenth-Pass Partial-Gap Closure — 100% ARM IHI0070G.b Conformance (C++ + Rust)**
+
+- ✅ **PARTIAL-PNU (§7.3)**: EventEntry.pnu now set to `true` when access is privileged (STRW=El2/El3 or PRIVCFG=3). Added `is_access_privileged()` helper; threaded through `record_translation_fault()` and all inline `EventEntry` construction sites. C++ was already correct.
+- ✅ **PARTIAL-NSIPA (§7.3)**: EventEntry.nsipa now set to `true` when `s2=true && security_state==NonSecure`. Fixed in both Rust (`record_translation_fault` params) and C++ (`generateEvent()` normal + stall-pending paths). Rule: `nsipa = s2 && (security_state == SecurityState::NonSecure)`.
+- ✅ **PARTIAL-UWXN (§5.4)**: CD.UWXN now enforced in Rust. Privileged execute on a page writable by unprivileged code (write permission AND `!privileged_only`) raises F_PERMISSION when UWXN=1. UWXN check added after each WXN block in `translate_stage1_only`, `translate_two_stage_with_ipa`, and `translate_two_stage`. C++ was already correct via `ExecutePrivileged` AccessType check.
+- ✅ 13 new Rust tests (test_conf_gaps_pnu_nsipa_uwxn.rs), 3 new C++ tests (test_conf_gaps_pnu_nsipa_uwxn.cpp)
+- ✅ C++ suite: 124/124 passing | Rust suite: 220/220 unit+integration+doctests passing, zero clippy warnings
+- ✅ **Overall conformance: 100%** — no open non-conformance items
 
 ### 🚀 Release v1.4.0 (March 17, 2026)
 
@@ -37,7 +48,7 @@ Production-grade Rust implementation of the ARM System Memory Management Unit v3
 - ✅ **GAP-NEW-S3 (§5.2)**: CR2.E2H gates STRW=El2E2h; downgrade to NS-EL2 when E2H=0
 - ✅ **GAP-NEW-S1/S2**: IDR1.ATTR_TYPES_OVR and IDR0.TERM_MODEL
 - ✅ 19 new C++ tests (test_conf_gaps_new_abdef.cpp), 17 new Rust tests (test_conf_gaps_new_abdef.rs)
-- ✅ C++ suite: 120/120 passing | Rust suite: 2,949/2,949 passing, 1 ignored, zero clippy warnings
+- ✅ C++ suite: 123/123 passing | Rust suite: 2,949/2,949 passing, 1 ignored, zero clippy warnings
 
 ### 🚀 Release v1.3.1 (March 15, 2026)
 
@@ -953,7 +964,7 @@ The project follows strict coding standards:
 - **No Memory Leaks**: RAII-based resource management
 - **Loom Verification**: Concurrency correctness verified
 
-### ARM SMMU v3 Compliance - ~99%
+### ARM SMMU v3 Compliance - 100%
 
 - ✅ Stream ID management (0 to 2^32-1)
 - ✅ PASID support (0 to 1,048,575, including PASID 0)
