@@ -1514,92 +1514,13 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         return TranslationResult(data);
     }
 
-    // §3.9 / §5.2 STE.S1DSS: When stage-1 is enabled and the stream is
-    // substream-capable (S1CDMax > 0), non-substream transactions (PASID==0)
-    // are handled according to STE.S1DSS before the normal CD[0] lookup.
-    if (config.stage1Enabled && config.s1cdMax > 0 && pasid == 0) {
-        if (config.s1dss == 0x00u) {
-            // §7.3.7: S1DSS==0b00 — non-substream transaction on substream-capable
-            // stream aborts with F_STREAM_DISABLED (event 0x06).
-            FaultRecord s1dssFault;
-            s1dssFault.streamID = streamID;
-            s1dssFault.pasid = pasid;
-            s1dssFault.address = iova;
-            s1dssFault.faultType = FaultType::StreamDisabled;
-            s1dssFault.accessType = accessType;
-            s1dssFault.securityState = securityState;
-            s1dssFault.timestamp = currentTime;
-            recordFault(s1dssFault);
-            generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
-            // BUG-CPP-F2 fix: return SubstreamDisabled (not StreamDisabled) so
-            // callers can distinguish S1DSS==0b00 (abort + event) from
-            // STE.Config==0b000 (silent abort, no event).  §5.2 / §7.3.7.
-            return makeTranslationError(SMMUError::SubstreamDisabled);
-        }
-        if (config.s1dss == 0x01u) {
-            // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
-            // OAS check applies per §3.4 (same as STE bypass).
-            uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
-            if (oasBits < 64 && iova >= (static_cast<IOVA>(1) << oasBits)) {
-                FaultRecord oasFault;
-                oasFault.streamID = streamID;
-                oasFault.pasid = pasid;
-                oasFault.address = iova;
-                oasFault.faultType = FaultType::AddressSizeFault;
-                oasFault.accessType = accessType;
-                oasFault.securityState = securityState;
-                oasFault.timestamp = currentTime;
-                recordFault(oasFault);
-                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
-                return makeTranslationError(SMMUError::InvalidAddress);
-            }
-            PagePermissions s1dssPerms(true, true, true);
-            TranslationData s1dssData(iova, s1dssPerms, securityState);
-            return TranslationResult(s1dssData);
-        }
-        // s1dss == 0b10: use CD[0] — fall through to normal stage-1 translation.
-    }
-
-    // §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
-    // This must be checked BEFORE the AA64/T0SZ validation.
-    // BUG-11 fix: guard the shift — isConfigurationValid() now rejects s1cdMax > 20,
-    // but this defensive limit prevents UB if a value >= 32 ever reaches here.
-    const uint32_t s1cdMaxLimit = (config.s1cdMax < 32u) ? (1u << config.s1cdMax) : UINT32_MAX;
-    if (config.stage1Enabled && config.s1cdMax > 0 && pasid != 0 &&
-        pasid >= s1cdMaxLimit) {
-        FaultRecord substreamFault;
-        substreamFault.streamID = streamID;
-        substreamFault.pasid = pasid;
-        substreamFault.address = iova;
-        substreamFault.faultType = FaultType::BadSubstreamId;
-        substreamFault.accessType = accessType;
-        substreamFault.securityState = securityState;
-        substreamFault.timestamp = currentTime;
-        recordFault(substreamFault);
-        generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
-        return makeTranslationError(SMMUError::InvalidPASID);
-    }
-
-    // §5.4 / CT-14: CD.AA64 validation — AArch32 LPAE mode is unsupported.
-    // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range 0-39 for SMMUv3.0.
-    if (config.stage1Enabled) {
-        if (!config.aa64) {
-            // AA64=0 (VMSAv8-32 LPAE) is unsupported — C_BAD_CD (event 0x0A).
-            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
-            return makeTranslationError(SMMUError::InvalidConfiguration);
-        }
-        if (config.t0sz > 39u || config.t1sz > 39u) {
-            // T0SZ or T1SZ out of range — C_BAD_CD (event 0x0A).
-            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
-            return makeTranslationError(SMMUError::InvalidConfiguration);
-        }
-    }
-
-    // NEW-02 fix: ARM IHI0070G.b §7.3 — EventEntry.RnW/InD/PnU must reflect the
+    // BUG-5 fix: ARM IHI0070G.b §7.3.14 — EventEntry.RnW/InD/PnU must reflect the
     // *post-STE-override* effective access type, not the raw incoming accessType.
-    // Compute effectiveAccessType here, before the T0SZ and EPD0 early-exit paths,
-    // using the same three-step override chain as the TLB fast-path in translate().
+    // Compute effectiveAccessType here, BEFORE the S1DSS block, so that the
+    // S1DSS==0x01 OAS-overflow path uses the correct override-adjusted type when
+    // calling generateEvent(). This is the same three-step override chain that was
+    // previously computed (as the NEW-02 fix) only after the S1DSS block; it is now
+    // moved earlier so all early-exit paths — S1DSS OAS, T0SZ, EPD0 — see it.
     //
     // Step 1: STRW promotion (STRW=EL2/EL3 → promote to Privileged variants).
     //         Per §5.2, STRW is ignored when stage-2 is enabled for Non-Secure streams.
@@ -1656,6 +1577,95 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             default: break;
         }
     }
+
+    // §3.9 / §5.2 STE.S1DSS: When stage-1 is enabled and the stream is
+    // substream-capable (S1CDMax > 0), non-substream transactions (PASID==0)
+    // are handled according to STE.S1DSS before the normal CD[0] lookup.
+    if (config.stage1Enabled && config.s1cdMax > 0 && pasid == 0) {
+        if (config.s1dss == 0x00u) {
+            // §7.3.7: S1DSS==0b00 — non-substream transaction on substream-capable
+            // stream aborts with F_STREAM_DISABLED (event 0x06).
+            FaultRecord s1dssFault;
+            s1dssFault.streamID = streamID;
+            s1dssFault.pasid = pasid;
+            s1dssFault.address = iova;
+            s1dssFault.faultType = FaultType::StreamDisabled;
+            s1dssFault.accessType = accessType;
+            s1dssFault.securityState = securityState;
+            s1dssFault.timestamp = currentTime;
+            recordFault(s1dssFault);
+            generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+            // BUG-CPP-F2 fix: return SubstreamDisabled (not StreamDisabled) so
+            // callers can distinguish S1DSS==0b00 (abort + event) from
+            // STE.Config==0b000 (silent abort, no event).  §5.2 / §7.3.7.
+            return makeTranslationError(SMMUError::SubstreamDisabled);
+        }
+        if (config.s1dss == 0x01u) {
+            // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
+            // OAS check applies per §3.4 (same as STE bypass).
+            uint64_t oasBits = configuration.getAddressConfiguration().maxPASize;
+            if (oasBits < 64 && iova >= (static_cast<IOVA>(1) << oasBits)) {
+                FaultRecord oasFault;
+                oasFault.streamID = streamID;
+                oasFault.pasid = pasid;
+                oasFault.address = iova;
+                oasFault.faultType = FaultType::AddressSizeFault;
+                oasFault.accessType = accessType;
+                oasFault.securityState = securityState;
+                oasFault.timestamp = currentTime;
+                recordFault(oasFault);
+                // BUG-5 fix: §7.3.14 — use effectiveAccessType so that PnU/InD/RnW
+                // reflect the post-STE-override value (STRW/INSTCFG/PRIVCFG applied).
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, effectiveAccessType);
+                return makeTranslationError(SMMUError::InvalidAddress);
+            }
+            PagePermissions s1dssPerms(true, true, true);
+            TranslationData s1dssData(iova, s1dssPerms, securityState);
+            return TranslationResult(s1dssData);
+        }
+        // s1dss == 0b10: use CD[0] — fall through to normal stage-1 translation.
+    }
+
+    // §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
+    // This must be checked BEFORE the AA64/T0SZ validation.
+    // BUG-11 fix: guard the shift — isConfigurationValid() now rejects s1cdMax > 20,
+    // but this defensive limit prevents UB if a value >= 32 ever reaches here.
+    const uint32_t s1cdMaxLimit = (config.s1cdMax < 32u) ? (1u << config.s1cdMax) : UINT32_MAX;
+    if (config.stage1Enabled && config.s1cdMax > 0 && pasid != 0 &&
+        pasid >= s1cdMaxLimit) {
+        FaultRecord substreamFault;
+        substreamFault.streamID = streamID;
+        substreamFault.pasid = pasid;
+        substreamFault.address = iova;
+        substreamFault.faultType = FaultType::BadSubstreamId;
+        substreamFault.accessType = accessType;
+        substreamFault.securityState = securityState;
+        substreamFault.timestamp = currentTime;
+        recordFault(substreamFault);
+        generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::InvalidPASID);
+    }
+
+    // §5.4 / CT-14: CD.AA64 validation — AArch32 LPAE mode is unsupported.
+    // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range 0-39 for SMMUv3.0.
+    if (config.stage1Enabled) {
+        if (!config.aa64) {
+            // AA64=0 (VMSAv8-32 LPAE) is unsupported — C_BAD_CD (event 0x0A).
+            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
+        if (config.t0sz > 39u || config.t1sz > 39u) {
+            // T0SZ or T1SZ out of range — C_BAD_CD (event 0x0A).
+            generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
+            return makeTranslationError(SMMUError::InvalidConfiguration);
+        }
+    }
+
+    // BUG-5 fix: effectiveAccessType was computed here (NEW-02 fix comment).
+    // It has been moved above the S1DSS block so that the S1DSS==0x01 OAS-overflow
+    // path also sees the correct post-STE-override type. effectiveAccessType is
+    // already available at this point.
 
     // Gap C fix: ARM IHI0070G.b §3.4.1 / §5.4 — CD.T0SZ VA range enforcement.
     // T0SZ defines the TTBR0 input address range: valid IOVAs are [0, 2^(64-T0SZ)).

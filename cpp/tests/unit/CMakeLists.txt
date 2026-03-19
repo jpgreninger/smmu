@@ -124,6 +124,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_18mar2026_5pm_2.cpp
     test_spec20_bad_ste_vs_bad_streamid.cpp
     test_new02_effective_access_type.cpp
+    test_bug5_s1dss_oas_effective_access.cpp
     ../test_thread_safety.cpp
 )
 

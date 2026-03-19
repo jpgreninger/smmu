@@ -743,6 +743,52 @@ impl StreamContext {
         self.priv_cfg.store(value, Ordering::Release);
     }
 
+    /// Returns the effective access type after applying INSTCFG and PRIVCFG overrides.
+    ///
+    /// This mirrors the transformations applied inside `translate()` and
+    /// `translate_and_get_stage2_ipa()`, so callers (e.g. smmu/mod.rs fault
+    /// recording) can derive the correct `ind`/`rnw` values for event entries.
+    ///
+    /// The order matches the implementation: INSTCFG is applied first, then PRIVCFG.
+    ///
+    /// BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
+    /// BUG-3 fix: §3.3.4/§13.5 — PRIVCFG applied to the INSTCFG-adjusted type.
+    #[inline]
+    pub(crate) fn effective_access_type(&self, access_type: AccessType) -> AccessType {
+        // Step 1: apply INSTCFG
+        let after_instcfg = match self.inst_cfg.load(Ordering::Acquire) {
+            1 => match access_type {
+                AccessType::Read           => AccessType::Execute,
+                AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
+                _ => access_type,
+            },
+            2 => match access_type {
+                AccessType::Execute           => AccessType::Read,
+                AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
+                _ => access_type,
+            },
+            _ => access_type,
+        };
+        // Step 2: apply PRIVCFG
+        match self.priv_cfg.load(Ordering::Acquire) {
+            2 => match after_instcfg {
+                AccessType::ReadPrivileged      => AccessType::Read,
+                AccessType::WritePrivileged     => AccessType::Write,
+                AccessType::ExecutePrivileged   => AccessType::Execute,
+                AccessType::ReadWritePrivileged => AccessType::ReadWrite,
+                other => other,
+            },
+            3 => match after_instcfg {
+                AccessType::Read      => AccessType::ReadPrivileged,
+                AccessType::Write     => AccessType::WritePrivileged,
+                AccessType::Execute   => AccessType::ExecutePrivileged,
+                AccessType::ReadWrite => AccessType::ReadWritePrivileged,
+                other => other,
+            },
+            _ => after_instcfg,
+        }
+    }
+
     /// Returns the STE.NSCFG non-secure attribute override (ARM §5.2, GAP-1).
     #[inline]
     #[must_use]
@@ -1707,9 +1753,14 @@ impl StreamContext {
         // inst_cfg==1: Force-Instruction — Read accesses are treated as Execute.
         // inst_cfg==2: Force-Data         — Execute accesses are treated as Read.
         // inst_cfg==0 (or reserved): pass through unchanged.
+        //
+        // BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
+        // INSTCFG=1: ReadPrivileged → ExecutePrivileged (not just Read → Execute).
+        // INSTCFG=2: ExecutePrivileged → ReadPrivileged (not just Execute → Read).
         let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
             1 => match access_type {
                 AccessType::Read => AccessType::Execute,
+                AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
                 // NOTE: ReadWrite, ReadExecute, WriteExecute, ReadWriteExecute are
                 // intentionally left unchanged. ARM §5.2: "INSTCFG only affects reads;
                 // writes are always considered Data." A compound access type cannot have
@@ -1719,6 +1770,7 @@ impl StreamContext {
             },
             2 => match access_type {
                 AccessType::Execute => AccessType::Read,
+                AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
                 // NOTE: compound types left unchanged per same rationale above.
                 _ => access_type,
             },
@@ -1789,23 +1841,58 @@ impl StreamContext {
             // Two-stage path: delegate to the specialised helper that returns the IPA.
             // Gap D fix: §3.2/§13.5 — apply STE.INSTCFG override before the permission
             // checks inside translate_two_stage_with_ipa (which does not call translate()).
+            //
+            // BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
+            // INSTCFG=1: ReadPrivileged → ExecutePrivileged.
+            // INSTCFG=2: ExecutePrivileged → ReadPrivileged.
             let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
                 1 => match access_type {
                     AccessType::Read => AccessType::Execute,
+                    AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
                     _ => access_type,
                 },
                 2 => match access_type {
                     AccessType::Execute => AccessType::Read,
+                    AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
                     _ => access_type,
                 },
                 _ => access_type,
             };
+            // BUG-3 fix: §3.3.4/§13.5 — apply STE.PRIVCFG override to effective_access
+            // so that the access type flowing into translate_two_stage_with_ipa reflects
+            // the PRIVCFG promotion/demotion, consistent with the translate() path.
+            // PRIVCFG=2 (Force Unprivileged): demote privileged variants.
+            // PRIVCFG=3 (Force Privileged): promote unprivileged variants.
+            let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
+                2 => match effective_access {
+                    AccessType::ReadPrivileged        => AccessType::Read,
+                    AccessType::WritePrivileged       => AccessType::Write,
+                    AccessType::ExecutePrivileged     => AccessType::Execute,
+                    AccessType::ReadWritePrivileged   => AccessType::ReadWrite,
+                    other => other,
+                },
+                3 => match effective_access {
+                    AccessType::Read        => AccessType::ReadPrivileged,
+                    AccessType::Write       => AccessType::WritePrivileged,
+                    AccessType::Execute     => AccessType::ExecutePrivileged,
+                    AccessType::ReadWrite   => AccessType::ReadWritePrivileged,
+                    other => other,
+                },
+                _ => effective_access,
+            };
             let (result, stage2_ipa) =
                 self.translate_two_stage_with_ipa(pasid, iova, effective_access, security_state);
             (result, stage2_ipa)
+        } else if !stage1_enabled && stage2_enabled {
+            // BUG-1 fix: §7.3.13 — Stage-2-only: the IOVA is the IPA.
+            // Any fault on a stage-2-only stream is a stage-2 fault; return Some(iova)
+            // so the SMMU caller emits s2=true and ipa=<IOVA> in the EventEntry.
+            let result = self.translate(pasid, iova, access_type, security_state);
+            let ipa_opt = if result.is_err() { Some(iova.as_u64()) } else { None };
+            (result, ipa_opt)
         } else {
-            // Single-stage or bypass: delegate to translate() which already applies the
-            // Gap D INSTCFG override internally.
+            // Stage-1-only or bypass: delegate to translate() which already applies the
+            // Gap D INSTCFG override internally.  No IPA to report.
             (self.translate(pasid, iova, access_type, security_state), None)
         }
     }

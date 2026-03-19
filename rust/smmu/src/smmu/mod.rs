@@ -3857,11 +3857,16 @@ impl SMMU {
             let (fault_s2, fault_ipa) = stage2_ipa_opt
                 .map(|ip| (true, ip))
                 .unwrap_or((false, 0));
+            // BUG-2/3 fix: compute effective access type (post INSTCFG + PRIVCFG) so
+            // that `ind` and `rnw` in the EventEntry reflect the SMMU's view of the
+            // access, not the raw AxPROT bits from the originating transaction.
+            let effective_access = self.streams.get(&stream_id.as_u32())
+                .map_or(access, |ctx| ctx.effective_access_type(access));
             let pnu = self.streams.get(&stream_id.as_u32())
-                .map_or(false, |ctx| ctx.is_access_privileged(access));
+                .map_or(false, |ctx| ctx.is_access_privileged(effective_access));
             let nsipa = fault_s2 && security_state == SecurityState::NonSecure;
             self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state,
+                stream_id, pasid, iova, effective_access, security_state,
                 error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa,
             );
 
