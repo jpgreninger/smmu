@@ -97,6 +97,7 @@ When the user says 'implement X' where X is a section or task number, always che
 **ABSOLUTELY MANDATORY**: Use the following subagents for ALL development work:
 
 - **cpp-pro**: ALWAYS use for implementing new C++ code
+- **rust-engineer**: ALWAYS use for implementing new Rust code
 - **debugger**: ALWAYS use for debugging compile errors and runtime bugs  
 - **qa-engineer**: ALWAYS use after each step to review against ARM SMMU v3 specification, update TASKS.md
 - **test-writer-fixer**: ALWAYS use to write tests and integrate into regression suite
@@ -107,15 +108,17 @@ When the user says 'implement X' where X is a section or task number, always che
 **CRITICAL**: Always use these specialized subagents for development tasks:
 
 - **cpp-pro**: **ALWAYS** use for implementing new C++ code. Use PROACTIVELY for C++ refactoring, performance optimization, or complex template solutions.
+- **rust-engineer**: **ALWAYS** use for implementing new Rust code. Use PROACTIVELY for Rust refactoring, performance optimization, or complex template solutions.
 - **debugger**: **ALWAYS** use for debugging compile errors, runtime bugs, and build issues. Use proactively when encountering any compilation or runtime issues.
 - **qa-engineer**: **ALWAYS** use after each development step to review code against ARM SMMU v3 specification and update TASKS.md with missing features. Use proactively to ensure compliance and code quality.
 - **test-writer-fixer**: **ALWAYS** use to write comprehensive tests for each implementation step and integrate into overall regression test suite. Use proactively after code modifications to ensure comprehensive test coverage and suite health.
 
 **MANDATORY WORKFLOW**: 
-1. Use `cpp-pro` for all code implementation
-2. Use `debugger` immediately when compilation errors or bugs occur
-3. Use `qa-engineer` after each implementation step for compliance review
-4. Use `test-writer-fixer` to create/update tests and integrate into regression suite
+1. Use `cpp-pro` for all C++ code implementation
+2. Use `rust-engineer` for all Rust code implementation
+3. Use `debugger` immediately when compilation errors or bugs occur
+4. Use `qa-engineer` after each implementation step for compliance review
+5. Use `test-writer-fixer` to create/update tests and integrate into regression suite
 
 ### ⚠️ MANDATORY: Test-Driven Workflow for ALL Fixes and Features ⚠️
 
@@ -145,7 +148,7 @@ If the task is unreasonable or infeasible, or if any of the tests are incorrect,
 
 ### Adding New Features
 **MANDATORY STEP-BY-STEP WORKFLOW:**
-1. **Planning**: Use `protocol-modeler` to review requirements against ARM SMMU v3 specification
+1. **Planning**: Use `qa-engineer` to review requirements against ARM SMMU v3 specification
 2. **Test-Driven Development**: Add comprehensive unit tests in `tests/` using `test-writer-fixer` that fail before implementation
 3. **Build Verification**: Build tests and verify they fail before implementing code
 4. **Implementation**: Implement in corresponding `src/` subdirectory using `cpp-pro`
