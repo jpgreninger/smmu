@@ -1906,12 +1906,14 @@ impl StreamContext {
         // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
         // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.
         // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
+        // NEW-03 fix: §7.3.13 — return Some(ipa_raw) so the SMMU caller emits the event
+        // with s2=true and the actual IPA value (not s2=false, ipa=0).
         {
             let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
             if s2_t0sz > 0 {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa_raw >= ipa_limit {
-                    return (Err(TranslationError::PageNotMapped), None);
+                    return (Err(TranslationError::PageNotMapped), Some(ipa_raw));
                 }
             }
         }

@@ -3459,6 +3459,9 @@ impl SMMU {
                             iova.as_u64()
                         };
                         if effective_iova_val >= va_limit {
+                            // NEW-01 fix: §7.3 — compute pnu before dropping stream_ref,
+                            // since is_access_privileged() requires the stream context.
+                            let pnu = stream_ref.value().is_access_privileged(access);
                             drop(stream_ref);
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
@@ -3487,8 +3490,14 @@ impl SMMU {
                                     stag: 0,
                                     // GAP NEW-1: F_TRANSLATION → CLASS==2 (IN).
                                     event_class: 2,
-                                    rnw: matches!(access, AccessType::Write),
-                                    ind: matches!(access, AccessType::Execute),
+                                    // NEW-01 fix: use can_write()/can_execute() to correctly
+                                    // handle compound access types (WritePrivileged, ReadWrite,
+                                    // ExecutePrivileged, etc.) instead of exact-match patterns.
+                                    rnw: access.can_write(),
+                                    ind: access.can_execute(),
+                                    // NEW-01 fix: pnu must reflect PRIVCFG/STRW-derived privilege,
+                                    // computed above before stream_ref was dropped.
+                                    pnu,
                                     ssv: pasid.as_u32() != 0,
                                     ..EventEntry::zeroed()
                                 };
