@@ -121,6 +121,7 @@ set(UNIT_TEST_SOURCES
     test_af_fault_events.cpp
     test_bugs_18mar2026_8am_2.cpp
     test_bugs_18mar2026_5pm.cpp
+    test_bugs_18mar2026_5pm_2.cpp
     ../test_thread_safety.cpp
 )
 

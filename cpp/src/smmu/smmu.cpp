@@ -1675,8 +1675,12 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         if (config.s2t0sz > 0u) {
             uint64_t ipaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.s2t0sz));
             if (iova >= ipaLimit) {
+                // QA-ADD fix: §7.3.13 — for S2-only streams, iova IS the IPA; all faults are
+                // stage-2 faults. Set tl_stage2FaultCtx and pass s2=true/ipa=iova.
+                tl_stage2FaultCtx.isStage2 = true;
+                tl_stage2FaultCtx.ipa      = iova;
                 generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, accessType, true, iova);
                 // Return InvalidConfiguration so handleTranslationFailure() suppresses
                 // duplicate event emission (StreamDisabled no-op path).
                 return makeTranslationError(SMMUError::InvalidConfiguration);
@@ -1962,8 +1966,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         if (intermediatePA >= ipaLimit) {
             recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                    accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+            // BUG-5PM-1 fix: §7.3.13 — S2T0SZ IPA range check is a stage-2 fault.
+            // Set tl_stage2FaultCtx so stall path also carries correct S2/IPA.
+            tl_stage2FaultCtx.isStage2 = true;
+            tl_stage2FaultCtx.ipa      = intermediatePA;
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, effectiveAccessType);
+                          false, 0, effectiveAccessType, true, intermediatePA);
             // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }
@@ -2114,8 +2122,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             if (outputPA >= paLimit) {
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
                                        accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+                // BUG-5PM-2 fix: §7.3.14 — S2PS OAS check is a stage-2 fault.
+                // Set tl_stage2FaultCtx so stall path also carries correct S2/IPA.
+                tl_stage2FaultCtx.isStage2 = true;
+                tl_stage2FaultCtx.ipa      = intermediatePA;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, effectiveAccessType);
+                              false, 0, effectiveAccessType, true, intermediatePA);
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
@@ -2149,6 +2161,59 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
                                                     AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-1 only translation IOVA -> PA
+
+    // BUG-5PM-3 fix: §7.3 — InD/PnU must reflect post-STE override values.
+    // Compute effectiveAccessType mirroring stream_context.cpp STRW->INSTCFG->PRIVCFG chain.
+    const StreamConfig& s1Cfg = streamContext->getStreamConfiguration();
+    AccessType effectiveAccessType = accessType;
+    // STRW promotion (stage-1-only: stage2Enabled is always false here).
+    if (s1Cfg.strw == StreamWorld::EL2 || s1Cfg.strw == StreamWorld::EL3) {
+        switch (effectiveAccessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
+            default: break;
+        }
+    }
+    // INSTCFG override.
+    if (s1Cfg.instCfg == 1u) {
+        if (effectiveAccessType == AccessType::Read)
+            effectiveAccessType = AccessType::Execute;
+        else if (effectiveAccessType == AccessType::ReadPrivileged)
+            effectiveAccessType = AccessType::ExecutePrivileged;
+    } else if (s1Cfg.instCfg == 2u) {
+        if (effectiveAccessType == AccessType::Execute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+        else if (effectiveAccessType == AccessType::ReadExecute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+    }
+    // PRIVCFG override.
+    if (s1Cfg.privCfg == 2u) {
+        switch (effectiveAccessType) {
+            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
+            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
+            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
+            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
+            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
+            default: break;
+        }
+    } else if (s1Cfg.privCfg == 3u) {
+        switch (effectiveAccessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
+            default: break;
+        }
+    }
+
     TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
 
     // Record fault if translation failed
@@ -2172,10 +2237,11 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                 // ARM §3.4.1: IOVA exceeded the per-context input address size.
                 // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
                 // that handleTranslationFailure does not need to emit it again.
-                // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+                // BUG-5PM-3 fix: use effectiveAccessType (post STRW/INSTCFG/PRIVCFG) so
+                // InD/PnU wire-format fields reflect the STE overrides.
                 fault.faultType = FaultType::AddressSizeFault;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType);
                 break;
             case SMMUError::AccessFlagFaultError:
                 // §3.13.2 NEW-GAP-J: Access flag fault → F_ACCESS (0x12).
@@ -2219,6 +2285,48 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
 TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-2 only translation IPA -> PA (IOVA treated as IPA)
+
+    // BUG-5PM-4 fix: §7.3 — InD/PnU must reflect post-STE override values.
+    // Stage-2-only streams: STRW is suppressed (stage2Enabled=true). Apply INSTCFG+PRIVCFG only.
+    const StreamConfig& s2Cfg = streamContext->getStreamConfiguration();
+    AccessType effectiveAccessType = accessType;
+    // INSTCFG override.
+    if (s2Cfg.instCfg == 1u) {
+        if (effectiveAccessType == AccessType::Read)
+            effectiveAccessType = AccessType::Execute;
+        else if (effectiveAccessType == AccessType::ReadPrivileged)
+            effectiveAccessType = AccessType::ExecutePrivileged;
+    } else if (s2Cfg.instCfg == 2u) {
+        if (effectiveAccessType == AccessType::Execute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+        else if (effectiveAccessType == AccessType::ReadExecute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+    }
+    // PRIVCFG override.
+    if (s2Cfg.privCfg == 2u) {
+        switch (effectiveAccessType) {
+            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
+            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
+            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
+            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
+            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
+            default: break;
+        }
+    } else if (s2Cfg.privCfg == 3u) {
+        switch (effectiveAccessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
+            default: break;
+        }
+    }
+
     TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
 
     // Record fault if translation failed
@@ -2241,10 +2349,15 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
             case SMMUError::InvalidAddress:
                 // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
                 // that handleTranslationFailure does not need to emit it again.
-                // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+                // BUG-5PM-4 fix: use effectiveAccessType (post INSTCFG/PRIVCFG) so InD/PnU
+                // reflect STE overrides.
+                // QA-ADD fix: §7.3.13 — for S2-only streams, iova IS the IPA; all faults
+                // are stage-2 faults. Set tl_stage2FaultCtx and pass s2=true/ipa=iova.
                 fault.faultType = FaultType::AddressSizeFault;
+                tl_stage2FaultCtx.isStage2 = true;
+                tl_stage2FaultCtx.ipa      = iova;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType, true, iova);
                 break;
             case SMMUError::AccessFlagFaultError:
                 // §7.3.15 / NEW-C fix: set fault type but do NOT call generateEvent() here.
@@ -2286,8 +2399,12 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                 s2PaFault.securityState = securityState;
                 s2PaFault.timestamp = currentTime;
                 recordFault(s2PaFault);
+                // BUG-5PM-4 fix: use effectiveAccessType for InD/PnU fields.
+                // QA-ADD fix: §7.3.13 — S2-only stream: iova IS the IPA; all faults are stage-2.
+                tl_stage2FaultCtx.isStage2 = true;
+                tl_stage2FaultCtx.ipa      = iova;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType, true, iova);
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
