@@ -79,10 +79,11 @@ protected:
 
 // Target line 654-662: Null stream context in two-stage translation
 TEST_F(SMMUPriority2Phase2Test, TwoStageTranslation_NullStreamContext) {
-    // Don't configure stream - should hit lines 654-662
+    // Don't configure stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Target line 692-703: Both stages enabled but no stages configured properly

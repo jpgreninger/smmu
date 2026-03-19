@@ -160,13 +160,16 @@ protected:
     std::unique_ptr<SMMU> smmu_;
 };
 
-// Test 5: ATS TR + unknown SID + RECINVSID=1 + REC_CFG_ATS=0 → no event
-TEST_F(New15RecCfgAts, AtsTr_UnknownSid_RecCfgAts0_NoEvent) {
+// Test 5: ATS TR + out-of-range SID + RECINVSID=1 + REC_CFG_ATS=0 → no C_BAD_STREAMID event
+// SPEC-20: C_BAD_STREAMID requires an out-of-range StreamID (§7.3.3).
+// Use LOG2SIZE=8 so SID=0x200 (512) is out of range.
+TEST_F(New15RecCfgAts, AtsTr_OutOfRangeSid_RecCfgAts0_NoEvent) {
+    smmu_->setStrtabLog2Size(8u); // range 0-255
     // CR2 has RECINVSID=1 but NOT REC_CFG_ATS
     smmu_->clearEventQueue();
-    static constexpr StreamID UNKNOWN_SID = 0xDEAD;
+    static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, out of range
 
-    smmu_->translate(UNKNOWN_SID, PID, 0x1000, AccessType::Read,
+    smmu_->translate(OUT_OF_RANGE_SID, PID, 0x1000, AccessType::Read,
                      SecurityState::NonSecure,
                      TransactionType::AtsTranslationRequest);
 
@@ -176,16 +179,19 @@ TEST_F(New15RecCfgAts, AtsTr_UnknownSid_RecCfgAts0_NoEvent) {
         if (e.type == EventType::C_BAD_STREAMID) { hasBadSID = true; break; }
     }
     EXPECT_FALSE(hasBadSID)
-        << "C_BAD_STREAMID must be suppressed for ATS TR when REC_CFG_ATS=0";
+        << "C_BAD_STREAMID must be suppressed for ATS TR when REC_CFG_ATS=0 (§3.9.1.2)";
 }
 
-// Test 6: ATS TR + unknown SID + RECINVSID=1 + REC_CFG_ATS=1 → C_BAD_STREAMID emitted
-TEST_F(New15RecCfgAts, AtsTr_UnknownSid_BothBitsSet_EmitsEvent) {
+// Test 6: ATS TR + out-of-range SID + RECINVSID=1 + REC_CFG_ATS=1 → C_BAD_STREAMID emitted
+// SPEC-20: C_BAD_STREAMID requires an out-of-range StreamID (§7.3.3).
+// Use LOG2SIZE=8 so SID=0x200 (512) is out of range [0,255].
+TEST_F(New15RecCfgAts, AtsTr_OutOfRangeSid_BothBitsSet_EmitsEvent) {
+    smmu_->setStrtabLog2Size(8u); // range 0-255
     smmu_->setCR2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
     smmu_->clearEventQueue();
-    static constexpr StreamID UNKNOWN_SID = 0xDEAD;
+    static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, out of range
 
-    smmu_->translate(UNKNOWN_SID, PID, 0x1000, AccessType::Read,
+    smmu_->translate(OUT_OF_RANGE_SID, PID, 0x1000, AccessType::Read,
                      SecurityState::NonSecure,
                      TransactionType::AtsTranslationRequest);
 
@@ -195,17 +201,19 @@ TEST_F(New15RecCfgAts, AtsTr_UnknownSid_BothBitsSet_EmitsEvent) {
         if (e.type == EventType::C_BAD_STREAMID) { hasBadSID = true; break; }
     }
     EXPECT_TRUE(hasBadSID)
-        << "C_BAD_STREAMID must be emitted for ATS TR when REC_CFG_ATS=1 and RECINVSID=1";
+        << "C_BAD_STREAMID must be emitted for ATS TR with out-of-range SID when REC_CFG_ATS=1 and RECINVSID=1";
 }
 
-// Test 7: Ordinary translation + unknown SID + RECINVSID=1 → C_BAD_STREAMID
-//         emitted WITHOUT needing REC_CFG_ATS (existing behavior preserved)
-TEST_F(New15RecCfgAts, OrdinaryTr_UnknownSid_Recinvsid_EmitsEvent) {
+// Test 7: Ordinary translation + out-of-range SID + RECINVSID=1 → C_BAD_STREAMID
+//         emitted WITHOUT needing REC_CFG_ATS (§7.3.3, existing behavior preserved).
+// SPEC-20: C_BAD_STREAMID requires an out-of-range StreamID (§7.3.3).
+TEST_F(New15RecCfgAts, OrdinaryTr_OutOfRangeSid_Recinvsid_EmitsEvent) {
+    smmu_->setStrtabLog2Size(8u); // range 0-255
     // CR2 = RECINVSID only, no REC_CFG_ATS
     smmu_->clearEventQueue();
-    static constexpr StreamID UNKNOWN_SID = 0xDEAD;
+    static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, out of range
 
-    smmu_->translate(UNKNOWN_SID, PID, 0x1000, AccessType::Read);
+    smmu_->translate(OUT_OF_RANGE_SID, PID, 0x1000, AccessType::Read);
 
     auto events = smmu_->getEventQueue();
     bool hasBadSID = false;
@@ -213,7 +221,7 @@ TEST_F(New15RecCfgAts, OrdinaryTr_UnknownSid_Recinvsid_EmitsEvent) {
         if (e.type == EventType::C_BAD_STREAMID) { hasBadSID = true; break; }
     }
     EXPECT_TRUE(hasBadSID)
-        << "C_BAD_STREAMID must still fire for Ordinary traffic with RECINVSID=1";
+        << "C_BAD_STREAMID must fire for out-of-range SID with RECINVSID=1 (§7.3.3)";
 }
 
 // =============================================================================

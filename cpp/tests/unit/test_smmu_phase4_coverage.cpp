@@ -212,10 +212,11 @@ TEST_F(SMMUPhase4CoverageTest, DisableStream_ErrorPath) {
 
 // Target lines 636-639: Null stream context in two-stage translation
 TEST_F(SMMUPhase4CoverageTest, TwoStageTranslation_UnconfiguredStream) {
-    // Don't configure stream - should hit null stream context check
+    // Don't configure stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Target lines 654-662: No stages enabled configuration

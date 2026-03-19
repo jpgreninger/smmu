@@ -39,10 +39,12 @@ protected:
 TEST_F(SMMUTest, DefaultConstruction) {
     ASSERT_NE(smmuController, nullptr);
     
-    // Verify that translation on unconfigured SMMU fails
+    // Verify that translation on unconfigured SMMU fails.
+    // With default LOG2SIZE=32, all StreamIDs are in-range so an unconfigured
+    // stream is STE.V=0 → C_BAD_STE → SMMUError::StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(TEST_STREAM_ID_1, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Test stream configuration
@@ -469,12 +471,13 @@ TEST_F(SMMUTest, StreamIDBoundaryValidation) {
     EXPECT_TRUE(configResult.getValue());
     
     // Note: MAX_STREAM_ID + 1 wraps around to 0 due to uint32_t overflow, which is valid
-    // Test translation with unconfigured StreamID instead
+    // Test translation with unconfigured StreamID instead.
+    // With default LOG2SIZE=32, StreamID 12345 is in-range → C_BAD_STE → StreamNotConfigured (§7.3.5).
     StreamID unconfiguredStreamID = 12345; // Use a StreamID that's not configured
     uint64_t initialFaults = smmuController->getTotalFaults();
     TranslationResult result = smmuController->translate(unconfiguredStreamID, TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
     EXPECT_GT(smmuController->getTotalFaults(), initialFaults);
     
     // Verify the unconfigured StreamID is indeed not configured

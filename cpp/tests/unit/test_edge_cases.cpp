@@ -212,11 +212,11 @@ class UnconfiguredStreamTest : public EdgeCaseTest {};
 
 // Test translation on completely unconfigured stream
 TEST_F(UnconfiguredStreamTest, CompletelyUnconfiguredStream) {
-    // Attempt translation without any configuration
+    // Attempt translation without any configuration.
+    // With default LOG2SIZE=32, all StreamIDs are in-range → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(VALID_STREAM_ID, VALID_PASID, 0x10000000, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    // BUG-CPP-DBGR-12 fix: streamMap miss now returns InvalidStreamID (§7.3.3 C_BAD_STREAMID)
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Test operations on invalid StreamID

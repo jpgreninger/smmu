@@ -353,8 +353,17 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     auto streamIt = streamMap.find(streamID);
     if (streamIt == streamMap.end()) {
         lock.unlock();
-        // §7.3.3: StreamID not in stream table → C_BAD_STREAMID (0x02), not F_TRANSLATION.
-        // recordFault() is internal accounting and is always updated regardless of RECINVSID.
+        // SPEC-20 fix (§7.3.3 vs §7.3.5): The StreamID passed the LOG2SIZE bounds
+        // check above, so it is WITHIN the configured table range.  A missing entry
+        // in streamMap is equivalent to STE.V=0 — the STE is present in range but
+        // not valid.  Per ARM IHI0070G.b §7.3.5 this must generate C_BAD_STE (0x04),
+        // NOT C_BAD_STREAMID (0x02).
+        //
+        // §7.3.3 C_BAD_STREAMID only fires when the StreamID is OUTSIDE the table
+        // range (>= 2^LOG2SIZE), which is handled by the bounds check above.
+        //
+        // §6.3.12 RECINVSID gates C_BAD_STREAMID recording only; C_BAD_STE is always
+        // recorded regardless of RECINVSID.
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;
@@ -364,22 +373,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.securityState = securityState;
         fault.timestamp = currentTime;
         recordFault(fault);
-        // §6.3.12 SMMU_CR2.RECINVSID: only write the C_BAD_STREAMID event to the
-        // event queue when RECINVSID==1.  The fault record and translation error are
-        // always produced unconditionally regardless of the RECINVSID setting.
-        {
-            bool recordSid = (cr2_.load(std::memory_order_acquire) & CR2_RECINVSID) != 0u;
-            // NEW-15: ATS TR C_BAD_STREAMID also requires CR2.REC_CFG_ATS=1 (§3.9.1.2).
-            if (recordSid && transactionType == TransactionType::AtsTranslationRequest) {
-                recordSid = (cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u;
-            }
-            if (recordSid) {
-                generateEvent(EventType::C_BAD_STREAMID, streamID, pasid, iova, securityState);
-            }
-        }
-        // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID,
-        // not StreamNotConfigured (which would imply the stream exists but is disabled).
-        return makeTranslationError(SMMUError::InvalidStreamID);
+        generateEvent(EventType::C_BAD_STE, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::StreamNotConfigured);
     }
 
     // BUG-NEW-CPP-3 fix: take a shared_ptr copy of the StreamContext while the stripe

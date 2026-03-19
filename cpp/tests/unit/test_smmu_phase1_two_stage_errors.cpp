@@ -66,12 +66,13 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, NullStreamContext_UnconfiguredStream_Record
     // Target: Lines 654-665 - Defensive check for null StreamContext
     // This tests translation attempt on completely unconfigured stream
 
-    // Do NOT configure the stream - streamContext will be null internally
+    // Do NOT configure the stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmu->translate(INVALID_STREAM, PASID_1, BASE_IOVA, AccessType::Read);
 
     // Should return error for unconfigured stream
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 
     // Verify fault was recorded (lines 664-665)
     auto events = smmu->getEvents();
@@ -82,7 +83,7 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, NullStreamContext_UnconfiguredStream_Record
         EXPECT_EQ(fault.streamID, INVALID_STREAM);
         EXPECT_EQ(fault.pasid, PASID_1);
         EXPECT_EQ(fault.address, BASE_IOVA);
-        // §7.3.3: stream-not-found → BadStreamID, not TranslationFault (FINDING-NEW-07)
+        // §7.3.5: in-range unconfigured stream → BadStreamID fault record
         EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
     }
 }

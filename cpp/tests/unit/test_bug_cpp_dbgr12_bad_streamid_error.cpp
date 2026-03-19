@@ -1,12 +1,12 @@
-// BUG-CPP-DBGR-12: No faultTypeToSMMUError() for C_BAD_STREAMID (§7.3.3)
-// TDD: failing test written BEFORE the fix.
-// When a stream ID is not found in the stream table (streamMap miss),
-// translate() currently returns SMMUError::StreamNotConfigured.
-// The spec (§7.3.3) says C_BAD_STREAMID corresponds to an invalid stream ID,
-// which should map to SMMUError::InvalidStreamID.
+// SPEC-20 update: correct expected behavior for in-bounds unconfigured streams.
 //
-// Note: the strtab range check (log2size < 32) already returns InvalidStreamID.
-// The streamMap miss path returns StreamNotConfigured — this is the bug.
+// ARM IHI0070G.b §7.3.3 C_BAD_STREAMID: StreamID OUTSIDE the configured table range.
+// ARM IHI0070G.b §7.3.5 C_BAD_STE: StreamID WITHIN range but STE.V=0 (not configured).
+//
+// When a streamID passes the LOG2SIZE bounds check but is not in streamMap (STE.V=0
+// equivalent), the correct event is C_BAD_STE and the correct error is
+// SMMUError::StreamNotConfigured.  C_BAD_STREAMID and SMMUError::InvalidStreamID are
+// reserved for StreamIDs that are outside the LOG2SIZE range.
 
 #include <gtest/gtest.h>
 #include "smmu/smmu.h"
@@ -16,46 +16,46 @@ namespace smmu {
 namespace test {
 
 // -----------------------------------------------------------------------
-// Stream not configured (not in streamMap): must return InvalidStreamID
-// (not StreamNotConfigured) and generate C_BAD_STREAMID event
+// Stream not configured (not in streamMap, but within LOG2SIZE range):
+// per SPEC-20 (§7.3.5) must return StreamNotConfigured and emit C_BAD_STE.
 // -----------------------------------------------------------------------
-TEST(BadStreamIdSpec, UnconfiguredStream_ReturnsInvalidStreamID) {
+TEST(BadStreamIdSpec, UnconfiguredStream_ReturnsStreamNotConfigured) {
     SMMU smmu;
     smmu.enable();
     // Set a large enough stream table to avoid the strtab range check
-    smmu.setStrtabLog2Size(16); // supports streams 0..65535
+    smmu.setStrtabLog2Size(16); // supports streams 0..65535; 0x1234 is in-range
 
-    // Stream 0x1234 is NOT configured
+    // Stream 0x1234 is within range but NOT configured (STE.V=0 equivalent)
     TranslationResult result = smmu.translate(0x1234, 0, 0x1000ULL,
                                              AccessType::Read, SecurityState::NonSecure);
     EXPECT_TRUE(result.isError()) << "Unconfigured stream must return an error";
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID)
-        << "Unconfigured stream (streamMap miss) must return SMMUError::InvalidStreamID "
-           "(§7.3.3 C_BAD_STREAMID), not StreamNotConfigured";
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured)
+        << "In-bounds unconfigured stream (STE.V=0) must return StreamNotConfigured "
+           "(§7.3.5 C_BAD_STE), not InvalidStreamID";
 }
 
 // -----------------------------------------------------------------------
-// C_BAD_STREAMID event must be generated for the streamMap miss case
+// C_BAD_STE event must be generated for the streamMap miss (in-range) case.
+// C_BAD_STE is always recorded regardless of RECINVSID (§6.3.12).
 // -----------------------------------------------------------------------
-TEST(BadStreamIdSpec, UnconfiguredStream_GeneratesCBadStreamIDEvent) {
+TEST(BadStreamIdSpec, UnconfiguredStream_GeneratesCBadSteEvent) {
     SMMU smmu;
     smmu.enable();
     smmu.setStrtabLog2Size(16);
-    // §6.3.12 CR2.RECINVSID=1: must be set for C_BAD_STREAMID events to be recorded.
-    smmu.setCR2(SMMU::CR2_RECINVSID);
+    // RECINVSID=0 intentionally — C_BAD_STE must still be recorded (§6.3.12)
 
     smmu.translate(0x5678, 0, 0x2000ULL, AccessType::Read, SecurityState::NonSecure);
 
     auto events = smmu.getEventQueue();
-    bool foundCBadStreamId = false;
+    bool foundCBadSte = false;
     for (const auto& evt : events) {
-        if (evt.type == EventType::C_BAD_STREAMID && evt.streamID == 0x5678u) {
-            foundCBadStreamId = true;
+        if (evt.type == EventType::C_BAD_STE && evt.streamID == 0x5678u) {
+            foundCBadSte = true;
             break;
         }
     }
-    EXPECT_TRUE(foundCBadStreamId)
-        << "C_BAD_STREAMID event must be generated for unconfigured stream (§7.3.3)";
+    EXPECT_TRUE(foundCBadSte)
+        << "C_BAD_STE event must be generated for in-bounds unconfigured stream (§7.3.5)";
 }
 
 // -----------------------------------------------------------------------

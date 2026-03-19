@@ -90,17 +90,20 @@ TEST(GatosFaultCodeTest, gap1_f_stream_disabled_faultcode_is_0x06) {
 // ─────────────────────────────────────────────────────────────────────────────
 // GAP-1 Test 3: C_BAD_STREAMID → FAULTCODE must be 0x02
 //
-// Trigger: call gatosTranslate with an unconfigured StreamID + CR2.RECINVSID=1.
-// Translate finds no stream → C_BAD_STREAMID generated (gated by RECINVSID).
+// SPEC-20: C_BAD_STREAMID fires only when StreamID is OUTSIDE 2^LOG2SIZE (§7.3.3).
+// Use LOG2SIZE=8 (range 0-255) and StreamID=0x200 (512) to trigger it.
+// C_BAD_STE (0x04) fires for in-range unconfigured streams (§7.3.5).
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(GatosFaultCodeTest, gap1_c_bad_streamid_faultcode_is_0x02) {
     SMMU smmu;
     enableSmmuWithEvents(smmu);
+    // LOG2SIZE=8 → valid range 0-255; SID=0x200 (512) is out of range → C_BAD_STREAMID
+    smmu.setStrtabLog2Size(8u);
     // Enable RECINVSID so C_BAD_STREAMID event is written to queue
     smmu.setCR2(smmu.getCR2() | SMMU::CR2_RECINVSID);
 
-    static constexpr StreamID UNCONF_SID = 0xABCD;
-    uint64_t par = smmu.gatosTranslate(UNCONF_SID, PID, 0x1000, AccessType::Read);
+    static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, outside [0,255]
+    uint64_t par = smmu.gatosTranslate(OUT_OF_RANGE_SID, PID, 0x1000, AccessType::Read);
 
     EXPECT_EQ(par & 0x1u, 1u) << "bit 0 must be 1 (FAULT)";
     EXPECT_EQ(extractFaultCode(par), 0x02u)

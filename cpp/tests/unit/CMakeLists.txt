@@ -122,6 +122,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_18mar2026_8am_2.cpp
     test_bugs_18mar2026_5pm.cpp
     test_bugs_18mar2026_5pm_2.cpp
+    test_spec20_bad_ste_vs_bad_streamid.cpp
     ../test_thread_safety.cpp
 )
 

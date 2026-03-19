@@ -60,11 +60,12 @@ protected:
 // ========== performTwoStageTranslation Error Path Tests ==========
 
 TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_UnconfiguredStream_Error) {
-    // Target: Lines 652-666 - Null stream context defensive check
+    // Target: Lines 652-666 - Null stream context defensive check.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmu->translate(999, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 TEST_F(SMMUControllerAdvancedTest, PerformTwoStageTranslation_TranslationDisabled_BypassMode) {

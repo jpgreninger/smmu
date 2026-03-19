@@ -404,27 +404,26 @@ TEST(ConfGapModerate, Gap20_ZeroPASID_SsvFalse) {
 TEST(ConfGapModerate, Gap20_ConfigFault_EventClassIs1) {
     // GAP NEW-1 fix: ARM IHI0070G.b §7.3 — the CLASS field is defined ONLY for F_*
     // translation events.  C_* (configuration) events do NOT have a CLASS field; it
-    // must be left as 0.  The original CONF-GAP-20 test incorrectly asserted eventClass=1
-    // for C_* events.  Updated to the spec-correct value of 0.
+    // must be left as 0.
+    //
+    // SPEC-20 fix: stream 999 is within the default LOG2SIZE=32 range, so an
+    // unconfigured stream (STE.V=0) generates C_BAD_STE (§7.3.5), not C_BAD_STREAMID.
+    // C_BAD_STE is always recorded regardless of RECINVSID (§6.3.12).
     SMMU smmu;
     smmu.enable();
-    smmu.setCR0(smmu.getCR0() | SMMU::CR0_EVENTQEN | (1u << 1)); // RECINVSID
-
-    // Translate to an unconfigured stream to get C_BAD_STREAMID
-    // (or enable CR2.RECINVSID so it is recorded)
-    smmu.setCR2(smmu.getCR2() | SMMU::CR2_RECINVSID);
+    smmu.setCR0(smmu.getCR0() | SMMU::CR0_EVENTQEN);
     smmu.translate(999, 0, 0x7000, AccessType::Read);
 
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
-        if (e.type == EventType::C_BAD_STREAMID) {
+        if (e.type == EventType::C_BAD_STE) {
             EXPECT_EQ(e.eventClass, 0u)
                 << "GAP NEW-1: C_* events must have eventClass=0 (CLASS field undefined for config faults, §7.3)";
             found = true;
             break;
         }
     }
-    EXPECT_TRUE(found) << "Expected a C_BAD_STREAMID event";
+    EXPECT_TRUE(found) << "Expected a C_BAD_STE event for in-range unconfigured stream";
 }
 
 TEST(ConfGapModerate, Gap20_TranslationFault_EventClassIs0) {

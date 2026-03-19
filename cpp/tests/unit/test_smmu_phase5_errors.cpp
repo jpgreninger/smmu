@@ -260,11 +260,12 @@ TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_NullStreamContext_ReturnsError) {
     // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
     smmu->enable();
 
-    // Try to translate unconfigured stream - internal method gets null context
+    // Try to translate unconfigured stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmu->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 TEST_F(SMMUPhase5ErrorTest, PerformTwoStage_TranslationDisabledBypassMode_ReturnsIOVA) {

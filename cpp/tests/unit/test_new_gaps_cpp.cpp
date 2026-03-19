@@ -75,34 +75,35 @@ TEST(NewGapsCpp, RECINVSID_Default_TranslateStillErrors) {
     EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
 }
 
-// RECINVSID=0 (default) — C_BAD_STREAMID must NOT be recorded for unknown (stream-not-found) stream.
-TEST(NewGapsCpp, RECINVSID_Default_NoEventForUnknownStream) {
+// SPEC-20: stream 42 is within the default LOG2SIZE=32 range but not configured.
+// This is STE.V=0 → C_BAD_STE (§7.3.5), NOT C_BAD_STREAMID.
+// C_BAD_STE must be recorded regardless of RECINVSID (§6.3.12).
+TEST(NewGapsCpp, RECINVSID_Default_InBoundsUnconfiguredStream_EmitsCBadSte) {
     auto s = makeSMMU();
-    // No streams configured — stream 42 is unknown (stream-not-found path)
+    // No streams configured — stream 42 is in-range but STE.V=0
     s->translate(42, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
-    bool found = false;
+    bool foundCBadSte = false;
+    bool foundCBadStreamId = false;
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) {
-            found = true;
-        }
+        if (e.type == EventType::C_BAD_STE) foundCBadSte = true;
+        if (e.type == EventType::C_BAD_STREAMID) foundCBadStreamId = true;
     }
-    EXPECT_FALSE(found) << "With RECINVSID=0, C_BAD_STREAMID must NOT be recorded for unknown stream";
+    EXPECT_TRUE(foundCBadSte) << "In-range unconfigured stream must emit C_BAD_STE (§7.3.5)";
+    EXPECT_FALSE(foundCBadStreamId) << "C_BAD_STREAMID must NOT be emitted for in-range stream";
 }
 
-// RECINVSID=1 — C_BAD_STREAMID IS recorded for unknown stream.
-TEST(NewGapsCpp, RECINVSID_Set_EventRecordedForUnknownStream) {
+// C_BAD_STE is always recorded regardless of RECINVSID (§6.3.12).
+TEST(NewGapsCpp, RECINVSID_Set_InBoundsUnconfiguredStream_StillEmitsCBadSte) {
     auto s = makeSMMU();
     s->setCR2(SMMU::CR2_RECINVSID);
     s->translate(42, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
-    bool found = false;
+    bool foundCBadSte = false;
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) {
-            found = true;
-        }
+        if (e.type == EventType::C_BAD_STE) foundCBadSte = true;
     }
-    EXPECT_TRUE(found) << "With RECINVSID=1, C_BAD_STREAMID must be recorded for unknown stream";
+    EXPECT_TRUE(foundCBadSte) << "C_BAD_STE must be recorded for in-range unconfigured stream (§7.3.5)";
 }
 
 // setCR2 / getCR2 round-trip.

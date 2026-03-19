@@ -1,10 +1,12 @@
-// ARM SMMU v3 FINDING-NEW-07: C_BAD_STREAMID event for unknown StreamID (C++)
+// ARM SMMU v3: C_BAD_STE event for in-bounds unconfigured StreamID (C++)
 //
-// TDD spec tests verifying that a translation request for an unconfigured
-// StreamID generates a C_BAD_STREAMID event (event code 0x02) in the event
-// queue per ARM IHI0070G.b §7.3.3, not a generic F_TRANSLATION (0x10).
+// SPEC-20 correction: per ARM IHI0070G.b §7.3.3 vs §7.3.5:
+//   - C_BAD_STREAMID: StreamID OUTSIDE 2^LOG2SIZE range
+//   - C_BAD_STE:      StreamID within range but STE.V=0 (not configured)
 //
-// FINDING-NEW-07 — tests must be RED before the fix.
+// With default LOG2SIZE=32, ALL uint32_t StreamIDs are within range.
+// Therefore an unconfigured stream must generate C_BAD_STE (0x04), not
+// C_BAD_STREAMID (0x02).
 
 #include <gtest/gtest.h>
 #include "smmu/smmu.h"
@@ -27,16 +29,15 @@ static std::unique_ptr<SMMU> makeSMMU() {
     auto smmu = std::make_unique<SMMU>(cfg);
     // ARM §6.3.9: SMMU starts disabled; enable globally before tests.
     smmu->enable();
-    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording so that
-    // spec-compliance tests can verify the event is generated.
-    smmu->setCR2(SMMU::CR2_RECINVSID);
+    // Default LOG2SIZE=32: all uint32_t StreamIDs are within the table range.
+    // An unconfigured stream is therefore STE.V=0 → C_BAD_STE, not C_BAD_STREAMID.
     return smmu;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-/// §7.3.3: translation on unconfigured StreamID must enqueue C_BAD_STREAMID (0x02)
-TEST(CBadStreamidSpec, UnknownStreamGeneratesCBadStreamidEvent) {
+/// §7.3.5: translation on in-range unconfigured StreamID must enqueue C_BAD_STE (0x04)
+TEST(CBadStreamidSpec, UnknownStreamGeneratesCBadSteEvent) {
     auto smmu = makeSMMU();
 
     auto result = smmu->translate(UNKNOWN_SID, PASID_0, IOVA_1000,
@@ -46,15 +47,15 @@ TEST(CBadStreamidSpec, UnknownStreamGeneratesCBadStreamidEvent) {
     auto events = smmu->getEventQueue();
     bool found = false;
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) {
+        if (e.type == EventType::C_BAD_STE) {
             found = true;
             break;
         }
     }
-    EXPECT_TRUE(found) << "expected C_BAD_STREAMID event (0x02) for unknown stream";
+    EXPECT_TRUE(found) << "expected C_BAD_STE event (0x04) for in-range unconfigured stream (§7.3.5)";
 }
 
-/// §7.3.3: must NOT generate F_TRANSLATION for an unknown StreamID
+/// §7.3.5: must NOT generate F_TRANSLATION for an unconfigured StreamID
 TEST(CBadStreamidSpec, UnknownStreamNotFTranslationEvent) {
     auto smmu = makeSMMU();
 
@@ -63,17 +64,17 @@ TEST(CBadStreamidSpec, UnknownStreamNotFTranslationEvent) {
 
     auto events = smmu->getEventQueue();
     bool hasTranslation = false;
-    bool hasCBadStreamid = false;
+    bool hasCBadSte = false;
     for (const auto& e : events) {
         if (e.type == EventType::F_TRANSLATION) hasTranslation = true;
-        if (e.type == EventType::C_BAD_STREAMID) hasCBadStreamid = true;
+        if (e.type == EventType::C_BAD_STE) hasCBadSte = true;
     }
-    EXPECT_TRUE(hasCBadStreamid)  << "must have C_BAD_STREAMID event";
-    EXPECT_FALSE(hasTranslation)  << "must NOT have F_TRANSLATION for unknown-stream fault";
+    EXPECT_TRUE(hasCBadSte)     << "must have C_BAD_STE event for in-range unconfigured stream";
+    EXPECT_FALSE(hasTranslation) << "must NOT have F_TRANSLATION for unconfigured-stream fault";
 }
 
-/// §7.3.3: C_BAD_STREAMID event must carry the correct streamID
-TEST(CBadStreamidSpec, CBadStreamidEventCarriesStreamId) {
+/// §7.3.5: C_BAD_STE event must carry the correct streamID
+TEST(CBadStreamidSpec, CBadSteEventCarriesStreamId) {
     auto smmu = makeSMMU();
 
     smmu->translate(UNKNOWN_SID, PASID_0, IOVA_1000,
@@ -81,16 +82,16 @@ TEST(CBadStreamidSpec, CBadStreamidEventCarriesStreamId) {
 
     auto events = smmu->getEventQueue();
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) {
+        if (e.type == EventType::C_BAD_STE) {
             EXPECT_EQ(e.streamID, UNKNOWN_SID) << "streamID must match";
             return;
         }
     }
-    FAIL() << "no C_BAD_STREAMID event found";
+    FAIL() << "no C_BAD_STE event found";
 }
 
-/// §7.3.3: each unknown-stream translation produces its own C_BAD_STREAMID event
-TEST(CBadStreamidSpec, MultipleUnknownStreamsEachGenerateCBadStreamid) {
+/// §7.3.5: each in-range unconfigured stream translation produces its own C_BAD_STE event
+TEST(CBadStreamidSpec, MultipleUnknownStreamsEachGenerateCBadSte) {
     auto smmu = makeSMMU();
 
     smmu->translate(UNKNOWN_SID,  PASID_0, IOVA_1000, AccessType::Read, SecurityState::NonSecure);
@@ -100,13 +101,13 @@ TEST(CBadStreamidSpec, MultipleUnknownStreamsEachGenerateCBadStreamid) {
     auto events = smmu->getEventQueue();
     int count = 0;
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) ++count;
+        if (e.type == EventType::C_BAD_STE) ++count;
     }
-    EXPECT_EQ(count, 3) << "expected one C_BAD_STREAMID per unknown stream";
+    EXPECT_EQ(count, 3) << "expected one C_BAD_STE per in-range unconfigured stream";
 }
 
-/// §7.3.3: security state must be preserved in the C_BAD_STREAMID event
-TEST(CBadStreamidSpec, CBadStreamidEventCarriesSecurityState) {
+/// §7.3.5: security state must be preserved in the C_BAD_STE event
+TEST(CBadStreamidSpec, CBadSteEventCarriesSecurityState) {
     auto smmu = makeSMMU();
 
     smmu->translate(UNKNOWN_SID, PASID_0, IOVA_1000,
@@ -114,12 +115,12 @@ TEST(CBadStreamidSpec, CBadStreamidEventCarriesSecurityState) {
 
     auto events = smmu->getEventQueue();
     for (const auto& e : events) {
-        if (e.type == EventType::C_BAD_STREAMID) {
+        if (e.type == EventType::C_BAD_STE) {
             EXPECT_EQ(e.securityState, SecurityState::Secure);
             return;
         }
     }
-    FAIL() << "no C_BAD_STREAMID event found";
+    FAIL() << "no C_BAD_STE event found";
 }
 
 } // namespace test

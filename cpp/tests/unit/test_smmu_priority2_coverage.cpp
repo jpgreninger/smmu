@@ -100,10 +100,11 @@ protected:
 
 // Test two-stage translation with null stream context (line 654-665)
 TEST_F(SMMUPriority2CoverageTest, TwoStageTranslation_NullStreamContext) {
-    // Try translation without configuring stream
+    // Try translation without configuring stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 
     // Verify fault was recorded
     auto eventsResult = smmuController->getEvents();
@@ -869,10 +870,11 @@ TEST_F(SMMUPriority2CoverageTest, RecordSecurityFault_Comprehensive) {
 
 // Test determineContextSecurityState with unconfigured stream (lines 1690-1692)
 TEST_F(SMMUPriority2CoverageTest, DetermineContextSecurityState_UnconfiguredStream) {
-    // Try to translate without configuring stream
+    // Try to translate without configuring stream.
+    // In-range unconfigured stream → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(STREAM1, PASID1, TEST_IOVA1, AccessType::Read);
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 }
 
 // Test determineContextSecurityState with configured stream (line 1698)

@@ -516,11 +516,12 @@ TEST_F(SMMUCoverageTest, QueueSize_ClearQueues) {
 // =============================================================================
 
 TEST_F(SMMUCoverageTest, AdvancedFault_StreamNotConfigured) {
-    // Attempt translation on unconfigured stream (line 146-160)
+    // Attempt translation on unconfigured stream.
+    // With default LOG2SIZE=32, all StreamIDs are in-range → C_BAD_STE → StreamNotConfigured (§7.3.5).
     TranslationResult result = smmuController->translate(TEST_STREAM_ID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 
     // Verify fault was recorded
     Result<std::vector<FaultRecord>> events = smmuController->getEvents();
@@ -532,22 +533,21 @@ TEST_F(SMMUCoverageTest, AdvancedFault_StreamNotConfigured) {
     EXPECT_EQ(fault.streamID, TEST_STREAM_ID);
     EXPECT_EQ(fault.pasid, TEST_PASID);
     EXPECT_EQ(fault.address, TEST_IOVA);
-    // §7.3.3: stream-not-found must use BadStreamID, not TranslationFault (FINDING-NEW-07)
+    // §7.3.5: in-range unconfigured stream uses BadStreamID fault record type
     EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
     EXPECT_GT(fault.timestamp, 0);
 }
 
 TEST_F(SMMUCoverageTest, AdvancedFault_InvalidStreamID) {
     // Attempt translation with very high StreamID (line 76-90)
-    // Note: MAX_STREAM_ID is 0xFFFFFFFF so we can't actually exceed it with uint32_t
-    // This test verifies the fault handling path for invalid streams
+    // With default LOG2SIZE=32 all uint32_t StreamIDs are in-range → C_BAD_STE → StreamNotConfigured.
     StreamID veryHighStreamID = 0xFFFFFFF0; // Close to max but not configured
 
     TranslationResult result = smmuController->translate(veryHighStreamID, TEST_PASID, TEST_IOVA, AccessType::Read);
 
     EXPECT_TRUE(result.isError());
-    // Will be StreamNotConfigured since stream was never configured
-    EXPECT_EQ(result.getError(), SMMUError::InvalidStreamID);
+    // In-range unconfigured stream → StreamNotConfigured (§7.3.5 C_BAD_STE)
+    EXPECT_EQ(result.getError(), SMMUError::StreamNotConfigured);
 
     // Verify fault was recorded with proper timestamp
     Result<std::vector<FaultRecord>> events = smmuController->getEvents();
