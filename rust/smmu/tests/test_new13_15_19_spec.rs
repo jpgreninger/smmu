@@ -227,14 +227,20 @@ fn test_new15_ats_tr_unknown_sid_both_bits_set_emits_bad_sid() {
     );
 }
 
-/// NEW-15: Ordinary TR + unknown SID + `RECINVSID=1` → `C_BAD_STREAMID` emitted
-///         without needing `REC_CFG_ATS` (existing behavior preserved).
+/// NEW-15: Ordinary TR + out-of-range SID + `RECINVSID=1` → `C_BAD_STREAMID` emitted
+///         without needing `REC_CFG_ATS` (ordinary-traffic RECINVSID gating preserved).
+///
+/// SPEC-20 correction: `C_BAD_STREAMID` fires for OUT-OF-RANGE `StreamIDs` (>= 2^LOG2SIZE).
+/// An in-range unconfigured stream produces `C_BAD_STE` instead (ARM §7.3.5).
 #[test]
 fn test_new15_ordinary_unknown_sid_recinvsid_still_fires() {
     let smmu = make_enabled_smmu();
-    smmu.set_cr2(SMMU::CR2_RECINVSID); // no REC_CFG_ATS
+    // LOG2SIZE=8: valid range 0..=255; StreamID=0xDEAD (57005) is out-of-range.
+    smmu.set_strtab_log2size(8);
+    smmu.set_cr2(SMMU::CR2_RECINVSID); // no REC_CFG_ATS needed for ordinary traffic
     smmu.clear_event_queue();
 
+    // StreamID=0xDEAD is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).
     let unknown_sid = StreamID::new(0xDEAD).unwrap();
     let pasid = PASID::new(0).unwrap();
     let iova = IOVA::new(0x1000).unwrap();
@@ -252,7 +258,7 @@ fn test_new15_ordinary_unknown_sid_recinvsid_still_fires() {
         events.iter().any(|e| e.event_type == EventType::CBadStreamid);
     assert!(
         has_bad_sid,
-        "C_BAD_STREAMID must fire for ordinary traffic with RECINVSID=1; events: {:?}",
+        "C_BAD_STREAMID must fire for ordinary traffic with RECINVSID=1 and out-of-range SID; events: {:?}",
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }

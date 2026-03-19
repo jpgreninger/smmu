@@ -1596,6 +1596,67 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
     }
 
+    // NEW-02 fix: ARM IHI0070G.b §7.3 — EventEntry.RnW/InD/PnU must reflect the
+    // *post-STE-override* effective access type, not the raw incoming accessType.
+    // Compute effectiveAccessType here, before the T0SZ and EPD0 early-exit paths,
+    // using the same three-step override chain as the TLB fast-path in translate().
+    //
+    // Step 1: STRW promotion (STRW=EL2/EL3 → promote to Privileged variants).
+    //         Per §5.2, STRW is ignored when stage-2 is enabled for Non-Secure streams.
+    AccessType effectiveAccessType = accessType;
+    if (!config.stage2Enabled &&
+        (config.strw == StreamWorld::EL2 || config.strw == StreamWorld::EL3)) {
+        switch (accessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+            case AccessType::ReadPrivileged:
+            case AccessType::WritePrivileged:
+            case AccessType::ExecutePrivileged:
+            case AccessType::ReadWritePrivileged:
+            case AccessType::ReadExecutePrivileged:
+                break;
+        }
+    }
+    // Step 2: INSTCFG override (instCfg=1: Read→Execute; instCfg=2: Execute→Read).
+    if (config.instCfg == 1u) {
+        if (effectiveAccessType == AccessType::Read)
+            effectiveAccessType = AccessType::Execute;
+        else if (effectiveAccessType == AccessType::ReadPrivileged)
+            effectiveAccessType = AccessType::ExecutePrivileged;
+    } else if (config.instCfg == 2u) {
+        if (effectiveAccessType == AccessType::Execute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+        else if (effectiveAccessType == AccessType::ReadExecute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+    }
+    // Step 3: PRIVCFG override (privCfg=2: demote Privileged; privCfg=3: promote).
+    if (config.privCfg == 2u) {
+        switch (effectiveAccessType) {
+            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
+            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
+            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
+            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
+            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
+            default: break;
+        }
+    } else if (config.privCfg == 3u) {
+        switch (effectiveAccessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+            default: break;
+        }
+    }
+
     // Gap C fix: ARM IHI0070G.b §3.4.1 / §5.4 — CD.T0SZ VA range enforcement.
     // T0SZ defines the TTBR0 input address range: valid IOVAs are [0, 2^(64-T0SZ)).
     // An IOVA at or above the range limit is a translation fault (F_TRANSLATION),
@@ -1612,8 +1673,9 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
         uint64_t vaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.t0sz));
         if (effectiveIova >= vaLimit) {
+            // NEW-02 fix: use effectiveAccessType so PnU/InD/RnW reflect STE overrides.
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, effectiveAccessType);
             // Return InvalidConfiguration so the outer handleTranslationFailure() switch
             // maps this to FaultType::StreamDisabled (a no-op) and does not re-emit
             // a second F_TRANSLATION event.  The event was already queued above.
@@ -1626,8 +1688,9 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     // to all stage-1 translations; EPD1 is architecturally for the upper VA half
     // (TTBR1) which this model does not implement separately.
     if (config.stage1Enabled && config.epd0) {
+        // NEW-02 fix: use effectiveAccessType so PnU/InD/RnW reflect STE overrides.
         generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                      false, 0, accessType);
+                      false, 0, effectiveAccessType);
         // Return InvalidConfiguration so handleTranslationFailure() treats this as
         // a no-op (StreamDisabled path) and does not re-emit a duplicate event.
         return makeTranslationError(SMMUError::InvalidConfiguration);

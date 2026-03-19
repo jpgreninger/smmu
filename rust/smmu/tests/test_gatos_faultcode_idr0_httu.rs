@@ -74,18 +74,23 @@ fn test_gap2_gatos_c_bad_substreamid_faultcode_is_0x08() {
 // ============================================================================
 // GAP-2 Test 2: C_BAD_STREAMID → FAULTCODE must be 0x02
 //
-// Setup: set CR2.RECINVSID=1, call gatos_translate with unconfigured stream.
-// translate() generates C_BAD_STREAMID when stream not found + RECINVSID=1.
+// SPEC-20 correction: C_BAD_STREAMID (0x02) fires for an OUT-OF-RANGE StreamID
+// (StreamID >= 2^LOG2SIZE), not for an in-range unconfigured stream (which
+// produces C_BAD_STE per ARM §7.3.5).
+//
+// Setup: LOG2SIZE=8 (valid range 0..=255), RECINVSID=1, StreamID=0x9999 (> 255).
 // ============================================================================
 
 #[test]
 fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     let smmu = SMMU::new();
     enable_smmu(&smmu);
-    // Enable RECINVSID so C_BAD_STREAMID event is written to queue
+    // LOG2SIZE=8: valid StreamIDs are 0..=255; StreamID=0x9999 (39321) is out-of-range.
+    smmu.set_strtab_log2size(8);
+    // Enable RECINVSID so C_BAD_STREAMID event is written to queue.
     smmu.set_cr2(smmu.get_cr2() | SMMU::CR2_RECINVSID);
 
-    // Call with unconfigured stream — no configure_stream called for SID=0x9999
+    // StreamID=0x9999 is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).
     let par = smmu.gatos_translate(
         make_sid(0x9999),
         make_pasid(0),

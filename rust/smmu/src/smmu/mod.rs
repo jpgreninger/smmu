@@ -3528,8 +3528,12 @@ impl SMMU {
                 (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt)
             } else {
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                // Record fault before returning error
-                self.record_stream_not_found_fault(stream_id, pasid, iova, access, security_state);
+                // ARM §7.3.5 / SPEC-20: StreamID is within table bounds but STE.V=0
+                // (stream not configured).  This is C_BAD_STE (0x04), NOT C_BAD_STREAMID.
+                // C_BAD_STE is NOT gated by CR2.RECINVSID (§6.3.12); RECINVSID only gates
+                // C_BAD_STREAMID (out-of-range StreamID).  C_BAD_STE must always be recorded
+                // when CR0.EVENTQEN=1.
+                self.record_bad_ste_fault(stream_id, pasid, iova, access, security_state);
                 return Err(TranslationError::StreamNotConfigured);
             };
 
@@ -4309,6 +4313,80 @@ impl SMMU {
             } else {
                 // BUG-05 / ARM §7.4 / BUG-RUST-DBGR-8 fix: Toggle OVFLG atomically
                 // via CAS loop — see toggle_ovflg_once() for details.
+                self.toggle_ovflg_once();
+            }
+        }
+    }
+
+    /// Record a C_BAD_STE fault event (ARM §7.3.5 / SPEC-20).
+    ///
+    /// Emitted when a StreamID is within the configured table bounds but the
+    /// corresponding STE has STE.V=0 (stream not configured).  Per ARM §6.3.12,
+    /// this event is NOT gated by CR2.RECINVSID — that bit only gates
+    /// C_BAD_STREAMID (out-of-range StreamIDs, §7.3.3).  C_BAD_STE is always
+    /// recorded when CR0.EVENTQEN=1.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier whose STE.V=0
+    /// * `pasid` - Process Address Space ID
+    /// * `iova` - Input/Output Virtual Address
+    /// * `access` - Access type requested
+    /// * `security_state` - Security state of the transaction
+    fn record_bad_ste_fault(&self, stream_id: StreamID, pasid: PASID, iova: IOVA, access: AccessType, security_state: SecurityState) {
+        // Use monotonic atomic counter instead of SystemTime::now() to avoid syscall overhead.
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+
+        let fault = FaultRecord::builder()
+            .stream_id(stream_id)
+            .pasid(pasid)
+            .address(iova)
+            .fault_type(FaultType::BadSTE)
+            .access_type(access)
+            .security_state(security_state)
+            .timestamp(timestamp)
+            .build();
+
+        self.record_fault(fault);
+
+        // §7.2.1 / CT-33: When CR0.EVENTQEN=0, events must not be recorded.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+
+        // §6.3.12 / SPEC-20: C_BAD_STE is NOT gated by CR2.RECINVSID.
+        // RECINVSID only controls whether C_BAD_STREAMID (out-of-range StreamID)
+        // events are written to the event queue.  C_BAD_STE must always be
+        // recorded when CR0.EVENTQEN=1.
+
+        // §7.3.5: STE.V=0 → C_BAD_STE (0x04).
+        let event = EventEntry {
+            event_type: EventType::CBadSte,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            address: iova.as_u64(),
+            security_state,
+            error_code: 0,
+            timestamp,
+            stall: false,
+            stag: 0,
+            // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
+            event_class: 0,
+            rnw: access.can_write(),
+            ind: access.can_execute(),
+            ssv: pasid.as_u32() != 0,
+            ..EventEntry::zeroed()
+        };
+
+        if let Ok(mut queue) = self.event_queue.write() {
+            if queue.len() < self.event_queue_capacity {
+                queue.push_back(event);
+                self.event_count.fetch_add(1, Ordering::Relaxed);
+                // ARM §3.5.4 — advance PROD.WR to publish record.
+                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+            } else {
+                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
                 self.toggle_ovflg_once();
             }
         }

@@ -1778,6 +1778,14 @@ impl StreamContext {
         let stage2_enabled = self.stage2_enabled.load(Ordering::Acquire);
 
         if stage1_enabled && stage2_enabled {
+            // NEW-04 fix: §5.4 CD.EPD0=1 — TTBR0 translation table walk disabled.
+            // The single-stage translate() path already checks EPD0, but this two-stage
+            // path calls translate_two_stage_with_ipa() directly, bypassing that check.
+            // Guard here mirrors the check in translate() above.
+            if self.epd0.load(Ordering::Acquire) {
+                return (Err(TranslationError::PageNotMapped), None);
+            }
+
             // Two-stage path: delegate to the specialised helper that returns the IPA.
             // Gap D fix: §3.2/§13.5 — apply STE.INSTCFG override before the permission
             // checks inside translate_two_stage_with_ipa (which does not call translate()).

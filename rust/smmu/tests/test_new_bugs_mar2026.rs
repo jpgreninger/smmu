@@ -27,7 +27,7 @@
 //!   `streams.clear()` and `stream_count.store(0)` are separate operations;
 //!   observer between them sees count > 0 with empty map.
 
-use smmu::types::{AccessType, CommandEntry, CommandType, SecurityState, StreamConfig, StreamID, IOVA, PASID};
+use smmu::types::{AccessType, CommandEntry, CommandType, EventType, SecurityState, StreamConfig, StreamID, IOVA, PASID};
 use smmu::SMMU;
 
 fn sid(n: u32) -> StreamID {
@@ -89,10 +89,14 @@ fn rust1_in_range_streamid_not_range_faulted() {
     assert!(r.is_err());
 }
 
-/// §6.3.4 / BUG-NEW-RUST-1:
+/// §6.3.4 / §7.3.5 / BUG-NEW-RUST-1 / SPEC-20:
 /// Default log2size=32 means "no table limit" — high StreamIDs must not be
-/// rejected by the range check. They will still fail because the stream
-/// isn't configured, but NOT with an out-of-range fault.
+/// rejected by the range check; they are in-range but unconfigured (STE.V=0).
+///
+/// SPEC-20: In-range unconfigured streams generate C_BAD_STE (§7.3.5), NOT
+/// C_BAD_STREAMID (§7.3.3).  C_BAD_STE is NOT gated by CR2.RECINVSID — it
+/// fires unconditionally when EVENTQEN=1.  RECINVSID only gates C_BAD_STREAMID
+/// (out-of-range StreamID faults).
 #[test]
 fn rust1_default_log2size_no_range_fault() {
     let smmu = SMMU::new();
@@ -107,23 +111,40 @@ fn rust1_default_log2size_no_range_fault() {
         AccessType::Read,
         SecurityState::NonSecure,
     );
-    // Must fail with stream-not-found (not in range, not configured).
+    // Must fail: stream is in-range but not configured.
     assert!(r.is_err());
-    // With RECINVSID=0 (default), no events must be recorded.
-    assert!(smmu.get_events().is_empty());
+    // SPEC-20: C_BAD_STE MUST be emitted for in-range unconfigured streams
+    // regardless of RECINVSID (RECINVSID only gates C_BAD_STREAMID).
+    let bad_ste = smmu.get_events_by_type(EventType::CBadSte);
+    assert!(
+        !bad_ste.is_empty(),
+        "C_BAD_STE must be emitted for in-range unconfigured stream (SPEC-20)"
+    );
+    // C_BAD_STREAMID must NOT be emitted (StreamID is in-range).
+    let bad_streamid = smmu.get_events_by_type(EventType::CBadStreamid);
+    assert!(
+        bad_streamid.is_empty(),
+        "C_BAD_STREAMID must NOT be emitted for in-range StreamID; got: {bad_streamid:?}"
+    );
 }
 
 // ─── BUG-NEW-RUST-2 ───────────────────────────────────────────────────────────
 
-/// §6.3.12 / §7.3.3 / BUG-NEW-RUST-2:
-/// When CR2.RECINVSID=0 (default), C_BAD_STREAMID events must NOT be recorded
-/// in the event queue for unknown streams — even when EVENTQEN=1.
+/// §6.3.12 / §7.3.3 / §7.3.5 / BUG-NEW-RUST-2 / SPEC-20:
+/// StreamID 0xABCD with default log2size=32 is IN-RANGE but unconfigured
+/// (STE.V=0).  Per SPEC-20 (§7.3.5), such streams emit C_BAD_STE regardless
+/// of CR2.RECINVSID.  RECINVSID only suppresses C_BAD_STREAMID (out-of-range).
+///
+/// This test verifies:
+///   - Exactly one C_BAD_STE event is emitted.
+///   - No C_BAD_STREAMID event is emitted (StreamID is in-range).
 #[test]
 fn rust2_recinvsid_zero_suppresses_event_for_unknown_stream() {
     let smmu = SMMU::new();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
     smmu.enable().unwrap();
     // CR2.RECINVSID=0 is the default — do NOT set CR2_RECINVSID.
+    // StreamID 0xABCD with default log2size=32 is in-range but unconfigured.
     let _ = smmu.translate(
         sid(0xABCD),
         pasid(0),
@@ -131,9 +152,19 @@ fn rust2_recinvsid_zero_suppresses_event_for_unknown_stream() {
         AccessType::Read,
         SecurityState::NonSecure,
     );
+    // SPEC-20: C_BAD_STE MUST be emitted for in-range unconfigured streams,
+    // even when RECINVSID=0 (RECINVSID does not gate C_BAD_STE).
+    let bad_ste = smmu.get_events_by_type(EventType::CBadSte);
+    assert_eq!(
+        bad_ste.len(),
+        1,
+        "RECINVSID=0: exactly one C_BAD_STE must be recorded for in-range unconfigured stream"
+    );
+    // C_BAD_STREAMID must NOT be emitted (StreamID is in-range with default log2size=32).
+    let bad_streamid = smmu.get_events_by_type(EventType::CBadStreamid);
     assert!(
-        smmu.get_events().is_empty(),
-        "RECINVSID=0: C_BAD_STREAMID must NOT be recorded for unknown stream"
+        bad_streamid.is_empty(),
+        "C_BAD_STREAMID must NOT be emitted for in-range StreamID (RECINVSID=0); got: {bad_streamid:?}"
     );
 }
 

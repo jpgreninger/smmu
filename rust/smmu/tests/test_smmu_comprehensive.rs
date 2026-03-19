@@ -1848,10 +1848,14 @@ fn test_translation_records_fault_on_stream_not_found() {
 
     let _result = smmu.translate(stream_id, pasid, iova, AccessType::Read, SecurityState::NonSecure);
 
-    // Fault should be recorded
+    // Fault should be recorded.
+    // SPEC-20 (§7.3.5): StreamID 999 with default log2size=32 is IN-RANGE but
+    // unconfigured (STE.V=0), so the fault is C_BAD_STE (BadSTE), not
+    // C_BAD_STREAMID (BadStreamID).  C_BAD_STREAMID is only for out-of-range
+    // StreamIDs (>= 2^LOG2SIZE).
     let faults = smmu.get_faults();
     assert_eq!(faults.len(), 1);
-    assert_eq!(faults[0].fault_type(), FaultType::BadStreamID);
+    assert_eq!(faults[0].fault_type(), FaultType::BadSTE);
 }
 
 #[test]
