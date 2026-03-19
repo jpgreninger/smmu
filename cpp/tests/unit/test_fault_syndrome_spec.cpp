@@ -113,10 +113,11 @@ protected:
     std::unique_ptr<SMMU> smmu;
 };
 
-// ── Test 1: Read fault — RnW bit [3] must be CLEAR ───────────────────────
+// ── Test 1: Read fault — RnW bit [3] must be SET (RnW=1=Read) ────────────
 
-/// §7.3: For a Read transaction that hits a Stage-1 translation fault
-/// (no mapping), RnW (bit [3]) must be 0.
+/// §7.3: RnW=1 means Read (Read-not-Write). For a Read transaction that hits
+/// a Stage-1 translation fault (no mapping), RnW (bit [3]) must be 1.
+/// NEW-1 fix: prior test expected 0 (wrong spec interpretation).
 TEST_F(FaultSyndromeSpecTest, ReadFault_RnWBitClear) {
     // No page mapped — Stage-1 will fail, recording Stage1Only fault.
     IOVA unmapped = BASE_IOVA + 0x1000;
@@ -125,15 +126,17 @@ TEST_F(FaultSyndromeSpecTest, ReadFault_RnWBitClear) {
     FaultSyndrome syn = getSyndromeForAccessType(AccessType::Read);
     ASSERT_TRUE(syn.validSyndrome) << "No valid fault syndrome recorded for Read";
 
-    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3: RnW (bit [3]) must be 0 for a read transaction; "
+    // §7.3 RnW=1 means Read; bit[3] must be SET for a Read fault.
+    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3: RnW (bit [3]) must be 1 (Read) for a read transaction; "
         << "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
-// ── Test 2: Write fault — RnW bit [3] must be SET ────────────────────────
+// ── Test 2: Write fault — RnW bit [3] must be CLEAR (RnW=0=Write) ────────
 
-/// §7.3: For a Write transaction on a read-only Stage-1 page,
-/// RnW (bit [3]) must be 1.
+/// §7.3: RnW=0 means Write. For a Write transaction on a read-only Stage-1
+/// page, RnW (bit [3]) must be 0.
+/// NEW-1 fix: prior test expected 1 (wrong spec interpretation).
 TEST_F(FaultSyndromeSpecTest, WriteFault_RnWBitSet) {
     // Map a read-only page so a Write access triggers a permission fault.
     PagePermissions readOnly(true, false, false);
@@ -144,16 +147,18 @@ TEST_F(FaultSyndromeSpecTest, WriteFault_RnWBitSet) {
     FaultSyndrome syn = getSyndromeForAccessType(AccessType::Write);
     ASSERT_TRUE(syn.validSyndrome) << "No valid fault syndrome recorded for Write";
 
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3: RnW (bit [3]) must be 1 for a write transaction; "
+    // §7.3 RnW=0 means Write; bit[3] must be CLEAR for a write fault.
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3: RnW (bit [3]) must be 0 (Write) for a write transaction; "
         << "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
-// ── Test 3: Write fault — RnW at bit [3] NOT bit [6] ─────────────────────
+// ── Test 3: Write fault — RnW CLEAR at bit [3], also NOT bit [6] ─────────
 
-/// §7.3: Write fault must set bit [3] (RnW) and NOT bit [6] (old wrong WnR).
-/// This is the primary regression test for FINDING-L-04: current buggy code
-/// sets bit [6] instead of bit [3].
+/// §7.3: Write fault must CLEAR bit [3] (RnW=0=Write) and NOT set bit [6].
+/// Bit [6] was the old wrong WnR position; neither the old nor new position
+/// should be set for a Write fault (since RnW=0=Write means bit[3] is clear).
+/// NEW-1 fix: prior test expected bit[3]=1 for writes (wrong spec interpretation).
 TEST_F(FaultSyndromeSpecTest, WriteFault_RnWAtBit3_NotBit6) {
     PagePermissions readOnly(true, false, false);
     ASSERT_TRUE(smmu->mapPage(TEST_STREAM, TEST_PASID, BASE_IOVA, BASE_PA, readOnly).isOk());
@@ -163,12 +168,12 @@ TEST_F(FaultSyndromeSpecTest, WriteFault_RnWAtBit3_NotBit6) {
     FaultSyndrome syn = getSyndromeForAccessType(AccessType::Write);
     ASSERT_TRUE(syn.validSyndrome) << "No valid fault syndrome recorded for Write";
 
-    // Spec-correct position: bit [3] must be 1.
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3: RnW must be set at bit [3] for a write fault; "
+    // Spec-correct: RnW=0 for Write → bit[3] must be CLEAR.
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3: RnW (bit [3]) must be 0 (Write) for a write fault; "
         << "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 
-    // Wrong position: bit [6] must be 0 (old WnR placement).
+    // Old wrong position: bit [6] must also be 0.
     EXPECT_EQ(syn.syndromeRegister & OLD_WNR_BIT, 0u)
         << "§7.3: bit [6] must be 0 (old wrong WnR position); "
         << "syndromeRegister=0x" << std::hex << syn.syndromeRegister;

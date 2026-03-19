@@ -437,6 +437,43 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     break;
             }
         }
+        // NEW-6 fix: Apply INSTCFG/PRIVCFG overrides after STRW promotion, mirroring
+        // stream_context.cpp translateUnlocked() so TLB fast-path permission checks
+        // use the same effective access type as the slow path.
+        if (streamCfgForTlb.instCfg == 1u) {
+            if (effectiveAccessType == AccessType::Read)
+                effectiveAccessType = AccessType::Execute;
+            else if (effectiveAccessType == AccessType::ReadPrivileged)
+                effectiveAccessType = AccessType::ExecutePrivileged;
+        } else if (streamCfgForTlb.instCfg == 2u) {
+            if (effectiveAccessType == AccessType::Execute)
+                effectiveAccessType = AccessType::Read;
+            else if (effectiveAccessType == AccessType::ExecutePrivileged)
+                effectiveAccessType = AccessType::ReadPrivileged;
+            else if (effectiveAccessType == AccessType::ReadExecute)
+                effectiveAccessType = AccessType::Read;
+            else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+                effectiveAccessType = AccessType::ReadPrivileged;
+        }
+        if (streamCfgForTlb.privCfg == 2u) {
+            switch (effectiveAccessType) {
+                case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;        break;
+                case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;       break;
+                case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;     break;
+                case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite;   break;
+                case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
+                default: break;
+            }
+        } else if (streamCfgForTlb.privCfg == 3u) {
+            switch (effectiveAccessType) {
+                case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+                case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+                case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+                case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+                case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+                default: break;
+            }
+        }
         IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
         Result<TLBEntry> entryResult = tlbCache->lookupEntry(streamID, pasid, pageAlignedIOVA, securityState);
         if (entryResult.isOk()) {
@@ -1723,9 +1760,54 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::PASIDNotFound);
     }
     
+    // NEW-2 fix: §13.4/§13 — STE overrides (INSTCFG, PRIVCFG) must be applied
+    // before any permission check, including the stage-1 translatePage call.
+    // Mirror the same override logic used by StreamContext::translateUnlocked()
+    // (stream_context.cpp ~1100-1157).  Note: STRW promotion is NOT applied here
+    // because performBothStagesTranslation is only called for two-stage streams
+    // (stage2Enabled=true), and STRW is defined to be ignored when stage-2 is active.
+    AccessType effectiveAccessType = accessType;
+    // INSTCFG override (matches stream_context.cpp logic).
+    if (config.instCfg == 1u) {
+        if (effectiveAccessType == AccessType::Read)
+            effectiveAccessType = AccessType::Execute;
+        else if (effectiveAccessType == AccessType::ReadPrivileged)
+            effectiveAccessType = AccessType::ExecutePrivileged;
+    } else if (config.instCfg == 2u) {
+        if (effectiveAccessType == AccessType::Execute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+        else if (effectiveAccessType == AccessType::ReadExecute)
+            effectiveAccessType = AccessType::Read;
+        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+            effectiveAccessType = AccessType::ReadPrivileged;
+    }
+    // PRIVCFG override (matches stream_context.cpp logic).
+    if (config.privCfg == 2u) {
+        switch (effectiveAccessType) {
+            case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;        break;
+            case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;       break;
+            case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;     break;
+            case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite;   break;
+            case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
+            default: break;
+        }
+    } else if (config.privCfg == 3u) {
+        switch (effectiveAccessType) {
+            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+            default: break;
+        }
+    }
+
     // Perform Stage-1 translation: IOVA -> IPA
     // NEW-GAP-J: pass ha and affd so translatePage can enforce the AF fault rule.
-    TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, accessType, securityState,
+    // NEW-2 fix: use effectiveAccessType (post INSTCFG/PRIVCFG) for the permission check.
+    TranslationResult stage1Result = stage1AddressSpace->translatePage(iova, effectiveAccessType, securityState,
                                                                         config.ha, config.affd);
     if (stage1Result.isError()) {
         // Stage-1 translation failed - record fault with comprehensive syndrome
@@ -1771,43 +1853,15 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
     // §5.4 NEW-GAP-K: WXN/UWXN write-execute-never permission override.
     // Applied after stage-1 succeeds, before stage-2 translation.
-    // Bug D fix: derive effectiveAccessType for WXN/UWXN the same way translateUnlocked() does,
-    // so that INSTCFG/PRIVCFG/STRW overrides are reflected before the execute check.
+    // NEW-2 fix: use the effectiveAccessType computed above (INSTCFG/PRIVCFG already
+    // applied), eliminating the duplicate wxnEffective computation that previously
+    // re-derived the overrides from the raw accessType.
     {
-        AccessType wxnEffective = accessType;
-        // STRW promotion (mirrors translateUnlocked logic, guarded by !stage2Enabled).
-        // (performBothStagesTranslation is only called for two-stage streams so stage2Enabled=true
-        //  and STRW is always ignored — no STRW promotion needed here.)
-        // INSTCFG override.
-        if (config.instCfg == 1u) {
-            if (wxnEffective == AccessType::Read)           wxnEffective = AccessType::Execute;
-            else if (wxnEffective == AccessType::ReadPrivileged) wxnEffective = AccessType::ExecutePrivileged;
-        } else if (config.instCfg == 2u) {
-            if (wxnEffective == AccessType::Execute)              wxnEffective = AccessType::Read;
-            else if (wxnEffective == AccessType::ExecutePrivileged)    wxnEffective = AccessType::ReadPrivileged;
-            else if (wxnEffective == AccessType::ReadExecute)          wxnEffective = AccessType::Read;
-            else if (wxnEffective == AccessType::ReadExecutePrivileged) wxnEffective = AccessType::ReadPrivileged;
-        }
-        // PRIVCFG override.
-        if (config.privCfg == 2u) {
-            if (wxnEffective == AccessType::ReadPrivileged)         wxnEffective = AccessType::Read;
-            else if (wxnEffective == AccessType::WritePrivileged)   wxnEffective = AccessType::Write;
-            else if (wxnEffective == AccessType::ExecutePrivileged) wxnEffective = AccessType::Execute;
-            else if (wxnEffective == AccessType::ReadWritePrivileged) wxnEffective = AccessType::ReadWrite;
-            else if (wxnEffective == AccessType::ReadExecutePrivileged) wxnEffective = AccessType::ReadExecute;
-        } else if (config.privCfg == 3u) {
-            if (wxnEffective == AccessType::Read)          wxnEffective = AccessType::ReadPrivileged;
-            else if (wxnEffective == AccessType::Write)    wxnEffective = AccessType::WritePrivileged;
-            else if (wxnEffective == AccessType::Execute)  wxnEffective = AccessType::ExecutePrivileged;
-            else if (wxnEffective == AccessType::ReadWrite) wxnEffective = AccessType::ReadWritePrivileged;
-            else if (wxnEffective == AccessType::ReadExecute) wxnEffective = AccessType::ReadExecutePrivileged;
-        }
-
         // Bug A fix: isExec now includes ReadExecute and ReadExecutePrivileged.
-        bool isExec = (wxnEffective == AccessType::Execute ||
-                       wxnEffective == AccessType::ExecutePrivileged ||
-                       wxnEffective == AccessType::ReadExecute ||
-                       wxnEffective == AccessType::ReadExecutePrivileged);
+        bool isExec = (effectiveAccessType == AccessType::Execute ||
+                       effectiveAccessType == AccessType::ExecutePrivileged ||
+                       effectiveAccessType == AccessType::ReadExecute ||
+                       effectiveAccessType == AccessType::ReadExecutePrivileged);
         if (isExec) {
             const PagePermissions& s1p = stage1Result.getValue().permissions;
             // WXN: writable page is execute-never for all execute accesses.
@@ -1818,8 +1872,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             }
             // UWXN: privileged execute on an unprivileged-writable page is forbidden.
             if (config.uwxn &&
-                (wxnEffective == AccessType::ExecutePrivileged ||
-                 wxnEffective == AccessType::ReadExecutePrivileged) &&
+                (effectiveAccessType == AccessType::ExecutePrivileged ||
+                 effectiveAccessType == AccessType::ReadExecutePrivileged) &&
                 s1p.write && !s1p.privilegedOnly) {
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
                                         accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
@@ -2008,7 +2062,9 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
 
     // ARM SMMU v3 spec: Validate final permissions against requested access.
     // Runs AFTER the S2PS OAS check per §7.3 fault priority ordering.
-    if (!validateAccessPermissions(finalPermissions, accessType)) {
+    // NEW-3 fix: use effectiveAccessType (post INSTCFG/PRIVCFG) computed above,
+    // so the same overrides applied to stage-1 are reflected here.
+    if (!validateAccessPermissions(finalPermissions, effectiveAccessType)) {
         // Permission fault after two-stage translation - final permission check failed
         recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
                                accessType, securityState, FaultStage::BothStages, currentTime, 2, 0);
@@ -2252,16 +2308,66 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
     // in performTwoStageTranslation, performBothStagesTranslation, performStage1OnlyTranslation,
     // or performStage2OnlyTranslation. Only perform recovery actions.
 
+    // NEW-4 fix: §7.3 — EventEntry InD/PnU must reflect post-STE-override access type.
+    // Look up the stream config to apply INSTCFG/PRIVCFG to the raw accessType so that
+    // the generated event carries the correct ind/pnu values per the spec.
+    AccessType eventAccessType = accessType;
+    {
+        size_t stripe = getStreamStripe(streamID);
+        std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
+        auto streamIt = streamMap.find(streamID);
+        if (streamIt != streamMap.end() && streamIt->second) {
+            const StreamConfig& sCfg = streamIt->second->getStreamConfiguration();
+            // INSTCFG override — mirrors stream_context.cpp translateUnlocked() logic.
+            if (sCfg.instCfg == 1u) {
+                if (eventAccessType == AccessType::Read)
+                    eventAccessType = AccessType::Execute;
+                else if (eventAccessType == AccessType::ReadPrivileged)
+                    eventAccessType = AccessType::ExecutePrivileged;
+            } else if (sCfg.instCfg == 2u) {
+                if (eventAccessType == AccessType::Execute)
+                    eventAccessType = AccessType::Read;
+                else if (eventAccessType == AccessType::ExecutePrivileged)
+                    eventAccessType = AccessType::ReadPrivileged;
+                else if (eventAccessType == AccessType::ReadExecute)
+                    eventAccessType = AccessType::Read;
+                else if (eventAccessType == AccessType::ReadExecutePrivileged)
+                    eventAccessType = AccessType::ReadPrivileged;
+            }
+            // PRIVCFG override — mirrors stream_context.cpp translateUnlocked() logic.
+            if (sCfg.privCfg == 2u) {
+                switch (eventAccessType) {
+                    case AccessType::ReadPrivileged:          eventAccessType = AccessType::Read;        break;
+                    case AccessType::WritePrivileged:         eventAccessType = AccessType::Write;       break;
+                    case AccessType::ExecutePrivileged:       eventAccessType = AccessType::Execute;     break;
+                    case AccessType::ReadWritePrivileged:     eventAccessType = AccessType::ReadWrite;   break;
+                    case AccessType::ReadExecutePrivileged:   eventAccessType = AccessType::ReadExecute; break;
+                    default: break;
+                }
+            } else if (sCfg.privCfg == 3u) {
+                switch (eventAccessType) {
+                    case AccessType::Read:        eventAccessType = AccessType::ReadPrivileged;          break;
+                    case AccessType::Write:       eventAccessType = AccessType::WritePrivileged;         break;
+                    case AccessType::Execute:     eventAccessType = AccessType::ExecutePrivileged;       break;
+                    case AccessType::ReadWrite:   eventAccessType = AccessType::ReadWritePrivileged;     break;
+                    case AccessType::ReadExecute: eventAccessType = AccessType::ReadExecutePrivileged;   break;
+                    default: break;
+                }
+            }
+        }
+    }
+
     // ARM SMMU v3 spec: Implement fault recovery mechanisms based on fault type
     switch (faultType) {
         case FaultType::TranslationFault:
             // §7.3.13: F_TRANSLATION (0x10) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
-            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            // CONF-GAP-20: pass eventAccessType so rnw/ind/pnu wire-format fields are set.
             // GAP NEW-2: propagate stage-2 context (S2 flag, IPA) from thread-local state
             // set by performBothStagesTranslation() when stage-2 translation failed.
+            // NEW-4 fix: eventAccessType carries post-INSTCFG/PRIVCFG overrides.
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, accessType,
+                          false, 0, eventAccessType,
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             // Could implement page fault handling or demand paging here
             handleTranslationFaultRecovery(streamID, pasid, iova, securityState);
@@ -2270,10 +2376,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::PermissionFault:
             // §7.3.16: F_PERMISSION (0x13) must be generated for terminate-mode streams.
             // Stall-mode faults already generate the event in the stall path above.
-            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are set.
+            // CONF-GAP-20: pass eventAccessType so rnw/ind/pnu wire-format fields are set.
             // GAP NEW-2: propagate stage-2 context for permission faults that occurred at stage-2.
+            // NEW-4 fix: eventAccessType carries post-INSTCFG/PRIVCFG overrides.
             generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
-                          false, 0, accessType,
+                          false, 0, eventAccessType,
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             // Could implement permission escalation or security logging
             handlePermissionFaultRecovery(streamID, pasid, iova, accessType, securityState);
@@ -2285,8 +2392,14 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             break;
 
         case FaultType::AccessFault:
-            // Could implement access retry or alternative path handling
+            // NEW-5 fix: Defensive fallback — this case is currently unreachable
+            // (no spec-defined error code routes here), but emit F_TRANSLATION as a
+            // safe fallback to ensure no event is silently dropped if this case ever
+            // becomes reachable in the future.
             handleAccessFaultRecovery(streamID, pasid, iova, accessType, securityState);
+            generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                          false, 0, eventAccessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             break;
 
         case FaultType::SecurityFault: {
@@ -2334,8 +2447,9 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::Level3TranslationFault:
             // §7.3.13: Translation table format error and level-N translation faults
             // → F_TRANSLATION (0x10), not F_ACCESS (0x12).
+            // NEW-4 fix: use eventAccessType (post-override).
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, eventAccessType);
             break;
 
         case FaultType::AccessFlagFault:
@@ -2343,8 +2457,9 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             // fault type in this group that correctly emits F_ACCESS.
             // NEW-B fix: pass tl_stage2FaultCtx so that stage-2 AF faults carry
             // s2=true and the correct IPA in the generated EventEntry (§7.3.13).
+            // NEW-4 fix: use eventAccessType (post-override).
             generateEvent(EventType::F_ACCESS, streamID, pasid, iova, securityState,
-                          false, 0, accessType,
+                          false, 0, eventAccessType,
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             break;
 
@@ -4581,10 +4696,11 @@ FaultSyndrome SMMU::generateFaultSyndrome(FaultType faultType, FaultStage stage,
     // Execute types, leaving ReadWrite, WritePrivileged, ReadWritePrivileged, and
     // ExecutePrivileged with wrong RnW/InD bits.
     //
-    // ARM IHI0070G.b §7.3.13–7.3.15, line 35325:
-    //   RnW (bit [3]) = 1 for any access that contains a write component.
-    //   InD (bit [2]) = 1 for instruction fetches, BUT ONLY when RnW == 0.
+    // ARM IHI0070G.b §7.3.13–7.3.15:
+    //   RnW (bit [3]) = 1 for Read accesses (Read-not-Write), 0 for Write accesses.
+    //   InD (bit [2]) = 1 for instruction fetches, BUT ONLY when RnW == 1 (no write component).
     //   "InD == 0 when RnW == 0" is a spec-required constraint.
+    // NEW-1 fix: corrected — prior code wrongly set RnW=1 for writes (inverted).
     bool writeAccess = (accessType == AccessType::Write             ||
                         accessType == AccessType::ReadWrite         ||
                         accessType == AccessType::WritePrivileged   ||
@@ -4630,8 +4746,10 @@ uint32_t SMMU::encodeFaultSyndromeRegister(FaultType faultType, FaultStage stage
         syndrome |= (1u << 2);
     }
 
-    // Bit [3]: RnW — write (1) or read (0).
-    if (writeAccess) {
+    // Bit [3]: RnW — read (1) or write (0).
+    // ARM §7.3: RnW=1 means Read (Read-not-Write), RnW=0 means Write.
+    // NEW-1 fix: inverted from the buggy "if (writeAccess)" condition.
+    if (!writeAccess) {
         syndrome |= (1u << 3);
     }
 

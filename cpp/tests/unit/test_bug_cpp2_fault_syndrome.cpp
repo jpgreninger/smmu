@@ -1,27 +1,26 @@
 // BUG-CPP-2: Wrong WnR/InD bits in generateFaultSyndrome()
 //
 // ARM IHI0070G.b §7.3.13–7.3.15 specifies the syndrome register bit layout:
-//   Bit [3]: RnW — 1 if write access, 0 if read access
+//   Bit [3]: RnW — 1 if READ access (Read-not-Write), 0 if WRITE access
 //   Bit [2]: InD — 1 if instruction fetch (execute), 0 if data access
-//             MUST be 0 when bit [3] (RnW) is 1 (write) per spec line 35325
+//             MUST be 0 when bit [3] (RnW) is 0 (write) per spec
 //
-// The spec defines RnW=1 (bit[3] SET) for any access that includes a write:
-//   AccessType::ReadWrite        → RnW=1, InD=0
-//   AccessType::ReadWritePrivileged → RnW=1, InD=0
-//   AccessType::WritePrivileged  → RnW=1, InD=0
+// CORRECTED spec interpretation (NEW-1 fix):
+// RnW is "Read-not-Write" so:
+//   Write accesses  → RnW=0 (bit[3] CLEAR), InD=0
+//   Read accesses   → RnW=1 (bit[3] SET),   InD=0
+//   Execute accesses → RnW=1 (no write), InD=1
 //
-// For execute-containing but NOT write accesses:
-//   AccessType::Execute          → RnW=0 (bit[3] CLEAR), InD=1 (bit[2] SET)
-//   AccessType::ExecutePrivileged → RnW=0, InD=1
+//   AccessType::ReadWrite        → RnW=0, InD=0 (write class)
+//   AccessType::ReadWritePrivileged → RnW=0, InD=0
+//   AccessType::WritePrivileged  → RnW=0, InD=0
+//   AccessType::Execute          → RnW=1 (read/instruction), InD=1
+//   AccessType::ExecutePrivileged → RnW=1, InD=1
 //
-// Bug: generateFaultSyndrome() only checks the single-variant Write and Execute:
-//   bool writeAccess     = (accessType == AccessType::Write);
-//   bool instructionFetch = (accessType == AccessType::Execute);
+// Bug: generateFaultSyndrome() only checked the single-variant Write and Execute.
+// Post-fix: corrected to match ARM spec RnW definition.
 //
-// This means ReadWrite is incorrectly treated as read-only (RnW=0) and
-// ExecutePrivileged is incorrectly treated as data access (InD=0).
-//
-// TDD: tests MUST FAIL before the fix (wrong bits) and PASS after.
+// TDD: tests updated to reflect correct spec interpretation (NEW-1 fix).
 
 #include <gtest/gtest.h>
 #include "smmu/smmu.h"
@@ -127,13 +126,11 @@ protected:
     PagePermissions readWrite;
 };
 
-// ── BUG-CPP-2a: ReadWrite access — RnW bit [3] must be SET ───────────────
+// ── BUG-CPP-2a: ReadWrite access — RnW bit [3] must be CLEAR ─────────────
 //
-// §7.3: An atomic read-modify-write (AccessType::ReadWrite) contains a write
-// component, so RnW (bit [3]) must be 1. The buggy code only checks
-// (accessType == Write), so ReadWrite incorrectly gets RnW=0.
-//
-// FAILS before fix: bit[3] is 0 (wrong); PASSES after: bit[3] is 1.
+// §7.3: RnW is Read-not-Write. An atomic read-modify-write (ReadWrite) contains
+// a write component, so RnW (bit [3]) must be 0 (Write).
+// NEW-1 fix: prior test expected RnW=1 (wrong spec interpretation).
 
 TEST_F(FaultSyndromeBugTest, ReadWrite_RnWBitMustBeSet) {
     // ReadWrite on a read-only stage-1 page → permission fault syndrome.
@@ -144,9 +141,9 @@ TEST_F(FaultSyndromeBugTest, ReadWrite_RnWBitMustBeSet) {
     ASSERT_TRUE(syn.validSyndrome)
         << "BUG-CPP-2: No valid syndrome recorded for ReadWrite access";
 
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: ReadWrite must set RnW (bit [3]) because it "
-           "contains a write component; buggy code only checks Write singleton; "
+    // §7.3: ReadWrite is write-class → RnW=0 (bit[3] CLEAR).
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 / BUG-CPP-2: ReadWrite must CLEAR RnW (bit [3]=0) for write class; "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
@@ -169,13 +166,10 @@ TEST_F(FaultSyndromeBugTest, ReadWrite_InDBitMustBeClear) {
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
-// ── BUG-CPP-2c: WritePrivileged — RnW bit [3] must be SET ────────────────
+// ── BUG-CPP-2c: WritePrivileged — RnW bit [3] must be CLEAR ─────────────
 //
-// §7.3: WritePrivileged is a write access in privileged mode.
-// It must set RnW (bit [3]).  The buggy code only checks (accessType == Write).
-//
-// FAILS before fix: WritePrivileged != Write → bit[3] clear (wrong).
-// PASSES after fix: write variants correctly set bit[3].
+// §7.3: RnW=0 for write accesses. WritePrivileged is a write → RnW=0.
+// NEW-1 fix: prior test expected RnW=1 (wrong spec interpretation).
 
 TEST_F(FaultSyndromeBugTest, WritePrivileged_RnWBitMustBeSet) {
     smmu->translate(CPP2_STREAM, CPP2_PASID_1, CPP2_IOVA,
@@ -185,16 +179,16 @@ TEST_F(FaultSyndromeBugTest, WritePrivileged_RnWBitMustBeSet) {
     ASSERT_TRUE(syn.validSyndrome)
         << "BUG-CPP-2: No valid syndrome recorded for WritePrivileged access";
 
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: WritePrivileged must set RnW (bit [3]); "
-           "buggy code misses non-Write write variants; "
+    // §7.3: WritePrivileged is write-class → RnW=0 (bit[3] CLEAR).
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 / BUG-CPP-2: WritePrivileged must CLEAR RnW (bit[3]=0) for write class; "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
-// ── BUG-CPP-2d: ReadWritePrivileged — RnW bit [3] must be SET ────────────
+// ── BUG-CPP-2d: ReadWritePrivileged — RnW bit [3] must be CLEAR ──────────
 //
-// §7.3: ReadWritePrivileged contains a write component → RnW must be 1.
-// The buggy code only checks (accessType == Write).
+// §7.3: ReadWritePrivileged is write-class → RnW=0 (bit[3] CLEAR).
+// NEW-1 fix: prior test expected RnW=1 (wrong spec interpretation).
 
 TEST_F(FaultSyndromeBugTest, ReadWritePrivileged_RnWBitMustBeSet) {
     smmu->translate(CPP2_STREAM, CPP2_PASID_1, CPP2_IOVA,
@@ -204,8 +198,9 @@ TEST_F(FaultSyndromeBugTest, ReadWritePrivileged_RnWBitMustBeSet) {
     ASSERT_TRUE(syn.validSyndrome)
         << "BUG-CPP-2: No valid syndrome recorded for ReadWritePrivileged access";
 
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: ReadWritePrivileged must set RnW (bit [3]); "
+    // §7.3: ReadWritePrivileged is write-class → RnW=0 (bit[3] CLEAR).
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 / BUG-CPP-2: ReadWritePrivileged must CLEAR RnW (bit[3]=0); "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
@@ -263,9 +258,10 @@ TEST(FaultSyndromeExecutePrivileged, ExecutePrivileged_InDBitMustBeSet) {
     ASSERT_TRUE(found)
         << "BUG-CPP-2: No valid syndrome recorded for ExecutePrivileged access";
 
-    // RnW (bit [3]) must be CLEAR — no write component.
-    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: ExecutePrivileged has no write → RnW must be 0; "
+    // §7.3: ExecutePrivileged has no write component → RnW=1 (Read-not-Write=1=Read).
+    // NEW-1 fix: prior test expected RnW=0 (wrong); execute is a read, so RnW=1.
+    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 / BUG-CPP-2: ExecutePrivileged has no write → RnW=1 (Read); "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 
     // InD (bit [2]) must be SET — this is an instruction fetch.
@@ -275,9 +271,10 @@ TEST(FaultSyndromeExecutePrivileged, ExecutePrivileged_InDBitMustBeSet) {
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
-// ── BUG-CPP-2f: Plain Write — RnW bit [3] must still be SET (regression) ─
+// ── BUG-CPP-2f: Plain Write — RnW bit [3] must be CLEAR (regression) ─────
 //
-// Regression guard: the fix must not break the already-correct Write case.
+// §7.3: Write accesses set RnW=0 (bit[3] CLEAR). Regression guard.
+// NEW-1 fix: prior test expected RnW=1 (wrong spec interpretation).
 
 TEST_F(FaultSyndromeBugTest, PlainWrite_RnWBitStillSet_Regression) {
     smmu->translate(CPP2_STREAM, CPP2_PASID_1, CPP2_IOVA,
@@ -287,12 +284,13 @@ TEST_F(FaultSyndromeBugTest, PlainWrite_RnWBitStillSet_Regression) {
     ASSERT_TRUE(syn.validSyndrome)
         << "BUG-CPP-2: No valid syndrome for plain Write (regression)";
 
-    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: Plain Write must still set RnW (regression guard); "
+    // §7.3: Write → RnW=0 (bit[3] CLEAR).
+    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 / BUG-CPP-2: Plain Write must CLEAR RnW (bit[3]=0) per spec; "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 
     EXPECT_EQ(syn.syndromeRegister & SYND_IND_BIT, 0u)
-        << "§7.3 / BUG-CPP-2: Plain Write must have InD=0 (regression guard); "
+        << "§7.3 / BUG-CPP-2: Plain Write must have InD=0; "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
 }
 
@@ -337,8 +335,10 @@ TEST(FaultSyndromeRegression, PlainExecute_InDSet_RnWClear) {
     }
     ASSERT_TRUE(found) << "BUG-CPP-2: No valid syndrome for plain Execute";
 
-    EXPECT_EQ(syn.syndromeRegister & SYND_RNW_BIT, 0u)
-        << "§7.3 regression: Execute must have RnW=0; "
+    // §7.3: Execute is an instruction fetch (a read) → RnW=1 (Read-not-Write=1=Read).
+    // NEW-1 fix: prior test expected RnW=0 (wrong — execute is a read, not a write).
+    EXPECT_NE(syn.syndromeRegister & SYND_RNW_BIT, 0u)
+        << "§7.3 regression: Execute must have RnW=1 (read/instruction); "
            "syndromeRegister=0x" << std::hex << syn.syndromeRegister;
     EXPECT_NE(syn.syndromeRegister & SYND_IND_BIT, 0u)
         << "§7.3 regression: Execute must have InD=1; "
