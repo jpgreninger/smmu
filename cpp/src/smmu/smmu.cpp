@@ -734,10 +734,62 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // generateEvent() acquires queueMutex — this is safe because the
             // stripe lock is no longer held, eliminating the ABBA deadlock.
             streamContext = nullptr; // Defensive: no further accesses via this pointer
-            // CONF-GAP-20: pass accessType so rnw/ind/pnu wire-format fields are populated.
+            // NEW-A fix: §7.3 — stall event InD/PnU must reflect post-STE-override access type.
+            // Apply STRW→INSTCFG→PRIVCFG overrides to accessType (same order as stream_context.cpp
+            // translateUnlocked() lines 1087-1157) using the streamCfgSnapshot captured at line 413.
+            AccessType stallEventAccessType = accessType;
+            // STRW promotion: only when stage-2 is disabled (§5.2 says STRW is ignored for two-stage).
+            if (!streamCfgSnapshot.stage2Enabled &&
+                (streamCfgSnapshot.strw == StreamWorld::EL2 || streamCfgSnapshot.strw == StreamWorld::EL3)) {
+                switch (stallEventAccessType) {
+                    case AccessType::Read:        stallEventAccessType = AccessType::ReadPrivileged;          break;
+                    case AccessType::Write:       stallEventAccessType = AccessType::WritePrivileged;         break;
+                    case AccessType::Execute:     stallEventAccessType = AccessType::ExecutePrivileged;       break;
+                    case AccessType::ReadWrite:   stallEventAccessType = AccessType::ReadWritePrivileged;     break;
+                    case AccessType::ReadExecute: stallEventAccessType = AccessType::ReadExecutePrivileged;   break;
+                    default: break;
+                }
+            }
+            // INSTCFG override.
+            if (streamCfgSnapshot.instCfg == 1u) {
+                if (stallEventAccessType == AccessType::Read)
+                    stallEventAccessType = AccessType::Execute;
+                else if (stallEventAccessType == AccessType::ReadPrivileged)
+                    stallEventAccessType = AccessType::ExecutePrivileged;
+            } else if (streamCfgSnapshot.instCfg == 2u) {
+                if (stallEventAccessType == AccessType::Execute)
+                    stallEventAccessType = AccessType::Read;
+                else if (stallEventAccessType == AccessType::ExecutePrivileged)
+                    stallEventAccessType = AccessType::ReadPrivileged;
+                else if (stallEventAccessType == AccessType::ReadExecute)
+                    stallEventAccessType = AccessType::Read;
+                else if (stallEventAccessType == AccessType::ReadExecutePrivileged)
+                    stallEventAccessType = AccessType::ReadPrivileged;
+            }
+            // PRIVCFG override.
+            if (streamCfgSnapshot.privCfg == 2u) {
+                switch (stallEventAccessType) {
+                    case AccessType::ReadPrivileged:        stallEventAccessType = AccessType::Read;        break;
+                    case AccessType::WritePrivileged:       stallEventAccessType = AccessType::Write;       break;
+                    case AccessType::ExecutePrivileged:     stallEventAccessType = AccessType::Execute;     break;
+                    case AccessType::ReadWritePrivileged:   stallEventAccessType = AccessType::ReadWrite;   break;
+                    case AccessType::ReadExecutePrivileged: stallEventAccessType = AccessType::ReadExecute; break;
+                    default: break;
+                }
+            } else if (streamCfgSnapshot.privCfg == 3u) {
+                switch (stallEventAccessType) {
+                    case AccessType::Read:        stallEventAccessType = AccessType::ReadPrivileged;          break;
+                    case AccessType::Write:       stallEventAccessType = AccessType::WritePrivileged;         break;
+                    case AccessType::Execute:     stallEventAccessType = AccessType::ExecutePrivileged;       break;
+                    case AccessType::ReadWrite:   stallEventAccessType = AccessType::ReadWritePrivileged;     break;
+                    case AccessType::ReadExecute: stallEventAccessType = AccessType::ReadExecutePrivileged;   break;
+                    default: break;
+                }
+            }
+            // CONF-GAP-20: pass stallEventAccessType so rnw/ind/pnu wire-format fields are populated.
             // GAP NEW-2: propagate stage-2 context (S2 flag, IPA) for stall events that
             // originated in stage-2.  tl_stage2FaultCtx was set by performBothStagesTranslation.
-            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag, accessType,
+            generateEvent(stallEventType, streamID, pasid, iova, securityState, /*isStall=*/true, stag, stallEventAccessType,
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             return makeTranslationError(SMMUError::Stalled);
         }
@@ -1830,7 +1882,7 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 // performStage2OnlyTranslation (line 1570).
                 faultType = FaultType::AddressSizeFault;
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType);
                 break;
             case SMMUError::InvalidSecurityState:
                 faultType = FaultType::SecurityFault;
@@ -1894,7 +1946,7 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
                                        accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType);
                 // Return InvalidConfiguration to suppress a duplicate event in
                 // handleTranslationFailure() (same pattern as S2PS OAS check).
                 return makeTranslationError(SMMUError::InvalidConfiguration);
@@ -1911,7 +1963,7 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
             recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                    accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
             generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
-                          false, 0, accessType);
+                          false, 0, effectiveAccessType);
             // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }
@@ -1934,6 +1986,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         // emit it exactly once, per §3.12.2 (one fault per transaction).
         recordComprehensiveFault(streamID, pasid, iova, FaultType::TranslationFault,
                                accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+        // NEW-E fix: §7.3.13 — null stage-2 AS is a stage-2 translation fault; set
+        // tl_stage2FaultCtx so handleTranslationFailure() emits S2=1 and IPA in the event.
+        // intermediatePA is the IPA produced by stage-1 (assigned at line 1852).
+        tl_stage2FaultCtx.isStage2 = true;
+        tl_stage2FaultCtx.ipa      = intermediatePA;
         return makeTranslationError(SMMUError::PageNotMapped);
     }
     // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
@@ -2015,6 +2072,10 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     if (config.s2ptw && stage2AddressSpace->getPageDeviceMemory(intermediatePA)) {
         recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
                                 accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
+        // NEW-D fix: §7.3.16 — S2PTW device fault is a stage-2 fault; set tl_stage2FaultCtx
+        // so handleTranslationFailure() and the stall path emit S2=1 and the IPA in the event.
+        tl_stage2FaultCtx.isStage2 = true;
+        tl_stage2FaultCtx.ipa      = intermediatePA;
         return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
@@ -2054,7 +2115,7 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 recordComprehensiveFault(streamID, pasid, iova, FaultType::AddressSizeFault,
                                        accessType, securityState, FaultStage::Stage2Only, currentTime, 0, 0);
                 generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
-                              false, 0, accessType);
+                              false, 0, effectiveAccessType);
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             }
         }
@@ -2068,6 +2129,12 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         // Permission fault after two-stage translation - final permission check failed
         recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
                                accessType, securityState, FaultStage::BothStages, currentTime, 2, 0);
+        // NEW-F fix: §7.3.16 — S2=1 when stage-2 is the binding constraint.
+        // Stage-2 is the binding constraint when stage-1 alone would have permitted the access.
+        if (validateAccessPermissions(stage1Data.permissions, effectiveAccessType)) {
+            tl_stage2FaultCtx.isStage2 = true;
+            tl_stage2FaultCtx.ipa      = intermediatePA;
+        }
         return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
@@ -2318,6 +2385,20 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         auto streamIt = streamMap.find(streamID);
         if (streamIt != streamMap.end() && streamIt->second) {
             const StreamConfig& sCfg = streamIt->second->getStreamConfiguration();
+            // NEW-B fix: §7.3 — STRW promotion must precede INSTCFG/PRIVCFG overrides.
+            // ARM §5.2.2: STRW=EL2/EL3 promotes unprivileged access types to privileged
+            // equivalents; guard with !stage2Enabled (STRW is ignored for two-stage streams).
+            if (!sCfg.stage2Enabled &&
+                (sCfg.strw == StreamWorld::EL2 || sCfg.strw == StreamWorld::EL3)) {
+                switch (eventAccessType) {
+                    case AccessType::Read:        eventAccessType = AccessType::ReadPrivileged;          break;
+                    case AccessType::Write:       eventAccessType = AccessType::WritePrivileged;         break;
+                    case AccessType::Execute:     eventAccessType = AccessType::ExecutePrivileged;       break;
+                    case AccessType::ReadWrite:   eventAccessType = AccessType::ReadWritePrivileged;     break;
+                    case AccessType::ReadExecute: eventAccessType = AccessType::ReadExecutePrivileged;   break;
+                    default: break;
+                }
+            }
             // INSTCFG override — mirrors stream_context.cpp translateUnlocked() logic.
             if (sCfg.instCfg == 1u) {
                 if (eventAccessType == AccessType::Read)
