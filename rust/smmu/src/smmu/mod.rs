@@ -4195,7 +4195,11 @@ impl SMMU {
                 .get(&stream_id.as_u32())
                 .map_or(false, |ctx| ctx.mev());
             if stream_mev
-                && queue.iter().any(|e| e.event_type == event.event_type && e.stream_id == event.stream_id)
+                && queue.iter().any(|e| {
+                    e.event_type == event.event_type
+                        && e.stream_id == event.stream_id
+                        && e.pasid == event.pasid
+                })
             {
                 // Duplicate suppressed — drop the event without recording.
                 return;
@@ -5174,7 +5178,10 @@ impl SMMU {
                 // the strict FIFO guarantee of §3.5.1 and §6.3.98.
                 let mut queue = self.pri_queue.write().unwrap();
                 if let Some(head) = queue.front() {
-                    if head.stream_id == command.stream_id && head.prg_index == command.prg_index {
+                    if head.stream_id == command.stream_id
+                        && head.prg_index == command.prg_index
+                        && head.pasid == command.pasid
+                    {
                         queue.pop_front();
                         let cons = self.priq_cons.load(Ordering::Relaxed);
                         self.priq_cons

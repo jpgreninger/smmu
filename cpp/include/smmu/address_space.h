@@ -84,6 +84,11 @@ public:
     // Returns true if the mapped page is Device memory type; false if not mapped or Normal memory.
     bool getPageDeviceMemory(IOVA iova) const;
 
+    // BUG-CPP-3 fix (Approach B): Returns all device-memory page entries so that
+    // setStage2AddressSpace() can propagate them to the replacement AS.
+    // Each element is (iova, PageEntry) for entries where deviceMemory=true.
+    std::vector<std::pair<IOVA, PageEntry>> getDevicePageEntries() const;
+
     // Cache invalidation mechanisms
     void invalidateRange(IOVA startIova, IOVA endIova);
     void invalidateAll();

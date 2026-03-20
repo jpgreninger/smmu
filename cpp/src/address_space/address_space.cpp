@@ -204,6 +204,22 @@ bool AddressSpace::getPageDeviceMemory(IOVA iova) const {
     return it->second.deviceMemory;
 }
 
+// BUG-CPP-3 fix (Approach B): Return all device-memory page entries.
+// Used by StreamContext::setStage2AddressSpace() to propagate device-page
+// entries into a replacement AS so the S2PTW check remains effective after
+// setStreamStage2AddressSpace() replaces the AS that held the device pages.
+std::vector<std::pair<IOVA, PageEntry>> AddressSpace::getDevicePageEntries() const {
+    std::vector<std::pair<IOVA, PageEntry>> result;
+    for (const auto& kv : pageTable) {
+        if (kv.second.valid && kv.second.deviceMemory) {
+            // Recover IOVA from pageNumber (page number is IOVA >> 12, i.e. 4KB pages).
+            IOVA iova = static_cast<IOVA>(kv.first) << 12U;
+            result.push_back({iova, kv.second});
+        }
+    }
+    return result;
+}
+
 // Translate virtual address to physical address with ARM SMMU v3 semantics
 TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType,
                                                SecurityState securityState,

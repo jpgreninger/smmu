@@ -1046,8 +1046,11 @@ TEST_F(StreamContextPhase3Test, IsTranslationActive_False_NoStagesEnabled) {
     EXPECT_FALSE(streamContext->isTranslationActive());
 }
 
-TEST_F(StreamContextPhase3Test, IsTranslationActive_False_NoPASIDs) {
-    // Line 677: Test isTranslationActive when no PASIDs configured
+TEST_F(StreamContextPhase3Test, IsTranslationActive_True_NoPASIDs) {
+    // BUG-CPP-2 fix: isTranslationActive() must return true for an enabled
+    // stage-1 stream even when no PASIDs have been created yet.
+    // ARM spec: STE.V=1 + STE.Config != 0b000 is what makes a stream active,
+    // not PASID population.  The old !pasidMap.empty() guard was incorrect.
     streamContext->setStage1Enabled(true);
 
     StreamConfig config;
@@ -1058,7 +1061,7 @@ TEST_F(StreamContextPhase3Test, IsTranslationActive_False_NoPASIDs) {
     streamContext->updateConfiguration(config);
     streamContext->enableStream();
 
-    EXPECT_FALSE(streamContext->isTranslationActive());
+    EXPECT_TRUE(streamContext->isTranslationActive());
 }
 
 TEST_F(StreamContextPhase3Test, IsTranslationActive_True) {

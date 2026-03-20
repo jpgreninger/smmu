@@ -206,16 +206,15 @@ VoidResult StreamContext::mapPage(PASID pasid, IOVA iova, PA pa, const PagePermi
 VoidResult StreamContext::mapStage2DevicePage(IOVA ipa, PA pa, const PagePermissions& permissions,
                                                SecurityState securityState) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    // §5.2 NEW-GAP-L: If stage2AddressSpace is currently aliased to the PASID-0
-    // stage-1 address space (set by createStreamPASID when stage2Enabled), replace it
-    // with a fresh dedicated stage-2 address space.  Without this, the device page
-    // would be mapped into the stage-1 space and performBothStagesTranslation would
-    // short-circuit via the alias guard (stage2 == stage1), bypassing the S2PTW check.
-    auto pasid0It = pasidMap.find(0u);
-    bool aliasedToPassid0 = (pasid0It != pasidMap.end()) &&
-                            (stage2AddressSpace == pasid0It->second);
-    if (!stage2AddressSpace || aliasedToPassid0) {
-        // Create a new dedicated stage-2 address space.
+    // BUG-CPP-3 fix (Approach B): Do NOT replace the existing stage2AddressSpace
+    // when it is aliased to the PASID-0 stage-1 AS.  Replacing it would discard
+    // any normal stage-2 pages that a subsequent setStreamStage2AddressSpace call
+    // adds to the original AS.  Instead, simply ensure stage2AddressSpace is
+    // non-null (create one only when completely absent) and map the device page
+    // in-band on whichever AS currently serves as stage-2.  The alias short-circuit
+    // guard in performBothStagesTranslation is removed separately so the real
+    // stage-2 walk always runs.
+    if (!stage2AddressSpace) {
         stage2AddressSpace = std::make_shared<AddressSpace>();
     }
     return stage2AddressSpace->mapPageDevice(ipa, pa, permissions, securityState);
@@ -286,8 +285,25 @@ void StreamContext::setStage2Enabled(bool enabled) {
 // ARM SMMU v3 spec: Stage-2 provides shared translation context
 void StreamContext::setStage2AddressSpace(std::shared_ptr<AddressSpace> addressSpace) {
     std::lock_guard<std::mutex> lock(contextMutex);
+
+    // BUG-CPP-3 fix (Approach B): Before replacing the current stage-2 AS, carry
+    // over any device-memory page entries so that S2PTW checks remain effective.
+    // Scenario: mapStage2DevicePage() mapped a device page into the aliased AS
+    // (pasid0AS), then setStreamStage2AddressSpace() is called with a new AS.
+    // Without migration, the device-page entry would be silently discarded and
+    // the S2PTW F_PERMISSION fault would never fire for that IPA.
+    if (stage2AddressSpace && addressSpace) {
+        auto devicePages = stage2AddressSpace->getDevicePageEntries();
+        for (const auto& dp : devicePages) {
+            // Re-map the device page into the replacement AS (ignore errors —
+            // the entry may already exist if the caller added it explicitly).
+            addressSpace->mapPageDevice(dp.first, dp.second.physicalAddress,
+                                        dp.second.permissions, dp.second.securityState);
+        }
+    }
+
     stage2AddressSpace = addressSpace;
-    
+
     // ARM SMMU v3: Stage-2 AddressSpace can be shared across multiple streams
     // for efficient memory usage and consistent address translation
 }
@@ -706,8 +722,9 @@ StreamConfig StreamContext::getStreamState() const {
 // ARM SMMU v3 spec: Translation state query
 bool StreamContext::isTranslationActive() const {
     std::lock_guard<std::mutex> lock(contextMutex);
-    // Translation is active if stream is enabled, translation is enabled in config, at least one stage is enabled, and has PASIDs configured
-    return streamEnabled && currentConfiguration.translationEnabled && (stage1Enabled || stage2Enabled) && !pasidMap.empty();
+    // Translation is active if stream is enabled, translation is enabled in config, and at least one stage is enabled.
+    // ARM spec: STE.V=1 + STE.Config != 0b000 determines active state, not PASID population.
+    return streamEnabled && currentConfiguration.translationEnabled && (stage1Enabled || stage2Enabled);
 }
 
 // Check if configuration has been modified

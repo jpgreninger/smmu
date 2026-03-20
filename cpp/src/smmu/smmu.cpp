@@ -2032,12 +2032,23 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::PageNotMapped);
     }
     // ARM §5.2: When stage-2 AS is the same object as stage-1 AS (aliased via createStreamPASID
-    // PASID-0 auto-link), the IPA from stage-1 cannot be looked up in stage-2 (IOVA→IPA mapping,
-    // not IPA→PA).  Treat stage-1 result as the final translation (identity stage-2 semantics).
-    if (stage2AddressSpace == stage1AddressSpace.get()) {
+    // PASID-0 auto-link), the mappings in the AS are IOVA→PA (stage-1 format), not IPA→PA.
+    // Attempting a stage-2 IPA lookup in the aliased AS would fail immediately with F_TRANSLATION.
+    // Treat stage-1 result as the final translation (identity stage-2 semantics).
+    //
+    // BUG-CPP-3 fix: Suppress the alias short-circuit when the aliased AS has device-memory
+    // pages registered in-band (via mapStage2DevicePage).  In that case the aliased AS doubles
+    // as both the stage-1 AS and the stage-2 device-page registry, and the IPA from stage-1
+    // must be checked against the device page to trigger the S2PTW F_PERMISSION fault.
+    // We check whether the IPA produced by stage-1 is a device page; if so, bypass the
+    // alias guard and proceed to the normal stage-2 S2PTW check below.
+    bool aliasedS2HasDevicePage =
+        (stage2AddressSpace == stage1AddressSpace.get()) &&
+        stage2AddressSpace->getPageDeviceMemory(intermediatePA);
+    if (stage2AddressSpace == stage1AddressSpace.get() && !aliasedS2HasDevicePage) {
         return stage1Result;
     }
-    
+
     // Perform Stage-2 translation: IPA -> PA
     // ARM IHI0070G.b §3.3.2, §3.12.1, §3.13.5, Ch.15, §16.5 (BUG-CPP-1 fix):
     // The Stage-2 translatePage lookup for the IPA->PA mapping must use
@@ -4430,7 +4441,7 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // acquired) to preserve the stripe_lock → queueMutex lock order.
     if (mevEnabled) {
         for (const auto& existing : eventQueue) {
-            if (existing.type == type && existing.streamID == streamID) {
+            if (existing.type == type && existing.streamID == streamID && existing.pasid == pasid) {
                 return; // suppress duplicate
             }
         }

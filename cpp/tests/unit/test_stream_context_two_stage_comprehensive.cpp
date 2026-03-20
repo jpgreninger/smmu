@@ -307,8 +307,10 @@ TEST_F(TwoStageTranslationTest, IsTranslationActive_NoStagesEnabled_ReturnsFalse
     EXPECT_FALSE(isActive);  // Should be false because no stages enabled
 }
 
-TEST_F(TwoStageTranslationTest, IsTranslationActive_NoPASIDs_ReturnsFalse) {
-    // Target: Lines 674-678 - Translation active query with no PASIDs
+TEST_F(TwoStageTranslationTest, IsTranslationActive_NoPASIDs_ReturnsTrue) {
+    // BUG-CPP-2 fix: isTranslationActive() must return true for an enabled
+    // stage-1 stream even with no PASIDs yet.  PASID population does not
+    // affect whether a stream is "active" per the ARM SMMU v3 spec.
     StreamConfig config;
     config.translationEnabled = true;
     config.stage1Enabled = true;
@@ -317,10 +319,10 @@ TEST_F(TwoStageTranslationTest, IsTranslationActive_NoPASIDs_ReturnsFalse) {
     streamContext->updateConfiguration(config);
     streamContext->enableStream();
 
-    // No PASIDs created
+    // No PASIDs created — stream is still active per the spec.
     bool isActive = streamContext->isTranslationActive();
 
-    EXPECT_FALSE(isActive);  // Should be false because no PASIDs
+    EXPECT_TRUE(isActive);  // BUG-CPP-2 fix: true because stream+stage are enabled
 }
 
 TEST_F(TwoStageTranslationTest, IsTranslationActive_AllConditionsMet_ReturnsTrue) {
