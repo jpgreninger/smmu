@@ -2016,13 +2016,20 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 return makeTranslationError(SMMUError::PagePermissionViolation);
             }
             // UWXN: privileged execute on an unprivileged-writable page is forbidden.
-            if (config.uwxn &&
-                (effectiveAccessType == AccessType::ExecutePrivileged ||
-                 effectiveAccessType == AccessType::ReadExecutePrivileged) &&
-                s1p.write && !s1p.privilegedOnly) {
-                recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
-                                        accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
-                return makeTranslationError(SMMUError::PagePermissionViolation);
+            // ARM §5.4: UWXN is IGNORED when all accesses are privileged, i.e.
+            // when strw==EL2 or strw==EL3.  EL2_E2H is explicitly excluded from
+            // this exemption per §3.3.4.
+            {
+                bool allPrivilegedStream = (config.strw == StreamWorld::EL2 ||
+                                            config.strw == StreamWorld::EL3);
+                if (config.uwxn && !allPrivilegedStream &&
+                    (effectiveAccessType == AccessType::ExecutePrivileged ||
+                     effectiveAccessType == AccessType::ReadExecutePrivileged) &&
+                    s1p.write && !s1p.privilegedOnly) {
+                    recordComprehensiveFault(streamID, pasid, iova, FaultType::PermissionFault,
+                                            accessType, securityState, FaultStage::Stage1Only, currentTime, 0, 0);
+                    return makeTranslationError(SMMUError::PagePermissionViolation);
+                }
             }
         }
     }
@@ -5311,7 +5318,10 @@ uint32_t SMMU::getPriqConsIndex() const {
 
 bool SMMU::isCmdqEmptyByIndex() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return cmdqProd.load(std::memory_order_relaxed) == cmdqCons.load(std::memory_order_relaxed);
+    // ARM §6.3.28: CMDQ_CONS has ERR at bits[30:24] and RD at bits[19:0].
+    // Queue empty iff PROD.WR == CONS.RD — compare only the RD portion.
+    return (cmdqProd.load(std::memory_order_relaxed) & 0xFFFFFu) ==
+           (cmdqCons.load(std::memory_order_relaxed) & 0xFFFFFu);
 }
 
 bool SMMU::isEventqEmptyByIndex() const {
@@ -5321,7 +5331,11 @@ bool SMMU::isEventqEmptyByIndex() const {
 
 uint32_t SMMU::getCmdqOccupiedEntries() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return queueOccupied(cmdqProd.load(std::memory_order_relaxed), cmdqCons.load(std::memory_order_relaxed), cmdqLog2Size);
+    // ARM §6.3.28: mask the ERR field (bits[30:24]) from CONS before computing
+    // occupied entries — only the RD field (bits[19:0]) is a queue pointer.
+    return queueOccupied(cmdqProd.load(std::memory_order_relaxed),
+                         cmdqCons.load(std::memory_order_relaxed) & 0xFFFFFu,
+                         cmdqLog2Size);
 }
 
 uint32_t SMMU::getEventqOccupiedEntries() const {

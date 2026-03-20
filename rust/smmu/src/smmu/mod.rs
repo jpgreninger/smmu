@@ -3537,11 +3537,30 @@ impl SMMU {
                     }
                 }
 
+                // BUG-2 fix: §3.4.1 — CD.TBI masking must also be applied to the
+                // address-space lookup, not only to the T0SZ range check above.
+                // When TBI=1, VA[63:56] are ignored for translation purposes; however
+                // the original unmasked IOVA must still appear in fault records
+                // (ARM §3.4.1: "All input address bits are recorded unmodified in
+                // SMMU fault event records").
+                //
+                // We therefore compute a separate `lookup_iova` for the walk and keep
+                // the original `iova` exclusively for fault address fields.
+                let tbi_enabled = stream_ref.value().get_tbi();
+                let lookup_iova = if tbi_enabled {
+                    IOVA::new(iova.as_u64() & !0xFF00_0000_0000_0000u64)
+                        .unwrap_or(iova)
+                } else {
+                    iova
+                };
+
                 // Delegate to StreamContext for actual translation.
                 // Use translate_and_get_stage2_ipa() so the SMMU can populate the S2 and IPA
                 // fields in the event record for two-stage faults (ARM §7.3.13 / GAP NEW-2).
+                // Pass lookup_iova (top byte stripped when TBI=1) for the walk; `iova` is
+                // retained above for all fault address reporting paths.
                 let (r, stage2_ipa_opt) = stream_ref.value().translate_and_get_stage2_ipa(
-                    pasid, iova, access, security_state,
+                    pasid, lookup_iova, access, security_state,
                 );
                 (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt)
             } else {

@@ -1271,7 +1271,12 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
                     return makeTranslationError(FaultType::PermissionFault);
                 }
                 // UWXN: privileged execute on an unprivileged-writable page is forbidden.
-                if (currentConfiguration.uwxn &&
+                // ARM §5.4: UWXN is IGNORED when all accesses are privileged, i.e.
+                // when strw==EL2 or strw==EL3.  EL2_E2H is explicitly excluded from
+                // this exemption per §3.3.4.
+                bool allPrivilegedStream = (currentConfiguration.strw == StreamWorld::EL2 ||
+                                            currentConfiguration.strw == StreamWorld::EL3);
+                if (currentConfiguration.uwxn && !allPrivilegedStream &&
                     (effectiveAccessType == AccessType::ExecutePrivileged ||
                      effectiveAccessType == AccessType::ReadExecutePrivileged) &&
                     s1p.write && !s1p.privilegedOnly) {
