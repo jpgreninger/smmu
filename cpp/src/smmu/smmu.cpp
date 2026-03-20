@@ -409,7 +409,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
 
     // BUG-NEW-CPP-2 fix: acquire load pairs with the release stores in enableCaching(),
     // reset(), and applyConfiguration() so concurrent writes are safely observed.
-    if (cachingEnabled.load(std::memory_order_acquire) && tlbCache) {
+    // BUG-NEW-CPP-D fix: §7.3.7 — Config=0b000 abort-mode streams must not serve
+    // TLB hits. Skip the fast path entirely when no stage or bypass is enabled so
+    // stale cache entries never short-circuit the slow path's terminate logic.
+    if (cachingEnabled.load(std::memory_order_acquire) && tlbCache &&
+        (streamCfgSnapshot.stage1Enabled || streamCfgSnapshot.stage2Enabled || streamCfgSnapshot.bypassEnabled)) {
         const StreamConfig& streamCfgForTlb = streamCfgSnapshot;
         // Derive effective access type for the privilege-aware permission check.
         // BUG-CPP-DBGR-5 fix: §5.2 says STRW is IGNORED when stage-2 is enabled for
@@ -2362,6 +2366,11 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
 
     // Record fault if translation failed
     if (result.isError()) {
+        // BUG-NEW-CPP-A fix: §7.3.13 — for S2-only streams, iova IS the IPA; all faults
+        // are stage-2 faults. Set tl_stage2FaultCtx on every error path so generateEvent()
+        // sees S2=true and IPA=iova regardless of the error type.
+        tl_stage2FaultCtx.isStage2 = true;
+        tl_stage2FaultCtx.ipa      = iova;
         FaultRecord fault;
         fault.streamID = streamID;
         fault.pasid = pasid;

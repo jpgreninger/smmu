@@ -1282,10 +1282,14 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         }
 
         // ARM §3.13: Update AF/dirty bits when hardware management enabled
-        if (ha || hd) {
+        // BUG-NEW-CPP-B fix: §3.13.2 — check both the direct setter path (ha/hd
+        // private members) and the configureStream() path (currentConfiguration.ha/hd)
+        // so that HTTU updates fire regardless of how the stream was configured.
+        if ((ha || currentConfiguration.ha) || (hd || currentConfiguration.hd)) {
             AddressSpace* as1 = getPASIDAddressSpaceUnlocked(pasid);
             if (as1) {
-                as1->updateAccessFlags(iova, ha, hd, effectiveAccessType);
+                as1->updateAccessFlags(iova, (ha || currentConfiguration.ha),
+                                       (hd || currentConfiguration.hd), effectiveAccessType);
             }
         }
 

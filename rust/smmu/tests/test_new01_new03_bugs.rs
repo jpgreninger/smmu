@@ -117,10 +117,11 @@ fn new01_t0sz_fault_privcfg3_pnu_is_true() {
 ///
 /// `matches!(access, AccessType::Write)` returns false for `WritePrivileged`,
 /// so the bug causes `rnw=false` for write-privileged accesses.  After the fix,
-/// `access.can_write()` correctly returns true for `WritePrivileged`.
+/// `access.can_write()` correctly returns true for `WritePrivileged`,
+/// and BUG-NEW-RUST-1 fix: rnw = !can_write(), so Write → rnw=false (RnW=0=Write per ARM §7.3).
 ///
-/// BEFORE FIX: rnw=false (matches! misses WritePrivileged).
-/// AFTER FIX:  rnw=true.
+/// BEFORE BUG-NEW-RUST-1: rnw=can_write()=true for WritePrivileged (inverted — wrong).
+/// AFTER BUG-NEW-RUST-1:  rnw=!can_write()=false (correct — ARM §7.3: RnW=0 means Write).
 #[test]
 fn new01_t0sz_fault_write_privileged_rnw_is_true() {
     let smmu = make_smmu();
@@ -165,11 +166,11 @@ fn new01_t0sz_fault_write_privileged_rnw_is_true() {
         "NEW-01: Expected FTranslation event; got {:?}",
         ev.event_type
     );
-    // BEFORE FIX: rnw=false (matches!(WritePrivileged, Write) returns false).
-    // AFTER FIX:  rnw=true  (WritePrivileged.can_write() returns true).
+    // BUG-NEW-RUST-1 fix: ARM §7.3 RnW=0 means Write, RnW=1 means Read.
+    // WritePrivileged.can_write()=true → rnw = !true = false (correct).
     assert!(
-        ev.rnw,
-        "NEW-01: T0SZ fault with WritePrivileged must have rnw=true; got rnw=false"
+        !ev.rnw,
+        "NEW-01: T0SZ fault with WritePrivileged must have rnw=false (ARM §7.3: RnW=0=Write); got rnw=true"
     );
 }
 

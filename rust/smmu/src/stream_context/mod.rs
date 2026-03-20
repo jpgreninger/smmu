@@ -2068,7 +2068,7 @@ impl StreamContext {
         // NEW-03 fix: §7.3.13 — return Some(ipa_raw) so the SMMU caller emits the event
         // with s2=true and the actual IPA value (not s2=false, ipa=0).
         {
-            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire).min(48);
             if s2_t0sz > 0 {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa_raw >= ipa_limit {
@@ -2261,7 +2261,7 @@ impl StreamContext {
         // For stage-2-only streams, the incoming IOVA is the IPA.
         // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
         {
-            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire).min(48);
             if s2_t0sz > 0 {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa.as_u64() >= ipa_limit {
@@ -2315,16 +2315,6 @@ impl StreamContext {
                 let pa_limit: u64 = 1u64 << pa_bits;
                 if data.physical_address().as_u64() >= pa_limit {
                     return Err(TranslationError::AddressSizeError);
-                }
-            }
-        }
-
-        // NEW-GAP-L: §5.2 S2PTW — protected table walk (stage-2-only path).
-        if self.s2ptw.load(Ordering::Acquire) {
-            let stage2_guard = self.stage2_address_space.read().unwrap();
-            if let Some(stage2) = stage2_guard.as_ref() {
-                if stage2.get_page_device_memory(ipa) {
-                    return Err(TranslationError::S2PtwFault);
                 }
             }
         }
@@ -2442,7 +2432,7 @@ impl StreamContext {
         // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.
         // PageNotMapped → FaultType::TranslationFault; the SMMU caller records the event.
         {
-            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire);
+            let s2_t0sz = self.s2_t0sz.load(Ordering::Acquire).min(48);
             if s2_t0sz > 0 {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa_raw >= ipa_limit {

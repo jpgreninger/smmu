@@ -113,7 +113,7 @@ pub struct EventEntry {
     pub event_class: u8,
     /// S2 flag — true if the fault occurred during Stage-2 translation (§7.3).
     pub s2: bool,
-    /// RnW — true=write, false=read (§7.3).
+    /// RnW — true=read, false=write (ARM §7.3: RnW=1 means Read not Write).
     pub rnw: bool,
     /// InD — true=instruction fetch, false=data access (§7.3).
     pub ind: bool,

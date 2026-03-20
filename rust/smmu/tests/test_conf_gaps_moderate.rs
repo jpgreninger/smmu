@@ -328,7 +328,8 @@ fn test_conf_gap20_event_entry_rnw_write() {
 
     let events = smmu.get_events();
     assert!(!events.is_empty());
-    assert!(events[0].rnw, "rnw must be true for Write access");
+    // BUG-NEW-RUST-1 fix: ARM §7.3 RnW=0 means Write, RnW=1 means Read.
+    assert!(!events[0].rnw, "rnw must be false (0) for Write access (ARM §7.3: RnW=0=Write)");
 }
 
 #[test]
@@ -346,7 +347,8 @@ fn test_conf_gap20_event_entry_rnw_read() {
 
     let events = smmu.get_events();
     assert!(!events.is_empty());
-    assert!(!events[0].rnw, "rnw must be false for Read access");
+    // BUG-NEW-RUST-1 fix: ARM §7.3 RnW=1 means Read, RnW=0 means Write.
+    assert!(events[0].rnw, "rnw must be true (1) for Read access (ARM §7.3: RnW=1=Read)");
 }
 
 #[test]

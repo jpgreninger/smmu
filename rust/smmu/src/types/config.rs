@@ -649,6 +649,18 @@ impl StreamConfig {
             });
         }
 
+        // BUG-NEW-RUST-4 fix: ARM §5.2 — S2T0SZ > 48 is out-of-range → C_BAD_STE.
+        // Values > 64 additionally cause underflow panic in the IPA range check
+        // (1u64 << (64 - s2_t0sz)). Reject at config time.
+        if self.s2_t0sz > 48 {
+            return Err(ValidationError::InvalidConfiguration {
+                reason: format!(
+                    "s2_t0sz={} exceeds maximum of 48 (ARM §5.2 S2T0SZ, C_BAD_STE)",
+                    self.s2_t0sz
+                ),
+            });
+        }
+
         Ok(())
     }
 
