@@ -3333,7 +3333,7 @@ impl SMMU {
                     if let Some(stream_ref) = self.streams.get(&stream_value) {
                         // Privilege check (BUG-3 fix) and output-attr application (BUG-RUST-DBGR-1
                         // fix) use the SAME guard — no race window between the two operations.
-                        if cached.permissions.privileged_only() && !stream_ref.value().strw_suppresses_priv() {
+                        if cached.permissions.privileged_only() && !stream_ref.value().effective_priv_suppresses_check() {
                             // privileged_only page and STRW enforces the check: deny access.
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             return Err(TranslationError::PermissionViolation { access });

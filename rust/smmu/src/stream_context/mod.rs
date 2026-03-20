@@ -1777,6 +1777,30 @@ impl StreamContext {
             _ => access_type,
         };
 
+        // BUG-RUST-1 fix: §3.3.4/§13.5 — STE.PRIVCFG override applied to effective_access
+        // before dispatching to translate_two_stage / translate_stage2_only.
+        // The translate_and_get_stage2_ipa() path already applies this; translate() did not.
+        // PRIVCFG=2 (Force Unprivileged): demote privileged access-type variants to unprivileged.
+        // PRIVCFG=3 (Force Privileged): promote unprivileged access-type variants to privileged.
+        // PRIVCFG=0/1 (Use Incoming): pass effective_access unchanged.
+        let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
+            2 => match effective_access {
+                AccessType::ReadPrivileged      => AccessType::Read,
+                AccessType::WritePrivileged     => AccessType::Write,
+                AccessType::ExecutePrivileged   => AccessType::Execute,
+                AccessType::ReadWritePrivileged => AccessType::ReadWrite,
+                other => other,
+            },
+            3 => match effective_access {
+                AccessType::Read      => AccessType::ReadPrivileged,
+                AccessType::Write     => AccessType::WritePrivileged,
+                AccessType::Execute   => AccessType::ExecutePrivileged,
+                AccessType::ReadWrite => AccessType::ReadWritePrivileged,
+                other => other,
+            },
+            _ => effective_access,
+        };
+
         // NEW-7 fix: §5.4 CD.EPD0=1 — TTBR0 translation table walk disabled → F_TRANSLATION.
         // SW model uses a single address space per PASID (TTBR0-equivalent).
         // EPD1 (TTBR1 upper half) is not modelled separately.
@@ -2321,6 +2345,21 @@ impl StreamContext {
         let ipa_raw = stage1_result.physical_address().as_u64();
         let ipa =
             IOVA::new(ipa_raw).map_err(|_| TranslationError::AddressSizeError)?;
+
+        // BUG-RUST-6 fix: §5.4/§3.4 — CD.IPS: stage-1 output IPA must be within IPS
+        // range → F_ADDR_SIZE.  This check is present in translate_two_stage_with_ipa
+        // but was missing from translate_two_stage, creating a gap where the slow
+        // (non-GATOS) path silently accepted out-of-range IPAs.
+        {
+            let ips = self.ips.load(Ordering::Acquire);
+            let ipa_bits = Self::s2ps_to_bits(ips); // reuse existing S2PS helper (same encoding)
+            if ipa_bits < 52 {
+                let ipa_limit: u64 = 1u64 << ipa_bits;
+                if ipa_raw >= ipa_limit {
+                    return Err(TranslationError::AddressSizeError);
+                }
+            }
+        }
 
         // NEW-3 fix: §3.4 — S2T0SZ IPA input range check → F_TRANSLATION.
         // When S2T0SZ > 0, any IPA at or above 2^(64-S2T0SZ) is out of range.

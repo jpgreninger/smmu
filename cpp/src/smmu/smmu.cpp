@@ -1717,10 +1717,10 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
 
     if (config.stage1Enabled && config.stage2Enabled) {
         // Two-stage translation: IOVA -> IPA -> PA
-        result = performBothStagesTranslation(streamID, pasid, lookupIova, accessType, securityState, streamContext, config, currentTime);
+        result = performBothStagesTranslation(streamID, pasid, lookupIova, effectiveAccessType, securityState, streamContext, config, currentTime);
     } else if (config.stage1Enabled && !config.stage2Enabled) {
         // Stage-1 only: IOVA -> PA directly
-        result = performStage1OnlyTranslation(streamID, pasid, lookupIova, accessType, securityState, streamContext, currentTime);
+        result = performStage1OnlyTranslation(streamID, pasid, lookupIova, effectiveAccessType, securityState, streamContext, currentTime);
     } else if (!config.stage1Enabled && config.stage2Enabled) {
         // ARM §3.9: Stage-2-only stream — stage 1 is absent. A non-zero PASID has
         // no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
@@ -1755,7 +1755,7 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             }
         }
         // Stage-2 only: IPA -> PA (IOVA = IPA)
-        result = performStage2OnlyTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
+        result = performStage2OnlyTranslation(streamID, pasid, iova, effectiveAccessType, securityState, streamContext, currentTime);
     } else {
         // No stages enabled but translation enabled - configuration error
         FaultRecord fault;
@@ -1884,49 +1884,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::PASIDNotFound);
     }
     
-    // NEW-2 fix: §13.4/§13 — STE overrides (INSTCFG, PRIVCFG) must be applied
-    // before any permission check, including the stage-1 translatePage call.
-    // Mirror the same override logic used by StreamContext::translateUnlocked()
-    // (stream_context.cpp ~1100-1157).  Note: STRW promotion is NOT applied here
-    // because performBothStagesTranslation is only called for two-stage streams
-    // (stage2Enabled=true), and STRW is defined to be ignored when stage-2 is active.
-    AccessType effectiveAccessType = accessType;
-    // INSTCFG override (matches stream_context.cpp logic).
-    if (config.instCfg == 1u) {
-        if (effectiveAccessType == AccessType::Read)
-            effectiveAccessType = AccessType::Execute;
-        else if (effectiveAccessType == AccessType::ReadPrivileged)
-            effectiveAccessType = AccessType::ExecutePrivileged;
-    } else if (config.instCfg == 2u) {
-        if (effectiveAccessType == AccessType::Execute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-        else if (effectiveAccessType == AccessType::ReadExecute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-    }
-    // PRIVCFG override (matches stream_context.cpp logic).
-    if (config.privCfg == 2u) {
-        switch (effectiveAccessType) {
-            case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;        break;
-            case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;       break;
-            case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;     break;
-            case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite;   break;
-            case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
-            default: break;
-        }
-    } else if (config.privCfg == 3u) {
-        switch (effectiveAccessType) {
-            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
-            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
-            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
-            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
-            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
-            default: break;
-        }
-    }
+    // BUG-CPP-1 fix: effectiveAccessType (STRW->INSTCFG->PRIVCFG) is now computed
+    // once in performTwoStageTranslation() and passed in as the accessType parameter.
+    // The local re-derivation that previously duplicated that chain has been removed.
+    // Use accessType directly as the already-effective access type throughout.
+    const AccessType effectiveAccessType = accessType;
 
     // Perform Stage-1 translation: IOVA -> IPA
     // NEW-GAP-J: pass ha and affd so translatePage can enforce the AF fault rule.
@@ -2230,59 +2192,13 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                                                     AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-1 only translation IOVA -> PA
 
-    // BUG-5PM-3 fix: §7.3 — InD/PnU must reflect post-STE override values.
-    // Compute effectiveAccessType mirroring stream_context.cpp STRW->INSTCFG->PRIVCFG chain.
-    const StreamConfig& s1Cfg = streamContext->getStreamConfiguration();
-    AccessType effectiveAccessType = accessType;
-    // STRW promotion (stage-1-only: stage2Enabled is always false here).
-    if (s1Cfg.strw == StreamWorld::EL2 || s1Cfg.strw == StreamWorld::EL3) {
-        switch (effectiveAccessType) {
-            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
-            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
-            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
-            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
-            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
-            default: break;
-        }
-    }
-    // INSTCFG override.
-    if (s1Cfg.instCfg == 1u) {
-        if (effectiveAccessType == AccessType::Read)
-            effectiveAccessType = AccessType::Execute;
-        else if (effectiveAccessType == AccessType::ReadPrivileged)
-            effectiveAccessType = AccessType::ExecutePrivileged;
-    } else if (s1Cfg.instCfg == 2u) {
-        if (effectiveAccessType == AccessType::Execute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-        else if (effectiveAccessType == AccessType::ReadExecute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-    }
-    // PRIVCFG override.
-    if (s1Cfg.privCfg == 2u) {
-        switch (effectiveAccessType) {
-            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
-            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
-            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
-            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
-            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
-            default: break;
-        }
-    } else if (s1Cfg.privCfg == 3u) {
-        switch (effectiveAccessType) {
-            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
-            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
-            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
-            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
-            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
-            default: break;
-        }
-    }
+    // BUG-CPP-2 fix: effectiveAccessType (STRW->INSTCFG->PRIVCFG) is now computed
+    // once in performTwoStageTranslation() and passed in as the accessType parameter.
+    // The local re-derivation that previously duplicated that chain has been removed.
+    // Use accessType directly as the already-effective access type throughout.
+    const AccessType effectiveAccessType = accessType;
 
-    TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
+    TranslationResult result = streamContext->translate(pasid, iova, effectiveAccessType, securityState);
 
     // Record fault if translation failed
     if (result.isError()) {
@@ -2354,48 +2270,13 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
     // ARM SMMU v3 spec: Stage-2 only translation IPA -> PA (IOVA treated as IPA)
 
-    // BUG-5PM-4 fix: §7.3 — InD/PnU must reflect post-STE override values.
-    // Stage-2-only streams: STRW is suppressed (stage2Enabled=true). Apply INSTCFG+PRIVCFG only.
-    const StreamConfig& s2Cfg = streamContext->getStreamConfiguration();
-    AccessType effectiveAccessType = accessType;
-    // INSTCFG override.
-    if (s2Cfg.instCfg == 1u) {
-        if (effectiveAccessType == AccessType::Read)
-            effectiveAccessType = AccessType::Execute;
-        else if (effectiveAccessType == AccessType::ReadPrivileged)
-            effectiveAccessType = AccessType::ExecutePrivileged;
-    } else if (s2Cfg.instCfg == 2u) {
-        if (effectiveAccessType == AccessType::Execute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-        else if (effectiveAccessType == AccessType::ReadExecute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-    }
-    // PRIVCFG override.
-    if (s2Cfg.privCfg == 2u) {
-        switch (effectiveAccessType) {
-            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
-            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
-            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
-            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
-            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
-            default: break;
-        }
-    } else if (s2Cfg.privCfg == 3u) {
-        switch (effectiveAccessType) {
-            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;        break;
-            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;       break;
-            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;     break;
-            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;   break;
-            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged; break;
-            default: break;
-        }
-    }
+    // BUG-CPP-2 fix: effectiveAccessType (STRW->INSTCFG->PRIVCFG) is now computed
+    // once in performTwoStageTranslation() and passed in as the accessType parameter.
+    // The local re-derivation that previously duplicated that chain has been removed.
+    // Use accessType directly as the already-effective access type throughout.
+    const AccessType effectiveAccessType = accessType;
 
-    TranslationResult result = streamContext->translate(pasid, iova, accessType, securityState);
+    TranslationResult result = streamContext->translate(pasid, iova, effectiveAccessType, securityState);
 
     // Record fault if translation failed
     if (result.isError()) {
