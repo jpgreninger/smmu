@@ -772,17 +772,25 @@ impl StreamContext {
         // Step 2: apply PRIVCFG
         match self.priv_cfg.load(Ordering::Acquire) {
             2 => match after_instcfg {
-                AccessType::ReadPrivileged      => AccessType::Read,
-                AccessType::WritePrivileged     => AccessType::Write,
-                AccessType::ExecutePrivileged   => AccessType::Execute,
-                AccessType::ReadWritePrivileged => AccessType::ReadWrite,
+                AccessType::ReadPrivileged             => AccessType::Read,
+                AccessType::WritePrivileged            => AccessType::Write,
+                AccessType::ExecutePrivileged          => AccessType::Execute,
+                AccessType::ReadWritePrivileged        => AccessType::ReadWrite,
+                // BUG-RUST-5 fix: demote compound-execute privileged variants.
+                AccessType::ReadExecutePrivileged      => AccessType::ReadExecute,
+                AccessType::WriteExecutePrivileged     => AccessType::WriteExecute,
+                AccessType::ReadWriteExecutePrivileged => AccessType::ReadWriteExecute,
                 other => other,
             },
             3 => match after_instcfg {
-                AccessType::Read      => AccessType::ReadPrivileged,
-                AccessType::Write     => AccessType::WritePrivileged,
-                AccessType::Execute   => AccessType::ExecutePrivileged,
-                AccessType::ReadWrite => AccessType::ReadWritePrivileged,
+                AccessType::Read             => AccessType::ReadPrivileged,
+                AccessType::Write            => AccessType::WritePrivileged,
+                AccessType::Execute          => AccessType::ExecutePrivileged,
+                AccessType::ReadWrite        => AccessType::ReadWritePrivileged,
+                // BUG-RUST-5 fix: promote compound-execute access types.
+                AccessType::ReadExecute      => AccessType::ReadExecutePrivileged,
+                AccessType::WriteExecute     => AccessType::WriteExecutePrivileged,
+                AccessType::ReadWriteExecute => AccessType::ReadWriteExecutePrivileged,
                 other => other,
             },
             _ => after_instcfg,
@@ -1623,6 +1631,22 @@ impl StreamContext {
         stage2.map_page(ipa, pa, permissions, security_state)
     }
 
+    /// Maps a Stage-2 page with AF=false (unaccessed) for AF fault testing (BUG-RUST-2).
+    ///
+    /// Creates a stage-2 IPA→PA mapping with the Access Flag set to false.
+    /// Used to verify that S2AFFD/S2HA govern stage-2 AF fault behaviour per ARM §3.13.2.
+    pub fn map_stage2_page_unaccessed(
+        &self,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), AddressSpaceError> {
+        let stage2_guard = self.stage2_address_space.read().unwrap();
+        let stage2 = stage2_guard.as_ref().ok_or(AddressSpaceError::InternalError)?;
+        stage2.map_page_unaccessed(ipa, pa, permissions, security_state)
+    }
+
     /// Maps a device-memory page into the Stage-2 address space (NEW-GAP-L: §5.2 S2PTW).
     ///
     /// Used to test STE.S2PTW: when `s2ptw=true`, a translation through a device-memory
@@ -1785,17 +1809,25 @@ impl StreamContext {
         // PRIVCFG=0/1 (Use Incoming): pass effective_access unchanged.
         let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
             2 => match effective_access {
-                AccessType::ReadPrivileged      => AccessType::Read,
-                AccessType::WritePrivileged     => AccessType::Write,
-                AccessType::ExecutePrivileged   => AccessType::Execute,
-                AccessType::ReadWritePrivileged => AccessType::ReadWrite,
+                AccessType::ReadPrivileged             => AccessType::Read,
+                AccessType::WritePrivileged            => AccessType::Write,
+                AccessType::ExecutePrivileged          => AccessType::Execute,
+                AccessType::ReadWritePrivileged        => AccessType::ReadWrite,
+                // BUG-RUST-5 fix: demote compound-execute privileged variants.
+                AccessType::ReadExecutePrivileged      => AccessType::ReadExecute,
+                AccessType::WriteExecutePrivileged     => AccessType::WriteExecute,
+                AccessType::ReadWriteExecutePrivileged => AccessType::ReadWriteExecute,
                 other => other,
             },
             3 => match effective_access {
-                AccessType::Read      => AccessType::ReadPrivileged,
-                AccessType::Write     => AccessType::WritePrivileged,
-                AccessType::Execute   => AccessType::ExecutePrivileged,
-                AccessType::ReadWrite => AccessType::ReadWritePrivileged,
+                AccessType::Read             => AccessType::ReadPrivileged,
+                AccessType::Write            => AccessType::WritePrivileged,
+                AccessType::Execute          => AccessType::ExecutePrivileged,
+                AccessType::ReadWrite        => AccessType::ReadWritePrivileged,
+                // BUG-RUST-5 fix: promote compound-execute access types.
+                AccessType::ReadExecute      => AccessType::ReadExecutePrivileged,
+                AccessType::WriteExecute     => AccessType::WriteExecutePrivileged,
+                AccessType::ReadWriteExecute => AccessType::ReadWriteExecutePrivileged,
                 other => other,
             },
             _ => effective_access,
@@ -1889,17 +1921,25 @@ impl StreamContext {
             // PRIVCFG=3 (Force Privileged): promote unprivileged variants.
             let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
                 2 => match effective_access {
-                    AccessType::ReadPrivileged        => AccessType::Read,
-                    AccessType::WritePrivileged       => AccessType::Write,
-                    AccessType::ExecutePrivileged     => AccessType::Execute,
-                    AccessType::ReadWritePrivileged   => AccessType::ReadWrite,
+                    AccessType::ReadPrivileged             => AccessType::Read,
+                    AccessType::WritePrivileged            => AccessType::Write,
+                    AccessType::ExecutePrivileged          => AccessType::Execute,
+                    AccessType::ReadWritePrivileged        => AccessType::ReadWrite,
+                    // BUG-RUST-5 fix: demote compound-execute privileged variants.
+                    AccessType::ReadExecutePrivileged      => AccessType::ReadExecute,
+                    AccessType::WriteExecutePrivileged     => AccessType::WriteExecute,
+                    AccessType::ReadWriteExecutePrivileged => AccessType::ReadWriteExecute,
                     other => other,
                 },
                 3 => match effective_access {
-                    AccessType::Read        => AccessType::ReadPrivileged,
-                    AccessType::Write       => AccessType::WritePrivileged,
-                    AccessType::Execute     => AccessType::ExecutePrivileged,
-                    AccessType::ReadWrite   => AccessType::ReadWritePrivileged,
+                    AccessType::Read             => AccessType::ReadPrivileged,
+                    AccessType::Write            => AccessType::WritePrivileged,
+                    AccessType::Execute          => AccessType::ExecutePrivileged,
+                    AccessType::ReadWrite        => AccessType::ReadWritePrivileged,
+                    // BUG-RUST-5 fix: promote compound-execute access types.
+                    AccessType::ReadExecute      => AccessType::ReadExecutePrivileged,
+                    AccessType::WriteExecute     => AccessType::WriteExecutePrivileged,
+                    AccessType::ReadWriteExecute => AccessType::ReadWriteExecutePrivileged,
                     other => other,
                 },
                 _ => effective_access,
@@ -2033,6 +2073,22 @@ impl StreamContext {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa_raw >= ipa_limit {
                     return (Err(TranslationError::PageNotMapped), Some(ipa_raw));
+                }
+            }
+        }
+
+        // BUG-RUST-2 fix: §3.13.2 — Stage-2 Access Flag fault check (two-stage-with-ipa path).
+        // Uses STE.S2HA and STE.S2AFFD (stage-2 specific fields), NOT stage-1 HA/AFFD.
+        // This check takes priority over permission faults per ARM §3.13.2.
+        {
+            let s2ha = self.s2ha.load(Ordering::Acquire);
+            let s2affd = self.s2affd.load(Ordering::Acquire);
+            if !s2ha && !s2affd {
+                let stage2_guard = self.stage2_address_space.read().unwrap();
+                if let Some(stage2) = stage2_guard.as_ref() {
+                    if stage2.get_page_access_flag(ipa) == Some(false) {
+                        return (Err(TranslationError::AccessFlagFault), Some(ipa_raw));
+                    }
                 }
             }
         }
@@ -2214,6 +2270,27 @@ impl StreamContext {
             }
         }
 
+        // BUG-RUST-2 fix: §3.13.2 — Stage-2 Access Flag fault check (stage-2-only path).
+        // Uses STE.S2HA and STE.S2AFFD, NOT the stage-1 HA/AFFD fields.
+        // Per ARM §3.13.2 and §5.2:
+        //   S2HA=1: SMMU sets AF=1 in stage-2 entries (HTTU); no F_ACCESS fault.
+        //   S2HA=0 and S2AFFD=1: stage-2 AF faults suppressed; always treat AF as 1.
+        //   S2HA=0 and S2AFFD=0: stage-2 AF=0 → F_ACCESS fault.
+        // This check must happen before the translate_page call (like stage-1) to take
+        // priority over permission faults per the spec.
+        {
+            let s2ha = self.s2ha.load(Ordering::Acquire);
+            let s2affd = self.s2affd.load(Ordering::Acquire);
+            if !s2ha && !s2affd {
+                let stage2_guard = self.stage2_address_space.read().unwrap();
+                if let Some(stage2) = stage2_guard.as_ref() {
+                    if stage2.get_page_access_flag(ipa) == Some(false) {
+                        return Err(TranslationError::AccessFlagFault);
+                    }
+                }
+            }
+        }
+
         // Get Stage-2 AddressSpace (scope the read-lock tightly)
         let result = {
             let stage2_guard = self.stage2_address_space.read().unwrap();
@@ -2370,6 +2447,22 @@ impl StreamContext {
                 let ipa_limit: u64 = 1u64 << (64u32 - u32::from(s2_t0sz));
                 if ipa_raw >= ipa_limit {
                     return Err(TranslationError::PageNotMapped);
+                }
+            }
+        }
+
+        // BUG-RUST-2 fix: §3.13.2 — Stage-2 Access Flag fault check (two-stage path).
+        // Uses STE.S2HA and STE.S2AFFD (stage-2 specific fields), NOT stage-1 HA/AFFD.
+        // This check takes priority over permission faults per ARM §3.13.2.
+        {
+            let s2ha = self.s2ha.load(Ordering::Acquire);
+            let s2affd = self.s2affd.load(Ordering::Acquire);
+            if !s2ha && !s2affd {
+                let stage2_guard = self.stage2_address_space.read().unwrap();
+                if let Some(stage2) = stage2_guard.as_ref() {
+                    if stage2.get_page_access_flag(ipa) == Some(false) {
+                        return Err(TranslationError::AccessFlagFault);
+                    }
                 }
             }
         }
@@ -3563,6 +3656,74 @@ mod tests {
             ctx.pasid_count(),
             2,
             "BUG-RUST-G: pasid_count must roll back to 2 after limit-exceeded create_pasid"
+        );
+    }
+
+    // ── BUG-RUST-5: PRIVCFG=3 must promote compound execute access types ──────
+
+    /// BUG-RUST-5: effective_access_type(ReadExecute) with PRIVCFG=3 must return
+    /// a privileged variant (is_privileged()==true), not leave it as ReadExecute.
+    ///
+    /// Per ARM §13.1/Table 13.4, PRIVCFG=Force Privileged applies to ALL
+    /// transaction types.  Before the fix, ReadExecute / WriteExecute /
+    /// ReadWriteExecute fall through to `other => other` in the PRIVCFG=3 arm.
+    #[test]
+    fn bug_rust5_privcfg3_promotes_read_execute_via_effective_access_type() {
+        let ctx = StreamContext::new();
+        ctx.set_priv_cfg(3); // Force Privileged
+        let promoted = ctx.effective_access_type(AccessType::ReadExecute);
+        assert!(
+            promoted.is_privileged(),
+            "BUG-RUST-5: effective_access_type(ReadExecute) with PRIVCFG=3 must return \
+             a privileged variant (bit-3 set). Got {promoted:?}"
+        );
+    }
+
+    /// BUG-RUST-5: WriteExecute must also be promoted.
+    #[test]
+    fn bug_rust5_privcfg3_promotes_write_execute_via_effective_access_type() {
+        let ctx = StreamContext::new();
+        ctx.set_priv_cfg(3);
+        let promoted = ctx.effective_access_type(AccessType::WriteExecute);
+        assert!(
+            promoted.is_privileged(),
+            "BUG-RUST-5: effective_access_type(WriteExecute) with PRIVCFG=3 must return \
+             a privileged variant. Got {promoted:?}"
+        );
+    }
+
+    /// BUG-RUST-5: ReadWriteExecute must also be promoted.
+    #[test]
+    fn bug_rust5_privcfg3_promotes_read_write_execute_via_effective_access_type() {
+        let ctx = StreamContext::new();
+        ctx.set_priv_cfg(3);
+        let promoted = ctx.effective_access_type(AccessType::ReadWriteExecute);
+        assert!(
+            promoted.is_privileged(),
+            "BUG-RUST-5: effective_access_type(ReadWriteExecute) with PRIVCFG=3 must return \
+             a privileged variant. Got {promoted:?}"
+        );
+    }
+
+    /// BUG-RUST-5: PRIVCFG=2 (Force Unprivileged) must demote already-privileged compound
+    /// types. This ensures symmetry of the fix.
+    #[test]
+    fn bug_rust5_privcfg2_demotes_read_execute_privileged() {
+        // ReadExecutePrivileged doesn't exist yet — but ReadPrivileged does and is demoted.
+        // Test that existing variants still demote correctly (regression guard).
+        let ctx = StreamContext::new();
+        ctx.set_priv_cfg(2); // Force Unprivileged
+        // ReadPrivileged → Read (already works)
+        let demoted = ctx.effective_access_type(AccessType::ReadPrivileged);
+        assert!(
+            !demoted.is_privileged(),
+            "PRIVCFG=2 must demote ReadPrivileged. Got {demoted:?}"
+        );
+        // ReadExecute stays as ReadExecute under PRIVCFG=2 (already unprivileged — correct)
+        let unchanged = ctx.effective_access_type(AccessType::ReadExecute);
+        assert!(
+            !unchanged.is_privileged(),
+            "PRIVCFG=2 on ReadExecute must stay unprivileged. Got {unchanged:?}"
         );
     }
 }

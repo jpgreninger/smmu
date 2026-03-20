@@ -87,6 +87,12 @@ impl PermissionValidator {
             AccessType::WritePrivileged => Self::can_write(permissions),
             AccessType::ReadWritePrivileged => Self::can_read(permissions) && Self::can_write(permissions),
             AccessType::ExecutePrivileged => Self::can_execute(permissions),
+            // BUG-RUST-5 fix: compound-execute privileged variants.
+            AccessType::ReadExecutePrivileged => Self::can_read(permissions) && Self::can_execute(permissions),
+            AccessType::WriteExecutePrivileged => Self::can_write(permissions) && Self::can_execute(permissions),
+            AccessType::ReadWriteExecutePrivileged => {
+                Self::can_read(permissions) && Self::can_write(permissions) && Self::can_execute(permissions)
+            },
         }
     }
 
@@ -123,6 +129,10 @@ impl PermissionValidator {
             AccessType::WritePrivileged => "write(privileged)",
             AccessType::ReadWritePrivileged => "read+write(privileged)",
             AccessType::ExecutePrivileged => "execute(privileged)",
+            // BUG-RUST-5 fix: compound-execute privileged variants.
+            AccessType::ReadExecutePrivileged => "read+execute(privileged)",
+            AccessType::WriteExecutePrivileged => "write+execute(privileged)",
+            AccessType::ReadWriteExecutePrivileged => "read+write+execute(privileged)",
         };
 
         format!(

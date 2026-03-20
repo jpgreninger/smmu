@@ -96,6 +96,19 @@ pub enum AccessType {
 
     /// Privileged execute access — AxPROT[1]=1, AxPROT[2]=1 (instruction, privileged).
     ExecutePrivileged = 0b1100,
+
+    // ---- BUG-RUST-5 fix: privileged compound-execute variants ----
+    // ARM §13.1/Table 13.4: PRIVCFG=Force Privileged applies to ALL access types,
+    // including the compound execute variants.  Bit 3 set; R/W/X bits preserved.
+
+    /// Privileged read+execute access — AxPROT[1]=1 (instruction+data, privileged).
+    ReadExecutePrivileged = 0b1101,
+
+    /// Privileged write+execute access — AxPROT[1]=1 (write+instruction, privileged).
+    WriteExecutePrivileged = 0b1110,
+
+    /// Privileged read+write+execute access (all permissions, privileged).
+    ReadWriteExecutePrivileged = 0b1111,
 }
 
 impl AccessType {
@@ -287,8 +300,8 @@ impl AccessType {
     /// Create from ARM SMMU v3 bit representation
     ///
     /// Accepts non-privileged values 0b0000-0b0111 and privileged values
-    /// 0b1001-0b1100 (bit 3 set).  Bit pattern 0b1000 (privilege-only, no R/W/X)
-    /// and reserved patterns (0b1101-0b1111) return an error.
+    /// 0b1001-0b1111 (bit 3 set).  Bit pattern 0b1000 (privilege-only, no R/W/X)
+    /// returns an error.
     ///
     /// # Errors
     ///
@@ -307,7 +320,10 @@ impl AccessType {
     #[inline]
     pub const fn from_bits(bits: u8) -> Result<Self, ValidationError> {
         match bits {
-            0b0000..=0b0111 | 0b1001 | 0b1010 | 0b1011 | 0b1100 => {
+            // Non-privileged: 0b0000–0b0111 (None through ReadWriteExecute)
+            // Privileged: 0b1001–0b1111 (ReadPrivileged through ReadWriteExecutePrivileged)
+            // Invalid: 0b1000 (privilege bit set, no R/W/X)
+            0b0000..=0b0111 | 0b1001..=0b1111 => {
                 Ok(Self::from_bits_unchecked(bits))
             }
             _ => Err(ValidationError::InvalidAccessType { bits }),
@@ -330,7 +346,11 @@ impl AccessType {
             0b1010 => Self::WritePrivileged,
             0b1011 => Self::ReadWritePrivileged,
             0b1100 => Self::ExecutePrivileged,
-            _ => Self::None, // Fallback for invalid bits
+            // BUG-RUST-5 fix: compound-execute privileged variants.
+            0b1101 => Self::ReadExecutePrivileged,
+            0b1110 => Self::WriteExecutePrivileged,
+            0b1111 => Self::ReadWriteExecutePrivileged,
+            _ => Self::None, // Fallback for invalid bits (0b1000 = privilege-only)
         }
     }
 
@@ -377,6 +397,10 @@ impl fmt::Display for AccessType {
             Self::WritePrivileged => "WritePrivileged",
             Self::ReadWritePrivileged => "ReadWritePrivileged",
             Self::ExecutePrivileged => "ExecutePrivileged",
+            // BUG-RUST-5 fix: compound-execute privileged variants.
+            Self::ReadExecutePrivileged => "ReadExecutePrivileged",
+            Self::WriteExecutePrivileged => "WriteExecutePrivileged",
+            Self::ReadWriteExecutePrivileged => "ReadWriteExecutePrivileged",
         };
         write!(f, "{s}")
     }

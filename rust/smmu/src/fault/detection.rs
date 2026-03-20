@@ -213,6 +213,10 @@ impl PermissionFaultDetector {
             AccessType::WritePrivileged => permissions.write(),
             AccessType::ReadWritePrivileged => permissions.read() && permissions.write(),
             AccessType::ExecutePrivileged => permissions.execute(),
+            // BUG-RUST-5 fix: compound-execute privileged variants.
+            AccessType::ReadExecutePrivileged => permissions.read() && permissions.execute(),
+            AccessType::WriteExecutePrivileged => permissions.write() && permissions.execute(),
+            AccessType::ReadWriteExecutePrivileged => permissions.read() && permissions.write() && permissions.execute(),
         }
     }
 

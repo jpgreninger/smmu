@@ -609,6 +609,59 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid);
         }
     } else if (result.isError()) {
+        // BUG-CPP-5 fix: §7.3 — compute the effective (post-STE-override) access type
+        // from the streamCfgSnapshot captured before the stripe lock was released.
+        // This is the same STRW→INSTCFG→PRIVCFG chain used in performTwoStageTranslation().
+        // Passing it to handleTranslationFailure() eliminates the TOCTOU race where a
+        // concurrent configureStream() could change the override between translation
+        // completion and the config re-fetch inside handleTranslationFailure().
+        AccessType translateEffectiveAccessType = accessType;
+        if (!streamCfgSnapshot.stage2Enabled &&
+            (streamCfgSnapshot.strw == StreamWorld::EL2 || streamCfgSnapshot.strw == StreamWorld::EL3)) {
+            switch (translateEffectiveAccessType) {
+                case AccessType::Read:        translateEffectiveAccessType = AccessType::ReadPrivileged;          break;
+                case AccessType::Write:       translateEffectiveAccessType = AccessType::WritePrivileged;         break;
+                case AccessType::Execute:     translateEffectiveAccessType = AccessType::ExecutePrivileged;       break;
+                case AccessType::ReadWrite:   translateEffectiveAccessType = AccessType::ReadWritePrivileged;     break;
+                case AccessType::ReadExecute: translateEffectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+                default: break;
+            }
+        }
+        if (streamCfgSnapshot.instCfg == 1u) {
+            if (translateEffectiveAccessType == AccessType::Read)
+                translateEffectiveAccessType = AccessType::Execute;
+            else if (translateEffectiveAccessType == AccessType::ReadPrivileged)
+                translateEffectiveAccessType = AccessType::ExecutePrivileged;
+        } else if (streamCfgSnapshot.instCfg == 2u) {
+            if (translateEffectiveAccessType == AccessType::Execute)
+                translateEffectiveAccessType = AccessType::Read;
+            else if (translateEffectiveAccessType == AccessType::ExecutePrivileged)
+                translateEffectiveAccessType = AccessType::ReadPrivileged;
+            else if (translateEffectiveAccessType == AccessType::ReadExecute)
+                translateEffectiveAccessType = AccessType::Read;
+            else if (translateEffectiveAccessType == AccessType::ReadExecutePrivileged)
+                translateEffectiveAccessType = AccessType::ReadPrivileged;
+        }
+        if (streamCfgSnapshot.privCfg == 2u) {
+            switch (translateEffectiveAccessType) {
+                case AccessType::ReadPrivileged:          translateEffectiveAccessType = AccessType::Read;        break;
+                case AccessType::WritePrivileged:         translateEffectiveAccessType = AccessType::Write;       break;
+                case AccessType::ExecutePrivileged:       translateEffectiveAccessType = AccessType::Execute;     break;
+                case AccessType::ReadWritePrivileged:     translateEffectiveAccessType = AccessType::ReadWrite;   break;
+                case AccessType::ReadExecutePrivileged:   translateEffectiveAccessType = AccessType::ReadExecute; break;
+                default: break;
+            }
+        } else if (streamCfgSnapshot.privCfg == 3u) {
+            switch (translateEffectiveAccessType) {
+                case AccessType::Read:        translateEffectiveAccessType = AccessType::ReadPrivileged;          break;
+                case AccessType::Write:       translateEffectiveAccessType = AccessType::WritePrivileged;         break;
+                case AccessType::Execute:     translateEffectiveAccessType = AccessType::ExecutePrivileged;       break;
+                case AccessType::ReadWrite:   translateEffectiveAccessType = AccessType::ReadWritePrivileged;     break;
+                case AccessType::ReadExecute: translateEffectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+                default: break;
+            }
+        }
+
         // ARM §3.12.2: Check per-stream stall mode before standard fault handling.
         // If the stream is configured for stall, enqueue a StallRecord and return
         // Stalled instead of the original error — software must issue CMD_RESUME.
@@ -696,7 +749,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 // BUG-NEW-CPP-3 fix: the stripe lock was already released before
                 // performTwoStageTranslation(); do NOT call lock.unlock() again.
                 streamContext = nullptr; // Defensive: no further accesses via this pointer
-                handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
+                handleTranslationFailure(streamID, pasid, iova, accessType, translateEffectiveAccessType,
+                                         securityState, result, currentTime);
                 return result;
             }
             // ARM §7.3 / FINDING-NEW-13: Derive the correct EventType from the actual
@@ -793,7 +847,8 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // handleTranslationFailure() may call determineContextSecurityState() which
         // acquires the stripe lock — this is safe because we no longer hold it.
         streamContext = nullptr; // Defensive: no further accesses via this pointer
-        handleTranslationFailure(streamID, pasid, iova, accessType, securityState, result, currentTime);
+        handleTranslationFailure(streamID, pasid, iova, accessType, translateEffectiveAccessType,
+                                 securityState, result, currentTime);
         return result;
     }
 
@@ -2085,8 +2140,24 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 stage2FaultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
-                stage2FaultType = FaultType::AddressSizeFault;
-                break;
+                // BUG-CPP-3 fix: §7.3.14 — F_ADDR_SIZE must be emitted when stage-2
+                // translatePage returns InvalidAddress (IPA >= 2^inputAddressSizeBits).
+                // Unlike the other stage-2 error cases (which fall through to the shared
+                // recordComprehensiveFault + tl_stage2FaultCtx block and return stage2Result
+                // so handleTranslationFailure emits the event), this case mirrors the
+                // S2PS OAS check pattern (lines above): emit the event inline here and
+                // return InvalidConfiguration so handleTranslationFailure suppresses
+                // the duplicate.  Without this, handleTranslationFailure maps
+                // InvalidAddress → AddressSizeFault but its switch case calls only
+                // handleAddressSizeFaultRecovery() — emitting no event at all.
+                recordComprehensiveFault(streamID, pasid, intermediatePA, FaultType::AddressSizeFault,
+                                       accessType, securityState, FaultStage::Stage2Only, currentTime, 1, 0);
+                tl_stage2FaultCtx.isStage2 = true;
+                tl_stage2FaultCtx.ipa      = intermediatePA;
+                generateEvent(EventType::F_ADDR_SIZE, streamID, pasid, iova, securityState,
+                              false, 0, effectiveAccessType, true, intermediatePA);
+                // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
+                return makeTranslationError(SMMUError::InvalidConfiguration);
             case SMMUError::InvalidSecurityState:
                 stage2FaultType = FaultType::SecurityFault;
                 break;
@@ -2377,7 +2448,8 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
 // Issue 5 fix: This method no longer re-records faults that were already recorded
 // in stage-specific methods. It only performs fault recovery actions.
 void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
-                                   AccessType accessType, SecurityState securityState, TranslationResult& result, uint64_t currentTime) {
+                                   AccessType accessType, AccessType effectiveAccessType,
+                                   SecurityState securityState, TranslationResult& result, uint64_t currentTime) {
     // ARM SMMU v3 spec: Comprehensive fault handling and recovery
 
     // Determine fault type from the Result error code
@@ -2452,68 +2524,16 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
     // in performTwoStageTranslation, performBothStagesTranslation, performStage1OnlyTranslation,
     // or performStage2OnlyTranslation. Only perform recovery actions.
 
-    // NEW-4 fix: §7.3 — EventEntry InD/PnU must reflect post-STE-override access type.
-    // Look up the stream config to apply INSTCFG/PRIVCFG to the raw accessType so that
-    // the generated event carries the correct ind/pnu values per the spec.
-    AccessType eventAccessType = accessType;
-    {
-        size_t stripe = getStreamStripe(streamID);
-        std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
-        auto streamIt = streamMap.find(streamID);
-        if (streamIt != streamMap.end() && streamIt->second) {
-            const StreamConfig& sCfg = streamIt->second->getStreamConfiguration();
-            // NEW-B fix: §7.3 — STRW promotion must precede INSTCFG/PRIVCFG overrides.
-            // ARM §5.2.2: STRW=EL2/EL3 promotes unprivileged access types to privileged
-            // equivalents; guard with !stage2Enabled (STRW is ignored for two-stage streams).
-            if (!sCfg.stage2Enabled &&
-                (sCfg.strw == StreamWorld::EL2 || sCfg.strw == StreamWorld::EL3)) {
-                switch (eventAccessType) {
-                    case AccessType::Read:        eventAccessType = AccessType::ReadPrivileged;          break;
-                    case AccessType::Write:       eventAccessType = AccessType::WritePrivileged;         break;
-                    case AccessType::Execute:     eventAccessType = AccessType::ExecutePrivileged;       break;
-                    case AccessType::ReadWrite:   eventAccessType = AccessType::ReadWritePrivileged;     break;
-                    case AccessType::ReadExecute: eventAccessType = AccessType::ReadExecutePrivileged;   break;
-                    default: break;
-                }
-            }
-            // INSTCFG override — mirrors stream_context.cpp translateUnlocked() logic.
-            if (sCfg.instCfg == 1u) {
-                if (eventAccessType == AccessType::Read)
-                    eventAccessType = AccessType::Execute;
-                else if (eventAccessType == AccessType::ReadPrivileged)
-                    eventAccessType = AccessType::ExecutePrivileged;
-            } else if (sCfg.instCfg == 2u) {
-                if (eventAccessType == AccessType::Execute)
-                    eventAccessType = AccessType::Read;
-                else if (eventAccessType == AccessType::ExecutePrivileged)
-                    eventAccessType = AccessType::ReadPrivileged;
-                else if (eventAccessType == AccessType::ReadExecute)
-                    eventAccessType = AccessType::Read;
-                else if (eventAccessType == AccessType::ReadExecutePrivileged)
-                    eventAccessType = AccessType::ReadPrivileged;
-            }
-            // PRIVCFG override — mirrors stream_context.cpp translateUnlocked() logic.
-            if (sCfg.privCfg == 2u) {
-                switch (eventAccessType) {
-                    case AccessType::ReadPrivileged:          eventAccessType = AccessType::Read;        break;
-                    case AccessType::WritePrivileged:         eventAccessType = AccessType::Write;       break;
-                    case AccessType::ExecutePrivileged:       eventAccessType = AccessType::Execute;     break;
-                    case AccessType::ReadWritePrivileged:     eventAccessType = AccessType::ReadWrite;   break;
-                    case AccessType::ReadExecutePrivileged:   eventAccessType = AccessType::ReadExecute; break;
-                    default: break;
-                }
-            } else if (sCfg.privCfg == 3u) {
-                switch (eventAccessType) {
-                    case AccessType::Read:        eventAccessType = AccessType::ReadPrivileged;          break;
-                    case AccessType::Write:       eventAccessType = AccessType::WritePrivileged;         break;
-                    case AccessType::Execute:     eventAccessType = AccessType::ExecutePrivileged;       break;
-                    case AccessType::ReadWrite:   eventAccessType = AccessType::ReadWritePrivileged;     break;
-                    case AccessType::ReadExecute: eventAccessType = AccessType::ReadExecutePrivileged;   break;
-                    default: break;
-                }
-            }
-        }
-    }
+    // BUG-CPP-5 fix: §7.3 — EventEntry InD/PnU must reflect post-STE-override access type
+    // at the time of the translation, not at the time this recovery function executes.
+    // The previous implementation re-fetched the StreamConfig under a stripe lock here,
+    // creating a TOCTOU race: a concurrent configureStream() between translation completion
+    // and this re-fetch could change INSTCFG/PRIVCFG, causing the event to carry overrides
+    // that were NOT applied during the actual translation.
+    // Fix: accept the already-computed effective access type as a parameter (computed in
+    // translate() from the streamCfgSnapshot taken before the stripe lock was released),
+    // and use it directly — no re-fetch, no lock, no race.
+    const AccessType eventAccessType = effectiveAccessType;
 
     // ARM SMMU v3 spec: Implement fault recovery mechanisms based on fault type
     switch (faultType) {

@@ -127,6 +127,7 @@ set(UNIT_TEST_SOURCES
     test_bug5_s1dss_oas_effective_access.cpp
     test_bugs_cpp12_dead_effectiveaccess.cpp
     test_bugs_cpp_confirmed.cpp
+    test_conf_gaps_bugs_fix.cpp
     ../test_thread_safety.cpp
 )
 

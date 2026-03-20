@@ -160,9 +160,9 @@ fn test_from_bits_valid_all() {
 #[test]
 fn test_from_bits_invalid() {
     // Bug-4 fix: 0b1001/0b1010/0b1011/0b1100 are now valid (ReadPrivileged etc.).
-    // Only truly invalid patterns remain: 0b1000 (priv-only no R/W/X), 0b1101-0b1111
-    // (reserved combinations), and values >= 0b1_0000.
-    let invalid_bits = [0b1000, 0b1101, 0b1110, 0b1111, 0xFF, 0x10, 0x20];
+    // BUG-RUST-5 fix: 0b1101/0b1110/0b1111 are now valid (ReadExecutePrivileged etc.).
+    // Only truly invalid patterns remain: 0b1000 (priv-only no R/W/X) and values >= 0b1_0000.
+    let invalid_bits = [0b1000u8, 0xFF, 0x10, 0x20];
 
     for &bits in &invalid_bits {
         let result = AccessType::from_bits(bits);
@@ -174,6 +174,43 @@ fn test_from_bits_invalid() {
             _ => panic!("Expected InvalidAccessType error for bits={bits}"),
         }
     }
+}
+
+#[test]
+fn test_from_bits_privileged_compound_variants_valid() {
+    // BUG-RUST-5 fix: compound-execute privileged variants (0b1101/0b1110/0b1111)
+    // are now valid AccessType values.
+    assert_eq!(
+        AccessType::from_bits(0b1101).unwrap(),
+        AccessType::ReadExecutePrivileged
+    );
+    assert_eq!(
+        AccessType::from_bits(0b1110).unwrap(),
+        AccessType::WriteExecutePrivileged
+    );
+    assert_eq!(
+        AccessType::from_bits(0b1111).unwrap(),
+        AccessType::ReadWriteExecutePrivileged
+    );
+
+    // Verify R/W/X bits and privilege flag
+    let read_exec_priv = AccessType::ReadExecutePrivileged;
+    assert!(read_exec_priv.can_read());
+    assert!(!read_exec_priv.can_write());
+    assert!(read_exec_priv.can_execute());
+    assert!(read_exec_priv.is_privileged());
+
+    let write_exec_priv = AccessType::WriteExecutePrivileged;
+    assert!(!write_exec_priv.can_read());
+    assert!(write_exec_priv.can_write());
+    assert!(write_exec_priv.can_execute());
+    assert!(write_exec_priv.is_privileged());
+
+    let all_priv = AccessType::ReadWriteExecutePrivileged;
+    assert!(all_priv.can_read());
+    assert!(all_priv.can_write());
+    assert!(all_priv.can_execute());
+    assert!(all_priv.is_privileged());
 }
 
 #[test]

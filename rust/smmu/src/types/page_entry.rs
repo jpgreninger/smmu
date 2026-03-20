@@ -250,6 +250,10 @@ impl PagePermissions {
             AccessType::WritePrivileged => self.write(),
             AccessType::ReadWritePrivileged => self.read() && self.write(),
             AccessType::ExecutePrivileged => self.execute(),
+            // BUG-RUST-5 fix: compound-execute privileged variants (bit-3 set; R/W/X same as unprivileged equivalents).
+            AccessType::ReadExecutePrivileged => self.read() && self.execute(),
+            AccessType::WriteExecutePrivileged => self.write() && self.execute(),
+            AccessType::ReadWriteExecutePrivileged => self.read() && self.write() && self.execute(),
         }
     }
 

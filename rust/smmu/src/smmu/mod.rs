@@ -2614,6 +2614,24 @@ impl SMMU {
             .map_err(SMMUError::from)
     }
 
+    /// Maps a Stage-2 page with AF=false (unaccessed) for AF fault testing (BUG-RUST-2).
+    ///
+    /// Creates a stage-2 IPA→PA mapping with the Access Flag set to false.
+    /// Used to verify that S2AFFD/S2HA govern stage-2 AF fault behaviour per ARM §3.13.2.
+    pub fn map_stage2_page_unaccessed(
+        &self,
+        stream_id: StreamID,
+        ipa: IOVA,
+        pa: PA,
+        permissions: PagePermissions,
+        security_state: SecurityState,
+    ) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+        let stream_context = self.get_stream_context(stream_id)?;
+        stream_context.map_stage2_page_unaccessed(ipa, pa, permissions, security_state)
+            .map_err(SMMUError::from)
+    }
+
     /// Maps a device-memory page into the Stage-2 address space (NEW-GAP-L: §5.2 S2PTW).
     ///
     /// Used for testing STE.S2PTW: when `s2ptw=true`, translation through a device-memory
@@ -3997,8 +4015,11 @@ impl SMMU {
             FaultType::AccessFlagFault => EventType::FAccess,
             // §7.3.11: C_BAD_CD — Fetched CD invalid (0x0A)
             FaultType::BadCD => EventType::CBadCd,
+            // BUG-RUST-1 fix: §7.3.5 — C_BAD_STE (0x04) is a configuration event,
+            // NOT a translation fault (0x10).  FaultType::BadSTE must map to CBadSte.
+            // Previously this fell through to the catch-all arm → FTranslation (wrong).
+            FaultType::BadSTE => EventType::CBadSte,
             FaultType::TranslationFault
-            | FaultType::BadSTE
             | FaultType::AlignmentFault
             | FaultType::ExternalAbort
             | FaultType::TLBConflictAbort
@@ -4961,14 +4982,28 @@ impl SMMU {
             CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiEl3Va | CommandType::TlbiSEl2Va => {
                 if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
                     if command.ril {
-                        // Range invalidation: compute range from tg, num, scale
+                        // Range invalidation: compute range from tg, num, scale.
+                        // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
+                        // a shift ≥ 64 on u64 must be handled without overflow.
+                        // Per ARM §4.4.1.1: SCALE values that exceed the address-space width
+                        // are equivalent to "invalidate the entire remaining range".
+                        // Use checked_shl and saturating arithmetic throughout so that any
+                        // out-of-range SCALE (including spec-maximum 39, which gives shift=195)
+                        // degenerates to a full-address-space invalidation instead of panicking.
                         let granule_size: u64 = match command.tg {
                             1 => 65536,
                             2 => 16384,
                             _ => 4096,
                         };
-                        let blocks = (command.num as u64 + 1) << (5 * command.scale as u64);
-                        let range_end = command.start_address.saturating_add(blocks * granule_size).saturating_sub(1);
+                        let shift = 5u32.saturating_mul(u32::from(command.scale));
+                        // checked_shl returns None if shift >= 64 (would overflow u64).
+                        // In that case the range covers the entire address space → u64::MAX.
+                        let blocks = (command.num as u64 + 1)
+                            .checked_shl(shift)
+                            .unwrap_or(u64::MAX);
+                        let range_end = command.start_address
+                            .saturating_add(blocks.saturating_mul(granule_size))
+                            .saturating_sub(1);
                         self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
                     } else {
                         self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
@@ -5870,6 +5905,18 @@ mod tests {
     use crate::types::{AccessType, FaultType, SecurityState, IOVA, PASID};
 
     // ── FINDING-NEW-31: AccessFlagFault must map to F_ACCESS (§7.3.15) ─────────
+
+    /// BUG-RUST-1: FaultType::BadSTE must map to EventType::CBadSte (0x04), not FTranslation.
+    /// ARM §7.3.5: C_BAD_STE is a configuration event with code 0x04.
+    #[test]
+    fn bug_rust1_bad_ste_maps_to_c_bad_ste() {
+        assert_eq!(
+            SMMU::map_fault_type_to_event_type(FaultType::BadSTE),
+            EventType::CBadSte,
+            "BUG-RUST-1: FaultType::BadSTE must map to EventType::CBadSte (0x04), \
+             not EventType::FTranslation (0x10). ARM §7.3.5."
+        );
+    }
 
     /// Unit test for the private `map_fault_type_to_event_type()` function.
     /// Verifies that `FaultType::AccessFlagFault` maps to `EventType::FAccess`
