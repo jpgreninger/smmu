@@ -3209,21 +3209,34 @@ impl SMMU {
         if transaction_type == TransactionType::AtsTranslated
             && (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0
         {
-            // Snapshot the event queue length before the internal re-check so
-            // we can undo any F_TRANSLATION event the inner translate() emits.
-            let snapshot_len = self.event_queue.read().map(|q| q.len()).unwrap_or(0);
+            // Snapshot both the event queue length and eventq_prod before the
+            // internal re-check so we can fully undo what the inner translate()
+            // does if the recheck fails.
+            //
+            // RUST-1/RUST-2 fix: snapshot_prod captures the prod value before
+            // the inner translate() call.  The rollback restores it so that
+            // eventq_prod remains consistent with the VecDeque contents.
+            let snapshot_len  = self.event_queue.read().map(|q| q.len()).unwrap_or(0);
+            let snapshot_prod = self.eventq_prod.load(Ordering::Acquire);
 
             let recheck = self.translate(stream_id, pasid, iova, access, security_state);
             if recheck.is_err() {
                 // Remove any events that the inner translate() appended (e.g.
                 // F_TRANSLATION for unmapped address) — only F_TRANSL_FORBIDDEN
                 // must be visible to the caller.
+                // RUST-1/RUST-2 fix: also restore eventq_prod to its pre-inner-
+                // translate value inside the same write-lock acquisition so that
+                // prod stays in sync with the VecDeque length.
                 if let Ok(mut queue) = self.event_queue.write() {
                     let added = queue.len().saturating_sub(snapshot_len);
                     self.event_count.fetch_sub(added as u64, Ordering::Relaxed);
                     for _ in 0..added {
                         queue.pop_back();
                     }
+                    // Restore prod to pre-inner-translate value.  Preserve the
+                    // OVFLG bit (bit 31) from snapshot_prod so any overflow that
+                    // was already set before this call is not silently cleared.
+                    self.eventq_prod.store(snapshot_prod, Ordering::Release);
                 }
 
                 if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
@@ -3242,6 +3255,9 @@ impl SMMU {
                         ssv: pasid.as_u32() != 0,
                         ..EventEntry::zeroed()
                     };
+                    // RUST-3 fix: add else branch calling toggle_ovflg_once()
+                    // when the queue is full (ARM §7.4 — OVFLG must be toggled
+                    // when a non-stall event is discarded due to queue overflow).
                     if let Ok(mut queue) = self.event_queue.write() {
                         if queue.len() < self.event_queue_capacity {
                             queue.push_back(event);
@@ -3251,6 +3267,10 @@ impl SMMU {
                                 Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                 Ordering::Release,
                             );
+                        } else {
+                            // Queue full — discard event and signal overflow per ARM §7.4.
+                            drop(queue);
+                            self.toggle_ovflg_once();
                         }
                     }
                 }
