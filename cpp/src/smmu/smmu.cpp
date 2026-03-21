@@ -3255,34 +3255,18 @@ void SMMU::processCommandQueue() {
         // reference is not dangling when we inspect command.type afterwards.
         CommandEntry command = commandQueue.front();
         commandQueue.pop_front();
-        // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01).
-        // BUG-1 fix: §6.3.28 — CMDQ_CONS.ERR bits [31:24] must persist until
-        // software clears them.  A plain store(advanceQueueIndex()) zeros the
-        // upper 12 bits on every dequeue.  Use a read-modify-write so that
-        // only the RD field (bits [19:0]) is updated; bits [31:20] are
-        // preserved verbatim.  advanceQueueIndex() operates on the RD portion
-        // only (result is in range [0, 2^(log2size+1)-1], at most 20 bits).
-        {
-            uint32_t oldCons = cmdqCons.load(std::memory_order_relaxed);
-            uint32_t newRD   = advanceQueueIndex(oldCons & 0xFFFFFu, cmdqLog2Size);
-            cmdqCons.store((oldCons & ~static_cast<uint32_t>(0xFFFFFu)) | newRD,
-                           std::memory_order_release);
-        }
 
-        // Process the command based on type
+        // Process the command based on type (invalidations, PRI_RESP, RESUME, etc.).
         processCommand(command, lock);
 
-        // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is active.
-        // If processCommand() signalled CMDQ_ERR, halt queue processing immediately.
-        // Active = GERROR[x] != GERRORN[x] (unacknowledged).  BUG-03/SPEC-09.
-        if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
-            break;
-        }
-
-        // ARM SMMU v3 spec: Handle synchronization commands
+        // ARM SMMU v3 spec: Handle synchronization commands.
+        // NOTE: CMD_SYNC CS=3 (CERROR_ILL) is detected and handled here, after
+        // processCommand(), so that CONS.RD has not yet been advanced.
         if (command.type == CommandType::SYNC) {
             // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL.
             // Suppress the completion event and record a configuration fault.
+            // BUG-CPP-5 fix: do NOT advance CONS.RD — the break below leaves it
+            // pointing at this erroneous command, as required by ARM §7.1.
             if (command.cs == 3u) {  // 0b11 = 3: Reserved per §4.8
                 FaultRecord illFault;
                 illFault.streamID = command.streamID;
@@ -3296,6 +3280,8 @@ void SMMU::processCommandQueue() {
                 // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
                 // the TOCTOU load-compare-fetch_xor pattern.
                 signalGerror(GERROR_CMDQ_ERR);
+                // Do NOT advance CONS.RD here — fall out without reaching the
+                // advance block below so that CONS.RD stays at this command.
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
@@ -3331,7 +3317,33 @@ void SMMU::processCommandQueue() {
             // After completing the sync and emitting the optional completion event,
             // processing must continue with the next command.  Only the CS=0b11
             // CERROR_ILL error path (above) should stop processing via break.
-            continue;
+            // Fall through to the CONS.RD advance below (do not use continue).
+        }
+
+        // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is active.
+        // If processCommand() signalled CMDQ_ERR, halt queue processing immediately.
+        // Active = GERROR[x] != GERRORN[x] (unacknowledged).  BUG-03/SPEC-09.
+        // BUG-CPP-5 fix: on error, do NOT advance CONS.RD — leave it pointing at
+        // the erroneous command so software can identify which command failed.
+        if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
+            break;
+        }
+
+        // ARM §3.5.1: Advance consumer index only for successfully processed
+        // commands (FINDING-M-01).
+        // BUG-CPP-5 fix: this block is now reached only when no error was detected,
+        // ensuring CONS.RD is not advanced past an erroneous command (ARM §7.1).
+        // BUG-1 fix: §6.3.28 — CMDQ_CONS.ERR bits [31:24] must persist until
+        // software clears them.  A plain store(advanceQueueIndex()) zeros the
+        // upper 12 bits on every dequeue.  Use a read-modify-write so that
+        // only the RD field (bits [19:0]) is updated; bits [31:20] are
+        // preserved verbatim.  advanceQueueIndex() operates on the RD portion
+        // only (result is in range [0, 2^(log2size+1)-1], at most 20 bits).
+        {
+            uint32_t oldCons = cmdqCons.load(std::memory_order_relaxed);
+            uint32_t newRD   = advanceQueueIndex(oldCons & 0xFFFFFu, cmdqLog2Size);
+            cmdqCons.store((oldCons & ~static_cast<uint32_t>(0xFFFFFu)) | newRD,
+                           std::memory_order_release);
         }
     }
 }

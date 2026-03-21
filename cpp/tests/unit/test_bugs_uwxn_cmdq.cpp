@@ -146,15 +146,31 @@ TEST(Bug1UwxnElStream, UwxnEnforcedForEL1_EL0) {
 // ============================================================================
 // BUG-3: isCmdqEmptyByIndex() must mask ERR bits before comparing PROD and CONS
 // ============================================================================
-
-// Set up a CERROR_ILL condition by submitting CMD_SYNC with CS=3 (reserved),
-// which triggers CERROR_ILL in CMDQ_CONS.ERR.  After the queue drains
-// (PROD.WR == CONS.RD), isCmdqEmptyByIndex() must return true.
 //
-// BEFORE FIX: cmdqProd == cmdqCons fails because ERR bits are set in cmdqCons
-//             but not in cmdqProd → isCmdqEmptyByIndex() returns false.
-// AFTER FIX:  mask applied → (prod & 0xFFFFF) == (cons & 0xFFFFF) → true.
-TEST(Bug3CmdqEmpty, EmptyAfterCerrorIll) {
+// ARM §6.3.28: CMDQ_CONS.ERR at bits[30:24], RD at bits[19:0].
+// Queue empty iff PROD.WR == CONS.RD (RD bits only; ERR bits ignored).
+//
+// BUG-CPP-5 interaction (ARM §7.1): after CERROR_ILL, CONS.RD is NOT advanced
+// past the erroneous command.  With one bad command submitted (PROD.RD=1) and
+// CONS.RD staying at 0, the queue is genuinely NOT empty — there is one
+// unconsumed entry (the erroneous command still sitting at index 0).
+// isCmdqEmptyByIndex() must therefore return false in this state.
+//
+// The BUG-3 masking fix is still required: isCmdqEmptyByIndex() must compare
+// only the RD bits (bits[19:0]) of PROD and CONS, ignoring ERR bits.
+// Here the occupied count of 1 comes from the correct RD comparison, NOT from
+// ERR bits leaking into the comparison.
+
+// After CERROR_ILL (ARM §7.1 compliant): CONS.RD stays at 0, PROD.RD=1.
+// Queue is NOT empty — one entry (the erroneous command) is unconsumed.
+// isCmdqEmptyByIndex() must return false.
+//
+// BEFORE BUG-CPP-5 FIX: CONS.RD was advanced to 1 before the error was
+//   detected, so PROD.RD == CONS.RD → isCmdqEmptyByIndex() returned true
+//   (but only by accident — RD was already advanced past the bad command).
+// AFTER BUG-CPP-5 FIX (ARM §7.1 compliant): CONS.RD stays at 0 (pointing at
+//   the erroneous command); PROD.RD=1 ≠ CONS.RD=0 → queue is NOT empty.
+TEST(Bug3CmdqEmpty, NotEmptyAfterCerrorIll) {
     SMMU smmu;
     smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
@@ -169,20 +185,20 @@ TEST(Bug3CmdqEmpty, EmptyAfterCerrorIll) {
     ASSERT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
         << "Precondition: CERROR_ILL must be set after illegal CMD_SYNC";
 
-    // The queue is now empty (the one command was processed; RD == WR).
-    // isCmdqEmptyByIndex() must return true regardless of the ERR bits.
-    EXPECT_TRUE(smmu.isCmdqEmptyByIndex())
-        << "BUG-3: isCmdqEmptyByIndex() must return true when RD==WR, "
-           "even when CERROR_ILL is set in CMDQ_CONS.ERR bits[30:24]. "
-           "Before fix, ERR bits corrupt the comparison and return false.";
+    // ARM §7.1: CONS.RD stays at 0 (the erroneous command); PROD.RD=1.
+    // The queue is NOT empty — the erroneous command is still at index 0.
+    EXPECT_FALSE(smmu.isCmdqEmptyByIndex())
+        << "BUG-CPP-5/ARM §7.1: After CERROR_ILL, CONS.RD must remain at 0 "
+           "(pointing at the erroneous command). PROD.RD=1 != CONS.RD=0, so "
+           "the queue is NOT empty. isCmdqEmptyByIndex() must return false.";
 }
 
-// After CERROR_ILL, getCmdqOccupiedEntries() must return 0 when queue is empty.
+// After CERROR_ILL (ARM §7.1 compliant): CONS.RD=0, PROD.RD=1.
+// getCmdqOccupiedEntries() must return 1 (the erroneous command is unconsumed).
 //
-// BEFORE FIX: raw cmdqCons (including ERR bits) passed to queueOccupied() →
-//             queueOccupied() computes a non-zero "occupied" count.
-// AFTER FIX:  masked RD portion used → queueOccupied() returns 0.
-TEST(Bug3CmdqEmpty, OccupiedZeroAfterCerrorIll) {
+// The BUG-3 masking fix ensures the occupied count is computed from RD bits
+// only, not from ERR bits leaking into the calculation.
+TEST(Bug3CmdqEmpty, OccupiedOneAfterCerrorIll) {
     SMMU smmu;
     smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
@@ -195,8 +211,11 @@ TEST(Bug3CmdqEmpty, OccupiedZeroAfterCerrorIll) {
     ASSERT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
         << "Precondition: CERROR_ILL must be set";
 
-    EXPECT_EQ(smmu.getCmdqOccupiedEntries(), 0u)
-        << "BUG-3: getCmdqOccupiedEntries() must return 0 when queue is empty, "
-           "even when CERROR_ILL is set in CMDQ_CONS.ERR bits[30:24]. "
-           "Before fix, ERR bits are passed raw to queueOccupied() → non-zero result.";
+    // ARM §7.1: CONS.RD=0 (erroneous command unconsumed), PROD.RD=1.
+    // Occupied count = (PROD.RD - CONS.RD) mod (2 * capacity) = 1.
+    EXPECT_EQ(smmu.getCmdqOccupiedEntries(), 1u)
+        << "BUG-CPP-5/ARM §7.1: After CERROR_ILL, CONS.RD stays at 0 and "
+           "PROD.RD=1. getCmdqOccupiedEntries() must return 1 (one unconsumed "
+           "erroneous command). The BUG-3 masking fix ensures ERR bits in CONS "
+           "do not corrupt the occupied calculation.";
 }

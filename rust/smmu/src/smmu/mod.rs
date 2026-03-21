@@ -4863,16 +4863,13 @@ impl SMMU {
         let mut processed = 0;
 
         loop {
-            // Pop one command at a time to avoid holding lock
+            // Pop one command at a time to avoid holding the lock during processing.
+            // BUG-RUST-5 fix: do NOT advance cmdq_cons here.  Per ARM §7.1,
+            // CONS.RD must remain pointing at the erroneous command on error.
+            // Advancing the index is deferred to the success path below.
             let command = {
                 let mut queue = self.command_queue.write().unwrap();
-                let cmd = queue.pop_front();
-                if cmd.is_some() {
-                    let cons = self.cmdq_cons.load(Ordering::Relaxed);
-                    self.cmdq_cons
-                        .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
-                }
-                cmd
+                queue.pop_front()
             };
 
             match command {
@@ -4882,9 +4879,17 @@ impl SMMU {
                     if let Err(e) = self.process_single_command(cmd) {
                         // BUG-03 fix: use signal_gerror (XOR-toggle, only-if-inactive)
                         // instead of fetch_or (unconditional set).
+                        // BUG-RUST-5 fix: do NOT advance cmdq_cons on error —
+                        // CONS.RD must freeze at the erroneous command (ARM §7.1).
                         self.signal_gerror(Self::GERROR_CMDQ_ERR);
                         return Err(e);
                     }
+                    // Success: advance CONS.RD past the command that just completed.
+                    // ARM §7.1: older (prior) commands that completed without error
+                    // are consumed, so CONS.RD advances by one for each success.
+                    let cons = self.cmdq_cons.load(Ordering::Relaxed);
+                    self.cmdq_cons
+                        .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
                     processed += 1;
                 },
                 None => break,
