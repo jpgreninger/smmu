@@ -132,6 +132,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_eventq_scale.cpp
     test_bugs_cons_ovackflg_s1dss.cpp
     test_bug_cpp5_cmdq_cons_rd.cpp
+    test_bugaudit_fixes.cpp
     ../test_thread_safety.cpp
 )
 

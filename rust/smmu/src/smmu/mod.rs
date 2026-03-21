@@ -3895,9 +3895,16 @@ impl SMMU {
                 // over zero.  Under concurrent load, the single `if`-branch fetch_add
                 // can itself return 0 (two threads simultaneously wrap the counter),
                 // causing STAG=0 to escape and be used as a real stall identifier.
+                // BUG-AUDIT-7 fix: cap the inner zero-skip loop at 4 iterations.
+                // Under extreme adversarial concurrency (all non-zero STAGs claimed),
+                // the loop has no bound without this cap.  After 4 retries we treat
+                // the situation as exhaustion and fall through to the outer 65535-
+                // iteration guard which records the fault as a non-stall event.
                 let mut candidate = initial;
-                while candidate == 0 {
+                let mut zero_skip_iters: u32 = 0;
+                while candidate == 0 && zero_skip_iters < 4 {
                     candidate = self.stag_counter.fetch_add(1, Ordering::AcqRel);
+                    zero_skip_iters += 1;
                 }
                 // Ensure uniqueness using an atomic check-and-insert via entry()
                 // API (ARM §3.12.2: STAG is a 16-bit non-zero identifier).
@@ -3921,9 +3928,12 @@ impl SMMU {
                         Entry::Occupied(_) => {
                             // BUG-RUST-2 fix: use AcqRel + while loop so that
                             // concurrent wraps cannot produce STAG=0.
+                            // BUG-AUDIT-7 fix: cap inner zero-skip loop to 4 iterations.
                             candidate = self.stag_counter.fetch_add(1, Ordering::AcqRel);
-                            while candidate == 0 {
+                            let mut inner_zero_iters: u32 = 0;
+                            while candidate == 0 && inner_zero_iters < 4 {
                                 candidate = self.stag_counter.fetch_add(1, Ordering::AcqRel);
+                                inner_zero_iters += 1;
                             }
                             iters += 1;
                             if iters >= 65535 {
@@ -4601,7 +4611,20 @@ impl SMMU {
                     }
                 }
             }
-            queue.iter().copied().collect()
+            let events: Vec<EventEntry> = queue.iter().copied().collect();
+            // BUG-AUDIT-4 fix: ARM §3.5.1 — the consumer (software) must advance
+            // EVENTQ_CONS.RD after reading events to signal that ring-buffer slots
+            // are free for new events.  get_events() acts as the software consumer,
+            // so it must advance eventq_cons once per event returned.
+            // Without this, CONS.RD stays at 0 forever and the queue appears
+            // perpetually full once all slots have been written.
+            for _ in &events {
+                let cons = self.eventq_cons.load(Ordering::Acquire);
+                // Preserve the OVACKFLG bit (bit 31) while advancing the index bits.
+                let new_cons = Self::advance_index(cons, self.eventq_log2size) | (cons & (1u32 << 31));
+                self.eventq_cons.store(new_cons, Ordering::Release);
+            }
+            events
         } else {
             Vec::new()
         }
@@ -5092,9 +5115,15 @@ impl SMMU {
                         2 => 16384,
                         _ => 4096,
                     };
-                    let shift = 5u32.saturating_mul(u32::from(command.scale));
+                    // BUG-AUDIT-1 fix: ARM IHI0070G.b §4.4.1.1 — SMMU RIL range formula is:
+                    //   range = (NUM+1) * 2^SCALE * granule_size
+                    // SCALE is used directly as the shift exponent.  The previous code used
+                    // `5 * scale` (a PE TLBI R instruction artifact from the TLBI RANGE
+                    // instruction encoding where scale values increment by 5) which inflates
+                    // the range by up to 2^35× and over-invalidates TLB entries.
                     // checked_shl returns None if shift >= 64 (would overflow u64).
                     // In that case the range covers the entire address space → u64::MAX.
+                    let shift = u32::from(command.scale);
                     let blocks = (command.num as u64 + 1)
                         .checked_shl(shift)
                         .unwrap_or(u64::MAX);

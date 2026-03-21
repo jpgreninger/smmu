@@ -132,6 +132,8 @@ public:
     // Event queue management (Task 5.3.1)
     void processEventQueue();
     Result<bool> hasEvents() const;
+    // BUG-AUDIT-4 fix: getEventQueue() advances eventqCons per ARM §3.5.1.
+    // eventqCons is mutable to allow this const method to update the CONS index.
     std::vector<EventEntry> getEventQueue() const;
     void clearEventQueue();
     size_t getEventQueueSize() const;
@@ -419,12 +421,14 @@ private:
     // write them under queueMutex.  The plain uint32_t creates C++11 undefined behavior
     // on the read side.  std::atomic<uint32_t> eliminates the UB and makes every read
     // well-defined.  Acquire/release ordering ensures visibility across threads.
-    std::atomic<uint32_t> cmdqProd;    // CMDQ_PROD register equivalent
-    std::atomic<uint32_t> cmdqCons;    // CMDQ_CONS register equivalent
-    std::atomic<uint32_t> eventqProd;  // EVENTQ_PROD register equivalent
-    std::atomic<uint32_t> eventqCons;  // EVENTQ_CONS register equivalent
-    std::atomic<uint32_t> priqProd;    // PRIQ_PROD register equivalent
-    std::atomic<uint32_t> priqCons;    // PRIQ_CONS register equivalent
+    std::atomic<uint32_t> cmdqProd;           // CMDQ_PROD register equivalent
+    std::atomic<uint32_t> cmdqCons;           // CMDQ_CONS register equivalent
+    std::atomic<uint32_t> eventqProd;         // EVENTQ_PROD register equivalent
+    // BUG-AUDIT-4 fix: marked mutable so getEventQueue() (const) can advance
+    // CONS to reflect consumption per ARM §3.5.1.
+    mutable std::atomic<uint32_t> eventqCons; // EVENTQ_CONS register equivalent
+    std::atomic<uint32_t> priqProd;           // PRIQ_PROD register equivalent
+    std::atomic<uint32_t> priqCons;           // PRIQ_CONS register equivalent
 
     // ARM §6.3.17: SMMU_GERROR / §6.3.18: SMMU_GERRORN register pair (BUG-03/SPEC-09)
     // GERROR is the hardware register toggled by the SMMU to signal errors.
@@ -502,6 +506,13 @@ private:
     // drained into eventQueue (FIFO) whenever space becomes available.
     // Protected by queueMutex (same lock as eventQueue).
     std::deque<EventEntry> stallPending_;
+
+    // BUG-AUDIT-8 fix: Replace std::chrono::steady_clock::now() (expensive vDSO
+    // syscall, ~20-50 ns) with a cheap atomic counter (~1-2 ns, no lock interaction).
+    // Each call to getCurrentTimestamp() atomically increments this counter and
+    // returns the new value.  Timestamps are monotonically strictly increasing
+    // across events generated in sequence.  This matches the Rust implementation.
+    mutable std::atomic<uint64_t> eventTimestampCounter_;
 
     // Thread safety protection for SMMU controller - lock striping for scalability
     static constexpr size_t NUM_STREAM_STRIPES = 16;

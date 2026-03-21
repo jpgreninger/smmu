@@ -667,15 +667,32 @@ TEST_F(UpdateConfigLockOrderTest, ConcurrentTranslation_NoDeadlockDuringUpdate) 
 
     std::atomic<bool> stop{false};
     std::atomic<size_t> translationsDone{0};
+    // Ready-flag: the translator sets this to true after its first completed
+    // translation so that the updater only starts once the thread is running.
+    // This eliminates the race where the OS schedules all 10 updateConfiguration()
+    // calls before the translator thread ever gets CPU time, which caused
+    // translationsDone == 0 and a spurious EXPECT_GT failure under heavy load.
+    std::atomic<bool> translatorReady{false};
 
     // Translator thread: runs continuously while the updater runs.
     std::thread translator([&]() {
         while (!stop.load(std::memory_order_relaxed)) {
             smmu->translate(SID, 0, 0x2000ULL,
                             AccessType::Read, SecurityState::NonSecure);
-            translationsDone.fetch_add(1, std::memory_order_relaxed);
+            size_t count = translationsDone.fetch_add(1, std::memory_order_relaxed) + 1;
+            // Signal the updater that at least one translation has completed.
+            if (count == 1u) {
+                translatorReady.store(true, std::memory_order_release);
+            }
         }
     });
+
+    // Wait until the translator thread has completed its first translation before
+    // starting the update loop.  Without this barrier the updater can finish all
+    // 10 updates before the thread is scheduled, leaving translationsDone == 0.
+    while (!translatorReady.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
 
     // Updater: runs several valid config updates.
     const int UPDATES = 10;

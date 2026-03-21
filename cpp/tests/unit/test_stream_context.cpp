@@ -16,6 +16,11 @@ class StreamContextTest : public ::testing::Test {
 protected:
     void SetUp() override {
         streamContext = std::make_unique<StreamContext>();
+        // BUG-AUDIT-2 fix: constructor now correctly sets stage1Enabled=false.
+        // Enable stage-1 here so tests that call translate() without explicit
+        // configuration continue to work as before (testing PASID/page logic,
+        // not the constructor default state).
+        streamContext->setStage1Enabled(true);
     }
 
     void TearDown() override {
@@ -46,8 +51,10 @@ protected:
 // Test default construction
 TEST_F(StreamContextTest, DefaultConstruction) {
     ASSERT_NE(streamContext, nullptr);
-    
-    // Verify that translation on empty context fails
+
+    // BUG-AUDIT-2 fix: SetUp() now calls setStage1Enabled(true) so translate()
+    // correctly tries stage-1 lookup.  Without any PASIDs, the expected error
+    // is PASIDNotFound (stage-1 is active but no address space exists for the PASID).
     TranslationResult result = streamContext->translate(TEST_PASID_1, TEST_IOVA, AccessType::Read);
     EXPECT_TRUE(result.isError());
     EXPECT_EQ(result.getError(), SMMUError::PASIDNotFound);
@@ -291,8 +298,8 @@ TEST_F(StreamContextTest, GetPASIDAddressSpace) {
 
 // Test stage configuration methods
 TEST_F(StreamContextTest, StageConfiguration) {
-    // Test default configuration - ARM SMMU v3: Stage-1 enabled by default
-    EXPECT_TRUE(streamContext->isStage1Enabled());   // Default: Stage-1 enabled
+    // SetUp() calls setStage1Enabled(true), so isStage1Enabled() is true here.
+    EXPECT_TRUE(streamContext->isStage1Enabled());   // SetUp() enabled stage-1
     EXPECT_FALSE(streamContext->isStage2Enabled());  // Default: Stage-2 disabled
     
     // Test enabling Stage-1

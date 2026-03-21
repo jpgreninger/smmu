@@ -26,6 +26,9 @@ protected:
     void SetUp() override {
         streamContext = std::make_unique<StreamContext>();
         faultHandler = std::make_shared<FaultHandler>();
+        // BUG-AUDIT-2 fix: constructor now correctly sets stage1Enabled=false.
+        // Enable stage-1 so translation tests exercise PASID/page logic.
+        streamContext->setStage1Enabled(true);
     }
 
     void TearDown() override {

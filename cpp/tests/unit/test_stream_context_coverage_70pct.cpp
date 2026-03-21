@@ -33,6 +33,9 @@ protected:
     void SetUp() override {
         streamContext = std::make_unique<StreamContext>();
         faultHandler = std::make_shared<FaultHandler>();
+        // BUG-AUDIT-2 fix: constructor now correctly sets stage1Enabled=false.
+        // Enable stage-1 so tests that exercise translation continue to work.
+        streamContext->setStage1Enabled(true);
     }
 
     void TearDown() override {
@@ -520,7 +523,7 @@ TEST_F(StreamContextCoverage70Test, HasPASIDInvalid) {
 
 // Test isStage1Enabled() (Line 383)
 TEST_F(StreamContextCoverage70Test, IsStage1Enabled) {
-    // Default should be enabled
+    // SetUp() calls setStage1Enabled(true), so isStage1Enabled() is true here.
     EXPECT_TRUE(streamContext->isStage1Enabled());
 
     // Disable and check

@@ -118,7 +118,9 @@ SMMU::SMMU()
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
-      irqCtrlAck_(0) {
+      irqCtrlAck_(0),
+      // BUG-AUDIT-8 fix: atomic event timestamp counter, initialized to 0.
+      eventTimestampCounter_(0) {
     // Initialize empty stream map - streams will be added via configureStream
     // ARM SMMU v3 spec: Controller starts in disabled state with no streams configured
 
@@ -174,7 +176,9 @@ SMMU::SMMU(const SMMUConfiguration& config)
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
-      irqCtrlAck_(0) {
+      irqCtrlAck_(0),
+      // BUG-AUDIT-8 fix: atomic event timestamp counter, initialized to 0.
+      eventTimestampCounter_(0) {
     // Validate the provided configuration
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
@@ -2927,6 +2931,15 @@ std::vector<EventEntry> SMMU::getEventQueue() const {
     for (const auto& event : eventQueue) {
         events.push_back(event);
     }
+    // BUG-AUDIT-4 fix: ARM §3.5.1 requires the consumer to advance CONS after
+    // reading events.  getEventQueue() is the consumption path; advance eventqCons
+    // by one for each event returned, preserving OVACKFLG (bit 31) on each step.
+    // This mirrors the processEventQueue() advance logic exactly.
+    for (size_t i = 0; i < events.size(); ++i) {
+        uint32_t oldCons = eventqCons.load(std::memory_order_relaxed);
+        uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), eventqLog2Size);
+        eventqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
+    }
     return events;
 }
 
@@ -3645,7 +3658,11 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
 
     // CONF-GAP-8: Helper to compute range end for RIL TLBI.
     // Granule size in bytes: tg=0→4KB, tg=1→64KB, tg=2→16KB
-    // Range covers (num+1) * (1 << (5*scale)) granules starting at iova.
+    // ARM §4.4.1.1: Range covers (NUM+1) * 2^SCALE granules starting at iova.
+    // SCALE is used directly as the exponent — NOT multiplied by 5.
+    // (The 5*SCALE encoding is a PE TLBI instruction artifact, not SMMU command encoding.)
+    // BUG-AUDIT-1 fix: replace '5u * effectiveScale' with effectiveScale directly.
+    // Max SCALE=39 → max shift=39 bits, safely within uint64_t (no UB).
     auto computeRILRangeEnd = [](IOVA start, uint8_t tg_, uint8_t num_, uint8_t scale_) -> IOVA {
         uint64_t granule;
         switch (tg_) {
@@ -3653,16 +3670,13 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             case 2:  granule = 16u * 1024u; break;
             default: granule = 4u  * 1024u; break;
         }
-        // BUG-NEW-E fix: effective SCALE range is 0-39 per ARM §4.4.1.1.
-        // Values > 39 are treated as 39.  5*39=195 exceeds uint64_t shift width (63),
-        // so any effectiveScale >= 13 will overflow uint64_t and the saturation check
-        // (rangeBytes==0 || start > UINT64_MAX-rangeBytes+1) returns UINT64_MAX.
+        // ARM §4.4.1.1: effective SCALE range is 0-39; values > 39 treated as 39.
+        // Using SCALE directly as the shift: max shift = 39, well within uint64_t.
         uint32_t effectiveScale = (scale_ > 39u) ? 39u : static_cast<uint32_t>(scale_);
-        uint64_t scaleShift = static_cast<uint64_t>(5u) * effectiveScale;
         uint64_t blocks = static_cast<uint64_t>(num_) + 1u;
-        uint64_t rangeBytes = blocks * (static_cast<uint64_t>(1u) << scaleShift) * granule;
+        uint64_t rangeBytes = blocks * (static_cast<uint64_t>(1u) << effectiveScale) * granule;
         if (rangeBytes == 0 || start > UINT64_MAX - rangeBytes + 1u) {
-            return UINT64_MAX; // saturate
+            return UINT64_MAX; // saturate when range overflows address space
         }
         return start + rangeBytes - 1u;
     };
@@ -4946,9 +4960,13 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
 }
 
 uint64_t SMMU::getCurrentTimestamp() const {
-    // ARM SMMU v3 spec: Generate timestamp for event ordering and aging
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
+    // BUG-AUDIT-8 fix: Replace expensive vDSO syscall (std::chrono::steady_clock::now(),
+    // ~20-50 ns) with a cheap atomic increment (~1-2 ns, no lock interaction).
+    // This matches the Rust implementation and eliminates potential lock contention
+    // from holding queueMutex while making an OS call.
+    // Each call increments the counter and returns the new value, guaranteeing
+    // strictly increasing timestamps for consecutive events.
+    return eventTimestampCounter_.fetch_add(1u, std::memory_order_relaxed) + 1u;
 }
 
 // SecurityState helper methods

@@ -228,7 +228,8 @@ pub struct CommandEntry {
 
     /// Scale factor for the range (3 bits, §4.4.1.1).
     ///
-    /// `total_blocks = (num + 1) << (5 * scale)`.  Defaults to 0.
+    /// `total_blocks = (num + 1) << scale` (SCALE is used directly as the shift
+    /// exponent per ARM IHI0070G.b §4.4.1.1).  Defaults to 0.
     pub scale: u8,
 
     /// TLB level hint for range invalidation (2 bits, §4.4.1.1).

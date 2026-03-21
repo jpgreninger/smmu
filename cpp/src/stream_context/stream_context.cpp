@@ -15,12 +15,13 @@ static uint64_t getCurrentTimestamp() {
 }
 
 // Constructor - initializes stream context with ARM SMMU v3 defaults
-// BUG-CPP-DBGR-11 fix: §5.2 STE.Config==0b000 means all stages disabled at reset.
-// The currentConfiguration must reflect stage1Enabled=false to match translationEnabled=false.
-// The internal stage1Enabled member retains true so that existing direct-StreamContext tests
-// can call translate() without explicit setup — the spec-level fix is in currentConfiguration.
+// §5.2 STE.Config==0b000 means all stages disabled at reset.
+// BUG-AUDIT-2 fix: both stage1Enabled (internal) and currentConfiguration.stage1Enabled
+// must be false at construction.  The previous split-brain (stage1Enabled=true while
+// currentConfiguration.stage1Enabled=false) caused the two code paths in translate()
+// to behave differently before any configuration was applied.
 StreamContext::StreamContext()
-    : stage1Enabled(true),     // internal flag: allows direct translate() calls (backward compat)
+    : stage1Enabled(false),    // ARM SMMU v3 §5.2: stage-1 disabled at reset (STE.Config==0b000)
       stage2Enabled(false),    // ARM SMMU v3: Stage-2 disabled until configured
       faultMode(FaultMode::Terminate),  // Default to immediate DMA termination
       s1Stalld_(false),        // GAP-NEW-G: STE.S1STALLD defaults to false (stall mode operates normally)
