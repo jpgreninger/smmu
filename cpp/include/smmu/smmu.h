@@ -527,6 +527,25 @@ private:
     // Lock order invariant: queueMutex must never be acquired while a
     // streamLockStripe is held.
     mutable std::recursive_mutex queueMutex;
+
+    // BUG-CPP-1 fix: Serialization mutex for processCommandQueue().
+    // The CMD_SYNC handler must temporarily release queueMutex before acquiring
+    // a stream stripe lock (to avoid the ABBA deadlock: translate() holds
+    // stripe → queueMutex; the old code held queueMutex → stripe).  During that
+    // unlock window a second thread could enter processCommandQueue(), pick up
+    // commands from the queue, and advance CONS.RD concurrently — violating the
+    // ARM §3.5.1 ordering guarantee that a single logical consumer processes the
+    // queue in submission order.
+    //
+    // cmdqProcessingMutex_ is acquired at the very start of processCommandQueue()
+    // and held for its entire duration.  This ensures that at most one thread is
+    // in the processing loop at any given time, regardless of how many times
+    // queueMutex is temporarily released internally.
+    //
+    // Lock order: cmdqProcessingMutex_ → queueMutex (never the reverse).
+    // signalGerror() and clearGerror() do NOT acquire cmdqProcessingMutex_;
+    // they only need queueMutex, which is compatible with this ordering.
+    mutable std::mutex cmdqProcessingMutex_;
     
     // BUG-NEW-CPP-1 fix: CAS-loop GERROR toggle helper.
     // Atomically signals the given error bits in SMMU_GERROR, toggling only bits

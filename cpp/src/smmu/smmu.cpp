@@ -3270,6 +3270,20 @@ void SMMU::processCommandQueue() {
         return;
     }
 
+    // BUG-CPP-1 fix: Acquire the processing serialization mutex before entering
+    // the command loop.  This guarantees that at most one thread executes the
+    // loop at a time.  Without this, the CMD_SYNC handler's temporary release of
+    // queueMutex (required to avoid the ABBA stripe→queueMutex deadlock) opens a
+    // window where a second concurrent call to processCommandQueue() can enter
+    // the loop, dequeue commands, and advance CONS.RD — violating the ARM §3.5.1
+    // requirement that commands are consumed in strict submission order by a
+    // single logical consumer.
+    //
+    // Lock order: cmdqProcessingMutex_ is acquired first (here), then queueMutex
+    // is acquired inside the loop body.  This order is never reversed, so no new
+    // deadlock is introduced.
+    std::lock_guard<std::mutex> processingLock(cmdqProcessingMutex_);
+
     // ARM SMMU v3 spec: Process command queue with proper ordering.
     // BUG-03 fix: protect commandQueue with queueMutex.
     // BUG-CPP-C01 fix: Use unique_lock so we can temporarily release queueMutex
@@ -3279,6 +3293,9 @@ void SMMU::processCommandQueue() {
     // generateEvent(); holding both in the opposite order causes an ABBA
     // deadlock).  Releasing queueMutex before taking the stripe lock, then
     // re-acquiring queueMutex to continue the loop, preserves the invariant.
+    // With cmdqProcessingMutex_ now serializing the entire function, the
+    // unlock/re-lock of queueMutex remains correct and the concurrent-entry
+    // race window is closed.
     std::unique_lock<std::recursive_mutex> lock(queueMutex);
 
     // ARM §6.3.17: Do not process commands when GERROR.CMDQ_ERR is active.

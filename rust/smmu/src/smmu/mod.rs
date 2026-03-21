@@ -3510,6 +3510,9 @@ impl SMMU {
                                 timestamp,
                                 stall: false,
                                 stag: 0,
+                                // RUST-2 fix: §7.3 — ssv must reflect whether a PASID was
+                                // present (non-zero) for C_BAD_CD events (ARM §7.3 wire format).
+                                ssv: pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
@@ -3552,6 +3555,10 @@ impl SMMU {
                             // NEW-01 fix: §7.3 — compute pnu before dropping stream_ref,
                             // since is_access_privileged() requires the stream context.
                             let pnu = stream_ref.value().is_access_privileged(access);
+                            // RUST-1 fix: §7.3.13 — rnw/ind must reflect post-override
+                            // access type (after INSTCFG/PRIVCFG/STRW). Compute the
+                            // effective access type before dropping stream_ref.
+                            let effective_at = stream_ref.value().effective_access_type(access);
                             drop(stream_ref);
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
@@ -3580,11 +3587,11 @@ impl SMMU {
                                     stag: 0,
                                     // GAP NEW-1: F_TRANSLATION → CLASS==2 (IN).
                                     event_class: 2,
-                                    // NEW-01 fix: use can_write()/can_execute() to correctly
-                                    // handle compound access types (WritePrivileged, ReadWrite,
-                                    // ExecutePrivileged, etc.) instead of exact-match patterns.
-                                    rnw: !access.can_write(),
-                                    ind: access.can_execute() && !access.can_write(),
+                                    // RUST-1 fix: use effective_at (post-INSTCFG/PRIVCFG/STRW
+                                    // override) so rnw/ind reflect the architectural access type
+                                    // ARM §7.3.13 specifies, not the raw caller-supplied type.
+                                    rnw: !effective_at.can_write(),
+                                    ind: effective_at.can_execute() && !effective_at.can_write(),
                                     // NEW-01 fix: pnu must reflect PRIVCFG/STRW-derived privilege,
                                     // computed above before stream_ref was dropped.
                                     pnu,
@@ -3815,9 +3822,8 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
-                        rnw: !access.can_write(),
-                        ind: access.can_execute() && !access.can_write(),
-                        ssv: pasid.as_u32() != 0,
+                        // RUST-4 fix: §7.3.7 wire format — F_STREAM_DISABLED has no
+                        // RnW, InD, or SSV fields; all are RES0 per ARM §7.3.7.
                         ..EventEntry::zeroed()
                     };
                     if let Ok(mut queue) = self.event_queue.write() {
@@ -4460,9 +4466,8 @@ impl SMMU {
             stag: 0,
             // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
             event_class: 0,
-            rnw: !access.can_write(),
-            ind: access.can_execute() && !access.can_write(),
-            ssv: pasid.as_u32() != 0,
+            // RUST-3 fix: §7.3 wire format — RnW (bit 100) and InD (bit 99) are RES0
+            // for C_BAD_STREAMID. Let EventEntry::zeroed() zero these fields.
             ..EventEntry::zeroed()
         };
 
@@ -4535,9 +4540,8 @@ impl SMMU {
             stag: 0,
             // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
             event_class: 0,
-            rnw: !access.can_write(),
-            ind: access.can_execute() && !access.can_write(),
-            ssv: pasid.as_u32() != 0,
+            // RUST-3 fix: §7.3 wire format — RnW (bit 100) and InD (bit 99) are RES0
+            // for C_BAD_STE. Let EventEntry::zeroed() zero these fields.
             ..EventEntry::zeroed()
         };
 

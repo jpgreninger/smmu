@@ -758,8 +758,15 @@ impl StreamContext {
         // Step 1: apply INSTCFG
         let after_instcfg = match self.inst_cfg.load(Ordering::Acquire) {
             1 => match access_type {
+                // INSTCFG=1 (Force Instruction): ARM §13.1 — the SMMU forces the
+                // transaction's instruction attribute to Instruction for ALL accesses.
+                // For event field reporting (ARM §7.3.13), InD and RnW must reflect
+                // the post-override effective type: both Read and Write become Execute,
+                // so the event correctly records InD=1 (instruction) and RnW=1 (not-write).
                 AccessType::Read           => AccessType::Execute,
                 AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
+                AccessType::Write          => AccessType::Execute,
+                AccessType::WritePrivileged => AccessType::ExecutePrivileged,
                 _ => access_type,
             },
             2 => match access_type {

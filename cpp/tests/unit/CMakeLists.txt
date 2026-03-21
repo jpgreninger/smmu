@@ -135,6 +135,7 @@ set(UNIT_TEST_SOURCES
     test_bugaudit_fixes.cpp
     test_bugs_21mar2026.cpp
     test_bugs_21mar2026_dbgr.cpp
+    test_bugs_22mar2026_cpp1.cpp
     ../test_thread_safety.cpp
 )
 
@@ -150,8 +151,8 @@ foreach(test_source ${UNIT_TEST_SOURCES})
     
     add_test(NAME ${test_name} COMMAND ${test_name})
     
-    # Add threading support for thread safety tests
-    if(${test_name} STREQUAL "test_thread_safety")
+    # Add threading support for thread safety tests and concurrent bug tests
+    if(${test_name} STREQUAL "test_thread_safety" OR ${test_name} STREQUAL "test_bugs_22mar2026_cpp1")
         find_package(Threads REQUIRED)
         target_link_libraries(${test_name} Threads::Threads)
         set_tests_properties(${test_name} PROPERTIES LABELS "unit;thread_safety")
