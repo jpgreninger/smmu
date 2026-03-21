@@ -3842,9 +3842,13 @@ impl SMMU {
                                 Err(ref e) => {
                                     self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                                     let pnu = stream_ref.value().is_access_privileged(access);
+                                    // §7.3: nsipa=true when fault_s2=true and the IPA is in
+                                    // Non-Secure PA space.  Here fault_s2=true (stage-2 fault)
+                                    // and the IPA is Non-Secure when security_state==NonSecure.
+                                    let nsipa = security_state == SecurityState::NonSecure;
                                     self.record_translation_fault(
                                         stream_id, pasid, iova, access, security_state,
-                                        e, false, 0u16, true, iova.as_u64(), pnu, false,
+                                        e, false, 0u16, true, iova.as_u64(), pnu, nsipa,
                                     );
                                     return Err(e.clone());
                                 }

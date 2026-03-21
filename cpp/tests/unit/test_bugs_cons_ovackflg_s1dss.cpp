@@ -23,7 +23,11 @@ using namespace smmu;
 
 namespace {
 
-static constexpr size_t SMALL_Q = 8;
+// BUG-CPP-1 fix note: QueueConfiguration.isValid() requires size >= MIN_QUEUE_SIZE (16).
+// A size of 8 fell below that threshold and triggered the fallback to the default
+// 512-entry queue (after the constructor split-brain was fixed).  Use 16 — the
+// smallest valid size — so the queue actually operates at the intended small capacity.
+static constexpr size_t SMALL_Q = 16;
 
 static std::unique_ptr<SMMU> makeSmallQueueSMMU() {
     QueueConfiguration qcfg(SMALL_Q, SMALL_Q, SMALL_Q);

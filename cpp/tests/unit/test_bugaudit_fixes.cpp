@@ -40,7 +40,11 @@ static std::unique_ptr<SMMU> makeDefaultSMMU() {
 }
 
 // Helper: create SMMU with a small event queue for overflow tests.
-static std::unique_ptr<SMMU> makeSmallQueueSMMU(size_t eqSize = 8) {
+// BUG-CPP-1 fix note: QueueConfiguration.isValid() requires size >= MIN_QUEUE_SIZE (16).
+// Clamp the requested size to at least 16 so that the config remains valid and
+// the constructor does NOT fall back to the default 512-entry queue.
+static std::unique_ptr<SMMU> makeSmallQueueSMMU(size_t eqSize = 16) {
+    if (eqSize < 16) eqSize = 16; // enforce QueueConfiguration minimum
     QueueConfiguration qcfg(eqSize, 64, 64);
     SMMUConfiguration cfg(qcfg, CacheConfiguration(), AddressConfiguration(), ResourceLimits());
     auto s = std::make_unique<SMMU>(cfg);
@@ -430,10 +434,12 @@ TEST(BugAudit5GenerateEventRefactor, NormalPathFieldsCorrect) {
 
     // C_BAD_STREAMID: eventClass must be 0 (CLASS field undefined for C_* events).
     EXPECT_EQ(ev.eventClass, 0u) << "C_BAD_STREAMID must have eventClass=0";
-    // Read access: RnW=1 (Read), InD=0 (data read), PnU=0 (unprivileged).
-    EXPECT_TRUE(ev.rnw)  << "Read access must have RnW=1";
-    EXPECT_FALSE(ev.ind) << "Data read must have InD=0";
-    EXPECT_FALSE(ev.pnu) << "Unprivileged access must have PnU=0";
+    // ARM IHI0070G.b §7.3.1: RnW, InD, PnU are RES0 for configuration-class events.
+    // C_BAD_STREAMID is a configuration event; these fields must be 0 regardless of
+    // the access type that triggered the fault.
+    EXPECT_FALSE(ev.rnw)  << "C_BAD_STREAMID.rnw must be 0 (RES0 per ARM §7.3.1)";
+    EXPECT_FALSE(ev.ind) << "C_BAD_STREAMID.ind must be 0 (RES0 per ARM §7.3.1)";
+    EXPECT_FALSE(ev.pnu) << "C_BAD_STREAMID.pnu must be 0 (RES0 per ARM §7.3.1)";
 }
 
 // Verify Execute access sets ind=true on the translation-fault path where
@@ -476,7 +482,8 @@ TEST(BugAudit5GenerateEventRefactor, TranslationFaultPathExecuteFields) {
 
 // Stall path (queue full): stall events must have consistent field values.
 TEST(BugAudit5GenerateEventRefactor, StallPathExecutesWithoutCrash) {
-    auto smmu = makeSmallQueueSMMU(8);
+    // BUG-CPP-1 fix note: minimum valid queue size is 16; use 16 entries.
+    auto smmu = makeSmallQueueSMMU(16);
 
     // Configure a stream with stall enabled.
     StreamID sid = 0x20u;
@@ -491,8 +498,8 @@ TEST(BugAudit5GenerateEventRefactor, StallPathExecutesWithoutCrash) {
     smmu->createStreamPASID(sid, 0);
     // No mapped pages -> every translate faults.
 
-    // Fill the event queue with C_BAD_STREAMID faults.
-    for (StreamID s = 0x0300u; s < 0x0308u; ++s) {
+    // Fill the event queue with C_BAD_STREAMID faults (16 entries to fill the queue).
+    for (StreamID s = 0x0300u; s < 0x0310u; ++s) {
         smmu->translate(s, 0, 0x1000u, AccessType::Read, SecurityState::NonSecure);
     }
     size_t queueSizeBefore = smmu->getEventQueueSize();

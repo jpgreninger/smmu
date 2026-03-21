@@ -134,6 +134,7 @@ set(UNIT_TEST_SOURCES
     test_bug_cpp5_cmdq_cons_rd.cpp
     test_bugaudit_fixes.cpp
     test_bugs_21mar2026.cpp
+    test_bugs_21mar2026_dbgr.cpp
     ../test_thread_safety.cpp
 )
 

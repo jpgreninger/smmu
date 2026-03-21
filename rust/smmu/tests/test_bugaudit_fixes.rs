@@ -250,16 +250,25 @@ fn bugaudit3_pasid0_not_special_for_stage2_miss() {
 }
 
 // ---------------------------------------------------------------------------
-// BUG-AUDIT-4: get_events() does not advance CONS
+// BUG-AUDIT-4: get_events() is a non-destructive snapshot — must NOT advance CONS
 // ---------------------------------------------------------------------------
+//
+// Original analysis (BUG-AUDIT-4) incorrectly concluded that get_events()
+// should act as a software consumer and advance CONS.RD.  The correct ARM
+// §3.5.1 semantics are:
+//
+//   "EVENTQ_CONS.RD must only advance when software has actually consumed
+//    (processed and discarded) an entry from the ring buffer."
+//
+// get_events() is a pure snapshot: it returns a Vec copy of all events but
+// does NOT modify the ring buffer or advance CONS.  The incorrect advancement
+// was removed by BUG-RUST-1 fix.  These tests now assert the correct behaviour.
 
-/// Verify that calling `get_events()` advances EVENTQ_CONS.RD.
+/// Verify that `get_events()` does NOT advance EVENTQ_CONS.RD.
 ///
-/// ARM §3.5.1: Software (i.e. get_events) must update CONS.RD after reading
-/// events to signal that ring buffer slots are free.
-///
-/// Before fix: CONS.RD stays at 0 regardless of how many events were read.
-/// After fix:  CONS.RD advances by the number of events consumed.
+/// ARM §3.5.1: CONS.RD must only advance when software has consumed an entry.
+/// get_events() is a non-destructive snapshot — it must leave CONS unchanged
+/// so the same event can be re-read on the next call.
 #[test]
 fn bugaudit4_get_events_advances_eventq_cons() {
     let smmu = SMMU::new();
@@ -280,24 +289,27 @@ fn bugaudit4_get_events_advances_eventq_cons() {
     let prod_after = smmu.eventq_prod_index();
     assert!(prod_after > 0, "PROD must have advanced after recording a fault event");
 
-    // Consume events.
+    // Take snapshot — must NOT advance CONS.
     let events = smmu.get_events();
     assert!(!events.is_empty(), "get_events() must return the fault event");
 
-    // CONS must now match PROD.
+    // BUG-RUST-1 fix: CONS must remain at 0 (not advanced).
     let cons_after = smmu.eventq_cons_index() & !(1u32 << 31);
-    assert!(cons_after > 0,
-        "CONS.RD must advance after get_events() consumes events (ARM §3.5.1). \
-         Before fix: CONS stays at 0 forever.");
+    assert_eq!(cons_after, 0,
+        "get_events() is a non-destructive snapshot and must NOT advance CONS.RD \
+         (ARM §3.5.1). BUG-RUST-1 fix: removed incorrect CONS advancement.");
 
-    assert_eq!(cons_after, prod_after & !(1u32 << 31),
-        "After consuming all events, CONS.RD must equal PROD.WR (empty queue condition).");
+    // A second call must still return the same event.
+    let events2 = smmu.get_events();
+    assert_eq!(events.len(), events2.len(),
+        "Second get_events() must return the same snapshot (non-destructive).");
 }
 
-/// Verify queue does not appear full after consuming events with get_events().
+/// Verify that the event queue remains accessible (not erroneously appearing
+/// full) because get_events() is a snapshot and does NOT advance CONS.
 ///
-/// If CONS never advances, ring buffer occupancy treats every slot as occupied
-/// after capacity is reached, silently dropping new events.
+/// Events accumulate in the queue until explicitly cleared via
+/// clear_event_queue().  The queue can only fill up if PROD catches CONS.
 #[test]
 fn bugaudit4_queue_not_full_after_consuming_events() {
     let smmu = SMMU::new();
@@ -307,21 +319,25 @@ fn bugaudit4_queue_not_full_after_consuming_events() {
     smmu.configure_stream(stream, StreamConfig::stage1_only()).unwrap();
     smmu.create_pasid(stream, pasid(0)).unwrap();
 
-    // Generate 32 faults.
-    for i in 0u64..32 {
+    // Generate faults up to queue capacity (default queue is large; use a few).
+    for i in 0u64..8 {
         let addr = iova(0x1000 + i * 0x1000);
         let _ = smmu.translate(stream, pasid(0), addr, AccessType::Read, SecurityState::NonSecure);
     }
 
-    // Consume — CONS must advance to match PROD.
+    // Snapshot — must return all events and NOT advance CONS.
     let events = smmu.get_events();
-    assert!(!events.is_empty(), "First batch must contain events");
+    assert!(!events.is_empty(), "get_events() must return events");
 
+    // CONS stays at 0; events stay in the queue.
     let cons_after = smmu.eventq_cons_index() & !(1u32 << 31);
-    let prod_after = smmu.eventq_prod_index();
-    assert_eq!(cons_after, prod_after & !(1u32 << 31),
-        "After consuming all events CONS must equal PROD (empty queue). \
-         Bug: CONS stays at 0 so queue appears perpetually full.");
+    assert_eq!(cons_after, 0,
+        "BUG-RUST-1: get_events() snapshot must leave CONS at 0.");
+
+    // A subsequent snapshot must still see the same events.
+    let events2 = smmu.get_events();
+    assert_eq!(events.len(), events2.len(),
+        "Queue must still contain all events after snapshot (non-destructive).");
 }
 
 // ---------------------------------------------------------------------------

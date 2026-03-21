@@ -797,10 +797,13 @@ impl AddressSpace {
             return Err(AddressSpaceError::InvalidAddress { address: last_pa });
         }
 
-        // Map each page in the range with checked PA arithmetic to prevent overflow
+        // Map each page in the range with checked PA arithmetic to prevent overflow.
+        // Set AF=true so that pages are immediately accessible without triggering
+        // F_ACCESS faults (§3.13.2: AF=0 + ha=false + affd=false → F_ACCESS).
         let mut current_pa = aligned_start_pa;
         for page_num in start_page_num..=end_page_num {
-            let entry = PageEntry::with_security_state(PA::new(current_pa).unwrap(), permissions, security_state);
+            let entry = PageEntry::with_security_state(PA::new(current_pa).unwrap(), permissions, security_state)
+                .with_access_flag(true);
             self.page_table.insert(page_num, entry);
             current_pa = current_pa
                 .checked_add(PAGE_SIZE)
@@ -916,11 +919,13 @@ impl AddressSpace {
             }
         }
 
-        // Map all pages
+        // Map all pages.  Set AF=true so bulk-mapped pages do not trigger spurious
+        // F_ACCESS faults (§3.13.2: AF=0 + ha=false + affd=false → F_ACCESS).
         for &(iova, pa) in mappings {
             let page_num = self.page_number(iova);
             let aligned_pa = PA::new(pa.as_u64() & !PAGE_MASK).unwrap();
-            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state);
+            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state)
+                .with_access_flag(true);
             self.page_table.insert(page_num, entry);
         }
 
@@ -1212,7 +1217,10 @@ impl AddressSpace {
 
             let page_num = self.page_number(iova);
             let aligned_pa = PA::new(pa.as_u64() & !PAGE_MASK).unwrap();
-            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state);
+            // Set AF=true so bulk-mapped pages do not trigger spurious F_ACCESS faults
+            // (§3.13.2: AF=0 + ha=false + affd=false → F_ACCESS).
+            let entry = PageEntry::with_security_state(aligned_pa, permissions, security_state)
+                .with_access_flag(true);
             batch.push((page_num, entry));
         }
 

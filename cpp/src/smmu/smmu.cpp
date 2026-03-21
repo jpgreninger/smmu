@@ -183,6 +183,16 @@ SMMU::SMMU(const SMMUConfiguration& config)
     if (!config.isValid()) {
         // Fall back to default configuration if invalid
         configuration = SMMUConfiguration::createDefault();
+        // BUG-CPP-1 fix: recompute the six queue-sizing members from the fallback
+        // configuration so they remain consistent with this->configuration.
+        // The initializer list already set them from the invalid `config`; they must
+        // now reflect the default queue sizes.
+        maxEventQueueSize   = configuration.getQueueConfiguration().eventQueueSize;
+        maxCommandQueueSize = configuration.getQueueConfiguration().commandQueueSize;
+        maxPRIQueueSize     = configuration.getQueueConfiguration().priQueueSize;
+        cmdqLog2Size  = computeLog2Size(configuration.getQueueConfiguration().commandQueueSize);
+        eventqLog2Size = computeLog2Size(configuration.getQueueConfiguration().eventQueueSize);
+        priqLog2Size  = computeLog2Size(configuration.getQueueConfiguration().priQueueSize);
     }
 
     // Initialize empty stream map - streams will be added via configureStream
@@ -4807,6 +4817,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                 pendingEvent.pnu = false;
                 break;
         }
+        // BUG-CPP-5 fix: §7.3.1 — RnW, InD, PnU are RES0 for configuration-class events.
+        // Override any non-zero values set by the access-type switch above.
+        if (type == EventType::C_BAD_STREAMID || type == EventType::C_BAD_STE    ||
+            type == EventType::C_BAD_SUBSTREAMID || type == EventType::C_BAD_CD  ||
+            type == EventType::F_CFG_CONFLICT) {
+            pendingEvent.rnw = false;
+            pendingEvent.ind = false;
+            pendingEvent.pnu = false;
+        }
         pendingEvent.s2    = isStage2;
         pendingEvent.ipa   = isStage2 ? ipaValue : 0u;
         // §7.3: NSIPA=1 when S2=1 and the IPA is in Non-Secure PA space.
@@ -4960,6 +4979,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             event.ind = false;
             event.pnu = false;
             break;
+    }
+    // BUG-CPP-5 fix: §7.3.1 — RnW, InD, PnU are RES0 for configuration-class events.
+    // Override any non-zero values set by the access-type switch above.
+    if (type == EventType::C_BAD_STREAMID || type == EventType::C_BAD_STE    ||
+        type == EventType::C_BAD_SUBSTREAMID || type == EventType::C_BAD_CD  ||
+        type == EventType::F_CFG_CONFLICT) {
+        event.rnw = false;
+        event.ind = false;
+        event.pnu = false;
     }
     // GAP NEW-2 fix: ARM IHI0070G.b §7.3.13 — S2 and IPA fields for two-stage faults.
     // When the fault occurred during stage-2 translation, S2=1 and IPA carries
