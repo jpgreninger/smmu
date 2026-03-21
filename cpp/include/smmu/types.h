@@ -1512,7 +1512,7 @@ struct CommandEntry {
     /// startAddress serves as the VA operand; tg/num/scale define the range.
     uint8_t tg;    ///< RIL Translation Granule: 0=4KB, 1=64KB, 2=16KB; default 0
     uint8_t num;   ///< RIL number-1 of granule blocks (5-bit: 0-30); default 0
-    uint8_t scale; ///< RIL log2 scale factor (3-bit: 0-7); range=(num+1)*(1<<(5*scale)) granules; default 0
+    uint8_t scale; ///< RIL log2 scale factor; effective range 0-39; values >39 treated as 39 per ARM §4.4.1.1; range=(num+1)*(1<<(5*scale)) granules; default 0
     uint8_t ttl;   ///< RIL target TLB level hint (2-bit: 0=any,1=L1,2=L2,3=L3); default 0
     bool    ril;   ///< RIL range invalidation leaf flag; true=use TG/NUM/SCALE range; default false
 

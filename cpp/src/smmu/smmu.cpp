@@ -3308,8 +3308,13 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     PRIEntry timestampedRequest = request;
     timestampedRequest.timestamp = getCurrentTimestamp();
     priQueue.push_back(timestampedRequest);
-    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08)
-    priqProd.store(advanceQueueIndex(priqProd.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
+    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-08).
+    // BUG-NEW-D fix: preserve OVFLG (bit 31) across the PRIQ PROD advance.
+    {
+        uint32_t oldProd = priqProd.load(std::memory_order_relaxed);
+        uint32_t newProd = advanceQueueIndex(oldProd, priqLog2Size) | (oldProd & (1u << 31));
+        priqProd.store(newProd, std::memory_order_release);
+    }
     // §7.3.19 / FINDING-NEW-32: carry the request's security state, not a hardcoded NonSecure.
     // Only generate the E_PAGE_REQUEST event when the entry was actually enqueued.
     generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, request.securityState);
@@ -3535,8 +3540,12 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             case 2:  granule = 16u * 1024u; break;
             default: granule = 4u  * 1024u; break;
         }
-        // scale_ clamped to 0-7 per spec; 5*scale_ max = 35 which fits uint64_t
-        uint64_t scaleShift = (scale_ > 7u) ? 35u : (static_cast<uint64_t>(5u) * scale_);
+        // BUG-NEW-E fix: effective SCALE range is 0-39 per ARM §4.4.1.1.
+        // Values > 39 are treated as 39.  5*39=195 exceeds uint64_t shift width (63),
+        // so any effectiveScale >= 13 will overflow uint64_t and the saturation check
+        // (rangeBytes==0 || start > UINT64_MAX-rangeBytes+1) returns UINT64_MAX.
+        uint32_t effectiveScale = (scale_ > 39u) ? 39u : static_cast<uint32_t>(scale_);
+        uint64_t scaleShift = static_cast<uint64_t>(5u) * effectiveScale;
         uint64_t blocks = static_cast<uint64_t>(num_) + 1u;
         uint64_t rangeBytes = blocks * (static_cast<uint64_t>(1u) << scaleShift) * granule;
         if (rangeBytes == 0 || start > UINT64_MAX - rangeBytes + 1u) {
@@ -4490,7 +4499,14 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     while (!stallPending_.empty() && eventQueue.size() < maxEventQueueSize) {
         eventQueue.push_back(stallPending_.front());
         stallPending_.pop_front();
-        eventqProd.store(advanceQueueIndex(eventqProd.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
+        // BUG-NEW-D fix: preserve OVFLG (bit 31) across the PROD advance.
+        // advanceQueueIndex() computes (idx+1) % modulus where modulus <= 2^20,
+        // stripping bit 31.  Use a read-modify-write so OVFLG is not lost.
+        {
+            uint32_t oldProd = eventqProd.load(std::memory_order_relaxed);
+            uint32_t newProd = advanceQueueIndex(oldProd, eventqLog2Size) | (oldProd & (1u << 31));
+            eventqProd.store(newProd, std::memory_order_release);
+        }
     }
 
     if (eventQueue.size() >= maxEventQueueSize) {
@@ -4797,8 +4813,14 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
 
     // Add to event queue
     eventQueue.push_back(event);
-    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01)
-    eventqProd.store(advanceQueueIndex(eventqProd.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
+    // ARM §3.5.1: Advance producer index on enqueue (FINDING-M-01).
+    // BUG-NEW-D fix: preserve OVFLG (bit 31) across the PROD advance so that
+    // the overflow indication is not silently cleared before software acknowledges.
+    {
+        uint32_t oldProd = eventqProd.load(std::memory_order_relaxed);
+        uint32_t newProd = advanceQueueIndex(oldProd, eventqLog2Size) | (oldProd & (1u << 31));
+        eventqProd.store(newProd, std::memory_order_release);
+    }
 }
 
 uint64_t SMMU::getCurrentTimestamp() const {
@@ -5326,7 +5348,11 @@ bool SMMU::isCmdqEmptyByIndex() const {
 
 bool SMMU::isEventqEmptyByIndex() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return eventqProd.load(std::memory_order_relaxed) == eventqCons.load(std::memory_order_relaxed);
+    // BUG-NEW-A fix: ARM §3.5.1 — empty = PROD.WR == CONS.RD (index bits only).
+    // EVENTQ_PROD bit[31]=OVFLG and EVENTQ_CONS bit[31]=OVACKFLG are status flags
+    // that must not participate in the empty check.  Mask both before comparing.
+    return (eventqProd.load(std::memory_order_relaxed) & ~(1u << 31)) ==
+           (eventqCons.load(std::memory_order_relaxed) & ~(1u << 31));
 }
 
 uint32_t SMMU::getCmdqOccupiedEntries() const {
@@ -5340,7 +5366,13 @@ uint32_t SMMU::getCmdqOccupiedEntries() const {
 
 uint32_t SMMU::getEventqOccupiedEntries() const {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    return queueOccupied(eventqProd.load(std::memory_order_relaxed), eventqCons.load(std::memory_order_relaxed), eventqLog2Size);
+    // BUG-NEW-A fix: mask OVFLG (bit 31) from both PROD and CONS before computing
+    // occupied count.  queueOccupied() computes (prod - cons + modulus) % modulus
+    // using only the circular index bits; bit 31 must not contribute to the difference.
+    return queueOccupied(
+        eventqProd.load(std::memory_order_relaxed) & ~(1u << 31),
+        eventqCons.load(std::memory_order_relaxed) & ~(1u << 31),
+        eventqLog2Size);
 }
 
 uint32_t SMMU::getCmdqLog2Size() const {

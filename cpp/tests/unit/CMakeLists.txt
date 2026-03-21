@@ -129,6 +129,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_cpp_confirmed.cpp
     test_conf_gaps_bugs_fix.cpp
     test_bugs_uwxn_cmdq.cpp
+    test_bugs_eventq_scale.cpp
     ../test_thread_safety.cpp
 )
 

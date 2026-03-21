@@ -1336,15 +1336,26 @@ impl SMMU {
 
     /// Internal helper: push an `EventEntry` into the event queue.
     ///
-    /// Advances `eventq_prod` on success; silently discards when queue is full.
+    /// Advances `eventq_prod` on success; toggles OVFLG when queue is full
+    /// (ARM §7.4 — non-stall events dropped due to full queue must set OVFLG).
+    ///
+    /// BUG-NEW-B fix: previously silently discarded events without calling
+    /// `toggle_ovflg_once()`, leaving OVFLG=0 even on overflow.
     fn enqueue_event(&self, event: EventEntry) {
         if let Ok(mut queue) = self.event_queue.write() {
             if queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                self.eventq_prod
-                    .store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                // BUG-NEW-D fix: preserve OVFLG (bit 31) when advancing PROD.
+                let new_prod = Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31))
+                    | (prod & (1u32 << 31));
+                self.eventq_prod.store(new_prod, Ordering::Release);
+            } else {
+                // BUG-NEW-B fix: ARM §7.4 — toggle OVFLG when a non-stall event
+                // is discarded due to a full queue.
+                drop(queue);
+                self.toggle_ovflg_once();
             }
         }
     }
@@ -1897,7 +1908,7 @@ impl SMMU {
                         queue.push_back(event);
                         self.event_count.fetch_add(1, Ordering::Relaxed);
                         let prod = self.eventq_prod.load(Ordering::Relaxed);
-                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                     }
                 }
             }
@@ -1936,7 +1947,7 @@ impl SMMU {
                         queue.push_back(event);
                         self.event_count.fetch_add(1, Ordering::Relaxed);
                         let prod = self.eventq_prod.load(Ordering::Relaxed);
-                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                     }
                 }
             }
@@ -1979,7 +1990,7 @@ impl SMMU {
                                 queue.push_back(event);
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                             }
                         }
                     }
@@ -3019,7 +3030,7 @@ impl SMMU {
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                                 self.eventq_prod.store(
-                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
                             }
@@ -3053,7 +3064,7 @@ impl SMMU {
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                                 self.eventq_prod.store(
-                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
                             }
@@ -3100,7 +3111,7 @@ impl SMMU {
                                 self.event_count.fetch_add(1, Ordering::Relaxed);
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                                 self.eventq_prod.store(
-                                    Self::advance_index(prod, self.eventq_log2size),
+                                    Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
                             }
@@ -3147,7 +3158,7 @@ impl SMMU {
                                     self.event_count.fetch_add(1, Ordering::Relaxed);
                                     let prod = self.eventq_prod.load(Ordering::Relaxed);
                                     self.eventq_prod.store(
-                                        Self::advance_index(prod, self.eventq_log2size),
+                                        Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                         Ordering::Release,
                                     );
                                 }
@@ -3206,7 +3217,7 @@ impl SMMU {
                             self.event_count.fetch_add(1, Ordering::Relaxed);
                             let prod = self.eventq_prod.load(Ordering::Relaxed);
                             self.eventq_prod.store(
-                                Self::advance_index(prod, self.eventq_log2size),
+                                Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                 Ordering::Release,
                             );
                         }
@@ -3394,11 +3405,21 @@ impl SMMU {
                 } else {
                     raw_asid
                 };
-                let vmid = stream_ref.value().get_vmid();
                 let stall = stream_ref.value().is_stall_enabled();
                 let s1_en = stream_ref.value().is_stage1_enabled();
                 let s2_en = stream_ref.value().is_stage2_enabled();
                 let bypass = !s1_en && !s2_en;
+                // BUG-NEW-G fix: §3.17/spec line 21035 — Secure stage-1-only entries must
+                // use VMID=0.  NS-EL1 stage-1-only retains VMID from STE.S2VMID
+                // (spec lines 12582-12585).  VMID zeroing only applies to Secure
+                // StreamWorld stage-1-only, not to NS-EL1.
+                let vmid = if s1_en && !s2_en
+                    && stream_ref.value().security_state() == SecurityState::Secure
+                {
+                    0u16
+                } else {
+                    stream_ref.value().get_vmid()
+                };
                 let s1dss_val = stream_ref.value().get_s1dss();
                 let s1cd_max_val = stream_ref.value().get_s1cd_max();
 
@@ -3446,7 +3467,7 @@ impl SMMU {
                                     self.event_count.fetch_add(1, Ordering::Relaxed);
                                     // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
                                     let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                    self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                                    self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                                 }
                             }
                         }
@@ -3526,7 +3547,7 @@ impl SMMU {
                                         // ARM §3.5.4 — advance PROD.WR to publish record.
                                         let prod = self.eventq_prod.load(Ordering::Relaxed);
                                         self.eventq_prod.store(
-                                            Self::advance_index(prod, self.eventq_log2size),
+                                            Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                             Ordering::Release,
                                         );
                                     }
@@ -3754,7 +3775,7 @@ impl SMMU {
                             self.event_count.fetch_add(1, Ordering::Relaxed);
                             // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
                             let prod = self.eventq_prod.load(Ordering::Relaxed);
-                            self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                            self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                         }
                     }
                     return Err(TranslationError::StreamDisabled);
@@ -4265,7 +4286,7 @@ impl SMMU {
                                 // publish each record; entries are invisible until the
                                 // write index covers them.
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                             }
                             None => break,
                         }
@@ -4279,7 +4300,7 @@ impl SMMU {
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish the new record.
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
             } else if event.stall {
                 // BUG-13 fix: stall event and queue is full — redirect to stall_pending
                 // instead of dropping.  Must NOT trigger OVFLG (ARM §7.4: stall fault
@@ -4361,7 +4382,7 @@ impl SMMU {
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
             } else {
                 // BUG-05 / ARM §7.4 / BUG-RUST-DBGR-8 fix: Toggle OVFLG atomically
                 // via CAS loop — see toggle_ovflg_once() for details.
@@ -4436,7 +4457,7 @@ impl SMMU {
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 // ARM §3.5.4 — advance PROD.WR to publish record.
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
             } else {
                 // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
                 self.toggle_ovflg_once();
@@ -4512,7 +4533,7 @@ impl SMMU {
         // push_back path, so no two callers can execute this load+store concurrently.
         // A plain read-modify-write is therefore race-free and correct here.
         let prod = self.eventq_prod.load(Ordering::Relaxed);
-        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
         Ok(())
     }
 
@@ -4535,7 +4556,7 @@ impl SMMU {
                                 // BUG-5 fix: ARM §3.5.4 — PROD.WR must be updated so
                                 // drained events are visible to software polling the index.
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size), Ordering::Release);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
                             }
                             None => break,
                         }
@@ -4719,7 +4740,7 @@ impl SMMU {
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                 self.eventq_prod.store(
-                    Self::advance_index(prod, self.eventq_log2size),
+                    Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                     Ordering::Release,
                 );
             } else {
@@ -4928,12 +4949,20 @@ impl SMMU {
 
     /// Returns true if the event queue is empty (PROD == CONS, ARM §3.5.1).
     ///
-    /// OVFLG (bit 31) of `SMMU_EVENTQ_PROD` is masked before the comparison so
-    /// that a toggled overflow flag is never mistaken for a non-empty queue.
+    /// Both OVFLG (bit 31 of `SMMU_EVENTQ_PROD`) and OVACKFLG (bit 31 of
+    /// `SMMU_EVENTQ_CONS`) are masked before the comparison so that neither
+    /// overflow flag participates in the empty check.
+    ///
+    /// BUG-NEW-F fix: previously only PROD bit 31 was masked.  After SW
+    /// acknowledges an overflow (`CONS bit 31 = OVACKFLG = 1`), the unmasked
+    /// CONS always differed from the masked PROD even when positions matched,
+    /// incorrectly reporting non-empty.
     #[must_use]
     pub fn is_eventq_empty_by_index(&self) -> bool {
         let prod = self.eventq_prod.load(Ordering::Acquire) & !(1u32 << 31);
-        prod == self.eventq_cons.load(Ordering::Acquire)
+        // BUG-NEW-F fix: also mask CONS bit 31 (OVACKFLG).
+        let cons = self.eventq_cons.load(Ordering::Acquire) & !(1u32 << 31);
+        prod == cons
     }
 
     /// Returns the number of entries in the command queue by PROD/CONS index.
@@ -4948,13 +4977,19 @@ impl SMMU {
 
     /// Returns the number of entries in the event queue by PROD/CONS index.
     ///
-    /// OVFLG (bit 31) of `SMMU_EVENTQ_PROD` is masked before computing occupancy
-    /// so that a toggled overflow flag does not corrupt the entry count.
+    /// Both OVFLG (bit 31 of `SMMU_EVENTQ_PROD`) and OVACKFLG (bit 31 of
+    /// `SMMU_EVENTQ_CONS`) are masked before computing occupancy so that neither
+    /// overflow flag corrupts the entry count.
+    ///
+    /// BUG-NEW-F fix (F2): previously only PROD bit 31 was masked.  When CONS
+    /// has OVACKFLG=1 the unmasked CONS value produced an incorrect huge occupancy
+    /// result from the modular subtraction.
     #[must_use]
     pub fn eventq_occupied_entries(&self) -> u32 {
         Self::queue_occupied(
             self.eventq_prod.load(Ordering::Acquire) & !(1u32 << 31),
-            self.eventq_cons.load(Ordering::Acquire),
+            // BUG-NEW-F fix (F2): also mask CONS bit 31 (OVACKFLG).
+            self.eventq_cons.load(Ordering::Acquire) & !(1u32 << 31),
             self.eventq_log2size,
         )
     }
@@ -4984,61 +5019,56 @@ impl SMMU {
     #[allow(clippy::too_many_lines)]
     fn process_single_command(&self, command: CommandEntry) -> Result<(), SMMUError> {
         match command.cmd_type {
-            // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4)
+            // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4).
+            // BUG-NEW-C fix: CR2.PTM governs only broadcast TLBI (receive_broadcast_tlbi),
+            // NOT command-queue TLBI commands (ARM §6.3.12).  PTM guard removed.
             CommandType::TlbiNhAsid | CommandType::TlbiEl2Asid => {
-                // CONF-GAP-11: NS ASID TLBI commands are gated by CR2.PTM (§6.3.12).
-                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
-                    self.tlb_cache.invalidate_by_asid(command.asid);
-                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-                }
+                self.tlb_cache.invalidate_by_asid(command.asid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // CONF-GAP-11: All NS TLBI commands are gated by CR2.PTM (§6.3.12).
+            // BUG-NEW-C fix: same rationale — PTM must not gate command-queue TLBI.
             CommandType::TlbiNhAll | CommandType::TlbiEl2All | CommandType::TlbiNsnhAll => {
-                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
-                    self.tlb_cache.invalidate_all();
-                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-                }
+                self.tlb_cache.invalidate_all();
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-6: VA-targeted invalidation — selective by VA+ASID (§4.4).
             // CONF-GAP-8: RIL range-based invalidation (§4.4.1.1).
+            // BUG-NEW-C fix: PTM guard removed — command-queue TLBI unconditional.
             CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiEl3Va | CommandType::TlbiSEl2Va => {
-                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
-                    if command.ril {
-                        // Range invalidation: compute range from tg, num, scale.
-                        // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
-                        // a shift ≥ 64 on u64 must be handled without overflow.
-                        // Per ARM §4.4.1.1: SCALE values that exceed the address-space width
-                        // are equivalent to "invalidate the entire remaining range".
-                        // Use checked_shl and saturating arithmetic throughout so that any
-                        // out-of-range SCALE (including spec-maximum 39, which gives shift=195)
-                        // degenerates to a full-address-space invalidation instead of panicking.
-                        let granule_size: u64 = match command.tg {
-                            1 => 65536,
-                            2 => 16384,
-                            _ => 4096,
-                        };
-                        let shift = 5u32.saturating_mul(u32::from(command.scale));
-                        // checked_shl returns None if shift >= 64 (would overflow u64).
-                        // In that case the range covers the entire address space → u64::MAX.
-                        let blocks = (command.num as u64 + 1)
-                            .checked_shl(shift)
-                            .unwrap_or(u64::MAX);
-                        let range_end = command.start_address
-                            .saturating_add(blocks.saturating_mul(granule_size))
-                            .saturating_sub(1);
-                        self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
-                    } else {
-                        self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
-                    }
-                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                if command.ril {
+                    // Range invalidation: compute range from tg, num, scale.
+                    // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
+                    // a shift ≥ 64 on u64 must be handled without overflow.
+                    // Per ARM §4.4.1.1: SCALE values that exceed the address-space width
+                    // are equivalent to "invalidate the entire remaining range".
+                    // Use checked_shl and saturating arithmetic throughout so that any
+                    // out-of-range SCALE (including spec-maximum 39, which gives shift=195)
+                    // degenerates to a full-address-space invalidation instead of panicking.
+                    let granule_size: u64 = match command.tg {
+                        1 => 65536,
+                        2 => 16384,
+                        _ => 4096,
+                    };
+                    let shift = 5u32.saturating_mul(u32::from(command.scale));
+                    // checked_shl returns None if shift >= 64 (would overflow u64).
+                    // In that case the range covers the entire address space → u64::MAX.
+                    let blocks = (command.num as u64 + 1)
+                        .checked_shl(shift)
+                        .unwrap_or(u64::MAX);
+                    let range_end = command.start_address
+                        .saturating_add(blocks.saturating_mul(granule_size))
+                        .saturating_sub(1);
+                    self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
+                } else {
+                    self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
                 }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-6: VAA-targeted invalidation — selective by VA, any ASID (§4.4).
+            // BUG-NEW-C fix: PTM guard removed.
             CommandType::TlbiNhVaa | CommandType::TlbiEl2Vaa | CommandType::TlbiSEl2Vaa => {
-                if (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
-                    self.tlb_cache.invalidate_by_va(command.start_address);
-                    self.invalidation_count.fetch_add(1, Ordering::Relaxed);
-                }
+                self.tlb_cache.invalidate_by_va(command.start_address);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-12: VMID-targeted (all) invalidation with CR0.VMW wildcard masking (§6.3.9).
             CommandType::TlbiS12Vmall | CommandType::TlbiSS12Vmall => {
@@ -5403,8 +5433,12 @@ impl SMMU {
         // ARM §3.5.1: advance PRIQ_PROD after each enqueue so software can
         // observe queue fullness via (PROD - CONS).
         let prod = self.priq_prod.load(Ordering::Relaxed);
+        // BUG-NEW-D fix: preserve OVFLG (bit 31) when advancing PRIQ PROD.
         self.priq_prod
-            .store(Self::advance_index(prod, self.priq_log2size), Ordering::Release);
+            .store(
+                Self::advance_index(prod, self.priq_log2size) | (prod & (1u32 << 31)),
+                Ordering::Release,
+            );
         Ok(())
     }
 
@@ -7052,6 +7086,155 @@ mod tests {
             (prod >> 31) & 1,
             (cons >> 31) & 1,
             "BUG-RUST-J: OVFLG must be active (prod bit-31 != cons bit-31) after overflow"
+        );
+    }
+
+    // ── BUG-NEW-D: advance_index strips OVFLG from PROD on successful enqueue ─
+
+    /// BUG-NEW-D: After OVFLG is set in PROD, a successful enqueue (queue has
+    /// space) must preserve OVFLG in PROD after advancing the index.
+    ///
+    /// Before the fix: `advance_index(prod, log2size)` computes
+    /// `(prod+1) % modulus`, which strips bit 31.
+    ///
+    /// After the fix: each advance site ORs back the original bit 31.
+    ///
+    /// Spec: ARM §7.4 — OVFLG persists until SW clears it via CONS.OVACKFLG.
+    #[test]
+    fn bug_new_d_eventq_prod_ovflg_preserved_after_advance_on_enqueue() {
+        use std::sync::atomic::Ordering;
+        let mut cfg = crate::types::SMMUConfig::default();
+        cfg.queue_config.event_queue_size = 4;
+        let smmu = SMMU::with_config(cfg);
+        smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+
+        // Step 1: Directly set OVFLG=1 in PROD while leaving the queue empty.
+        // We do this by XOR-toggling bit 31 atomically (simulating overflow toggle
+        // while bypassing the queue-full guard that normally prevents this).
+        // This directly tests the advance-site fix without needing a full overflow.
+        let initial_prod = smmu.eventq_prod.load(Ordering::Acquire);
+        assert_eq!(initial_prod, 0, "PROD must start at 0");
+        // Manually set OVFLG on PROD (simulating a prior overflow that was then
+        // triggered, leaving the queue at wrap-point 0 but with OVFLG=1).
+        smmu.eventq_prod.store(1u32 << 31, Ordering::Release);
+
+        // Step 2: Submit one event (queue is empty, space available).
+        let event = crate::types::EventEntry {
+            event_type: crate::types::EventType::FSteFetch,
+            stream_id: 1,
+            timestamp: 0,
+            ..crate::types::EventEntry::zeroed()
+        };
+        let r = smmu.submit_event(event);
+        // submit_event must succeed (queue has space).
+        assert!(r.is_ok(), "submit_event must succeed on empty queue");
+
+        // Step 3: PROD must have advanced AND OVFLG must still be set.
+        let prod_after = smmu.eventq_prod.load(Ordering::Acquire);
+        assert_eq!(
+            (prod_after >> 31) & 1, 1,
+            "BUG-NEW-D: OVFLG must be preserved after advance_index on successful \
+             enqueue; got prod={prod_after:#010x}"
+        );
+        // Position must have advanced by 1 (from 0 to 1).
+        let pos_after = prod_after & !(1u32 << 31);
+        assert_eq!(
+            pos_after, 1,
+            "BUG-NEW-D: PROD position must be 1 after one enqueue; got pos={pos_after}"
+        );
+    }
+
+    /// BUG-NEW-D (PRIQ variant): PRIQ PROD OVFLG must also be preserved when
+    /// a new PRI entry is enqueued after the PRIQ overflowed.
+    ///
+    /// Spec: ARM §8.1 — same OVFLG semantics as EVENTQ.
+    #[test]
+    fn bug_new_d_priq_prod_ovflg_preserved_after_advance_on_enqueue() {
+        use std::sync::atomic::Ordering;
+        let mut cfg = crate::types::SMMUConfig::default();
+        cfg.queue_config.pri_queue_size = 16; // minimum valid size
+        cfg.queue_config.event_queue_size = 16;
+        let smmu = SMMU::with_config(cfg);
+        smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN);
+
+        // Directly set OVFLG=1 in PRIQ PROD (simulating a prior overflow at pos=0).
+        smmu.priq_prod.store(1u32 << 31, Ordering::Release);
+
+        // Enqueue one PRI entry (queue is empty, space available).
+        let req = crate::types::PRIEntry {
+            stream_id: 1,
+            pasid: 0,
+            requested_address: 0x1000,
+            access_type: crate::types::AccessType::Read,
+            is_last_request: true,
+            timestamp: 0,
+            prg_index: 0,
+            security_state: crate::types::SecurityState::NonSecure,
+        };
+        let r = smmu.submit_page_request(req);
+        assert!(r.is_ok(), "submit_pri_request must succeed on empty queue");
+
+        let prod_after = smmu.priq_prod.load(Ordering::Acquire);
+        assert_eq!(
+            (prod_after >> 31) & 1, 1,
+            "BUG-NEW-D (PRIQ): OVFLG must be preserved after advance_index on successful \
+             PRIQ enqueue; got prod={prod_after:#010x}"
+        );
+    }
+
+    // ── BUG-NEW-F: is_eventq_empty_by_index() and eventq_occupied_entries() ───
+
+    /// BUG-NEW-F: is_eventq_empty_by_index() must mask both PROD and CONS bit 31.
+    ///
+    /// When the queue is empty (PROD position == CONS position) but OVFLG=OVACKFLG=1,
+    /// the comparison `masked_prod == unmasked_cons` fails because bit31 is still
+    /// set in CONS, making them unequal even though both positions are the same.
+    ///
+    /// Spec: ARM §3.5.1 — empty = PROD.WR == CONS.RD (bits[log2size:0] only).
+    #[test]
+    fn bug_new_f_is_eventq_empty_masks_both_prod_and_cons_bit31() {
+        use std::sync::atomic::Ordering;
+        let smmu = SMMU::new();
+        smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+
+        // Set up: PROD=0x80000005 (OVFLG=1, pos=5), CONS=0x80000005 (OVACKFLG=1, pos=5).
+        // Queue is empty (positions match), OVFLG=OVACKFLG=1 (overflow acknowledged).
+        smmu.eventq_prod.store((1u32 << 31) | 5, Ordering::Release);
+        smmu.eventq_cons.store((1u32 << 31) | 5, Ordering::Release);
+
+        assert!(
+            smmu.is_eventq_empty_by_index(),
+            "BUG-NEW-F: is_eventq_empty_by_index must return true when PROD pos == CONS pos \
+             even if both have bit 31 set (OVFLG=OVACKFLG=1). \
+             prod={:#010x}, cons={:#010x}",
+            smmu.eventq_prod.load(Ordering::Relaxed),
+            smmu.eventq_cons.load(Ordering::Relaxed),
+        );
+    }
+
+    /// BUG-NEW-F-F2: eventq_occupied_entries() must also mask CONS bit 31.
+    ///
+    /// After overflow ack, CONS has bit31=1.  `queue_occupied(masked_prod, unmasked_cons)`
+    /// produces an incorrect (huge) occupancy value.
+    #[test]
+    fn bug_new_f_eventq_occupied_entries_masks_cons_bit31() {
+        use std::sync::atomic::Ordering;
+        let smmu = SMMU::new();
+        smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+
+        // Set up: PROD=0x80000003 (OVFLG=1, pos=3), CONS=0x80000000 (OVACKFLG=1, pos=0).
+        // Queue has 3 entries. The masked PROD is 3, CONS position is 0.
+        smmu.eventq_prod.store((1u32 << 31) | 3, Ordering::Release);
+        smmu.eventq_cons.store(1u32 << 31, Ordering::Release);
+
+        let occupied = smmu.eventq_occupied_entries();
+        assert_eq!(
+            occupied, 3,
+            "BUG-NEW-F-F2: eventq_occupied_entries must return 3 when PROD pos=3, CONS pos=0 \
+             (both with bit31 set); got {occupied}. \
+             prod={:#010x}, cons={:#010x}",
+            smmu.eventq_prod.load(Ordering::Relaxed),
+            smmu.eventq_cons.load(Ordering::Relaxed),
         );
     }
 }
