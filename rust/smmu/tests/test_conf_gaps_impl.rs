@@ -122,7 +122,10 @@ fn test_mev_false_allows_multiple_events() {
 // ============================================================================
 
 #[test]
-fn test_cr2_ptm_zero_skips_tlbi_nh_all() {
+fn test_cr2_ptm_zero_does_not_gate_cq_tlbi_nh_all() {
+    // BUG-NEW-C fix (§6.3.12): CR2.PTM governs only *broadcast* TLB maintenance
+    // received from PEs via the broadcast interface.  Command-queue TLBI commands
+    // (including TLBI_NH_ALL) must execute regardless of the PTM bit value.
     let smmu = SMMU::new();
     smmu.enable().unwrap();
 
@@ -130,7 +133,7 @@ fn test_cr2_ptm_zero_skips_tlbi_nh_all() {
     let stream_id = StreamID::new(3).unwrap();
     smmu.configure_stream(stream_id, StreamConfig::bypass()).unwrap();
 
-    // PTM=0 (default) — TLBI_NH_ALL should be skipped / no-op
+    // PTM=0 (default) — CQ TLBI_NH_ALL must still execute (not gated by PTM).
     let cr2_val = smmu.get_cr2() & !SMMU::CR2_PTM;
     smmu.set_cr2(cr2_val);
 
@@ -143,9 +146,9 @@ fn test_cr2_ptm_zero_skips_tlbi_nh_all() {
     let _ = smmu.process_command_queue();
 
     let after = smmu.get_cache_statistics().invalidation_count();
-    assert_eq!(
-        after, before,
-        "PTM=0: TLBI_NH_ALL must be a no-op (§6.3.12)"
+    assert!(
+        after > before,
+        "PTM=0 must NOT gate CQ TLBI_NH_ALL (§6.3.12: PTM only affects broadcast TLBI)"
     );
 }
 

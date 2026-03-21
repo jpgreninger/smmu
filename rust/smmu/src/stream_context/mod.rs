@@ -2250,7 +2250,12 @@ impl StreamContext {
     }
 
     /// Stage-2 only translation: IPA → PA
-    fn translate_stage2_only(
+    ///
+    /// Exposed as `pub(crate)` so that the SMMU-level S1DSS=0b01 handler can
+    /// forward the IOVA as an IPA through stage-2 when both stage-1 and stage-2
+    /// are enabled (ARM §3.9 — S1DSS=0b01 passes input address directly to
+    /// stage-2 as the IPA, BUG-RUST-3 fix).
+    pub(crate) fn translate_stage2_only(
         &self,
         _pasid: PASID,
         ipa: IOVA,

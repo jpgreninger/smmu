@@ -1679,6 +1679,93 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
                               false, 0, effectiveAccessType);
                 return makeTranslationError(SMMUError::InvalidAddress);
             }
+            // BUG-CPP-4 fix: §3.9 / §3.3.1.2 — when stage-2 is enabled, the IOVA
+            // must be passed to stage-2 as the IPA rather than returning identity.
+            // "If bypassing stage 1 (S1DSS==0b01), the input address is passed
+            // directly to stage 2 as the IPA."
+            // Use the stage-2 address space directly, mirroring the
+            // performBothStagesTranslation() stage-2 path (iova is the IPA).
+            if (config.stage2Enabled) {
+                AddressSpace* s1dssS2AS = streamContext->getStage2AddressSpace();
+                if (!s1dssS2AS) {
+                    // Stage-2 not configured — translation fault.
+                    tl_stage2FaultCtx.isStage2 = true;
+                    tl_stage2FaultCtx.ipa      = iova;
+                    FaultRecord s2Fault;
+                    s2Fault.streamID    = streamID;
+                    s2Fault.pasid       = pasid;
+                    s2Fault.address     = iova;
+                    s2Fault.faultType   = FaultType::TranslationFault;
+                    s2Fault.accessType  = accessType;
+                    s2Fault.securityState = securityState;
+                    s2Fault.timestamp   = currentTime;
+                    recordFault(s2Fault);
+                    return makeTranslationError(SMMUError::PageNotMapped);
+                }
+                // S2T0SZ IPA range check (same as stage-2-only path).
+                if (config.s2t0sz > 0u) {
+                    uint64_t ipaLimit = UINT64_C(1) << (64u - static_cast<unsigned>(config.s2t0sz));
+                    if (iova >= ipaLimit) {
+                        tl_stage2FaultCtx.isStage2 = true;
+                        tl_stage2FaultCtx.ipa      = iova;
+                        generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova,
+                                      securityState, false, 0, effectiveAccessType, true, iova);
+                        return makeTranslationError(SMMUError::InvalidConfiguration);
+                    }
+                }
+                // Translate iova as IPA through stage-2.
+                TranslationResult s2Result = s1dssS2AS->translatePage(
+                    iova, AccessType::Read, securityState, config.s2ha, config.s2affd);
+                if (s2Result.isError()) {
+                    tl_stage2FaultCtx.isStage2 = true;
+                    tl_stage2FaultCtx.ipa      = iova;
+                    FaultRecord s2Fault;
+                    s2Fault.streamID    = streamID;
+                    s2Fault.pasid       = pasid;
+                    s2Fault.address     = iova;
+                    s2Fault.faultType   = FaultType::TranslationFault;
+                    s2Fault.accessType  = accessType;
+                    s2Fault.securityState = securityState;
+                    s2Fault.timestamp   = currentTime;
+                    recordFault(s2Fault);
+                    return s2Result;
+                }
+                // Validate effective access permissions against stage-2 result.
+                const PagePermissions& s2perms = s2Result.getValue().permissions;
+                bool permOk = false;
+                switch (effectiveAccessType) {
+                    case AccessType::Read:         permOk = s2perms.read && !s2perms.privilegedOnly; break;
+                    case AccessType::Write:        permOk = s2perms.write && !s2perms.privilegedOnly; break;
+                    case AccessType::Execute:      permOk = s2perms.execute && !s2perms.privilegedOnly; break;
+                    case AccessType::ReadWrite:    permOk = s2perms.read && s2perms.write && !s2perms.privilegedOnly; break;
+                    case AccessType::ReadExecute:  permOk = s2perms.read && s2perms.execute && !s2perms.privilegedOnly; break;
+                    case AccessType::ReadPrivileged:      permOk = s2perms.read; break;
+                    case AccessType::WritePrivileged:     permOk = s2perms.write; break;
+                    case AccessType::ExecutePrivileged:   permOk = s2perms.execute; break;
+                    case AccessType::ReadWritePrivileged: permOk = s2perms.read && s2perms.write; break;
+                    case AccessType::ReadExecutePrivileged: permOk = s2perms.read && s2perms.execute; break;
+                    default: permOk = false; break;
+                }
+                if (!permOk) {
+                    tl_stage2FaultCtx.isStage2 = true;
+                    tl_stage2FaultCtx.ipa      = iova;
+                    FaultRecord permFault;
+                    permFault.streamID    = streamID;
+                    permFault.pasid       = pasid;
+                    permFault.address     = iova;
+                    permFault.faultType   = FaultType::PermissionFault;
+                    permFault.accessType  = accessType;
+                    permFault.securityState = securityState;
+                    permFault.timestamp   = currentTime;
+                    recordFault(permFault);
+                    return makeTranslationError(SMMUError::PagePermissionViolation);
+                }
+                // translatePage() already includes the page offset in the returned PA.
+                PA finalPA = s2Result.getValue().physicalAddress;
+                TranslationData s1dssOutData(finalPA, s2perms, s2Result.getValue().securityState);
+                return makeSuccess<TranslationData>(s1dssOutData);
+            }
+            // stage2Enabled=false: identity return (IOVA passed through as PA).
             PagePermissions s1dssPerms(true, true, true);
             TranslationData s1dssData(iova, s1dssPerms, securityState);
             return TranslationResult(s1dssData);
@@ -2811,7 +2898,14 @@ void SMMU::processEventQueue() {
         // Remove processed event
         eventQueue.pop_front();
         // ARM §3.5.1: Advance consumer index on dequeue (FINDING-M-01)
-        eventqCons.store(advanceQueueIndex(eventqCons.load(std::memory_order_relaxed), eventqLog2Size), std::memory_order_release);
+        // BUG-CPP-1 fix: §6.3.17 EVENTQ_CONS.OVACKFLG (bit 31) is software-written;
+        // the SMMU must never modify it.  Preserve bit 31 via RMW rather than storing
+        // the raw advanceQueueIndex result (which drops bit 31 since modulus <= 2^20).
+        {
+            uint32_t oldCons = eventqCons.load(std::memory_order_relaxed);
+            uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), eventqLog2Size);
+            eventqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
+        }
     }
 }
 
@@ -3356,7 +3450,14 @@ void SMMU::processPRIQueue() {
             // Successfully submitted response
             priQueue.pop_front();
             // BUG-NEW-03 fix: advance consumer index to match the dequeue.
-            priqCons.store(advanceQueueIndex(priqCons.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
+            // BUG-CPP-2 fix: §8.1 PRIQ_CONS.OVACKFLG (bit 31) is software-written;
+            // preserve bit 31 via RMW.  advanceQueueIndex returns at most 2^(log2size+1)
+            // which strips bit 31.
+            {
+                uint32_t oldCons = priqCons.load(std::memory_order_relaxed);
+                uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), priqLog2Size);
+                priqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
+            }
         } else {
             // Command queue full - retry later
             break;
@@ -3956,7 +4057,13 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             for (auto it = priQueue.begin(); it != priQueue.end(); ++it) {
                 if (it->streamID == command.streamID && it->prgIndex == command.prgIndex) {
                     priQueue.erase(it);
-                    priqCons.store(advanceQueueIndex(priqCons.load(std::memory_order_relaxed), priqLog2Size), std::memory_order_release);
+                    // BUG-CPP-3 fix: §8.1 PRIQ_CONS.OVACKFLG (bit 31) is software-written;
+                    // preserve bit 31 via RMW when advancing the consumer index here.
+                    {
+                        uint32_t oldCons = priqCons.load(std::memory_order_relaxed);
+                        uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), priqLog2Size);
+                        priqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
+                    }
                     break;
                 }
             }
@@ -4231,17 +4338,20 @@ bool SMMU::validateStreamID2Level(StreamID streamID) const {
 }
 
 // CONF-GAP-17: CMDQ_CONS.ERR field accessor and writer (§6.3.17).
+// NOTE-3 fix: ARM §6.3.28 CMDQ_CONS.ERR = bits[30:24] (7 bits).
+// Correct mask is 0x7F (7 bits), not 0xFF (8 bits).
 uint32_t SMMU::getCmdqConsErr() const {
-    return (cmdqCons.load(std::memory_order_acquire) >> CMDQ_CONS_ERR_SHIFT) & 0xFFu;
+    return (cmdqCons.load(std::memory_order_acquire) >> CMDQ_CONS_ERR_SHIFT) & 0x7Fu;
 }
 
 void SMMU::writeCmdqConsErr(uint32_t errCode) {
-    // Atomic CAS loop: update only the ERR[31:24] field without touching other bits.
+    // Atomic CAS loop: update only the ERR[30:24] field without touching other bits.
+    // NOTE-3 fix: use 0x7F (7-bit) mask — bits[30:24] only, never bit 31.
     uint32_t expected = cmdqCons.load(std::memory_order_relaxed);
     uint32_t desired;
     do {
-        desired = (expected & ~(0xFFu << CMDQ_CONS_ERR_SHIFT)) |
-                  ((errCode & 0xFFu) << CMDQ_CONS_ERR_SHIFT);
+        desired = (expected & ~(0x7Fu << CMDQ_CONS_ERR_SHIFT)) |
+                  ((errCode & 0x7Fu) << CMDQ_CONS_ERR_SHIFT);
     } while (!cmdqCons.compare_exchange_weak(expected, desired,
                                               std::memory_order_release,
                                               std::memory_order_relaxed));

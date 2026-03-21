@@ -1348,8 +1348,8 @@ impl SMMU {
                 self.event_count.fetch_add(1, Ordering::Relaxed);
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                 // BUG-NEW-D fix: preserve OVFLG (bit 31) when advancing PROD.
-                let new_prod = Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31))
-                    | (prod & (1u32 << 31));
+                // NOTE-1 cosmetic fix: removed duplicate `| (prod & (1u32 << 31))`.
+                let new_prod = Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31));
                 self.eventq_prod.store(new_prod, Ordering::Release);
             } else {
                 // BUG-NEW-B fix: ARM §7.4 — toggle OVFLG when a non-stall event
@@ -1576,8 +1576,21 @@ impl SMMU {
     ///
     /// The StreamID is split at bit `split`: upper bits index L1, lower bits
     /// index L2.  Default is 6.
+    ///
+    /// ARM §6.3.25: only values {6, 8, 10} are architecturally defined.
+    /// All other values are reserved; this implementation clamps them to 6
+    /// (the spec default for reserved encodings) to prevent a shift-by-≥32
+    /// panic in `validate_stream_id_2level()` (BUG-RUST-4 fix).
     pub fn set_strtab_split(&self, split: u8) {
-        self.strtab_split.store(split, Ordering::Release);
+        // BUG-RUST-4 fix: clamp reserved SPLIT values to 6 (spec default).
+        // Allowed values per ARM §6.3.25: 6, 8, 10.  Any other value is
+        // reserved and must not produce a shift-by-≥32 (which would panic
+        // in debug mode or produce UB in release mode).
+        let clamped = match split {
+            6 | 8 | 10 => split,
+            _ => 6,
+        };
+        self.strtab_split.store(clamped, Ordering::Release);
     }
 
     /// Read the current SPLIT field.
@@ -3782,8 +3795,8 @@ impl SMMU {
                 }
                 0x01 => {
                     // §3.9 S1DSS==0b01: bypass stage-1 for non-substream transactions.
-                    // Identity mapping: PA = IOVA, regardless of what the inner translate
-                    // returned (it may have failed with PageNotMapped — that is overridden).
+                    // The input address is passed directly to stage-2 as the IPA when
+                    // stage-2 is active; otherwise identity mapping (PA = IOVA) applies.
                     // OAS check applies per §3.4.
                     // oas_bits already read once near the top of translate() (BUG-RUST-H fix).
                     if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
@@ -3795,6 +3808,31 @@ impl SMMU {
                             stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false,
                         );
                         return Err(oas_error);
+                    }
+                    // BUG-RUST-3 fix: ARM §3.9 — when stage-2 is enabled, the input
+                    // address is forwarded as an IPA to stage-2 rather than returned as
+                    // an identity PA.  Identity is only correct when there is no stage-2.
+                    if stream_stage2_enabled {
+                        if let Some(stream_ref) = self.streams.get(&stream_id.as_u32()) {
+                            let s2_result = stream_ref.value()
+                                .translate_stage2_only(pasid, iova, access, security_state);
+                            match s2_result {
+                                Ok(data) => {
+                                    self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+                                    return Ok(data);
+                                }
+                                Err(ref e) => {
+                                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                                    let pnu = stream_ref.value().is_access_privileged(access);
+                                    self.record_translation_fault(
+                                        stream_id, pasid, iova, access, security_state,
+                                        e, false, 0u16, true, iova.as_u64(), pnu, false,
+                                    );
+                                    return Err(e.clone());
+                                }
+                            }
+                        }
+                        // Stream was removed concurrently — fall through to identity.
                     }
                     let pa = crate::types::PA::new(iova.as_u64())
                         .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA always valid"));
@@ -5270,9 +5308,15 @@ impl SMMU {
                         && head.pasid == command.pasid
                     {
                         queue.pop_front();
+                        // BUG-RUST-2 fix: preserve OVACKFLG (bit 31) — same invariant
+                        // as process_pri_queue(): software writes bit 31 to acknowledge
+                        // overflow and the SMMU must not clear it (ARM §8.1).
                         let cons = self.priq_cons.load(Ordering::Relaxed);
-                        self.priq_cons
-                            .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                        self.priq_cons.store(
+                            Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
+                                | (cons & (1u32 << 31)),
+                            Ordering::Release,
+                        );
                     }
                 }
             },
@@ -5463,9 +5507,15 @@ impl SMMU {
                 let entry = queue.pop_front();
                 if entry.is_some() {
                     // ARM §3.5.1: advance PRIQ_CONS after each dequeue.
+                    // BUG-RUST-1 fix: preserve OVACKFLG (bit 31) — software writes
+                    // this bit to acknowledge a PRI queue overflow; the SMMU must
+                    // never clear it during an index advance (ARM §8.1).
                     let cons = self.priq_cons.load(Ordering::Relaxed);
-                    self.priq_cons
-                        .store(Self::advance_index(cons, self.priq_log2size), Ordering::Release);
+                    self.priq_cons.store(
+                        Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
+                            | (cons & (1u32 << 31)),
+                        Ordering::Release,
+                    );
                 }
                 entry
             };
@@ -5850,6 +5900,22 @@ impl SMMU {
     pub fn page_requests(&self) -> Vec<PRIEntry> {
         let requests = self.pri_queue.read().unwrap();
         requests.iter().copied().collect()
+    }
+
+    /// Set the PRIQ_CONS.OVACKFLG bit (bit 31) to `value` (0 or 1).
+    ///
+    /// **For integration tests only** (BUG-RUST-1/2): allows tests to simulate
+    /// software having written OVACKFLG=1 to acknowledge a PRI queue overflow,
+    /// then verify that SMMU queue-advance operations preserve the bit.
+    /// Not intended for production use.
+    pub fn set_priq_cons_ovackflg(&self, value: u8) {
+        let current = self.priq_cons.load(Ordering::Acquire);
+        let new = if value != 0 {
+            current | (1u32 << 31)
+        } else {
+            current & !(1u32 << 31)
+        };
+        self.priq_cons.store(new, Ordering::Release);
     }
 
     /// Pre-fill the stall queue with all 65535 STAGs to simulate exhaustion.

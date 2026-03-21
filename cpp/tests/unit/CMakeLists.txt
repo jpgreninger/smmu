@@ -130,6 +130,7 @@ set(UNIT_TEST_SOURCES
     test_conf_gaps_bugs_fix.cpp
     test_bugs_uwxn_cmdq.cpp
     test_bugs_eventq_scale.cpp
+    test_bugs_cons_ovackflg_s1dss.cpp
     ../test_thread_safety.cpp
 )
 
