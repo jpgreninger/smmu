@@ -1757,8 +1757,16 @@ impl SMMU {
     /// OVFLG is active when `OVFLG != OVACKFLG` (bit 31 of prod differs from
     /// bit 31 of cons).  BUG-RUST-DBGR-8 fix: use CAS loop to close the TOCTOU
     /// window between the `ovflg == ovackflg` check and the `fetch_xor`.
+    ///
+    /// BUG-RUST-3 fix: the retry loop is bounded by `MAX_RETRIES`.  Under
+    /// extreme contention the CAS may fail repeatedly; after the retry budget
+    /// is exhausted the function returns without toggling.  The overflow state
+    /// may be slightly stale in that scenario, but this is better than
+    /// livelocking the caller thread indefinitely.
     #[inline]
     fn toggle_ovflg_once(&self) {
+        const MAX_RETRIES: u32 = 64;
+        let mut retries = 0u32;
         loop {
             let prod = self.eventq_prod.load(Ordering::Acquire);
             let cons = self.eventq_cons.load(Ordering::Acquire);
@@ -1767,6 +1775,11 @@ impl SMMU {
             // If prod changed, our snapshot is inconsistent — retry.
             let prod2 = self.eventq_prod.load(Ordering::Acquire);
             if prod != prod2 {
+                if retries >= MAX_RETRIES {
+                    break; // give up after retry budget exhausted
+                }
+                retries += 1;
+                std::hint::spin_loop();
                 continue; // snapshot inconsistent — retry
             }
             let ovflg    = (prod >> 31) & 1;
@@ -1784,6 +1797,11 @@ impl SMMU {
                 break; // success — CAS applied
             }
             // CAS failed: prod changed concurrently — retry loop
+            if retries >= MAX_RETRIES {
+                break; // give up after retry budget exhausted
+            }
+            retries += 1;
+            std::hint::spin_loop();
         }
     }
 
@@ -4585,14 +4603,23 @@ impl SMMU {
         Ok(())
     }
 
-    /// Get all events from the queue (non-destructive read)
+    /// Get all events from the queue (non-destructive snapshot)
     ///
     /// Returns a copy of all events currently in the queue.  Also drains any
     /// pending stall events from `stall_pending` into the main queue if space
     /// is available (ARM §7.4: events are reported "when the queue is next
     /// writable").  Events remain in the queue until explicitly cleared.
+    ///
+    /// Per ARM §3.5.1, EVENTQ_CONS.RD must only advance when software has
+    /// actually consumed (processed and discarded) an entry.  This function is
+    /// a pure snapshot: it does NOT advance EVENTQ_CONS.  Callers that have
+    /// finished processing events must call `clear_event_queue()` or advance
+    /// the consumer index explicitly.
+    ///
+    /// BUG-RUST-1 fix: removed the erroneous CONS-advancement loop that was
+    /// incorrectly treating every snapshot read as a consume operation.
     pub fn get_events(&self) -> Vec<EventEntry> {
-        // Opportunistically drain stall_pending into the main queue before reading.
+        // Phase 1: drain stall_pending into the main queue (needs write lock).
         if let Ok(mut queue) = self.event_queue.write() {
             if queue.len() < self.event_queue_capacity {
                 if let Ok(mut pending) = self.stall_pending.lock() {
@@ -4611,20 +4638,12 @@ impl SMMU {
                     }
                 }
             }
-            let events: Vec<EventEntry> = queue.iter().copied().collect();
-            // BUG-AUDIT-4 fix: ARM §3.5.1 — the consumer (software) must advance
-            // EVENTQ_CONS.RD after reading events to signal that ring-buffer slots
-            // are free for new events.  get_events() acts as the software consumer,
-            // so it must advance eventq_cons once per event returned.
-            // Without this, CONS.RD stays at 0 forever and the queue appears
-            // perpetually full once all slots have been written.
-            for _ in &events {
-                let cons = self.eventq_cons.load(Ordering::Acquire);
-                // Preserve the OVACKFLG bit (bit 31) while advancing the index bits.
-                let new_cons = Self::advance_index(cons, self.eventq_log2size) | (cons & (1u32 << 31));
-                self.eventq_cons.store(new_cons, Ordering::Release);
-            }
-            events
+            // Phase 2: take snapshot while write lock is still held.
+            // (BUG-RUST-6: a future optimisation could release the write lock
+            // here and re-acquire a read lock for the snapshot, shrinking the
+            // write-lock critical section.  For now the snapshot is taken under
+            // the existing write lock to keep the change minimal.)
+            queue.iter().copied().collect()
         } else {
             Vec::new()
         }

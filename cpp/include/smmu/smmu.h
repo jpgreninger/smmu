@@ -132,8 +132,10 @@ public:
     // Event queue management (Task 5.3.1)
     void processEventQueue();
     Result<bool> hasEvents() const;
-    // BUG-AUDIT-4 fix: getEventQueue() advances eventqCons per ARM §3.5.1.
-    // eventqCons is mutable to allow this const method to update the CONS index.
+    // BUG-CPP-1/2 fix: getEventQueue() is a pure non-destructive snapshot.
+    // It does NOT advance eventqCons.  Only processEventQueue() (which removes
+    // entries) and clearEventQueue() (which resets the queue) may advance CONS
+    // per ARM §3.5.1.
     std::vector<EventEntry> getEventQueue() const;
     void clearEventQueue();
     size_t getEventQueueSize() const;
@@ -424,9 +426,10 @@ private:
     std::atomic<uint32_t> cmdqProd;           // CMDQ_PROD register equivalent
     std::atomic<uint32_t> cmdqCons;           // CMDQ_CONS register equivalent
     std::atomic<uint32_t> eventqProd;         // EVENTQ_PROD register equivalent
-    // BUG-AUDIT-4 fix: marked mutable so getEventQueue() (const) can advance
-    // CONS to reflect consumption per ARM §3.5.1.
-    mutable std::atomic<uint32_t> eventqCons; // EVENTQ_CONS register equivalent
+    // BUG-CPP-1/2 fix: eventqCons is no longer mutable since getEventQueue() is a
+    // pure snapshot that does NOT advance CONS.  Only processEventQueue() and
+    // clearEventQueue() advance/reset CONS per ARM §3.5.1.
+    std::atomic<uint32_t> eventqCons; // EVENTQ_CONS register equivalent
     std::atomic<uint32_t> priqProd;           // PRIQ_PROD register equivalent
     std::atomic<uint32_t> priqCons;           // PRIQ_CONS register equivalent
 

@@ -337,21 +337,28 @@ TEST(BugAudit3Stage2StreamScoped, BothPASIDsUseSameStage2Table) {
 }
 
 // ============================================================================
-// BUG-AUDIT-4: getEventQueue() must advance eventqCons
+// BUG-AUDIT-4 (revised by BUG-CPP-1/2): getEventQueue() is a pure snapshot.
 //
-// ARM §3.5.1: The software consumer is responsible for advancing CONS after
-// reading events.  getEventQueue() is the consumption path; after returning
-// events it must advance eventqCons to reflect that the events have been read.
+// ARM §3.5.1: CONS.RD must only advance when an entry is actually consumed
+// (removed from the queue).  getEventQueue() returns a snapshot copy of the
+// current queue contents without removing entries, so it must NOT advance
+// eventqCons.  The consumption path is processEventQueue() (which removes
+// entries) or clearEventQueue() (which resets the queue entirely).
 //
-// Bug: getEventQueue() copies events but never advances eventqCons.
+// The original BUG-AUDIT-4 analysis was incorrect: it treated getEventQueue()
+// as the consumption path and added CONS advancement there.  This caused
+// double-advancement when both getEventQueue() and processEventQueue() were
+// called on the same entries, skipping events from the consumer's perspective.
 //
-// Fix: After collecting events, advance eventqCons by the number of events
-//      returned (one advance per event, preserving bit 31 of CONS).
+// Fix (BUG-CPP-1/2): remove the CONS-advancement loop from getEventQueue().
+//   - getEventQueue()       → pure snapshot, CONS unchanged
+//   - processEventQueue()   → removes entries, CONS advances
+//   - clearEventQueue()     → empties queue, CONS/PROD reset to 0
 // ============================================================================
 
 // Generate a fault, call getEventQueue().
-// Verify that eventqCons has advanced to match eventqProd (queue logically empty).
-TEST(BugAudit4GetEventQueueAdvancesCons, ConsAdvancedAfterGet) {
+// Verify that eventqCons has NOT advanced (snapshot is non-destructive).
+TEST(BugAudit4GetEventQueueAdvancesCons, ConsNotAdvancedAfterSnapshotGet) {
     auto smmu = makeDefaultSMMU();
 
     // Initial state: PROD == CONS (empty).
@@ -366,37 +373,38 @@ TEST(BugAudit4GetEventQueueAdvancesCons, ConsAdvancedAfterGet) {
     uint32_t prodAfterFault = smmu->getEventqProdIndex() & ~(1u << 31);
     ASSERT_NE(prodAfterFault, initCons) << "PROD must advance after fault";
 
-    // Consume via getEventQueue().
+    // Snapshot via getEventQueue() — must NOT advance CONS.
     std::vector<EventEntry> events = smmu->getEventQueue();
     ASSERT_GE(events.size(), 1u) << "at least one event must be returned";
 
-    // After getEventQueue(), CONS must have advanced to match PROD.
+    // After getEventQueue(), CONS must remain at its pre-snapshot value.
     uint32_t consAfter = smmu->getEventqConsIndex() & ~(1u << 31);
-    uint32_t prodAfter = smmu->getEventqProdIndex() & ~(1u << 31);
-    EXPECT_EQ(consAfter, prodAfter)
-        << "eventqCons must be advanced to PROD after getEventQueue()";
+    EXPECT_EQ(consAfter, initCons)
+        << "eventqCons must NOT advance after getEventQueue() (pure snapshot); "
+           "CONS advances only via processEventQueue() or clearEventQueue()";
 }
 
-// After getEventQueue() drains the queue, generating another event must succeed
-// (queue appears non-full from the CONS perspective).
-TEST(BugAudit4GetEventQueueAdvancesCons, QueueAcceptsNewEventAfterGet) {
+// A second call to getEventQueue() returns the same events as the first call
+// because CONS has not advanced and the queue has not changed.
+TEST(BugAudit4GetEventQueueAdvancesCons, RepeatedSnapshotReturnsSameEvents) {
     auto smmu = makeDefaultSMMU();
 
     // Generate 3 faults.
     for (StreamID s = 0x0300u; s < 0x0303u; ++s) {
         smmu->translate(s, 0, 0x1000u, AccessType::Read, SecurityState::NonSecure);
     }
-    ASSERT_GE(smmu->getEventQueueSize(), 1u) << "precondition: events must be queued";
+    size_t queueSizeBefore = smmu->getEventQueueSize();
+    ASSERT_GE(queueSizeBefore, 1u) << "precondition: events must be queued";
 
-    // Consume via getEventQueue().
-    auto events = smmu->getEventQueue();
-    ASSERT_GE(events.size(), 1u);
+    // First snapshot.
+    auto first = smmu->getEventQueue();
+    ASSERT_GE(first.size(), 1u);
 
-    // After consumption CONS must equal PROD.
-    uint32_t cons = smmu->getEventqConsIndex() & ~(1u << 31);
-    uint32_t prod = smmu->getEventqProdIndex() & ~(1u << 31);
-    EXPECT_EQ(cons, prod)
-        << "eventqCons must equal eventqProd after getEventQueue() drains the queue";
+    // Second snapshot — CONS has not advanced, so the queue is unchanged.
+    auto second = smmu->getEventQueue();
+    EXPECT_EQ(second.size(), first.size())
+        << "second getEventQueue() call must return the same number of events "
+           "as the first (queue is unmodified — snapshot is non-destructive)";
 }
 
 // ============================================================================

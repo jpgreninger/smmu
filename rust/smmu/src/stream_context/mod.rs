@@ -763,8 +763,14 @@ impl StreamContext {
                 _ => access_type,
             },
             2 => match access_type {
-                AccessType::Execute           => AccessType::Read,
-                AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
+                AccessType::Execute               => AccessType::Read,
+                AccessType::ExecutePrivileged     => AccessType::ReadPrivileged,
+                // BUG-RUST-4 INSTCFG fix: §5.2 INSTCFG=2 (Force-Data) must also
+                // demote compound-execute types that carry an execute component.
+                // ReadExecute → Read  (execute component stripped).
+                // ReadExecutePrivileged → ReadPrivileged.
+                AccessType::ReadExecute           => AccessType::Read,
+                AccessType::ReadExecutePrivileged => AccessType::ReadPrivileged,
                 _ => access_type,
             },
             _ => access_type,
@@ -1301,6 +1307,16 @@ impl StreamContext {
         // inherit stale ASIDs and cause incorrect TLB tagging (ARM §3.17).
         self.pasid_asid_map.clear();
         self.pasid_count.store(0, Ordering::Release);
+        // BUG-RUST-8 fix: also clear stage2_address_space to prevent stale
+        // stage-2 mappings from surviving a full reconfiguration cycle.
+        // Per ARM §3.4: the stage-2 address space is logically associated with
+        // the stream, not with individual PASIDs; however, when all PASIDs are
+        // cleared in preparation for a complete reconfigure, any previously set
+        // stage-2 AS must also be reset so that a subsequent two-stage
+        // translation does not inadvertently use old mappings.
+        if let Ok(mut s2) = self.stage2_address_space.write() {
+            *s2 = None;
+        }
         Ok(())
     }
 
@@ -1773,6 +1789,28 @@ impl StreamContext {
             return Err(TranslationError::BadSubstreamId);
         }
 
+        // BUG-RUST-4 STRW fix / BUG-RUST-7: §5.2 STE.STRW=El2/El3 promotes
+        // unprivileged access types to their privileged equivalents when stage-2
+        // is disabled.  This must happen BEFORE INSTCFG so that the promotion
+        // is reflected in the access type that INSTCFG sees.
+        // BUG-RUST-7: WriteExecute → WriteExecutePrivileged must be included.
+        let access_type = if !stage2_enabled
+            && matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
+        {
+            match access_type {
+                AccessType::Read             => AccessType::ReadPrivileged,
+                AccessType::Write            => AccessType::WritePrivileged,
+                AccessType::Execute          => AccessType::ExecutePrivileged,
+                AccessType::ReadWrite        => AccessType::ReadWritePrivileged,
+                AccessType::ReadExecute      => AccessType::ReadExecutePrivileged,
+                AccessType::WriteExecute     => AccessType::WriteExecutePrivileged,     // BUG-RUST-7
+                AccessType::ReadWriteExecute => AccessType::ReadWriteExecutePrivileged,
+                other => other, // already privileged or None
+            }
+        } else {
+            access_type
+        };
+
         // Gap D fix: §3.2/§13.5 — STE.INSTCFG override applied before permission checks.
         // inst_cfg==1: Force-Instruction — Read accesses are treated as Execute.
         // inst_cfg==2: Force-Data         — Execute accesses are treated as Read.
@@ -1793,9 +1831,12 @@ impl StreamContext {
                 _ => access_type,
             },
             2 => match access_type {
-                AccessType::Execute => AccessType::Read,
-                AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
-                // NOTE: compound types left unchanged per same rationale above.
+                AccessType::Execute               => AccessType::Read,
+                AccessType::ExecutePrivileged     => AccessType::ReadPrivileged,
+                // BUG-RUST-4 INSTCFG fix: §5.2 INSTCFG=2 (Force-Data) must also
+                // strip the execute component from ReadExecute and ReadExecutePrivileged.
+                AccessType::ReadExecute           => AccessType::Read,
+                AccessType::ReadExecutePrivileged => AccessType::ReadPrivileged,
                 _ => access_type,
             },
             _ => access_type,
@@ -1908,8 +1949,11 @@ impl StreamContext {
                     _ => access_type,
                 },
                 2 => match access_type {
-                    AccessType::Execute => AccessType::Read,
-                    AccessType::ExecutePrivileged => AccessType::ReadPrivileged,
+                    AccessType::Execute               => AccessType::Read,
+                    AccessType::ExecutePrivileged     => AccessType::ReadPrivileged,
+                    // BUG-RUST-4 INSTCFG fix: also strip execute from compound types.
+                    AccessType::ReadExecute           => AccessType::Read,
+                    AccessType::ReadExecutePrivileged => AccessType::ReadPrivileged,
                     _ => access_type,
                 },
                 _ => access_type,

@@ -2069,7 +2069,13 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                               false, 0, effectiveAccessType);
                 break;
             case SMMUError::InvalidSecurityState:
-                faultType = FaultType::SecurityFault;
+                // BUG-CPP-8 fix: §7.3.16 — security-state mismatches generate F_PERMISSION.
+                // Use PermissionFault so handleTranslationFailure() routes through the
+                // PermissionFault case, which propagates tl_stage2FaultCtx (s2/ipa) into
+                // the generated event.  SecurityFault routed to recordSecurityFault() which
+                // called generateEvent() without stage-2 context, producing s2=false/ipa=0
+                // for stage-2 security faults.
+                faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::AccessFlagFaultError:
                 // §3.13.2 NEW-GAP-J: Access flag fault → F_ACCESS (0x12).
@@ -2261,7 +2267,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 // Return InvalidConfiguration to suppress a second event in handleTranslationFailure().
                 return makeTranslationError(SMMUError::InvalidConfiguration);
             case SMMUError::InvalidSecurityState:
-                stage2FaultType = FaultType::SecurityFault;
+                // BUG-CPP-8 fix: §7.3.16 — security-state mismatch at stage-2 must emit
+                // F_PERMISSION with s2=true and ipa set to intermediatePA.  tl_stage2FaultCtx
+                // is set below (lines 2286-2287) before returning, so handleTranslationFailure()
+                // PermissionFault case will propagate it correctly.
+                stage2FaultType = FaultType::PermissionFault;
                 break;
             case SMMUError::AccessFlagFaultError:
                 // §7.3.15 / NEW-B fix: Stage-2 AF fault must produce AccessFlagFault
@@ -2399,7 +2409,11 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
                 fault.faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidSecurityState:
-                fault.faultType = FaultType::SecurityFault;
+                // BUG-CPP-8 fix: §7.3.16 — security-state mismatch generates F_PERMISSION.
+                // Use PermissionFault so handleTranslationFailure() PermissionFault case
+                // handles the event; for stage-1-only streams tl_stage2FaultCtx is not set
+                // (isStage2=false) so the event correctly has s2=false.
+                fault.faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
                 // ARM §3.4.1: IOVA exceeded the per-context input address size.
@@ -2482,7 +2496,11 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
                 fault.faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidSecurityState:
-                fault.faultType = FaultType::SecurityFault;
+                // BUG-CPP-8 fix: §7.3.16 — security-state mismatch at stage-2 must emit
+                // F_PERMISSION with s2=true and ipa=iova (the IPA for S2-only streams).
+                // tl_stage2FaultCtx is set above (BUG-NEW-CPP-A fix) before the switch,
+                // so handleTranslationFailure() PermissionFault case will propagate it.
+                fault.faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::InvalidAddress:
                 // BUG-CPP-04 fix: Emit F_ADDR_SIZE here (in the stage-specific path) so
@@ -2577,7 +2595,13 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 faultType = FaultType::AddressSizeFault;
                 break;
             case SMMUError::InvalidSecurityState:
-                faultType = FaultType::SecurityFault;
+                // BUG-CPP-8 fix: §7.3.16 — security-state mismatches generate F_PERMISSION.
+                // Route through PermissionFault so the switch case below calls
+                // generateEvent(F_PERMISSION, ..., tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa)
+                // which correctly sets s2=true and ipa for two-stage security faults.
+                // The SecurityFault case (recordSecurityFault path) is now dead code but
+                // retained as a safety fallback.
+                faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::AccessFlagFaultError:
                 // §7.3.15 / NEW-A fix: AccessFlagFaultError must map to AccessFlagFault
@@ -2925,20 +2949,19 @@ Result<bool> SMMU::hasEvents() const {
 
 std::vector<EventEntry> SMMU::getEventQueue() const {
     // BUG-03 fix: protect eventQueue with queueMutex.
+    // BUG-CPP-1/2 fix: getEventQueue() is a pure non-destructive snapshot.
+    // ARM §3.5.1: CONS.RD must only advance when an entry is actually consumed
+    // (removed from the queue).  getEventQueue() copies entries without removing
+    // them; therefore it must NOT advance eventqCons.  Only processEventQueue()
+    // (which removes entries) and clearEventQueue() (which resets the queue) may
+    // modify eventqCons.  The previous BUG-AUDIT-4 "fix" incorrectly added CONS
+    // advancement here, causing double-advancement when both getEventQueue() and
+    // processEventQueue() were called on the same entries.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     std::vector<EventEntry> events;
     events.reserve(eventQueue.size());
     for (const auto& event : eventQueue) {
         events.push_back(event);
-    }
-    // BUG-AUDIT-4 fix: ARM §3.5.1 requires the consumer to advance CONS after
-    // reading events.  getEventQueue() is the consumption path; advance eventqCons
-    // by one for each event returned, preserving OVACKFLG (bit 31) on each step.
-    // This mirrors the processEventQueue() advance logic exactly.
-    for (size_t i = 0; i < events.size(); ++i) {
-        uint32_t oldCons = eventqCons.load(std::memory_order_relaxed);
-        uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), eventqLog2Size);
-        eventqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
     }
     return events;
 }
