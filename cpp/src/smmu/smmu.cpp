@@ -4735,6 +4735,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         pendingEvent.streamID = streamID;
         pendingEvent.pasid = pasid;
         pendingEvent.address = address;
+        // BUG-CPP-2 fix: §7.3.3/§7.3.5/§7.3.7/§7.3.11 — InputAddr and SubstreamID are
+        // RES0 for C_BAD_STREAMID, C_BAD_STE, C_BAD_CD, and F_STREAM_DISABLED.
+        // §7.3 catch-all: "Portions not explicitly defined are RES0."
+        // Note: C_BAD_SUBSTREAMID (0x08) DOES define InputAddr (§7.3.9) — do not zero it.
+        if (type == EventType::C_BAD_STREAMID || type == EventType::C_BAD_STE ||
+            type == EventType::C_BAD_CD       || type == EventType::F_STREAM_DISABLED) {
+            pendingEvent.address = 0;
+            pendingEvent.pasid   = 0;
+        }
         pendingEvent.securityState = securityState;
         pendingEvent.timestamp = getCurrentTimestamp();
         pendingEvent.stall = isStall;
@@ -4884,6 +4893,15 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     event.streamID = streamID;
     event.pasid = pasid;
     event.address = address;
+    // BUG-CPP-2 fix: §7.3.3/§7.3.5/§7.3.7/§7.3.11 — InputAddr and SubstreamID are
+    // RES0 for C_BAD_STREAMID, C_BAD_STE, C_BAD_CD, and F_STREAM_DISABLED.
+    // §7.3 catch-all: "Portions not explicitly defined are RES0."
+    // Note: C_BAD_SUBSTREAMID (0x08) DOES define InputAddr (§7.3.9) — do not zero it.
+    if (type == EventType::C_BAD_STREAMID || type == EventType::C_BAD_STE ||
+        type == EventType::C_BAD_CD       || type == EventType::F_STREAM_DISABLED) {
+        event.address = 0;
+        event.pasid   = 0;
+    }
     event.securityState = securityState;
     event.timestamp = getCurrentTimestamp();
     event.stall = isStall;

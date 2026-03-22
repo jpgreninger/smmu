@@ -470,6 +470,18 @@ pub struct SMMU {
 
     /// SMMU_IRQ_CTRLACK register (§6.3.46): mirrors `irq_ctrl` after each write.
     irq_ctrlack: AtomicU32,
+
+    // ---- BUG-RUST-2: process_command_queue() serialization mutex ----
+
+    /// Serialization mutex for `process_command_queue()` (ARM §3.5.1).
+    ///
+    /// Without this mutex, two concurrent callers can both read the same
+    /// `cmdq_cons` value, each compute `N+1`, and both store `N+1` —
+    /// permanently undercounting consumed commands.  ARM §3.5.1 requires
+    /// CONS.RD to accurately reflect the number of consumed commands.
+    ///
+    /// This follows the same pattern as C++ `cmdqProcessingMutex_`.
+    cmdq_processing_mutex: Mutex<()>,
 }
 
 impl SMMU {
@@ -798,6 +810,8 @@ impl SMMU {
             // GAP-NEW-E: IRQ_CTRL / IRQ_CTRLACK reset to 0 (§6.3.45–6.3.46).
             irq_ctrl: AtomicU32::new(0),
             irq_ctrlack: AtomicU32::new(0),
+            // BUG-RUST-2: serialization mutex for process_command_queue().
+            cmdq_processing_mutex: Mutex::new(()),
         }
     }
 
@@ -3500,18 +3514,21 @@ impl SMMU {
                         self.record_fault(fault);
                         // Gate event recording on CR0.EVENTQEN (§7.2.1).
                         if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            // BUG-RUST-1 fix: §7.3.11 — C_BAD_CD has no InputAddr field.
+                            // address and pasid are RES0; only stream_id, security_state,
+                            // and SSV are architecturally defined for this event type.
                             let event = EventEntry {
                                 event_type: EventType::CBadCd,
                                 stream_id: stream_id.as_u32(),
-                                pasid: pasid.as_u32(),
-                                address: iova.as_u64(),
+                                // §7.3.11: no InputAddr — pasid and address are RES0.
+                                pasid: 0,
+                                address: 0,
                                 security_state,
                                 error_code: 0,
                                 timestamp,
                                 stall: false,
                                 stag: 0,
-                                // RUST-2 fix: §7.3 — ssv must reflect whether a PASID was
-                                // present (non-zero) for C_BAD_CD events (ARM §7.3 wire format).
+                                // §7.3.11: SSV reflects whether a PASID was present.
                                 ssv: pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
@@ -3666,9 +3683,17 @@ impl SMMU {
             if oas_bits < 64 && iova.as_u64() >= (1u64 << oas_bits) {
                 let oas_error = TranslationError::AddressSizeError;
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                let pnu = self.streams.get(&stream_id.as_u32())
-                    .map_or(false, |ctx| ctx.is_access_privileged(access));
-                self.record_translation_fault(stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false);
+                // BUG-RUST-3 fix: §7.3.14 — InD/PnU are post-STE override values.
+                // §5.2.1: INSTCFG and PRIVCFG apply to bypass (STE.Config=0b100) streams.
+                // Use the effective access type (after INSTCFG/PRIVCFG) for rnw and ind,
+                // not the raw access type passed by the caller.
+                let (effective_access, pnu) = self.streams.get(&stream_id.as_u32())
+                    .map_or((access, false), |ctx| {
+                        let eff = ctx.effective_access_type(access);
+                        let p = ctx.is_access_privileged(access);
+                        (eff, p)
+                    });
+                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false);
                 return Err(oas_error);
             }
         }
@@ -3812,18 +3837,21 @@ impl SMMU {
                         .timestamp(timestamp)
                         .build();
                     self.record_fault(fault);
+                    // BUG-RUST-1 fix: §7.3.7 — F_STREAM_DISABLED has no InputAddr field.
+                    // address and pasid are RES0.  Only stream_id and security_state
+                    // are architecturally defined for this event type.
                     let event = EventEntry {
                         event_type: EventType::FStreamDisabled,
                         stream_id: stream_id.as_u32(),
-                        pasid: pasid.as_u32(),
-                        address: iova.as_u64(),
+                        // §7.3.7: no InputAddr — pasid and address are RES0.
+                        pasid: 0,
+                        address: 0,
                         security_state,
                         error_code: 0,
                         timestamp,
                         stall: false,
                         stag: 0,
-                        // RUST-4 fix: §7.3.7 wire format — F_STREAM_DISABLED has no
-                        // RnW, InD, or SSV fields; all are RES0 per ARM §7.3.7.
+                        // §7.3.7 wire format — RnW, InD, SSV are all RES0.
                         ..EventEntry::zeroed()
                     };
                     // BUG-RUST-2 fix: §7.2.1 / §3.5.3 — all events including
@@ -4353,7 +4381,14 @@ impl SMMU {
 
         // BUG-RUST-1 fix: §7.3.9/§7.3.11 — C_BAD_SUBSTREAMID and C_BAD_CD have
         // RnW/InD/PnU as RES0 per their wire-format tables.  Zero them post-construction.
-        let event = if matches!(event_type, EventType::CBadSubstreamid | EventType::CBadCd) {
+        // BUG-RUST-1 (address/pasid) fix: §7.3.11 — C_BAD_CD also has no InputAddr field;
+        // address and pasid are RES0.  C_BAD_SUBSTREAMID (§7.3.9) DOES define InputAddr —
+        // its address field must retain the IOVA and pasid the SubstreamID.
+        let event = if matches!(event_type, EventType::CBadCd) {
+            // §7.3.11: no InputAddr, no RnW/InD/PnU — all RES0.
+            EventEntry { rnw: false, ind: false, pnu: false, address: 0, pasid: 0, ..event }
+        } else if matches!(event_type, EventType::CBadSubstreamid) {
+            // §7.3.9: InputAddr defined (keep address/pasid); RnW/InD/PnU are RES0.
             EventEntry { rnw: false, ind: false, pnu: false, ..event }
         } else {
             event
@@ -4472,11 +4507,15 @@ impl SMMU {
         }
 
         // §7.3.3: stream-not-found → C_BAD_STREAMID (0x02), not F_TRANSLATION (0x10).
+        // BUG-RUST-1 fix: §7.3.3 — C_BAD_STREAMID has no InputAddr field.
+        // address and pasid are RES0 (zeroed). Only stream_id and security_state
+        // are architecturally defined.
         let event = EventEntry {
             event_type: EventType::CBadStreamid,
             stream_id: stream_id.as_u32(),
-            pasid: pasid.as_u32(),
-            address: iova.as_u64(),
+            // §7.3.3: no InputAddr — pasid and address are RES0.
+            pasid: 0,
+            address: 0,
             security_state,
             error_code: 0,
             timestamp,
@@ -4484,8 +4523,7 @@ impl SMMU {
             stag: 0,
             // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
             event_class: 0,
-            // RUST-3 fix: §7.3 wire format — RnW (bit 100) and InD (bit 99) are RES0
-            // for C_BAD_STREAMID. Let EventEntry::zeroed() zero these fields.
+            // §7.3 wire format — RnW/InD/PnU are RES0 for C_BAD_STREAMID.
             ..EventEntry::zeroed()
         };
 
@@ -4546,11 +4584,15 @@ impl SMMU {
         // recorded when CR0.EVENTQEN=1.
 
         // §7.3.5: STE.V=0 → C_BAD_STE (0x04).
+        // BUG-RUST-1 fix: §7.3.5 — C_BAD_STE has no InputAddr field.
+        // address and pasid are RES0 (zeroed). Only stream_id and security_state
+        // are architecturally defined for this event type.
         let event = EventEntry {
             event_type: EventType::CBadSte,
             stream_id: stream_id.as_u32(),
-            pasid: pasid.as_u32(),
-            address: iova.as_u64(),
+            // §7.3.5: no InputAddr — pasid and address are RES0.
+            pasid: 0,
+            address: 0,
             security_state,
             error_code: 0,
             timestamp,
@@ -4558,8 +4600,7 @@ impl SMMU {
             stag: 0,
             // GAP NEW-1: C_* configuration events must have CLASS==0 per ARM §7.3.
             event_class: 0,
-            // RUST-3 fix: §7.3 wire format — RnW (bit 100) and InD (bit 99) are RES0
-            // for C_BAD_STE. Let EventEntry::zeroed() zero these fields.
+            // §7.3 wire format — RnW/InD/PnU are RES0 for C_BAD_STE.
             ..EventEntry::zeroed()
         };
 
@@ -4923,6 +4964,14 @@ impl SMMU {
     ///
     /// Commands are processed in submission order per Section 6.4.
     pub fn process_command_queue(&self) -> Result<usize, SMMUError> {
+        // BUG-RUST-2 fix: §3.5.1 — serialize all callers so that the
+        // cmdq_cons load-then-store cannot race.  Without this mutex two
+        // concurrent callers both read cons=N, each compute N+1, and both
+        // store N+1, undercounting the consumed commands by 1 per collision.
+        // Acquire the lock before the CMDQEN / GERROR checks so that no
+        // caller can slip past the gates and then race on cons.
+        let _cmdq_guard = self.cmdq_processing_mutex.lock().unwrap_or_else(|e| e.into_inner());
+
         // §4.1.2 / CT-33: Command queue is gated by CR0.CMDQEN.
         // When CMDQEN=0, command processing is a no-op (queue untouched).
         if (self.cr0.load(Ordering::Acquire) & Self::CR0_CMDQEN) == 0 {

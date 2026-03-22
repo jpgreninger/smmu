@@ -137,6 +137,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_21mar2026_dbgr.cpp
     test_bugs_22mar2026_cpp1.cpp
     test_bugs_22mar2026_cpp_res0.cpp
+    test_bugs_22mar2026_cpp2.cpp
     ../test_thread_safety.cpp
 )
 
