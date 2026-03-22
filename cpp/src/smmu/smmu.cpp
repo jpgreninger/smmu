@@ -2731,7 +2731,11 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
             // producing a stale/wrong expectedState in the fault record
             // (§7.3 fault record accuracy).  The caller already holds the
             // correct security state from when the stream was held.
-            recordSecurityFault(streamID, pasid, iova, accessType, securityState, securityState);
+            // BUG-CPP-2 fix: §7.3.16 — use eventAccessType (post-STRW/INSTCFG/PRIVCFG
+            // effective type) so that InD/PnU in the emitted F_PERMISSION event
+            // reflect the STE overrides applied during the actual translation, not
+            // the raw incoming accessType.
+            recordSecurityFault(streamID, pasid, iova, eventAccessType, securityState, securityState);
             break;
         }
 
@@ -4843,6 +4847,28 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             pendingEvent.ind = false;
             pendingEvent.pnu = false;
         }
+        // BUG-CPP-1a fix: §7.3.6 — F_BAD_ATS_TREQ: bits 100/99/98 (RnW/InD/PnU) are RES0.
+        // The ATS-specific R/W/X/P fields live at bits 95-92 (separate positions).
+        if (type == EventType::F_BAD_ATS_TREQ) {
+            pendingEvent.rnw = false;
+            pendingEvent.ind = false;
+            pendingEvent.pnu = false;
+        }
+        // BUG-CPP-1b fix: §7.3.8 — F_TRANSL_FORBIDDEN: RnW (bit 100) IS defined;
+        // InD (bit 99) and PnU (bit 98) are RES0.
+        if (type == EventType::F_TRANSL_FORBIDDEN) {
+            pendingEvent.ind = false;
+            pendingEvent.pnu = false;
+        }
+        // BUG-CPP-3 fix: §7.3.21 — COMMAND_SYNC_COMPLETION has no defined wire format;
+        // all fields above StreamID are RES0 per §7.3 catch-all.
+        // BUG-CPP-4 fix: §7.3.7 — F_STREAM_DISABLED: all fields above StreamID are RES0.
+        if (type == EventType::COMMAND_SYNC_COMPLETION ||
+            type == EventType::F_STREAM_DISABLED) {
+            pendingEvent.rnw = false;
+            pendingEvent.ind = false;
+            pendingEvent.pnu = false;
+        }
         pendingEvent.s2    = isStage2;
         pendingEvent.ipa   = isStage2 ? ipaValue : 0u;
         // §7.3: NSIPA=1 when S2=1 and the IPA is in Non-Secure PA space.
@@ -5002,6 +5028,28 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     if (type == EventType::C_BAD_STREAMID || type == EventType::C_BAD_STE    ||
         type == EventType::C_BAD_SUBSTREAMID || type == EventType::C_BAD_CD  ||
         type == EventType::F_CFG_CONFLICT) {
+        event.rnw = false;
+        event.ind = false;
+        event.pnu = false;
+    }
+    // BUG-CPP-1a fix: §7.3.6 — F_BAD_ATS_TREQ: bits 100/99/98 (RnW/InD/PnU) are RES0.
+    // The ATS-specific R/W/X/P fields live at bits 95-92 (separate positions).
+    if (type == EventType::F_BAD_ATS_TREQ) {
+        event.rnw = false;
+        event.ind = false;
+        event.pnu = false;
+    }
+    // BUG-CPP-1b fix: §7.3.8 — F_TRANSL_FORBIDDEN: RnW (bit 100) IS defined;
+    // InD (bit 99) and PnU (bit 98) are RES0.
+    if (type == EventType::F_TRANSL_FORBIDDEN) {
+        event.ind = false;
+        event.pnu = false;
+    }
+    // BUG-CPP-3 fix: §7.3.21 — COMMAND_SYNC_COMPLETION has no defined wire format;
+    // all fields above StreamID are RES0 per §7.3 catch-all.
+    // BUG-CPP-4 fix: §7.3.7 — F_STREAM_DISABLED: all fields above StreamID are RES0.
+    if (type == EventType::COMMAND_SYNC_COMPLETION ||
+        type == EventType::F_STREAM_DISABLED) {
         event.rnw = false;
         event.ind = false;
         event.pnu = false;

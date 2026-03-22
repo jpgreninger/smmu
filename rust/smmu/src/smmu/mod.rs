@@ -3050,8 +3050,8 @@ impl SMMU {
                             timestamp,
                             // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
                             event_class: 0,
-                            rnw: !access.can_write(),
-                            ind: access.can_execute() && !access.can_write(),
+                            // BUG-RUST-3 fix: §7.3.6 wire format — bits 100(RnW)/99(InD)/98(PnU)
+                            // are RES0 for F_BAD_ATS_TREQ; do NOT set from access type.
                             ssv: pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
@@ -3084,8 +3084,9 @@ impl SMMU {
                             timestamp,
                             // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
                             event_class: 0,
+                            // BUG-RUST-3 fix: §7.3.8 wire format — RnW (bit 100) IS defined
+                            // for F_TRANSL_FORBIDDEN; InD (bit 99) is RES0.  Keep rnw, zero ind.
                             rnw: !access.can_write(),
-                            ind: access.can_execute() && !access.can_write(),
                             ssv: pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
@@ -3178,8 +3179,7 @@ impl SMMU {
                                 timestamp,
                                 // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
                                 event_class: 0,
-                                rnw: !access.can_write(),
-                                ind: access.can_execute() && !access.can_write(),
+                                // BUG-RUST-3 fix: §7.3.6 wire format — bits 100/99/98 RES0.
                                 ssv: pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
@@ -3250,8 +3250,8 @@ impl SMMU {
                         timestamp,
                         // §7.3.8: F_TRANSL_FORBIDDEN has no CLASS field — RES0, must be 0.
                         event_class: 0,
+                        // BUG-RUST-3 fix: §7.3.8 — RnW (bit 100) IS defined; InD (bit 99) RES0.
                         rnw: !access.can_write(),
-                        ind: access.can_execute() && !access.can_write(),
                         ssv: pasid.as_u32() != 0,
                         ..EventEntry::zeroed()
                     };
@@ -3826,13 +3826,17 @@ impl SMMU {
                         // RnW, InD, or SSV fields; all are RES0 per ARM §7.3.7.
                         ..EventEntry::zeroed()
                     };
-                    if let Ok(mut queue) = self.event_queue.write() {
-                        if queue.len() < self.event_queue_capacity {
-                            queue.push_back(event);
-                            self.event_count.fetch_add(1, Ordering::Relaxed);
-                            // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
-                            let prod = self.eventq_prod.load(Ordering::Relaxed);
-                            self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
+                    // BUG-RUST-2 fix: §7.2.1 / §3.5.3 — all events including
+                    // F_STREAM_DISABLED must be gated on CR0.EVENTQEN.
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            if queue.len() < self.event_queue_capacity {
+                                queue.push_back(event);
+                                self.event_count.fetch_add(1, Ordering::Relaxed);
+                                // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
+                                let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
+                            }
                         }
                     }
                     return Err(TranslationError::StreamDisabled);
@@ -4347,13 +4351,27 @@ impl SMMU {
             ssv: matches!(event_type, EventType::CBadSubstreamid) || pasid.as_u32() != 0,
         };
 
+        // BUG-RUST-1 fix: §7.3.9/§7.3.11 — C_BAD_SUBSTREAMID and C_BAD_CD have
+        // RnW/InD/PnU as RES0 per their wire-format tables.  Zero them post-construction.
+        let event = if matches!(event_type, EventType::CBadSubstreamid | EventType::CBadCd) {
+            EventEntry { rnw: false, ind: false, pnu: false, ..event }
+        } else {
+            event
+        };
+
+        // BUG-RUST-7 fix: snapshot MEV flag BEFORE acquiring event_queue.write() to prevent
+        // ABBA deadlock.  translate() holds a DashMap shard while calling
+        // record_translation_fault(), which would then try to acquire event_queue.write()
+        // and then streams.get() (DashMap shard) inside it — inverting the lock order.
+        // Snapshotting MEV here avoids any DashMap access under the event_queue write lock.
+        let stream_mev = self
+            .streams
+            .get(&stream_id.as_u32())
+            .map_or(false, |ctx| ctx.mev());
+
         if let Ok(mut queue) = self.event_queue.write() {
             // CONF-GAP-14: STE.MEV event merging (§5.2).
             // If the stream has MEV=true, suppress duplicate events (same type + stream_id).
-            let stream_mev = self
-                .streams
-                .get(&stream_id.as_u32())
-                .map_or(false, |ctx| ctx.mev());
             if stream_mev
                 && queue.iter().any(|e| {
                     e.event_type == event.event_type
@@ -5299,7 +5317,8 @@ impl SMMU {
                     self.cmd_sync_last_signal_type.store(command.cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     // FINDING-NEW-44: use the stream's configured security state
-                    // instead of hardcoding NonSecure.
+                    // instead of hardcoding NonSecure.  The stream_id in command is used
+                    // here only to derive security state — it does NOT appear in the event.
                     let stream_sec_state = self
                         .streams
                         .get(&command.stream_id)
@@ -5307,7 +5326,9 @@ impl SMMU {
 
                     let event = EventEntry {
                         event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
-                        stream_id: command.stream_id,
+                        // BUG-RUST-5 fix: §4.7.3 — CMD_SYNC has no StreamID operand;
+                        // using command.stream_id is architecturally undefined.  Use 0.
+                        stream_id: 0,
                         pasid: command.pasid,
                         address: 0,
                         security_state: stream_sec_state,
