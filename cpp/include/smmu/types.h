@@ -1620,17 +1620,28 @@ struct EventEntry {
     uint64_t ipa;        ///< §7.3: Intermediate Physical Address (for two-stage faults)
     uint8_t  eventClass; ///< §7.3: CLASS field (2-bit): 0b00=CD, 0b01=TTD, 0b10=IN (default for F_* input-address faults), 0b11=Reserved. C_* events leave this 0 (field not defined).
     bool     s2;         ///< §7.3: S2 flag — true if fault occurred during stage-2 translation
-    bool     rnw;        ///< §7.3: RnW — true=write, false=read
+    bool     rnw;        ///< §7.3: RnW (Read-not-Write) — true=read, false=write (ARM §7.3: RnW=1=Read, RnW=0=Write)
     bool     ind;        ///< §7.3: InD — true=instruction (Execute), false=data
     bool     pnu;        ///< §7.3: PnU — true=privileged access, false=unprivileged
     bool     nsipa;      ///< §7.3: NSIPA — true if the IPA is non-secure
     bool     ssv;        ///< §7.3: SSV — SubstreamID Valid (true when PASID != 0)
 
+    // §7.3.6: F_BAD_ATS_TREQ ATS-specific permission fields — bits [95:92].
+    // These are the permissions from the original ATS Translation Request (pre-STE-override).
+    // Only valid/meaningful when event type == F_BAD_ATS_TREQ; RES0 for all other events.
+    bool ats_r;  ///< bit[95]: ATS TR requested Read permission
+    bool ats_w;  ///< bit[94]: ATS TR requested Write permission (= !NW)
+    bool ats_x;  ///< bit[93]: ATS TR requested Execute permission
+    bool ats_p;  ///< bit[92]: ATS TR requested Privileged access
+
+    uint16_t reason; ///< §7.3.2: F_UUT Reason field at bits [79:64] — IMPLEMENTATION DEFINED; always 0 for this SW model
+
     EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
                   address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
                   stall(false), stag(0),
                   ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
-                  pnu(false), nsipa(false), ssv(false) {
+                  pnu(false), nsipa(false), ssv(false),
+                  ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr)
@@ -1638,7 +1649,8 @@ struct EventEntry {
           securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
           stall(false), stag(0),
           ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
-          pnu(false), nsipa(false), ssv(false) {
+          pnu(false), nsipa(false), ssv(false),
+          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState)
@@ -1646,7 +1658,8 @@ struct EventEntry {
           securityState(secState), errorCode(0), timestamp(0),
           stall(false), stag(0),
           ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
-          pnu(false), nsipa(false), ssv(false) {
+          pnu(false), nsipa(false), ssv(false),
+          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
     }
 };
 

@@ -3067,6 +3067,15 @@ impl SMMU {
                             // BUG-RUST-3 fix: §7.3.6 wire format — bits 100(RnW)/99(InD)/98(PnU)
                             // are RES0 for F_BAD_ATS_TREQ; do NOT set from access type.
                             ssv: pasid.as_u32() != 0,
+                            // §7.3.6: ATS-specific permission bits [95:92] — pre-STE-override.
+                            // R=true when access is not a pure write (read or execute).
+                            // W=true when write permission is requested (!NW).
+                            // X=true when execute permission is requested.
+                            // P=true when privileged access (AxPROT[1]=1).
+                            ats_r: !access.can_write() || access.can_execute(),
+                            ats_w: access.can_write() && !access.can_execute(),
+                            ats_x: access.can_execute(),
+                            ats_p: access.is_privileged(),
                             ..EventEntry::zeroed()
                         };
                         if let Ok(mut queue) = self.event_queue.write() {
@@ -3195,6 +3204,15 @@ impl SMMU {
                                 event_class: 0,
                                 // BUG-RUST-3 fix: §7.3.6 wire format — bits 100/99/98 RES0.
                                 ssv: pasid.as_u32() != 0,
+                                // §7.3.6: ATS-specific permission bits [95:92] — pre-STE-override.
+                                // R=true when access is not a pure write (read or execute).
+                                // W=true when write permission is requested (!NW).
+                                // X=true when execute permission is requested.
+                                // P=true when privileged access (AxPROT[1]=1).
+                                ats_r: !access.can_write() || access.can_execute(),
+                                ats_w: access.can_write() && !access.can_execute(),
+                                ats_x: access.can_execute(),
+                                ats_p: access.is_privileged(),
                                 ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
@@ -4275,6 +4293,7 @@ impl SMMU {
     /// * `error` - Translation error details
     // GAP NEW-2: `s2` is true when the fault occurred at Stage-2 (§7.3.13 S2 field).
     // `ipa` is the IPA fed into Stage-2 when `s2==true`; 0 otherwise.
+    #[allow(clippy::too_many_lines)]
     fn record_translation_fault(
         &self,
         stream_id: StreamID,
@@ -4377,6 +4396,13 @@ impl SMMU {
             // "In this event, SubstreamID is always valid (there is no SSV qualifier)."
             // For all other event types, SSV reflects whether a non-zero PASID was presented.
             ssv: matches!(event_type, EventType::CBadSubstreamid) || pasid.as_u32() != 0,
+            // §7.3.6: ATS-specific permission bits [95:92] — RES0 for all non-ATS events.
+            ats_r: false,
+            ats_w: false,
+            ats_x: false,
+            ats_p: false,
+            // §7.3.2: F_UUT Reason field — always 0 (IMPDEF=0 per §7.3.2).
+            reason: 0,
         };
 
         // BUG-RUST-1 fix: §7.3.9/§7.3.11 — C_BAD_SUBSTREAMID and C_BAD_CD have

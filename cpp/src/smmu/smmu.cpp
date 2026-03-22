@@ -4878,6 +4878,32 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
             pendingEvent.ind = false;
             pendingEvent.pnu = false;
         }
+        // §7.3.6: F_BAD_ATS_TREQ — populate ATS-specific R/W/X/P fields at bits [95:92].
+        // These carry the ATS TR's requested permissions BEFORE STE.{INSTCFG/PRIVCFG} overrides.
+        // Derived from the raw (pre-override) access type passed to generateEvent().
+        if (type == EventType::F_BAD_ATS_TREQ) {
+            // R=1 when the request has a read component (reads and instruction fetches).
+            pendingEvent.ats_r = (accessType != AccessType::Write &&
+                                  accessType != AccessType::WritePrivileged &&
+                                  accessType != AccessType::ReadWrite &&
+                                  accessType != AccessType::ReadWritePrivileged);
+            // W=1 when the request has a write component (!NW per spec).
+            pendingEvent.ats_w = (accessType == AccessType::Write ||
+                                  accessType == AccessType::WritePrivileged ||
+                                  accessType == AccessType::ReadWrite ||
+                                  accessType == AccessType::ReadWritePrivileged);
+            // X=1 when the request is an instruction fetch.
+            pendingEvent.ats_x = (accessType == AccessType::Execute ||
+                                  accessType == AccessType::ExecutePrivileged ||
+                                  accessType == AccessType::ReadExecute ||
+                                  accessType == AccessType::ReadExecutePrivileged);
+            // P=1 when the request is privileged.
+            pendingEvent.ats_p = (accessType == AccessType::ReadPrivileged ||
+                                  accessType == AccessType::WritePrivileged ||
+                                  accessType == AccessType::ExecutePrivileged ||
+                                  accessType == AccessType::ReadWritePrivileged ||
+                                  accessType == AccessType::ReadExecutePrivileged);
+        }
         pendingEvent.s2    = isStage2;
         pendingEvent.ipa   = isStage2 ? ipaValue : 0u;
         // §7.3: NSIPA=1 when S2=1 and the IPA is in Non-Secure PA space.
@@ -5071,6 +5097,32 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         event.rnw = false;
         event.ind = false;
         event.pnu = false;
+    }
+    // §7.3.6: F_BAD_ATS_TREQ — populate ATS-specific R/W/X/P fields at bits [95:92].
+    // These carry the ATS TR's requested permissions BEFORE STE.{INSTCFG/PRIVCFG} overrides.
+    // Derived from the raw (pre-override) access type passed to generateEvent().
+    if (type == EventType::F_BAD_ATS_TREQ) {
+        // R=1 when the request has a read component (reads and instruction fetches).
+        event.ats_r = (accessType != AccessType::Write &&
+                       accessType != AccessType::WritePrivileged &&
+                       accessType != AccessType::ReadWrite &&
+                       accessType != AccessType::ReadWritePrivileged);
+        // W=1 when the request has a write component (!NW per spec).
+        event.ats_w = (accessType == AccessType::Write ||
+                       accessType == AccessType::WritePrivileged ||
+                       accessType == AccessType::ReadWrite ||
+                       accessType == AccessType::ReadWritePrivileged);
+        // X=1 when the request is an instruction fetch.
+        event.ats_x = (accessType == AccessType::Execute ||
+                       accessType == AccessType::ExecutePrivileged ||
+                       accessType == AccessType::ReadExecute ||
+                       accessType == AccessType::ReadExecutePrivileged);
+        // P=1 when the request is privileged.
+        event.ats_p = (accessType == AccessType::ReadPrivileged ||
+                       accessType == AccessType::WritePrivileged ||
+                       accessType == AccessType::ExecutePrivileged ||
+                       accessType == AccessType::ReadWritePrivileged ||
+                       accessType == AccessType::ReadExecutePrivileged);
     }
     // GAP NEW-2 fix: ARM IHI0070G.b §7.3.13 — S2 and IPA fields for two-stage faults.
     // When the fault occurred during stage-2 translation, S2=1 and IPA carries

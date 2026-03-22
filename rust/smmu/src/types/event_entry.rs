@@ -123,6 +123,34 @@ pub struct EventEntry {
     pub nsipa: bool,
     /// SSV — SubstreamID Valid; true when the transaction carried a non-zero PASID (§7.3).
     pub ssv: bool,
+
+    // ── Item 1 (Moderate): §7.3.6 F_BAD_ATS_TREQ ATS permission bits [95:92] ─
+    /// §7.3.6: ATS TR requested Read permission (bit 95).
+    ///
+    /// True when the original ATS Translation Request was not a pure write
+    /// (i.e. the access includes read or execute).  RES0 for all other event types.
+    pub ats_r: bool,
+    /// §7.3.6: ATS TR requested Write permission (bit 94, = !NW).
+    ///
+    /// True when the original ATS Translation Request requested write permission.
+    /// RES0 for all other event types.
+    pub ats_w: bool,
+    /// §7.3.6: ATS TR requested Execute permission (bit 93).
+    ///
+    /// True when the original ATS Translation Request was an instruction fetch.
+    /// RES0 for all other event types.
+    pub ats_x: bool,
+    /// §7.3.6: ATS TR requested Privileged access (bit 92).
+    ///
+    /// True when the original ATS Translation Request was a privileged access
+    /// (AxPROT\[1\]=1).  RES0 for all other event types.
+    pub ats_p: bool,
+
+    // ── Item 2 (Low): §7.3.2 F_UUT Reason field bits [79:64] ───────────────
+    /// §7.3.2: F_UUT IMPLEMENTATION DEFINED Reason field (bits [79:64]).
+    ///
+    /// Always 0 for this software model; 0 is a valid IMPDEF choice per §7.3.2.
+    pub reason: u16,
 }
 
 impl EventEntry {
@@ -156,6 +184,11 @@ impl EventEntry {
             pnu: false,
             nsipa: false,
             ssv: false,
+            ats_r: false,
+            ats_w: false,
+            ats_x: false,
+            ats_p: false,
+            reason: 0,
         }
     }
 
@@ -181,6 +214,11 @@ impl EventEntry {
             pnu: false,
             nsipa: false,
             ssv: false,
+            ats_r: false,
+            ats_w: false,
+            ats_x: false,
+            ats_p: false,
+            reason: 0,
         }
     }
 }

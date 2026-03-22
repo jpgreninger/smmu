@@ -1284,7 +1284,7 @@ TEST_F(Task53ComplianceTest, StructureSizes) {
     // Test that structures have reasonable sizes (not too large)
     EXPECT_LE(sizeof(CommandEntry), 96); // RIL fields (tg/num/scale/ttl/ril) added for CONF-GAP-8
     EXPECT_LE(sizeof(PRIEntry), 64);     // Should be reasonably sized
-    EXPECT_LE(sizeof(EventEntry), 64);   // Should be reasonably sized
+    EXPECT_LE(sizeof(EventEntry), 80);   // Should be reasonably sized; grown to 72 with §7.3.6 ats_r/w/x/p + §7.3.2 reason fields
 }
 
 TEST_F(Task53ComplianceTest, ARMSMMUv3CommandTypeCompliance) {
