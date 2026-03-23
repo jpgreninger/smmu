@@ -382,7 +382,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         fault.streamID = streamID;
         fault.pasid = pasid;
         fault.address = iova;
-        fault.faultType = FaultType::BadStreamID;
+        // BUG-CPP-1 fix: §7.3.5 C_BAD_STE fires when StreamID is in-range but
+        // STE.V=0 (no configured stream).  §7.3.3 C_BAD_STREAMID is reserved for
+        // StreamIDs that are OUTSIDE the table range (handled earlier in this
+        // function).  Use FaultType::BadSTE so the FaultRecord is consistent with
+        // the EventType::C_BAD_STE event generated on the next line.
+        fault.faultType = FaultType::BadSTE;
         fault.accessType = accessType;
         fault.securityState = securityState;
         fault.timestamp = currentTime;
@@ -2745,6 +2750,10 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
 
         case FaultType::BadStreamID:
             // §7.3.3: StreamID not in stream table — C_BAD_STREAMID event was generated in translate(); no recovery
+            break;
+
+        case FaultType::BadSTE:
+            // §7.3.5: In-range StreamID with STE.V=0 — C_BAD_STE event was generated in translate(); no recovery
             break;
 
         case FaultType::BadSubstreamId:

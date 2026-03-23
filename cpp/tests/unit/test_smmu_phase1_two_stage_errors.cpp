@@ -83,8 +83,9 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, NullStreamContext_UnconfiguredStream_Record
         EXPECT_EQ(fault.streamID, INVALID_STREAM);
         EXPECT_EQ(fault.pasid, PASID_1);
         EXPECT_EQ(fault.address, BASE_IOVA);
-        // §7.3.5: in-range unconfigured stream → BadStreamID fault record
-        EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
+        // §7.3.5: in-range unconfigured stream (STE.V=0) → BadSTE fault record
+        // (BUG-CPP-1 fix: was incorrectly BadStreamID before the fix)
+        EXPECT_EQ(fault.faultType, FaultType::BadSTE);
     }
 }
 

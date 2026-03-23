@@ -3144,8 +3144,10 @@ impl SMMU {
                         let event = EventEntry {
                             event_type: EventType::CBadStreamid,
                             stream_id: stream_id.as_u32(),
-                            pasid: pasid.as_u32(),
-                            address: iova.as_u64(),
+                            // BUG-RUST-1 fix: §7.3.3 — C_BAD_STREAMID has no InputAddr
+                            // field.  bits[127:64] are RES0; address and pasid must be 0.
+                            pasid: 0,
+                            address: 0,
                             security_state,
                             timestamp,
                             event_class: 0,
@@ -3511,6 +3513,11 @@ impl SMMU {
                     let t1sz = stream_ref.value().get_t1sz();
                     let aa64 = stream_ref.value().get_aa64();
                     if !aa64 || t0sz > 39 || t1sz > 39 {
+                        // BUG-RUST-2 fix: §5.2/§7.3.1 — snapshot MEV before dropping
+                        // stream_ref so the MEV deduplication guard can be applied to
+                        // the C_BAD_CD inline push block (same pattern as
+                        // record_translation_fault()).
+                        let stream_mev = stream_ref.value().mev();
                         // Drop stream_ref guard before recording fault (not strictly needed
                         // but avoids holding the DashMap shard lock longer than necessary).
                         drop(stream_ref);
@@ -3548,7 +3555,18 @@ impl SMMU {
                                 ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
-                                if queue.len() < self.event_queue_capacity {
+                                // BUG-RUST-2 fix: §5.2/§7.3.1 — CONF-GAP-14 MEV dedup.
+                                // If stream.mev=true, suppress duplicate C_BAD_CD events
+                                // for the same stream_id (same pattern as
+                                // record_translation_fault()).
+                                if stream_mev
+                                    && queue.iter().any(|e| {
+                                        e.event_type == EventType::CBadCd
+                                            && e.stream_id == stream_id.as_u32()
+                                    })
+                                {
+                                    // Duplicate suppressed — do not push.
+                                } else if queue.len() < self.event_queue_capacity {
                                     queue.push_back(event);
                                     self.event_count.fetch_add(1, Ordering::Relaxed);
                                     // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
@@ -3594,6 +3612,11 @@ impl SMMU {
                             // access type (after INSTCFG/PRIVCFG/STRW). Compute the
                             // effective access type before dropping stream_ref.
                             let effective_at = stream_ref.value().effective_access_type(access);
+                            // BUG-RUST-2 fix: §5.2/§7.3.1 — snapshot MEV before dropping
+                            // stream_ref so the MEV deduplication guard can be applied to
+                            // the F_TRANSLATION inline push block (same pattern as
+                            // record_translation_fault()).
+                            let stream_mev = stream_ref.value().mev();
                             drop(stream_ref);
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
@@ -3634,7 +3657,18 @@ impl SMMU {
                                     ..EventEntry::zeroed()
                                 };
                                 if let Ok(mut queue) = self.event_queue.write() {
-                                    if queue.len() < self.event_queue_capacity {
+                                    // BUG-RUST-2 fix: §5.2/§7.3.1 — CONF-GAP-14 MEV dedup.
+                                    // If stream.mev=true, suppress duplicate F_TRANSLATION
+                                    // events for the same stream_id (same pattern as
+                                    // record_translation_fault()).
+                                    if stream_mev
+                                        && queue.iter().any(|e| {
+                                            e.event_type == EventType::FTranslation
+                                                && e.stream_id == stream_id.as_u32()
+                                        })
+                                    {
+                                        // Duplicate suppressed — do not push.
+                                    } else if queue.len() < self.event_queue_capacity {
                                         queue.push_back(event);
                                         self.event_count.fetch_add(1, Ordering::Relaxed);
                                         // ARM §3.5.4 — advance PROD.WR to publish record.

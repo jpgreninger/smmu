@@ -657,6 +657,12 @@ enum class FaultType {
     /// Generates C_BAD_STREAMID event (event code 0x02) per ARM IHI0070G.b §7.3.3.
     BadStreamID,
 
+    /// @brief StreamID is in-range but STE.V=0 — no valid STE (§7.3.5)
+    /// Generates C_BAD_STE event (event code 0x04) per ARM IHI0070G.b §7.3.5.
+    /// Distinct from BadStreamID (§7.3.3) which fires only when StreamID is
+    /// outside the configured stream table range (>= 2^LOG2SIZE).
+    BadSTE,
+
     /// @brief Non-zero SubstreamID/PASID on a stream with no stage-1 translation (§3.9, §7.3.9)
     /// Generates C_BAD_SUBSTREAMID event (event code 0x08) when a PASID is supplied
     /// to a stage-2-only or bypass stream that has no stage-1 context to consume it.
@@ -933,6 +939,10 @@ inline SMMUError faultTypeToSMMUError(FaultType faultType) {
         case FaultType::BadStreamID:
             // BUG-CPP-DBGR-12 fix: §7.3.3 C_BAD_STREAMID maps to InvalidStreamID.
             return SMMUError::InvalidStreamID;
+
+        case FaultType::BadSTE:
+            // §7.3.5 C_BAD_STE: in-range StreamID with STE.V=0 → StreamNotConfigured.
+            return SMMUError::StreamNotConfigured;
 
         case FaultType::AccessFlagFault:
             return SMMUError::AccessFlagFaultError;

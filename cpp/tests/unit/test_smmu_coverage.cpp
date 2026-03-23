@@ -533,8 +533,9 @@ TEST_F(SMMUCoverageTest, AdvancedFault_StreamNotConfigured) {
     EXPECT_EQ(fault.streamID, TEST_STREAM_ID);
     EXPECT_EQ(fault.pasid, TEST_PASID);
     EXPECT_EQ(fault.address, TEST_IOVA);
-    // §7.3.5: in-range unconfigured stream uses BadStreamID fault record type
-    EXPECT_EQ(fault.faultType, FaultType::BadStreamID);
+    // §7.3.5: in-range unconfigured stream (STE.V=0) uses BadSTE fault record type
+    // (BUG-CPP-1 fix: was incorrectly BadStreamID before the fix)
+    EXPECT_EQ(fault.faultType, FaultType::BadSTE);
     EXPECT_GT(fault.timestamp, 0);
 }
 
