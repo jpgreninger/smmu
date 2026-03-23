@@ -5362,11 +5362,10 @@ impl SMMU {
                     // Range invalidation: compute range from tg, num, scale.
                     // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
                     // a shift ≥ 64 on u64 must be handled without overflow.
-                    // Per ARM §4.4.1.1: SCALE values that exceed the address-space width
-                    // are equivalent to "invalidate the entire remaining range".
+                    // Per ARM §4.4.1.1: SCALE has a maximum architectural value of 39
+                    // (shift=39 → 2^39 blocks); values above 39 are capped to 39 (BUG-NEW-E).
                     // Use checked_shl and saturating arithmetic throughout so that any
-                    // out-of-range SCALE (including spec-maximum 39, which gives shift=195)
-                    // degenerates to a full-address-space invalidation instead of panicking.
+                    // out-of-range SCALE degenerates gracefully instead of panicking.
                     let granule_size: u64 = match command.tg {
                         1 => 65536,
                         2 => 16384,
@@ -5378,9 +5377,14 @@ impl SMMU {
                     // `5 * scale` (a PE TLBI R instruction artifact from the TLBI RANGE
                     // instruction encoding where scale values increment by 5) which inflates
                     // the range by up to 2^35× and over-invalidates TLB entries.
+                    // BUG-NEW-E fix: ARM §4.4.1.1 specifies SCALE has a maximum value of 39.
+                    // Values 40..255 must be treated as 39.  Without this cap, SCALE=40..63
+                    // would produce a shift of 40..63 on u64 (no checked_shl overflow), giving
+                    // a range larger than the spec allows.  SCALE=64..255 already fell through
+                    // to the checked_shl None branch (u64::MAX), but min(39) also corrects those.
                     // checked_shl returns None if shift >= 64 (would overflow u64).
                     // In that case the range covers the entire address space → u64::MAX.
-                    let shift = u32::from(command.scale);
+                    let shift = u32::from(command.scale.min(39));
                     let blocks = (command.num as u64 + 1)
                         .checked_shl(shift)
                         .unwrap_or(u64::MAX);

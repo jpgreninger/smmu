@@ -629,6 +629,222 @@ TEST(Open7SecurityFaultType, WriteOnReadOnlyPageGeneratesPermissionFaultType) {
            "FaultType::PermissionFault; got " << static_cast<int>(fr.faultType);
 }
 
+// =============================================================================
+// BUG-NEW-G: NonSecure stage-1-only streams must use STE.S2VMID for TLB tagging
+//   ARM IHI0070G.b §3.17: TLB entries for stage-1-only NonSecure streams must
+//   be tagged with VMID = STE.S2VMID so VMID-targeted TLBI commands can match.
+//   Only Secure stage-1-only streams use VMID=0.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// BUG-NEW-G Test 1: CMD_TLBI_S12_VMALL with VMID matching a NS stage-1-only
+//   stream must invalidate that stream's TLB entry.
+//
+// Scenario:
+//   1. Configure a NonSecure stage-1-only stream with VMID=42.
+//   2. Translate a page to populate the TLB.
+//   3. Issue CMD_TLBI_S12_VMALL targeting VMID=42.
+//   4. Re-translate — must succeed (page table intact; TLB miss is recovered
+//      from the page table transparently).
+//
+// BEFORE FIX: TLB entries for NS stage-1-only streams were tagged VMID=0.
+//   CMD_TLBI_S12_VMALL with VMID=42 would not match those entries.
+//   The stale TLB entry would persist (spec violation per ARM §3.17).
+// AFTER FIX:  TLB entries are tagged VMID=42 (STE.S2VMID).
+//   CMD_TLBI_S12_VMALL with VMID=42 correctly invalidates them.
+//   Re-translate succeeds via page table walk (no fault).
+// ---------------------------------------------------------------------------
+TEST(BugNewGVmidTagging, NsStage1OnlyTlbiS12VmallInvalidatesCorrectly) {
+    auto smmu = makeEnabledSMMU();
+
+    const StreamID sid  = 0xF0u;
+    const uint16_t vmid = 42u;
+
+    // Configure NonSecure stage-1-only stream with VMID=42.
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    cfg.t0sz               = 0;
+    cfg.securityState      = SecurityState::NonSecure;
+    cfg.vmid               = vmid;
+    ASSERT_TRUE(smmu->configureStream(sid, cfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(sid).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(sid, 0u).isOk());
+
+    // Map a page so translation succeeds.
+    smmu->mapPage(sid, 0u, 0x1000u, 0xDEAD0000u, PagePermissions(true, false, false));
+
+    // Step 1: Populate the TLB by translating.
+    auto result = smmu->translate(sid, 0u, 0x1000u, AccessType::Read);
+    ASSERT_TRUE(result.isOk())
+        << "BUG-NEW-G precondition: initial translate must succeed";
+
+    // Step 2: Issue CMD_TLBI_S12_VMALL targeting VMID=42.
+    CommandEntry tlbi;
+    tlbi.type = CommandType::TLBI_S12_VMALL;
+    tlbi.vmid = vmid;
+    ASSERT_TRUE(smmu->submitCommand(tlbi).isOk())
+        << "BUG-NEW-G: submitCommand(TLBI_S12_VMALL) must succeed";
+    smmu->processCommandQueue();
+
+    // Step 3: Re-translate — must succeed (TLBI invalidates TLB but not
+    // the page table, so the SMMU re-walks the page table and succeeds).
+    // AFTER FIX: TLBI matched (VMID=42 tag), caused TLB miss, page table
+    //            walk succeeds → OK.
+    // BEFORE FIX: VMID tag was 0, TLBI did not match, TLB hit returned
+    //             stale entry — translation appeared to succeed but the
+    //             entry was architecturally invalid (spec violation).
+    auto result2 = smmu->translate(sid, 0u, 0x1000u, AccessType::Read);
+    EXPECT_TRUE(result2.isOk())
+        << "BUG-NEW-G: re-translate after TLBI_S12_VMALL must succeed "
+           "(page table intact; TLB miss recovered transparently)";
+
+    // No fault events must have been generated.
+    auto events = smmu->getEvents();
+    ASSERT_TRUE(events.isOk());
+    EXPECT_TRUE(events.getValue().empty())
+        << "BUG-NEW-G: no fault events expected after TLBI and re-translate; "
+           "got " << events.getValue().size() << " event(s)";
+}
+
+// ---------------------------------------------------------------------------
+// BUG-NEW-G Test 2: CMD_TLBI_S12_VMALL targeting a DIFFERENT VMID must NOT
+//   invalidate a NS stage-1-only stream's TLB entry.
+//
+// Scenario:
+//   Stream A: VMID=11 (NS, stage-1-only)
+//   Stream B: VMID=22 (NS, stage-1-only)
+//   Translate both to populate TLB.
+//   Issue TLBI_S12_VMALL with VMID=22 — must NOT affect stream A (VMID=11).
+//   Both streams must re-translate successfully.
+// ---------------------------------------------------------------------------
+TEST(BugNewGVmidTagging, TlbiS12VmallOnlyInvalidatesMatchingVmid) {
+    auto smmu = makeEnabledSMMU();
+
+    const StreamID sidA  = 0xF1u;
+    const StreamID sidB  = 0xF2u;
+    const uint16_t vmidA = 11u;
+    const uint16_t vmidB = 22u;
+
+    // Configure stream A (VMID=11).
+    {
+        StreamConfig cfg;
+        cfg.translationEnabled = true;
+        cfg.stage1Enabled      = true;
+        cfg.stage2Enabled      = false;
+        cfg.faultMode          = FaultMode::Terminate;
+        cfg.t0sz               = 0;
+        cfg.securityState      = SecurityState::NonSecure;
+        cfg.vmid               = vmidA;
+        ASSERT_TRUE(smmu->configureStream(sidA, cfg).isOk());
+        ASSERT_TRUE(smmu->enableStream(sidA).isOk());
+        ASSERT_TRUE(smmu->createStreamPASID(sidA, 0u).isOk());
+    }
+
+    // Configure stream B (VMID=22).
+    {
+        StreamConfig cfg;
+        cfg.translationEnabled = true;
+        cfg.stage1Enabled      = true;
+        cfg.stage2Enabled      = false;
+        cfg.faultMode          = FaultMode::Terminate;
+        cfg.t0sz               = 0;
+        cfg.securityState      = SecurityState::NonSecure;
+        cfg.vmid               = vmidB;
+        ASSERT_TRUE(smmu->configureStream(sidB, cfg).isOk());
+        ASSERT_TRUE(smmu->enableStream(sidB).isOk());
+        ASSERT_TRUE(smmu->createStreamPASID(sidB, 0u).isOk());
+    }
+
+    smmu->mapPage(sidA, 0u, 0x2000u, 0xAAAA0000u, PagePermissions(true, false, false));
+    smmu->mapPage(sidB, 0u, 0x3000u, 0xBBBB0000u, PagePermissions(true, false, false));
+
+    // Populate TLB for both streams.
+    ASSERT_TRUE(smmu->translate(sidA, 0u, 0x2000u, AccessType::Read).isOk())
+        << "BUG-NEW-G precondition: stream A translate must succeed";
+    ASSERT_TRUE(smmu->translate(sidB, 0u, 0x3000u, AccessType::Read).isOk())
+        << "BUG-NEW-G precondition: stream B translate must succeed";
+
+    // Issue TLBI_S12_VMALL targeting only VMID=22 (stream B).
+    CommandEntry tlbi;
+    tlbi.type = CommandType::TLBI_S12_VMALL;
+    tlbi.vmid = vmidB;
+    ASSERT_TRUE(smmu->submitCommand(tlbi).isOk());
+    smmu->processCommandQueue();
+
+    // Both streams must re-translate successfully.
+    EXPECT_TRUE(smmu->translate(sidA, 0u, 0x2000u, AccessType::Read).isOk())
+        << "BUG-NEW-G: stream A (VMID=11) must still translate after "
+           "TLBI_S12_VMALL targeting VMID=22";
+    EXPECT_TRUE(smmu->translate(sidB, 0u, 0x3000u, AccessType::Read).isOk())
+        << "BUG-NEW-G: stream B (VMID=22) must still translate after "
+           "TLBI_S12_VMALL targeting VMID=22 (page table intact)";
+
+    // No fault events.
+    auto events = smmu->getEvents();
+    ASSERT_TRUE(events.isOk());
+    EXPECT_TRUE(events.getValue().empty())
+        << "BUG-NEW-G: no fault events expected; got "
+        << events.getValue().size() << " event(s)";
+}
+
+// ---------------------------------------------------------------------------
+// BUG-NEW-G Test 3: Secure stage-1-only stream must still use VMID=0
+//   (ARM §3.17 — Secure stage-1-only entries are not tagged with a VMID).
+//   CMD_TLBI_S12_VMALL with any non-zero VMID must NOT invalidate it.
+// ---------------------------------------------------------------------------
+TEST(BugNewGVmidTagging, SecureStage1OnlyUsesVmid0) {
+    auto smmu = makeEnabledSMMU();
+
+    const StreamID sid  = 0xF3u;
+    const uint16_t vmid = 99u;  // STE.S2VMID set, but Secure — should be zeroed
+
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    cfg.t0sz               = 0;
+    // Secure stage-1-only: STRW must not be EL3 for NS (CONF-GAP-16).
+    // Use Secure security state with EL1_EL0 world.
+    cfg.securityState      = SecurityState::Secure;
+    cfg.vmid               = vmid;  // Set VMID in STE, but ARM §3.17 says VMID=0 for Secure s1-only
+    ASSERT_TRUE(smmu->configureStream(sid, cfg).isOk());
+    ASSERT_TRUE(smmu->enableStream(sid).isOk());
+    ASSERT_TRUE(smmu->createStreamPASID(sid, 0u).isOk());
+
+    smmu->mapPage(sid, 0u, 0x4000u, 0xCCCC0000u, PagePermissions(true, false, false),
+                  SecurityState::Secure);
+
+    // Populate TLB.
+    ASSERT_TRUE(smmu->translate(sid, 0u, 0x4000u, AccessType::Read,
+                                SecurityState::Secure).isOk())
+        << "BUG-NEW-G precondition: Secure stream translate must succeed";
+
+    // Issue TLBI_S12_VMALL with VMID=99 — should NOT match the Secure stream
+    // because the TLB entry was tagged VMID=0 (Secure stage-1-only).
+    CommandEntry tlbi;
+    tlbi.type = CommandType::TLBI_S12_VMALL;
+    tlbi.vmid = vmid;
+    ASSERT_TRUE(smmu->submitCommand(tlbi).isOk());
+    smmu->processCommandQueue();
+
+    // Re-translate must still succeed.
+    EXPECT_TRUE(smmu->translate(sid, 0u, 0x4000u, AccessType::Read,
+                                SecurityState::Secure).isOk())
+        << "BUG-NEW-G: Secure stage-1-only stream must re-translate successfully "
+           "after TLBI_S12_VMALL with non-zero VMID (entry tagged VMID=0, "
+           "so TLBI with VMID=99 does not match it)";
+
+    auto events = smmu->getEvents();
+    ASSERT_TRUE(events.isOk());
+    EXPECT_TRUE(events.getValue().empty())
+        << "BUG-NEW-G: no fault events expected for Secure stream after mismatched TLBI; "
+           "got " << events.getValue().size() << " event(s)";
+}
+
 // ---------------------------------------------------------------------------
 // OPEN-7 Test 3: recordSecurityFault dead-code invariant.
 //

@@ -613,8 +613,14 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             uint16_t entryAsid = streamCfg.asid;
             uint16_t entryVmid = streamCfg.vmid;
             if (!streamCfg.stage2Enabled) {
-                // Stage-1 only: no VMID tagging
-                entryVmid = 0;
+                // Stage-1 only (ARM §3.17):
+                // - Secure stage-1-only: VMID=0 (no stage-2, no VMID tagging)
+                // - NS-EL1 stage-1-only: retain STE.S2VMID so VMID-targeted TLBIs
+                //   (CMD_TLBI_S12_VMALL etc.) correctly match these entries.
+                if (streamCfg.securityState == SecurityState::Secure) {
+                    entryVmid = 0;
+                }
+                // else: entryVmid already set to streamCfg.vmid (STE.S2VMID) above
             }
             if (!streamCfg.stage1Enabled) {
                 // Stage-2 only: no ASID tagging
@@ -2087,9 +2093,8 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
                 // BUG-CPP-8 fix: §7.3.16 — security-state mismatches generate F_PERMISSION.
                 // Use PermissionFault so handleTranslationFailure() routes through the
                 // PermissionFault case, which propagates tl_stage2FaultCtx (s2/ipa) into
-                // the generated event.  SecurityFault routed to recordSecurityFault() which
-                // called generateEvent() without stage-2 context, producing s2=false/ipa=0
-                // for stage-2 security faults.
+                // the generated event, correctly setting s2=true/ipa for stage-2 security
+                // faults.
                 faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::AccessFlagFaultError:
@@ -2614,8 +2619,6 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                 // Route through PermissionFault so the switch case below calls
                 // generateEvent(F_PERMISSION, ..., tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa)
                 // which correctly sets s2=true and ipa for two-stage security faults.
-                // The SecurityFault case (recordSecurityFault path) is now dead code but
-                // retained as a safety fallback.
                 faultType = FaultType::PermissionFault;
                 break;
             case SMMUError::AccessFlagFaultError:
@@ -2725,24 +2728,6 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                           false, 0, eventAccessType,
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             break;
-
-        case FaultType::SecurityFault: {
-            // Security fault - log violation and notify security subsystem.
-            // BUG-CPP-F1 fix: use the securityState parameter captured at
-            // translation time rather than re-deriving it via
-            // determineContextSecurityState().  The re-derive does a second
-            // streamMap lookup that may return SecurityState::NonSecure as a
-            // default if the stream was removed between translate() and here,
-            // producing a stale/wrong expectedState in the fault record
-            // (§7.3 fault record accuracy).  The caller already holds the
-            // correct security state from when the stream was held.
-            // BUG-CPP-2 fix: §7.3.16 — use eventAccessType (post-STRW/INSTCFG/PRIVCFG
-            // effective type) so that InD/PnU in the emitted F_PERMISSION event
-            // reflect the STE overrides applied during the actual translation, not
-            // the raw incoming accessType.
-            recordSecurityFault(streamID, pasid, iova, eventAccessType, securityState, securityState);
-            break;
-        }
 
         case FaultType::StreamDisabled:
             // §7.3.7: Stream is administratively disabled — event was generated above; no recovery needed
@@ -5165,34 +5150,6 @@ uint64_t SMMU::getCurrentTimestamp() const {
     // Each call increments the counter and returns the new value, guaranteeing
     // strictly increasing timestamps for consecutive events.
     return eventTimestampCounter_.fetch_add(1u, std::memory_order_relaxed) + 1u;
-}
-
-// SecurityState helper methods
-void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState expectedState, SecurityState actualState) {
-    (void)expectedState; // Suppress unused parameter warning - reserved for future enhanced security logging
-    
-    // Create specialized security fault record.
-    // OPEN-7 fix (§7.3.16): ARM IHI0070G.b defines no "SecurityFault" event
-    // code.  All security-state mismatches generate F_PERMISSION (0x13).
-    // Changed FaultType from SecurityFault → PermissionFault so that any
-    // future caller of this (currently dead-code) function does not inject
-    // an architecturally invalid fault type into the FaultRecord stream.
-    FaultRecord fault;
-    fault.streamID = streamID;
-    fault.pasid = pasid;
-    fault.address = iova;
-    fault.faultType = FaultType::PermissionFault;  // §7.3.16 — security mismatch = permission fault
-    fault.accessType = accessType;
-    fault.securityState = actualState;  // Record the actual (violating) state
-    fault.timestamp = getCurrentTimestamp();
-
-    recordFault(fault);
-
-    // BUG-CPP-07 fix: Security state mismatches at translation time generate
-    // F_PERMISSION (event code 0x13, permission fault) per ARM §7.3.16, not
-    // C_BAD_STE which is for malformed STE configuration entries.
-    generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, actualState,
-                  false, 0, accessType);
 }
 
 bool SMMU::validateSecurityState(SecurityState requestedState, SecurityState contextState) const {

@@ -560,7 +560,6 @@ private:
 
     // Helper methods
     void recordFault(const FaultRecord& fault);
-    void recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState expectedState, SecurityState actualState);
     bool validateSecurityState(SecurityState requestedState, SecurityState contextState) const;
     SecurityState determineContextSecurityState(StreamID streamID, PASID pasid) const;
 

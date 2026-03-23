@@ -30,8 +30,8 @@
 #![allow(clippy::doc_markdown)]
 
 use smmu::types::{
-    AccessType, EventType, FaultType, PagePermissions, SecurityState, StreamConfig, StreamID,
-    IOVA, PA, PASID,
+    AccessType, CommandEntry, CommandType, EventType, FaultType, PagePermissions, SecurityState,
+    StreamConfig, StreamID, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -224,5 +224,184 @@ fn open6_security_violation_emits_f_permission_event() {
         EventType::FPermission,
         "OPEN-6: EventEntry.event_type must be FPermission for security violation \
          (ARM §7.3.16); got {et:?}"
+    );
+}
+
+// ============================================================================
+// BUG-NEW-E: RIL SCALE must be capped at 39 (ARM IHI0070G.b §4.4.1.1)
+// ============================================================================
+
+/// BUG-NEW-E — SCALE=40 must NOT evict a page that SCALE=39 would not evict.
+///
+/// ARM IHI0070G.b §4.4.1.1: SCALE values greater than 39 are treated as 39.
+/// Range = (NUM+1) * 2^min(SCALE,39) * granule_size.
+///
+/// With num=0, tg=0 (4KB granule), start=0x0000:
+///   scale=39 (capped): range_end = 2^39 * 4096 - 1 = 2^51 - 1  (= 0x0007_FFFF_FFFF_FFFF)
+///   scale=40 (raw, no cap): range_end = 2^40 * 4096 - 1 = 2^52 - 1  (= 0x000F_FFFF_FFFF_FFFF)
+///
+/// A page at VA = 2^51 = 0x0008_0000_0000_0000 is:
+///   - NOT within the scale=39 range → TLB entry must survive the TLBI
+///   - Within the scale=40 (uncapped) range → TLB entry would be evicted (BUG)
+///
+/// After the fix, scale=40 is capped to 39, so the page at 2^51 must survive.
+/// This test verifies the boundary: it fails before the fix (scale=40 over-evicts)
+/// and passes after the fix (scale=40 capped to 39, page survives).
+///
+/// The test also places a page at 0x1000 to confirm that address IS always
+/// evicted (baseline sanity check for the TLBI working at all).
+#[test]
+fn bug_new_e_scale40_must_not_exceed_scale39_range() {
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
+
+    let asid: u16 = 10;
+    let stream = sid(10);
+    let mut config = StreamConfig::stage1_only();
+    config.t0sz = 0;
+    smmu.configure_stream(stream, config).unwrap();
+    let p0 = pasid(0);
+    smmu.create_pasid(stream, p0).unwrap();
+    smmu.set_pasid_asid(stream, p0, asid).unwrap();
+
+    // VA at exactly 2^51 — sits at the scale=39 range boundary.
+    // scale=39 covers [0, 2^51-1]; this page is at 2^51 → NOT in range.
+    // scale=40 (uncapped) covers [0, 2^52-1]; this page at 2^51 → IN range (bug).
+    let probe_iova: u64 = 1u64 << 51; // 0x0008_0000_0000_0000
+    let probe_phys: u64 = 0x0001_0000_0000_0000; // arbitrary PA
+
+    // A page well inside the scale=39 range (sanity baseline).
+    let base_iova: u64 = 0x1000;
+    let base_phys: u64 = 0x2000;
+
+    smmu.map_page(stream, p0, iova(probe_iova), pa(probe_phys), PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    smmu.map_page(stream, p0, iova(base_iova), pa(base_phys), PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+
+    // Warm both TLB entries.
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+
+    // Confirm both are now TLB hits before the TLBI.
+    let m0 = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    assert_eq!(smmu.get_cache_statistics().tlb_misses(), m0, "Both entries must be TLB hits after warm-up");
+
+    // Issue RIL TLBI with scale=40, num=0, tg=0 (4KB), start=0.
+    // After the fix: this behaves as scale=39 → covers [0, 2^51-1] → base_iova evicted, probe_iova NOT.
+    // Without the fix: covers [0, 2^52-1] → both evicted (over-invalidation).
+    let mut cmd = CommandEntry::new(CommandType::TlbiNhVa, 0, 0);
+    cmd.asid = asid;
+    cmd.start_address = 0x0000;
+    cmd.ril = true;
+    cmd.tg = 0;
+    cmd.scale = 40;
+    cmd.num = 0;
+    smmu.submit_command(cmd).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    // base_iova (0x1000) is well inside the scale=39 range → must be evicted (TLB miss).
+    let misses_pre_base = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    let misses_post_base = smmu.get_cache_statistics().tlb_misses();
+    assert_eq!(
+        misses_post_base - misses_pre_base, 1,
+        "BUG-NEW-E: near page at 0x1000 must be evicted by scale=40 TLBI (inside scale=39 range)"
+    );
+
+    // probe_iova (2^51) is OUTSIDE the scale=39 range → must NOT be evicted (TLB hit).
+    // This is the key assertion: scale=40 capped to 39 must not reach address 2^51.
+    let misses_pre_probe = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    let misses_post_probe = smmu.get_cache_statistics().tlb_misses();
+    assert_eq!(
+        misses_post_probe - misses_pre_probe, 0,
+        "BUG-NEW-E: page at 2^51 (0x{probe_iova:016X}) must NOT be evicted by RIL TLBI with \
+         SCALE=40; ARM §4.4.1.1 caps SCALE at 39, so range ends at 2^51-1 (= 0x{:016X}). \
+         A TLB miss here means scale=40 was used raw (over-invalidation).",
+        (1u64 << 51).wrapping_sub(1)
+    );
+}
+
+/// BUG-NEW-E — SCALE=255 must be treated the same as SCALE=39.
+///
+/// ARM IHI0070G.b §4.4.1.1: values greater than 39 are capped to 39.
+/// SCALE=255 without the cap would produce shift=255, which causes
+/// `checked_shl` to return `None` (u64 overflow), degenerating to a
+/// u64::MAX range.  After the fix, it is capped to 39 and produces the
+/// same finite range as SCALE=39.
+///
+/// We verify using the same boundary strategy: a page at 2^51 must NOT be
+/// evicted by a SCALE=255 TLBI starting at 0 (because scale=255 → capped
+/// to 39 → range ends at 2^51-1).
+///
+/// Without the fix the SCALE=255 path hits the `checked_shl` overflow guard
+/// and produces u64::MAX range, which evicts everything including the page at
+/// 2^51.  With the fix, scale is capped to 39 before the shift, the page at
+/// 2^51 survives.
+///
+/// NOTE: This test specifically distinguishes "capped at 39" from "capped via
+/// u64 overflow at shift>=64".  SCALE=40..63 do NOT overflow u64, so only the
+/// explicit `min(39)` cap fixes them.  SCALE=64..255 already worked via the
+/// overflow guard, but must also be accepted by the `min(39)` path.
+#[test]
+fn bug_new_e_scale255_treated_as_scale39() {
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
+
+    let asid: u16 = 11;
+    let stream = sid(11);
+    let mut config = StreamConfig::stage1_only();
+    config.t0sz = 0;
+    smmu.configure_stream(stream, config).unwrap();
+    let p0 = pasid(0);
+    smmu.create_pasid(stream, p0).unwrap();
+    smmu.set_pasid_asid(stream, p0, asid).unwrap();
+
+    let probe_iova: u64 = 1u64 << 51;
+    let probe_phys: u64 = 0x0001_0000_0000_0000;
+    let base_iova: u64 = 0x1000;
+    let base_phys: u64 = 0x3000;
+
+    smmu.map_page(stream, p0, iova(probe_iova), pa(probe_phys), PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+    smmu.map_page(stream, p0, iova(base_iova), pa(base_phys), PagePermissions::read_only(), SecurityState::NonSecure).unwrap();
+
+    // Warm both entries.
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    let m0 = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    assert_eq!(smmu.get_cache_statistics().tlb_misses(), m0, "Both entries must be TLB hits after warm-up");
+
+    // Issue TLBI with scale=255 (extreme out-of-range value).
+    let mut cmd = CommandEntry::new(CommandType::TlbiNhVa, 0, 0);
+    cmd.asid = asid;
+    cmd.start_address = 0x0000;
+    cmd.ril = true;
+    cmd.tg = 0;
+    cmd.scale = 255;
+    cmd.num = 0;
+    smmu.submit_command(cmd).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    // base_iova must be evicted (within scale=39 range).
+    let misses_pre_base = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(base_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    let misses_post_base = smmu.get_cache_statistics().tlb_misses();
+    assert_eq!(
+        misses_post_base - misses_pre_base, 1,
+        "BUG-NEW-E: near page at 0x1000 must be evicted by scale=255 TLBI (within scale=39 range)"
+    );
+
+    // probe_iova (2^51) must NOT be evicted (SCALE=255 capped to 39 → range ends at 2^51-1).
+    let misses_pre_probe = smmu.get_cache_statistics().tlb_misses();
+    smmu.translate(stream, p0, iova(probe_iova), AccessType::Read, SecurityState::NonSecure).unwrap();
+    let misses_post_probe = smmu.get_cache_statistics().tlb_misses();
+    assert_eq!(
+        misses_post_probe - misses_pre_probe, 0,
+        "BUG-NEW-E: page at 2^51 (0x{probe_iova:016X}) must NOT be evicted by RIL TLBI with \
+         SCALE=255; ARM §4.4.1.1 caps SCALE at 39, so range ends at 2^51-1. \
+         A TLB miss here means SCALE=255 was not capped (over-invalidation via u64::MAX range)."
     );
 }
