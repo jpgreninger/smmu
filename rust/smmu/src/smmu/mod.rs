@@ -3072,6 +3072,9 @@ impl SMMU {
                                     Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
+                            } else {
+                                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                self.toggle_ovflg_once();
                             }
                         }
                     }
@@ -3107,6 +3110,9 @@ impl SMMU {
                                     Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
+                            } else {
+                                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                self.toggle_ovflg_once();
                             }
                         }
                     }
@@ -3154,6 +3160,9 @@ impl SMMU {
                                     Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                     Ordering::Release,
                                 );
+                            } else {
+                                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                self.toggle_ovflg_once();
                             }
                         }
                     }
@@ -3209,6 +3218,9 @@ impl SMMU {
                                         Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                         Ordering::Release,
                                     );
+                                } else {
+                                    // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                    self.toggle_ovflg_once();
                                 }
                             }
                         }
@@ -3542,6 +3554,9 @@ impl SMMU {
                                     // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
                                     let prod = self.eventq_prod.load(Ordering::Relaxed);
                                     self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
+                                } else {
+                                    // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                    self.toggle_ovflg_once();
                                 }
                             }
                         }
@@ -3628,6 +3643,9 @@ impl SMMU {
                                             Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
                                             Ordering::Release,
                                         );
+                                    } else {
+                                        // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                        self.toggle_ovflg_once();
                                     }
                                 }
                             }
@@ -3867,6 +3885,9 @@ impl SMMU {
                                 // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
                                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                                 self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
+                            } else {
+                                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                self.toggle_ovflg_once();
                             }
                         }
                     }
@@ -4822,6 +4843,36 @@ impl SMMU {
                 break;
             }
             std::hint::spin_loop();
+        }
+    }
+
+    /// Advance the event queue consumer pointer by `n` entries.
+    ///
+    /// Simulates software consuming `n` entries from the event queue by
+    /// popping them from the front of the VecDeque and advancing
+    /// `EVENTQ_CONS.RD` by `n` steps.  The OVACKFLG bit (bit 31) of
+    /// `EVENTQ_CONS` is preserved unchanged.
+    ///
+    /// This is a test helper that mirrors what hardware software would do
+    /// when it reads and processes event queue entries one by one.
+    ///
+    /// # Arguments
+    ///
+    /// * `n` — number of events to consume (clamped to queue length)
+    pub fn advance_eventq_cons(&self, n: usize) {
+        if let Ok(mut queue) = self.event_queue.write() {
+            let to_pop = n.min(queue.len());
+            for _ in 0..to_pop {
+                queue.pop_front();
+            }
+            self.event_count.fetch_sub(to_pop as u64, Ordering::Relaxed);
+            // Advance CONS.RD by to_pop steps, preserving OVACKFLG (bit 31).
+            let mut cons = self.eventq_cons.load(Ordering::Acquire);
+            let ovackflg = cons & (1u32 << 31);
+            for _ in 0..to_pop {
+                cons = Self::advance_index(cons, self.eventq_log2size);
+            }
+            self.eventq_cons.store((cons & !(1u32 << 31)) | ovackflg, Ordering::Release);
         }
     }
 
