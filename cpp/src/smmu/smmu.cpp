@@ -3409,16 +3409,19 @@ void SMMU::processCommandQueue() {
         // commands (FINDING-M-01).
         // BUG-CPP-5 fix: this block is now reached only when no error was detected,
         // ensuring CONS.RD is not advanced past an erroneous command (ARM §7.1).
-        // BUG-1 fix: §6.3.28 — CMDQ_CONS.ERR bits [31:24] must persist until
+        // BUG-1 fix: §6.3.28 — CMDQ_CONS.ERR bits [30:24] must persist until
         // software clears them.  A plain store(advanceQueueIndex()) zeros the
-        // upper 12 bits on every dequeue.  Use a read-modify-write so that
-        // only the RD field (bits [19:0]) is updated; bits [31:20] are
-        // preserved verbatim.  advanceQueueIndex() operates on the RD portion
-        // only (result is in range [0, 2^(log2size+1)-1], at most 20 bits).
+        // upper bits on every dequeue.  Use a read-modify-write so that only
+        // the RD field (bits [19:0]) is updated.
+        // OPEN-1 fix (§3.5.1/3.5.3): narrow the preservation mask to only the
+        // ERR field bits [30:24] (mask 0x7F000000u).  The earlier mask
+        // ~0xFFFFFu = 0xFFF00000u incorrectly preserved bit 31 (RES0 per
+        // ARM §6.3.28) as well as bits [23:20] (also RES0).  CMDQ_CONS bit 31
+        // is NOT an OVFLG/OVACKFLG — it must always be 0.
         {
             uint32_t oldCons = cmdqCons.load(std::memory_order_relaxed);
             uint32_t newRD   = advanceQueueIndex(oldCons & 0xFFFFFu, cmdqLog2Size);
-            cmdqCons.store((oldCons & ~static_cast<uint32_t>(0xFFFFFu)) | newRD,
+            cmdqCons.store((oldCons & 0x7F000000u) | newRD,
                            std::memory_order_release);
         }
     }
@@ -5168,18 +5171,23 @@ uint64_t SMMU::getCurrentTimestamp() const {
 void SMMU::recordSecurityFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState expectedState, SecurityState actualState) {
     (void)expectedState; // Suppress unused parameter warning - reserved for future enhanced security logging
     
-    // Create specialized security fault record
+    // Create specialized security fault record.
+    // OPEN-7 fix (§7.3.16): ARM IHI0070G.b defines no "SecurityFault" event
+    // code.  All security-state mismatches generate F_PERMISSION (0x13).
+    // Changed FaultType from SecurityFault → PermissionFault so that any
+    // future caller of this (currently dead-code) function does not inject
+    // an architecturally invalid fault type into the FaultRecord stream.
     FaultRecord fault;
     fault.streamID = streamID;
     fault.pasid = pasid;
     fault.address = iova;
-    fault.faultType = FaultType::SecurityFault;
+    fault.faultType = FaultType::PermissionFault;  // §7.3.16 — security mismatch = permission fault
     fault.accessType = accessType;
     fault.securityState = actualState;  // Record the actual (violating) state
     fault.timestamp = getCurrentTimestamp();
-    
+
     recordFault(fault);
-    
+
     // BUG-CPP-07 fix: Security state mismatches at translation time generate
     // F_PERMISSION (event code 0x13, permission fault) per ARM §7.3.16, not
     // C_BAD_STE which is for malformed STE configuration entries.
