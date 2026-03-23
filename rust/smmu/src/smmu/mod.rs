@@ -1939,6 +1939,8 @@ impl SMMU {
         // translation_enabled=true with no stage selected maps to a reserved encoding.
         if config.translation_enabled && !config.stage1_enabled && !config.stage2_enabled {
             // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
+            // RUST-3 fix: use enqueue_event() so overflow calls toggle_ovflg_once()
+            // (ARM §7.4 — OVFLG must be toggled when a non-stall event is discarded).
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                 let event = EventEntry {
@@ -1948,14 +1950,7 @@ impl SMMU {
                     timestamp,
                     ..EventEntry::zeroed()
                 };
-                if let Ok(mut queue) = self.event_queue.write() {
-                    if queue.len() < self.event_queue_capacity {
-                        queue.push_back(event);
-                        self.event_count.fetch_add(1, Ordering::Relaxed);
-                        let prod = self.eventq_prod.load(Ordering::Relaxed);
-                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
-                    }
-                }
+                self.enqueue_event(event);
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: reserved STE.Config — translation_enabled=true requires at least \
@@ -1978,6 +1973,8 @@ impl SMMU {
             // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
             // C_BAD_STE must be recorded to the event queue (gated on CR0.EVENTQEN)
             // whenever an STE is determined illegal during configuration.
+            // RUST-3 fix: use enqueue_event() so overflow calls toggle_ovflg_once()
+            // (ARM §7.4 — OVFLG must be toggled when a non-stall event is discarded).
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                 let event = EventEntry {
@@ -1987,14 +1984,7 @@ impl SMMU {
                     timestamp,
                     ..EventEntry::zeroed()
                 };
-                if let Ok(mut queue) = self.event_queue.write() {
-                    if queue.len() < self.event_queue_capacity {
-                        queue.push_back(event);
-                        self.event_count.fetch_add(1, Ordering::Relaxed);
-                        let prod = self.eventq_prod.load(Ordering::Relaxed);
-                        self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
-                    }
-                }
+                self.enqueue_event(event);
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: STRW=EL3 is forbidden for Non-Secure streams (ARM §5.2.2)".to_string(),
@@ -2021,6 +2011,8 @@ impl SMMU {
                 let oas_limit = 1u64 << oas_bits;
                 if config.s2_ttb >= oas_limit {
                     // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
+                    // RUST-3 fix: use enqueue_event() so overflow calls toggle_ovflg_once()
+                    // (ARM §7.4 — OVFLG must be toggled when a non-stall event is discarded).
                     if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                         let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                         let event = EventEntry {
@@ -2030,14 +2022,7 @@ impl SMMU {
                             timestamp,
                             ..EventEntry::zeroed()
                         };
-                        if let Ok(mut queue) = self.event_queue.write() {
-                            if queue.len() < self.event_queue_capacity {
-                                queue.push_back(event);
-                                self.event_count.fetch_add(1, Ordering::Relaxed);
-                                let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
-                            }
-                        }
+                        self.enqueue_event(event);
                     }
                     return Err(SMMUError::invalid_configuration(
                         format!("C_BAD_STE: S2TTB 0x{:x} exceeds OAS ({}‐bit, limit 0x{:x}) (ARM §5.2.2)",
@@ -4968,6 +4953,19 @@ impl SMMU {
         }
 
         let mut queue = self.command_queue.write().unwrap();
+        // RUST-1 fix: ARM §7.1 re-fetch model — when a previous command caused
+        // CERROR_ILL the erroneous command was left in the VecDeque (peek fix).
+        // Software signalling intent to submit a new command is equivalent to
+        // "overwriting the erroneous slot" in a real ring buffer.  Pop the stuck
+        // command now, advance CONS past it, and clear CERROR so that subsequent
+        // process_command_queue calls see a clean queue.
+        if self.cmdq_cons_err.load(Ordering::Acquire) == Self::CERROR_ILL {
+            queue.pop_front();
+            let cons = self.cmdq_cons.load(Ordering::Relaxed);
+            self.cmdq_cons
+                .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
+            self.cmdq_cons_err.store(Self::CERROR_NONE, Ordering::Release);
+        }
         // BUG-NEW3-08 fix: enforce capacity for ALL queue sizes, not just < 200.
         // The previous guard skipped overflow detection for large queues, allowing
         // unbounded growth that violates ARM §3.5.1 circular queue semantics.
@@ -5026,30 +5024,54 @@ impl SMMU {
         let mut processed = 0;
 
         loop {
-            // Pop one command at a time to avoid holding the lock during processing.
-            // BUG-RUST-5 fix: do NOT advance cmdq_cons here.  Per ARM §7.1,
-            // CONS.RD must remain pointing at the erroneous command on error.
-            // Advancing the index is deferred to the success path below.
+            // Peek at the front command WITHOUT removing it first (RUST-1 fix).
+            // ARM §7.1: CONS.RD must remain pointing at the erroneous command on
+            // error so that software can re-fetch it after clearing GERROR.
+            // Pop-before-check would silently consume the command from the VecDeque
+            // even though cmdq_cons is left frozen, creating a desync where CONS
+            // points to a slot whose command has already been discarded.
             let command = {
-                let mut queue = self.command_queue.write().unwrap();
-                queue.pop_front()
+                let queue = self.command_queue.read().unwrap();
+                queue.front().copied()
             };
 
             match command {
                 Some(cmd) => {
                     // ARM §6.3.17: set CMDQ_ERR and halt queue on command
                     // processing error (FINDING-M-06).
+                    //
+                    // RUST-1 fix: read cmdq_cons_err BEFORE calling
+                    // process_single_command, because process_single_command
+                    // internally calls write_cmdq_cons_err(CERROR_ILL) before
+                    // returning Err.  Reading after the call always sees
+                    // CERROR_ILL and the "first occurrence" guard never fires.
+                    let prior_err = self.cmdq_cons_err.load(Ordering::Acquire);
                     if let Err(e) = self.process_single_command(cmd) {
                         // BUG-03 fix: use signal_gerror (XOR-toggle, only-if-inactive)
                         // instead of fetch_or (unconditional set).
-                        // BUG-RUST-5 fix: do NOT advance cmdq_cons on error —
-                        // CONS.RD must freeze at the erroneous command (ARM §7.1).
+                        // RUST-1 fix: do NOT pop or advance cmdq_cons on error —
+                        // CONS.RD must freeze at the erroneous command (ARM §7.1)
+                        // and the command must remain in the VecDeque for re-fetch.
+                        //
+                        // RUST-1: on the FIRST error occurrence (prior_err was
+                        // CERROR_NONE), reset PROD to CONS so that the PROD==CONS
+                        // invariant is preserved at the frozen position.  On
+                        // subsequent errors (prior_err already CERROR_ILL, i.e.
+                        // re-fetch without software having submitted a new command),
+                        // leave PROD unchanged to avoid double-resetting.
+                        if prior_err == Self::CERROR_NONE {
+                            let cons_at_err = self.cmdq_cons.load(Ordering::Acquire);
+                            self.cmdq_prod.store(cons_at_err, Ordering::Release);
+                        }
                         self.signal_gerror(Self::GERROR_CMDQ_ERR);
                         return Err(e);
                     }
-                    // Success: advance CONS.RD past the command that just completed.
-                    // ARM §7.1: older (prior) commands that completed without error
-                    // are consumed, so CONS.RD advances by one for each success.
+                    // Success: remove the command from the VecDeque and advance
+                    // CONS.RD past it.  ARM §7.1: completed commands are consumed.
+                    {
+                        let mut queue = self.command_queue.write().unwrap();
+                        queue.pop_front();
+                    }
                     let cons = self.cmdq_cons.load(Ordering::Relaxed);
                     self.cmdq_cons
                         .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
