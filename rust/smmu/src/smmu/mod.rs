@@ -428,7 +428,9 @@ pub struct SMMU {
 
     // ---- CONF-GAP-17: CMDQ_CONS.ERR reason codes (§6.3.17) ----
 
-    /// CMDQ_CONS ERR field (bits [31:24]) — command error reason code (§6.3.17).
+    /// CMDQ_CONS ERR field (bits [30:24]) — command error reason code (§6.3.17).
+    ///
+    /// Bit 31 of CMDQ_CONS is RES0 per ARM §6.3.28; ERR occupies only bits[30:24].
     ///
     /// Written atomically alongside `cmdq_cons`.  Software reads this to
     /// determine *why* command processing halted:
@@ -611,7 +613,9 @@ impl SMMU {
     // ARM §6.3.17: CMDQ_CONS.ERR reason codes (CONF-GAP-17)
     // ========================================================================
 
-    /// Bit position of the ERR field in CMDQ_CONS (bits [31:24], §6.3.17).
+    /// Bit position of the ERR field in CMDQ_CONS (bits [30:24], §6.3.17).
+    ///
+    /// Bit 31 of CMDQ_CONS is RES0 per ARM §6.3.28; ERR occupies only bits[30:24].
     pub const CMDQ_CONS_ERR_SHIFT: u32 = 24;
     /// CERROR_NONE (0): no command queue error (§4.7.3).
     pub const CERROR_NONE: u32 = 0;
@@ -1511,7 +1515,9 @@ impl SMMU {
     // CONF-GAP-17: CMDQ_CONS.ERR field accessors (§6.3.17)
     // ========================================================================
 
-    /// Write the ERR field into CMDQ_CONS[31:24] atomically (§6.3.17).
+    /// Write the ERR field into CMDQ_CONS[30:24] atomically (§6.3.17).
+    ///
+    /// Bit 31 of CMDQ_CONS is RES0 per ARM §6.3.28; ERR occupies only bits[30:24].
     ///
     /// Clears the existing ERR bits and inserts `err` in one operation so that
     /// software reading `cmdq_cons_index()` never sees a partial update.
@@ -1520,7 +1526,9 @@ impl SMMU {
         self.cmdq_cons_err.store(err, Ordering::Release);
     }
 
-    /// Read the ERR field from CMDQ_CONS (bits [31:24]) (§6.3.17).
+    /// Read the ERR field from CMDQ_CONS (bits [30:24]) (§6.3.17).
+    ///
+    /// Bit 31 of CMDQ_CONS is RES0 per ARM §6.3.28; ERR occupies only bits[30:24].
     ///
     /// Returns one of: `CERROR_NONE`, `CERROR_ILL`, `CERROR_ABT`,
     /// `CERROR_ATC_INV_SYNC`.
@@ -4280,7 +4288,9 @@ impl SMMU {
             TranslationError::InvalidAddress { .. } => FaultType::AddressSizeFault,
             TranslationError::AddressSizeError => FaultType::AddressSizeFault,
             TranslationError::AlignmentError => FaultType::AlignmentFault,
-            TranslationError::SecurityViolation => FaultType::SecurityFault,
+            // OPEN-6 (§7.3.16): security-state violations map to F_PERMISSION (0x13).
+            // FaultType::SecurityFault = 0x12 collides with ARM F_ACCESS (§7.3.15, 0x12).
+            TranslationError::SecurityViolation => FaultType::PermissionFault,
             TranslationError::ExternalAbort => FaultType::ExternalAbort,
             TranslationError::TlbConflict => FaultType::TLBConflictAbort,
             TranslationError::InvalidStreamID => FaultType::BadStreamID,
@@ -6852,25 +6862,28 @@ mod tests {
         assert_eq!(cr0 & SMMU::CR0_CMDQEN,   0, "§6.3.9: CMDQEN must be 0 after reset");
     }
 
-    // ── BUG-RUST-M01: SecurityViolation must map to SecurityFault, not PermissionFault ──
+    // ── OPEN-6: SecurityViolation must map to PermissionFault (§7.3.16) ─────────
 
     /// Regression guard: `TranslationError::SecurityViolation` must be mapped to
-    /// `FaultType::SecurityFault`, not `FaultType::PermissionFault`, per ARM IHI0070G.b §7.3.
+    /// `FaultType::PermissionFault`, not `FaultType::SecurityFault`.
     ///
-    /// Before the fix, SecurityViolation was incorrectly mapped to PermissionFault,
-    /// conflating two distinct ARM SMMU v3 fault types.
+    /// ARM §7.3.16: security-state violations generate F_PERMISSION (event code 0x13).
+    /// `FaultType::SecurityFault` carries value 0x12, which collides with ARM F_ACCESS
+    /// (§7.3.15, event code 0x12).  The correct mapping is `FaultType::PermissionFault`.
     #[test]
-    fn bug_rust_m01_security_violation_maps_to_security_fault() {
+    fn open6_security_violation_maps_to_permission_fault() {
         let fault_type = SMMU::map_translation_error_to_fault_type(&TranslationError::SecurityViolation);
         assert_eq!(
             fault_type,
-            FaultType::SecurityFault,
-            "BUG-RUST-M01: SecurityViolation must map to FaultType::SecurityFault (ARM IHI0070G.b §7.3)"
+            FaultType::PermissionFault,
+            "OPEN-6: SecurityViolation must map to FaultType::PermissionFault (ARM §7.3.16, \
+             F_PERMISSION=0x13)"
         );
         assert_ne!(
             fault_type,
-            FaultType::PermissionFault,
-            "BUG-RUST-M01: SecurityViolation must NOT map to PermissionFault"
+            FaultType::SecurityFault,
+            "OPEN-6: SecurityViolation must NOT map to FaultType::SecurityFault (0x12 \
+             collides with ARM F_ACCESS §7.3.15)"
         );
     }
 
