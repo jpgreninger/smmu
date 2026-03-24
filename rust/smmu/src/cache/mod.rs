@@ -1093,6 +1093,36 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
+    /// Invalidate all TLB entries tagged with both the given VMID and ASID.
+    ///
+    /// Implements `CMD_TLBI_NH_ASID` per ARM SMMU v3 §4.4.2.2 (NS/Realm queues):
+    /// "Invalidate by ASID and VMID" — only entries whose `vmid` AND `asid`
+    /// both match are evicted.
+    ///
+    /// Note: `CMD_TLBI_EL2_ASID` (§4.4.2.10) uses ASID-only; use `invalidate_by_asid` for that.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - The 16-bit VMID to match
+    /// * `target_asid` - The 16-bit ASID to match
+    pub fn invalidate_by_vmid_and_asid(&self, target_vmid: u16, target_asid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry in self.entries.iter() {
+            let e = entry.value();
+            if e.vmid == target_vmid && e.asid == target_asid {
+                keys_to_remove.push(*entry.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
     /// Invalidate all TLB entries matching the given VA and ASID (§4.4 VA-targeted TLBI).
     ///
     /// Implements `CMD_TLBI_NH_VA`, `CMD_TLBI_EL2_VA`, `CMD_TLBI_EL3_VA` selective

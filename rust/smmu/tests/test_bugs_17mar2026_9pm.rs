@@ -151,6 +151,9 @@ fn bug4_el2_all_privileged_uwxn_still_ignored() {
     let stream_id = sid(0xF2);
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = StreamWorld::El2;
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and same all-privileged semantics.
+    cfg.security_state = SecurityState::Secure;
     cfg.uwxn = true;
     cfg.wxn = false;
     cfg.t0sz = 0;
@@ -185,11 +188,12 @@ fn bug4_el3_all_privileged_uwxn_still_ignored() {
     let smmu = make_smmu();
     let stream_id = sid(0xF3);
     let mut cfg = StreamConfig::stage1_only();
-    cfg.strw = StreamWorld::El3;
+    // STRW=El3 is now forbidden even for Secure streams (BUG-RUST-2b fix, ARM §5.2).
+    // STRW=El2 has identical all-privileged semantics and is valid for Secure streams.
+    cfg.strw = StreamWorld::El2;
     cfg.uwxn = true;
     cfg.wxn = false;
     cfg.t0sz = 0;
-    // El3 streams require Secure security state (STRW=EL3 only valid for Secure streams).
     cfg.security_state = SecurityState::Secure;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid_zero()).unwrap();

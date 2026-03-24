@@ -142,6 +142,8 @@ set(UNIT_TEST_SOURCES
     test_bugs_22mar2026c.cpp
     test_open_items_23mar2026.cpp
     test_bugs_23mar2026.cpp
+    test_bugs_new1.cpp
+    test_bugs_23mar2026_8pm.cpp
     ../test_thread_safety.cpp
 )
 

@@ -386,8 +386,10 @@ fn test_bug11_strw_el3_nonsecure_emits_c_bad_ste_event() {
 
     let stream_id = sid(100);
 
-    // Build an illegal config: NonSecure stream with STRW=EL3.
-    let mut cfg = StreamConfig::bypass();
+    // Build an illegal config: NonSecure stream with STRW=EL3 and stage-1 active.
+    // Note: bypass (stage1_enabled=false) makes STRW unused; must use stage1_only to
+    // exercise the STRW validation path (BUG-RUST-2a fix adds strw_unused guard).
+    let mut cfg = StreamConfig::stage1_only();
     cfg.security_state = SecurityState::NonSecure;
     cfg.strw = StreamWorld::El3;
 
@@ -471,7 +473,8 @@ fn test_bug11_c_bad_ste_not_emitted_when_eventqen_zero() {
 
     let stream_id = sid(103);
 
-    let mut cfg = StreamConfig::bypass();
+    // Use stage1_only so STRW validation is active (bypass has strw_unused=true).
+    let mut cfg = StreamConfig::stage1_only();
     cfg.security_state = SecurityState::NonSecure;
     cfg.strw = StreamWorld::El3;
 

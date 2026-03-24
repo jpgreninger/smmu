@@ -74,6 +74,9 @@ fn bug3_el2_stream_uwxn_ignored_writable_page_execute_succeeds() {
     let stream_id = sid(0xD0);
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = StreamWorld::El2; // all-privileged EL2 stream
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and same all-privileged semantics.
+    cfg.security_state = SecurityState::Secure;
     cfg.uwxn = true;
     cfg.wxn = false; // UWXN only — WXN disabled
     cfg.t0sz = 0;
@@ -115,8 +118,10 @@ fn bug3_el3_stream_uwxn_ignored_writable_page_execute_succeeds() {
     let smmu = make_smmu();
     let stream_id = sid(0xD1);
     let mut cfg = StreamConfig::stage1_only();
-    cfg.strw = StreamWorld::El3;
-    cfg.security_state = SecurityState::Secure; // EL3 requires Secure stream
+    // STRW=El3 is now forbidden even for Secure streams (BUG-RUST-2b fix, ARM §5.2).
+    // STRW=El2 has identical all-privileged semantics (UWXN ignored for all-privileged streams).
+    cfg.strw = StreamWorld::El2;
+    cfg.security_state = SecurityState::Secure;
     cfg.uwxn = true;
     cfg.wxn = false;
     cfg.t0sz = 0;

@@ -1972,31 +1972,57 @@ impl SMMU {
             .validate()
             .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
 
-        // CONF-GAP-16: SteIllegal() checks per ARM §5.2.2.
-        //
-        // (1) STRW=EL3 is forbidden for Non-Secure streams.
-        //     ARM §5.2.2: "If STE.STRW==0b11 (EL3) and the stream security state is
-        //     Non-Secure, this is a C_BAD_STE condition."
-        if config.security_state == SecurityState::NonSecure && config.strw == crate::types::StreamWorld::El3 {
+        // CONF-GAP-16: SteIllegal() checks per ARM §5.2 — STRW field validation.
+        // STRW is only relevant when stage-1 is active; for bypass/stage-2-only configs
+        // the field is ignored (strw_unused = !stage1_enabled).
+        let strw_unused = !config.stage1_enabled;
+        if !strw_unused {
+            // (a) ARM §5.2: STRW bit[0]=1 (pattern 'x1') is ILLEGAL for NonSecure/Realm streams.
+            //     This covers STRW=El2 (0b01) AND STRW=El3 (0b11).
+            //     BUG-RUST-2a fix: the previous code only rejected STRW=El3 (0b11=3).
+            //     STRW=El2 (0b01=1) was silently accepted for NonSecure streams.
+            //
             // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
-            // C_BAD_STE must be recorded to the event queue (gated on CR0.EVENTQEN)
-            // whenever an STE is determined illegal during configuration.
             // RUST-3 fix: use enqueue_event() so overflow calls toggle_ovflg_once()
             // (ARM §7.4 — OVFLG must be toggled when a non-stall event is discarded).
-            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
-                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                let event = EventEntry {
-                    event_type: EventType::CBadSte,
-                    stream_id: stream_id.as_u32(),
-                    security_state: config.security_state,
-                    timestamp,
-                    ..EventEntry::zeroed()
-                };
-                self.enqueue_event(event);
+            if config.security_state == SecurityState::NonSecure
+                && (config.strw as u8 & 0x01) != 0
+            {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::CBadSte,
+                        stream_id: stream_id.as_u32(),
+                        security_state: config.security_state,
+                        timestamp,
+                        ..EventEntry::zeroed()
+                    };
+                    self.enqueue_event(event);
+                }
+                return Err(SMMUError::invalid_configuration(
+                    "C_BAD_STE: STRW bit[0]=1 (El2 or El3) is forbidden for Non-Secure streams (ARM §5.2)".to_string(),
+                ));
             }
-            return Err(SMMUError::invalid_configuration(
-                "C_BAD_STE: STRW=EL3 is forbidden for Non-Secure streams (ARM §5.2.2)".to_string(),
-            ));
+            // (b) ARM §5.2: STRW=El3 (0b11) is ILLEGAL even for Secure streams.
+            //     BUG-RUST-2b fix: the previous code allowed Secure+El3.
+            if config.security_state == SecurityState::Secure
+                && config.strw == crate::types::StreamWorld::El3
+            {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::CBadSte,
+                        stream_id: stream_id.as_u32(),
+                        security_state: config.security_state,
+                        timestamp,
+                        ..EventEntry::zeroed()
+                    };
+                    self.enqueue_event(event);
+                }
+                return Err(SMMUError::invalid_configuration(
+                    "C_BAD_STE: STRW=El3 is forbidden for Secure streams (ARM §5.2)".to_string(),
+                ));
+            }
         }
 
         // (2) S2TTB address-size check: when Stage-2 is enabled, S2TTB must be
@@ -5148,16 +5174,16 @@ impl SMMU {
                         // CONS.RD must freeze at the erroneous command (ARM §7.1)
                         // and the command must remain in the VecDeque for re-fetch.
                         //
-                        // RUST-1: on the FIRST error occurrence (prior_err was
-                        // CERROR_NONE), reset PROD to CONS so that the PROD==CONS
-                        // invariant is preserved at the frozen position.  On
-                        // subsequent errors (prior_err already CERROR_ILL, i.e.
-                        // re-fetch without software having submitted a new command),
-                        // leave PROD unchanged to avoid double-resetting.
-                        if prior_err == Self::CERROR_NONE {
-                            let cons_at_err = self.cmdq_cons.load(Ordering::Acquire);
-                            self.cmdq_prod.store(cons_at_err, Ordering::Release);
-                        }
+                        // BUG-NEW-6 fix: do NOT write CMDQ_PROD on error.
+                        // CMDQ_PROD is a software-driven register: only the OS/driver
+                        // updates it (ARM §6.3.25).  The SMMU hardware only ever
+                        // advances CMDQ_CONS.  Resetting PROD to CONS here corrupts
+                        // the externally visible register; is_command_queue_full() uses
+                        // queue.len() >= capacity (not PROD), so removing this store
+                        // has no internal side effects.
+                        // The previous `if prior_err == CERROR_NONE { ... }` block that
+                        // stored cons_at_err into cmdq_prod has been removed entirely.
+                        let _ = prior_err; // suppress unused-variable warning
                         self.signal_gerror(Self::GERROR_CMDQ_ERR);
                         return Err(e);
                     }
@@ -5345,7 +5371,16 @@ impl SMMU {
             // ASID-targeted invalidation: remove only entries tagged with cmd.asid (§4.4).
             // BUG-NEW-C fix: CR2.PTM governs only broadcast TLBI (receive_broadcast_tlbi),
             // NOT command-queue TLBI commands (ARM §6.3.12).  PTM guard removed.
-            CommandType::TlbiNhAsid | CommandType::TlbiEl2Asid => {
+            //
+            // BUG-RUST-1 fix: ARM §4.4.2.2 — CMD_TLBI_NH_ASID (NS/Realm queues) invalidates
+            // by ASID AND VMID jointly; entries with a different VMID must NOT be evicted.
+            // CMD_TLBI_EL2_ASID (§4.4.2.10) uses ASID-only (VMID field is RES0 in encoding).
+            CommandType::TlbiNhAsid => {
+                self.tlb_cache.invalidate_by_vmid_and_asid(command.vmid, command.asid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // CMD_TLBI_EL2_ASID (§4.4.2.10): ASID-only (VMID field is RES0 in encoding).
+            CommandType::TlbiEl2Asid => {
                 self.tlb_cache.invalidate_by_asid(command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5796,31 +5831,38 @@ impl SMMU {
     ///
     /// Processes page requests and generates PRI events.
     /// Returns the number of requests processed.
+    ///
+    /// # ARM SMMU v3 Compliance
+    ///
+    /// Uses a peek-then-pop pattern (ARM §7.1 atomicity principle):
+    /// - Peek at the front entry without removing it.
+    /// - Build and submit the `E_PAGE_REQUEST` event.
+    /// - Only pop (and advance `PRIQ_CONS`) after `submit_event()` succeeds.
+    ///
+    /// If the event queue is full, `submit_event()` returns `Err(EventQueueFull)`.
+    /// In that case the entry remains in the PRI queue so that the caller can
+    /// drain the event queue and retry — no silent loss of page requests.
+    ///
+    /// # BUG-NEW-7 fix
+    ///
+    /// The previous implementation popped the entry *before* calling
+    /// `submit_event()`.  When `submit_event()` failed (event queue full) the
+    /// `let _ = ...` silently discarded the error and the PRIEntry was already
+    /// gone — an unrecoverable silent loss.  This fix moves the pop to *after*
+    /// a successful submission.
     pub fn process_pri_queue(&self) -> Result<usize, SMMUError> {
         let mut processed = 0;
 
         loop {
+            // Peek at the front entry WITHOUT removing it yet.
             let request = {
-                let mut queue = self.pri_queue.write().unwrap();
-                let entry = queue.pop_front();
-                if entry.is_some() {
-                    // ARM §3.5.1: advance PRIQ_CONS after each dequeue.
-                    // BUG-RUST-1 fix: preserve OVACKFLG (bit 31) — software writes
-                    // this bit to acknowledge a PRI queue overflow; the SMMU must
-                    // never clear it during an index advance (ARM §8.1).
-                    let cons = self.priq_cons.load(Ordering::Relaxed);
-                    self.priq_cons.store(
-                        Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
-                            | (cons & (1u32 << 31)),
-                        Ordering::Release,
-                    );
-                }
-                entry
+                let queue = self.pri_queue.read().unwrap();
+                queue.front().copied()
             };
 
             match request {
                 Some(req) => {
-                    // Generate PRI event for this request with monotonic timestamp.
+                    // Build the E_PAGE_REQUEST event from the peeked entry.
                     // The event carries the prg_index via the error_code field so
                     // that software can correlate events with PRI queue entries.
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
@@ -5840,7 +5882,29 @@ impl SMMU {
                         ..EventEntry::zeroed()
                     };
 
-                    let _ = self.submit_event(event);
+                    // Submit the event FIRST.  Only pop if submission succeeds.
+                    // If the event queue is full the entry stays at the front of
+                    // the PRI queue; stop processing so the caller can drain the
+                    // event queue and call us again.
+                    if self.submit_event(event).is_err() {
+                        break;
+                    }
+
+                    // Success: now pop the entry and advance PRIQ_CONS.
+                    {
+                        let mut queue = self.pri_queue.write().unwrap();
+                        queue.pop_front();
+                        // ARM §3.5.1: advance PRIQ_CONS after each dequeue.
+                        // BUG-RUST-1 fix: preserve OVACKFLG (bit 31) — software writes
+                        // this bit to acknowledge a PRI queue overflow; the SMMU must
+                        // never clear it during an index advance (ARM §8.1).
+                        let cons = self.priq_cons.load(Ordering::Relaxed);
+                        self.priq_cons.store(
+                            Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
+                                | (cons & (1u32 << 31)),
+                            Ordering::Release,
+                        );
+                    }
                     processed += 1;
                 },
                 None => break,

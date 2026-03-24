@@ -656,10 +656,14 @@ TEST_F(SMMUPriority2CoverageTest, IsCommandQueueFull_ErrorHandling) {
 }
 
 // Test processPRIQueue with command queue full scenario (lines 1422-1425)
-TEST_F(SMMUPriority2CoverageTest, ProcessPRIQueue_CommandQueueFull) {
+// BUG-NEW-3/BUG-NEW-8 fix: processPRIQueue() is now a pure drain function.
+// It no longer submits CMD_PRI_RESP to the command queue, so command queue
+// fullness has no effect on its behavior.  processPRIQueue() always drains
+// all entries from priQueue regardless of command queue state (ARM §3.5.1).
+TEST_F(SMMUPriority2CoverageTest, ProcessPRIQueue_DrainsRegardlessOfCmdQueueState) {
     setupBasicStream(STREAM1, PASID1);
 
-    // Fill command queue first
+    // Fill command queue first (to verify processPRIQueue no longer depends on it).
     CommandEntry cmd;
     cmd.type = CommandType::SYNC;
     cmd.streamID = STREAM1;
@@ -674,7 +678,10 @@ TEST_F(SMMUPriority2CoverageTest, ProcessPRIQueue_CommandQueueFull) {
         }
     }
 
-    // Submit page request
+    // Enable PRIQEN so processPRIQueue() is not blocked by CR0.
+    smmuController->setCR0(smmuController->getCR0() | SMMU::CR0_PRIQEN);
+
+    // Submit page request.
     PRIEntry request;
     request.streamID = STREAM1;
     request.pasid = PASID1;
@@ -682,12 +689,23 @@ TEST_F(SMMUPriority2CoverageTest, ProcessPRIQueue_CommandQueueFull) {
     request.accessType = AccessType::Read;
 
     smmuController->submitPageRequest(request);
+    ASSERT_GT(smmuController->getPRIQueueSize(), 0u)
+        << "Precondition: PRI queue must have an entry after submitPageRequest()";
 
-    // Try to process PRI queue - should fail due to full command queue
+    // processPRIQueue() drains entries — it does not depend on command queue state.
     smmuController->processPRIQueue();
 
-    // PRI entry should still be in queue
-    EXPECT_GT(smmuController->getPRIQueueSize(), 0);
+    // After the fix: processPRIQueue() drains entries unconditionally.
+    EXPECT_EQ(smmuController->getPRIQueueSize(), 0u)
+        << "BUG-NEW-3 fix: processPRIQueue() must drain priQueue entries; "
+           "it no longer depends on command queue state (ARM §3.5.1).";
+
+    // Command queue must NOT have gained any CMD_PRI_RESP entries.
+    std::vector<CommandEntry> cmds = smmuController->getCommandQueue();
+    for (const CommandEntry& c : cmds) {
+        EXPECT_NE(c.type, CommandType::PRI_RESP)
+            << "BUG-NEW-3: processPRIQueue() must not enqueue CMD_PRI_RESP commands.";
+    }
 }
 
 // Test getPRIQueue (lines 1429-1439)

@@ -209,6 +209,8 @@ fn bug_rust4_instcfg2_read_execute_privileged_demoted_to_read_privileged() {
     cfg.t0sz = 0;
     cfg.inst_cfg = 2; // Force-Data
     cfg.strw = StreamWorld::El2; // suppress privileged_only check
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
 
@@ -304,6 +306,8 @@ fn bug_rust7_strw_write_execute_promoted_to_privileged() {
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
     cfg.strw = StreamWorld::El2;
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
 
@@ -339,6 +343,8 @@ fn bug_rust4_strw_read_promoted_to_read_privileged() {
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
     cfg.strw = StreamWorld::El2;
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
 
@@ -362,8 +368,9 @@ fn bug_rust4_strw_read_promoted_to_read_privileged() {
     );
 }
 
-/// STRW=El3 must also promote access types (same semantics as El2).
-/// STRW=EL3 is only valid for Secure streams (ARM §5.2.2).
+/// STRW=El2 must promote access types (same semantics as El3).
+/// STRW=EL2 is valid for Secure streams (ARM §5.2).
+/// Note: STRW=El3 is now forbidden even for Secure streams per BUG-RUST-2b fix.
 #[test]
 fn bug_rust4_strw_el3_promotes_write_execute() {
     let smmu = make_smmu();
@@ -371,7 +378,7 @@ fn bug_rust4_strw_el3_promotes_write_execute() {
 
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
-    cfg.strw = StreamWorld::El3;
+    cfg.strw = StreamWorld::El2; // El3 is now forbidden; El2 has same promotion semantics
     cfg.security_state = SecurityState::Secure;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
@@ -390,7 +397,7 @@ fn bug_rust4_strw_el3_promotes_write_execute() {
     let result = smmu.translate(stream_id, pasid(0), iova(0x6000), AccessType::WriteExecute, SecurityState::Secure);
     assert!(
         result.is_ok(),
-        "BUG-RUST-7: WriteExecute with STRW=El3 must succeed on privileged-only page, \
+        "BUG-RUST-7: WriteExecute with STRW=El2 must succeed on privileged-only page, \
          got {result:?}"
     );
 }
@@ -438,6 +445,8 @@ fn bug_rust4_strw_promotion_before_instcfg() {
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
     cfg.strw = StreamWorld::El2;
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     cfg.inst_cfg = 2; // Force-Data
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();

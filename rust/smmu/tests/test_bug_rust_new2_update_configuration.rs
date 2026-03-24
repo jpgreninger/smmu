@@ -279,10 +279,13 @@ fn test_configure_stream_strw_el2_applied() {
     let smmu = SMMU::new();
     smmu.enable().unwrap();
     let sid = stream_id(2);
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and has same suppression semantics.
     let cfg = StreamConfig::builder()
         .translation_enabled(true)
         .stage1_enabled(true)
         .strw(StreamWorld::El2)
+        .security_state(SecurityState::Secure)
         .build()
         .unwrap();
 
@@ -399,10 +402,13 @@ fn test_full_path_gap1_gap2_via_configure_stream() {
     smmu.enable().unwrap();
     let sid = stream_id(3);
 
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and has same suppression semantics.
     let cfg = StreamConfig::builder()
         .translation_enabled(true)
         .stage1_enabled(true)
         .strw(StreamWorld::El2)
+        .security_state(SecurityState::Secure)
         .mt_cfg(true)
         .mem_attr(7)
         .sh_cfg(2)

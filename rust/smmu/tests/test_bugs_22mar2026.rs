@@ -152,9 +152,19 @@ fn fill_event_queue_to_capacity(smmu: &SMMU, stream: StreamID, capacity: usize) 
 /// the halt; the re-fetch on restart returns CERROR_ILL again and CONS stays
 /// at 0 (a no-op restart), or the fix preserves the command for re-processing.
 ///
-/// This test asserts the invariant that PROD == CONS after a complete
-/// process-clear-restart cycle on a two-command queue, which FAILS with the
-/// current code.
+/// This test asserts the invariant that after a CERROR_ILL + clear-GERROR +
+/// re-process cycle, CONS is still frozen at 0 and PROD remains at 2 (the
+/// SMMU never writes CMDQ_PROD — ARM §6.3.25).
+///
+/// Updated with BUG-NEW-6 fix: the erroneous `cmdq_prod.store(cons_at_err)`
+/// that used to reset PROD to CONS on the first error has been removed.
+/// CMDQ_PROD is a software-driven register; only the OS/driver writes it.
+/// With BUG-NEW-6 fixed:
+///   - PROD stays at 2 (set by software, never touched by the SMMU).
+///   - CONS stays at 0 (frozen at erroneous slot per ARM §7.1).
+///   - Re-process re-encounters the same bad CMD_SYNC → CERROR_ILL again.
+///   - The queue can only advance when software submits a new command
+///     (which triggers the CERROR_ILL pop in submit_command()).
 #[test]
 fn rust1_cmdq_cons_desync_after_cerror_ill_restart() {
     let smmu = make_smmu();
@@ -187,34 +197,44 @@ fn rust1_cmdq_cons_desync_after_cerror_ill_restart() {
     // CONS must be frozen at 0 (the erroneous slot).
     assert_eq!(smmu.cmdq_cons_index(), 0, "precondition: CONS frozen at 0 after CERROR_ILL");
 
-    // VecDeque size after error halt: the current (buggy) code pops the
-    // command BEFORE processing, so the VecDeque now has 1 entry (the NOP).
-    // A correct implementation would have 2 entries (CMD_SYNC still present).
-    //
-    // We cannot directly read VecDeque size through the public API, but we can
-    // infer it via the PROD/CONS arithmetic after a clean restart.
+    // BUG-NEW-6 fix: PROD must NOT be reset by process_command_queue().
+    // CMDQ_PROD is software-driven; only the OS writes it (ARM §6.3.25).
+    assert_eq!(
+        smmu.cmdq_prod_index(),
+        2,
+        "BUG-NEW-6: PROD must remain at 2 after CERROR_ILL — the SMMU must not write CMDQ_PROD"
+    );
 
     // Step 2: clear GERROR (software acknowledges the error).
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     let active_after_clear = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
     assert_eq!(active_after_clear, 0, "precondition: GERROR.CMDQ_ERR cleared");
 
-    // Step 3: process again — with the correct implementation the CMD_SYNC
-    // should still be at CONS=0 and trigger CERROR_ILL again (re-fetch).
-    // With the buggy implementation the CMD_SYNC was already popped, so the
-    // NOP is processed and CONS advances to 1, leaving PROD (2) != CONS (1).
+    // Step 3: process again — the bad CMD_SYNC is still at the front of the
+    // VecDeque (peek-not-pop), so CERROR_ILL fires again; CONS stays at 0.
     let _ = smmu.process_command_queue();
 
-    // ARM §7.1 invariant: after software has acknowledged and reprocessed,
-    // CONS must equal PROD (both commands fully accounted for).
-    // With the bug: CONS=1, PROD=2 — the queue never empties correctly.
+    // After the re-process the SMMU is still stuck at slot 0 (the bad command).
+    // CONS is still 0; PROD is still 2.  The queue has not made progress because
+    // software has not overwritten the erroneous slot (ARM §7.1 re-fetch model).
     let cons_final = smmu.cmdq_cons_index();
     let prod_final = smmu.cmdq_prod_index();
     assert_eq!(
-        cons_final, prod_final,
-        "RUST-1: CONS ({cons_final}) must equal PROD ({prod_final}) after full restart cycle; \
-         desync detected — erroneous command was silently consumed from VecDeque but \
-         cmdq_cons was not advanced for it"
+        cons_final, 0,
+        "RUST-1: CONS must stay frozen at 0 after re-process of bad CMD_SYNC; \
+         got CONS={cons_final}"
+    );
+    assert_eq!(
+        prod_final, 2,
+        "BUG-NEW-6: PROD must still be 2 after re-process (SMMU must not write CMDQ_PROD); \
+         got PROD={prod_final}"
+    );
+
+    // Verify the queue still has 2 entries (bad_sync + nop both present).
+    assert_eq!(
+        smmu.get_command_queue_size(),
+        2,
+        "RUST-1: both commands must remain in the VecDeque after error + re-process"
     );
 }
 

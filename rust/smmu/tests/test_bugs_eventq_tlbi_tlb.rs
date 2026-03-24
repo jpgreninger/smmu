@@ -455,9 +455,13 @@ fn bug_new_g_stage2_only_tlb_entry_uses_asid_zero() {
         stats1.tlb_hits(), stats2.tlb_hits()
     );
 
-    // Issue CMD_TLBI_NH_ASID(asid=0): must evict ASID=0 entries.
+    // Issue CMD_TLBI_NH_ASID(vmid=5, asid=0): must evict entry tagged (vmid=5, asid=0).
+    // BUG-RUST-1 fix: CMD_TLBI_NH_ASID uses joint VMID+ASID matching (ARM §4.4.2.2).
+    // The stage-2-only entry is tagged vmid=5 (from stream config) and asid=0
+    // (stage-2-only entries have no ASID), so the command must include vmid=5.
     // NOTE: BUG-NEW-C must also be fixed for this command to execute.
     let mut cmd0 = CommandEntry::new(CommandType::TlbiNhAsid, 0, 0);
+    cmd0.vmid = 5; // must match the stream's VMID for joint VMID+ASID invalidation
     cmd0.asid = 0;
     smmu.submit_command(cmd0).unwrap();
     smmu.process_command_queue().unwrap();
@@ -493,11 +497,13 @@ fn bug_new_g_secure_stage1_only_tlb_entry_uses_vmid_zero() {
 
     let s = sid(41);
 
-    // Secure stage-1-only stream with a non-zero VMID and STRW=El3.
+    // Secure stage-1-only stream with a non-zero VMID and STRW=El2.
+    // Note: STRW=El3 is forbidden even for Secure streams per BUG-RUST-2b fix (ARM §5.2).
+    // STRW=El2 has identical all-privileged semantics and is valid for Secure streams.
     let mut cfg = StreamConfig::stage1_only();
     cfg.vmid = 99;
     cfg.security_state = SecurityState::Secure;
-    cfg.strw = StreamWorld::El3;
+    cfg.strw = StreamWorld::El2;
     smmu.configure_stream(s, cfg).unwrap();
     smmu.create_pasid(s, pasid(0)).unwrap();
     smmu.map_page(

@@ -317,10 +317,13 @@ fn bug3_tlb_hit_path_enforces_privileged_only_check() {
 
     // Step 1: Configure STRW=El2 (suppresses priv check) so the first translation
     // succeeds and populates the TLB.
+    // Note: STRW=El2 with NonSecure is now rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and has same suppression semantics.
     let cfg_el2 = StreamConfig::builder()
         .stage1_enabled(true)
         .translation_enabled(true)
         .strw(StreamWorld::El2) // suppresses privileged_only check
+        .security_state(SecurityState::Secure) // required: NS+El2 now rejected per ARM §5.2
         .fault_mode(FaultMode::Terminate)
         .build()
         .unwrap();
@@ -394,10 +397,13 @@ fn bug3_tlb_hit_path_enforces_privileged_only_check() {
 fn bug3_tlb_hit_path_does_not_enforce_priv_when_el2_suppresses() {
     let smmu = make_smmu();
 
+    // Note: STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and has same suppression semantics.
     let cfg_el2 = StreamConfig::builder()
         .stage1_enabled(true)
         .translation_enabled(true)
         .strw(StreamWorld::El2) // suppresses privileged_only
+        .security_state(SecurityState::Secure) // required: NS+El2 now rejected per ARM §5.2
         .fault_mode(FaultMode::Terminate)
         .build()
         .unwrap();
@@ -443,11 +449,13 @@ fn bug3_tlb_hit_path_does_not_enforce_priv_when_el2_suppresses() {
 fn bug3_tlb_hit_path_does_not_enforce_priv_when_el3_suppresses() {
     let smmu = make_smmu();
 
+    // STRW=El3 is now forbidden even for Secure streams (BUG-RUST-2b fix, ARM §5.2).
+    // STRW=El2 has identical all-privileged (suppresses privileged_only) semantics.
     let cfg_el3 = StreamConfig::builder()
         .stage1_enabled(true)
         .translation_enabled(true)
-        .strw(StreamWorld::El3) // suppresses privileged_only
-        .security_state(SecurityState::Secure) // STRW=EL3 is only valid for Secure streams (ARM §5.2.2)
+        .strw(StreamWorld::El2) // suppresses privileged_only; El3 is now forbidden per ARM §5.2
+        .security_state(SecurityState::Secure)
         .fault_mode(FaultMode::Terminate)
         .build()
         .unwrap();
@@ -545,10 +553,13 @@ fn bug3_tlb_hit_el2e2h_enforces_privileged_only() {
     let smmu = make_smmu();
 
     // First populate TLB with El2 (suppresses).
+    // Note: STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and has same suppression semantics.
     let cfg_el2 = StreamConfig::builder()
         .stage1_enabled(true)
         .translation_enabled(true)
         .strw(StreamWorld::El2)
+        .security_state(SecurityState::Secure) // required: NS+El2 now rejected per ARM §5.2
         .fault_mode(FaultMode::Terminate)
         .build()
         .unwrap();

@@ -305,8 +305,11 @@ fn bug_rust_2b_privcfg2_el2_tlb_hit_should_deny_privileged_only_page() {
 
     // Step 1: configure with PRIVCFG=3/El2 so the first translate succeeds and
     // populates the TLB cache for IOVA 0x1000.
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    // Use Secure security state — El2 is valid for Secure and same suppression semantics.
     let mut cfg_priv3 = StreamConfig::stage1_only();
     cfg_priv3.strw = StreamWorld::El2;
+    cfg_priv3.security_state = SecurityState::Secure;
     cfg_priv3.priv_cfg = 3; // Force Privileged
     cfg_priv3.t0sz = 0;
     smmu.configure_stream(stream_id, cfg_priv3).unwrap();

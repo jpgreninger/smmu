@@ -3416,7 +3416,12 @@ TEST(SMMUPRGIndexTest, PRIRespNonMatchingIndexDoesNotClear) {
     EXPECT_EQ(s.getPRIQueue().size(), 1u);
 }
 
-TEST(SMMUPRGIndexTest, ProcessPRIQueueEchesPRGIndexInResponse) {
+// BUG-NEW-3/BUG-NEW-8 fix: processPRIQueue() is now a pure drain function.
+// It must NOT auto-submit CMD_PRI_RESP to the command queue (ARM §3.5.1:
+// software is the command queue producer; the SMMU is the consumer).
+// This test is updated to reflect the corrected behavior: software must
+// explicitly submit CMD_PRI_RESP with the correct prgIndex.
+TEST(SMMUPRGIndexTest, ProcessPRIQueueDoesNotAutoSubmitCmdPriResp) {
     smmu::SMMU s;
     // BUG-NEW-CPP-4 fix: enable() no longer sets PRIQEN (it only sets SMMUEN|EVENTQEN|CMDQEN).
     // Use setCR0() to explicitly enable PRIQEN per ARM §6.3.9.
@@ -3426,19 +3431,21 @@ TEST(SMMUPRGIndexTest, ProcessPRIQueueEchesPRGIndexInResponse) {
     req.prgIndex = 5;
     s.submitPageRequest(req);
 
+    // processPRIQueue() is a pure drain — it must NOT enqueue CMD_PRI_RESP.
     s.processPRIQueue();
 
-    // The generated response command should have prgIndex = 5
-    // Since the response is submitted to commandQueue, check it:
+    // Command queue must contain NO CMD_PRI_RESP after processPRIQueue().
     auto commands = s.getCommandQueue();
-    bool found = false;
+    bool hasPriResp = false;
     for (const auto& cmd : commands) {
-        if (cmd.type == smmu::CommandType::PRI_RESP && cmd.prgIndex == 5) {
-            found = true;
+        if (cmd.type == smmu::CommandType::PRI_RESP) {
+            hasPriResp = true;
             break;
         }
     }
-    EXPECT_TRUE(found) << "Expected PRI_RESP command with prgIndex=5";
+    EXPECT_FALSE(hasPriResp)
+        << "BUG-NEW-3: processPRIQueue() must not auto-submit CMD_PRI_RESP. "
+           "ARM §3.5.1: software is the command queue producer.";
 }
 
 TEST(SMMUPRGIndexTest, PRIQProdAdvancesOnSubmit) {

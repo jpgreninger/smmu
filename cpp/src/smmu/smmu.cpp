@@ -2805,9 +2805,40 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
         case FaultType::StreamTableFormatFault:
         case FaultType::ConfigurationCacheFault:
         case FaultType::Stage2TranslationFault:
-        case FaultType::Stage2PermissionFault:
             // Default handling for ARM SMMU v3 specific faults
             // Recovery actions would be implemented here in a full implementation
+            break;
+
+        case FaultType::Stage2PermissionFault:
+            // BUG-NEW-1 fix: §7.3 — Stage2PermissionFault must emit F_PERMISSION, not
+            // silently drop the event.  This case is reached via the default: arm of
+            // the stage-2 error classification switch in performBothStagesTranslation()
+            // when translatePage() returns an unrecognized SMMUError.  Before this fix,
+            // the case fell through to the no-op block, silently dropping the event.
+            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
+                          false, 0, eventAccessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
+            break;
+
+        case FaultType::SecurityFault:
+            // BUG-NEW-5 fix: §7.3.16 — SecurityFault must emit F_PERMISSION.
+            // FaultType::SecurityFault is a valid enum value defined in types.h, but
+            // handleTranslationFailure() previously had no case for it and no default:,
+            // so any path that classified a fault as SecurityFault would silently drop
+            // the event.  Map to F_PERMISSION matching the InvalidSecurityState →
+            // PermissionFault mapping in the SMMUError switch above.
+            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
+                          false, 0, eventAccessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
+            break;
+
+        default:
+            // BUG-NEW-5 fix: defensive fallback — any future FaultType value that is
+            // not explicitly handled must not silently drop the event.  Emit F_PERMISSION
+            // as a safe default to ensure the event queue is never silently starved.
+            generateEvent(EventType::F_PERMISSION, streamID, pasid, iova, securityState,
+                          false, 0, eventAccessType,
+                          tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             break;
     }
 
@@ -3390,7 +3421,9 @@ void SMMU::processCommandQueue() {
                     }
                     lock.lock();
                 }
-                generateEvent(EventType::COMMAND_SYNC_COMPLETION, command.streamID, command.pasid,
+                // BUG-NEW-2 fix: §4.8 — CMD_SYNC has no StreamID operand; the
+                // completion event must use streamID=0, not command.streamID.
+                generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
                               command.startAddress, syncEventSecState);
             }
             // BUG-CPP-05 fix: ARM §4.8 specifies CMD_SYNC as a barrier, not a stop.
@@ -3523,47 +3556,27 @@ void SMMU::processPRIQueue() {
         return;
     }
 
-    // ARM SMMU v3 spec: Process Page Request Interface queue.
-    // BUG-03 fix: protect priQueue with queueMutex. Uses recursive_mutex so
-    // that the nested submitCommand() call can re-acquire the same lock.
+    // BUG-NEW-3 fix: ARM §3.5.1 — software is the producer of the Command queue;
+    // the SMMU is the consumer.  processPRIQueue() must NOT submit CMD_PRI_RESP
+    // commands to the SMMU's own command queue — that is architecturally inverted.
+    // ARM §8.2: the auto-PRG-Response path refers to direct bus-level PCIe
+    // responses, not CMD_PRI_RESP commands enqueued back into the command queue.
+    //
+    // BUG-NEW-4 fix: ARM §8.1 — PRIQ_CONS is software-written; the SMMU hardware
+    // must never write it.  Only software (via CMD_PRI_RESP command processing)
+    // may advance priqCons.  processPRIQueue() must not touch priqCons at all.
+    //
+    // Correct behaviour: processPRIQueue() is a pure drain-and-acknowledge function.
+    // It removes entries from priQueue so the queue does not remain permanently
+    // blocked, but it does NOT enqueue any commands and does NOT advance priqCons.
+    // Software reads E_PAGE_REQUEST events from the Event queue, handles them (e.g.
+    // triggers demand paging), and then sends CMD_PRI_RESP via submitCommand() to
+    // acknowledge each entry and advance priqCons.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     while (!priQueue.empty()) {
-        const PRIEntry& request = priQueue.front();
-        
-        // ARM SMMU v3 spec: Process page request
-        // In a full implementation, this would:
-        // - Notify the OS about page faults
-        // - Trigger demand paging mechanisms
-        // - Handle page allocation requests
-        
-        // For simulation, we generate a command response
-        CommandEntry response;
-        response.type = CommandType::PRI_RESP;
-        response.streamID = request.streamID;
-        response.pasid = request.pasid;
-        response.startAddress = request.requestedAddress;
-        response.endAddress = request.requestedAddress;
-        response.timestamp = getCurrentTimestamp();
-        // ARM §8.3: Echo PRGIndex back in the response command (FINDING-M-08)
-        response.prgIndex = request.prgIndex;
-        
-        // Submit response command
-        if (submitCommand(response)) {
-            // Successfully submitted response
-            priQueue.pop_front();
-            // BUG-NEW-03 fix: advance consumer index to match the dequeue.
-            // BUG-CPP-2 fix: §8.1 PRIQ_CONS.OVACKFLG (bit 31) is software-written;
-            // preserve bit 31 via RMW.  advanceQueueIndex returns at most 2^(log2size+1)
-            // which strips bit 31.
-            {
-                uint32_t oldCons = priqCons.load(std::memory_order_relaxed);
-                uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), priqLog2Size);
-                priqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
-            }
-        } else {
-            // Command queue full - retry later
-            break;
-        }
+        priQueue.pop_front();
+        // priqCons is intentionally NOT advanced here — it is software-written
+        // and must only be advanced by CMD_PRI_RESP processing (ARM §8.1).
     }
 }
 

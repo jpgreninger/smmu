@@ -433,10 +433,15 @@ TEST(CompletionEventSecurityStateTest, SyncCompletionUsesStreamSecurityState) {
     ASSERT_TRUE(smmu.submitCommand(syncCmd).isOk());
     smmu.processCommandQueue();
 
+    // BUG-NEW-2 fix: COMMAND_SYNC_COMPLETION now uses streamID=0 (ARM §4.8 —
+    // CMD_SYNC has no StreamID operand).  The security state is still derived
+    // from the stream config of command.streamID, but the event streamID=0.
     bool foundSecureSync = false;
     for (const auto& ev : smmu.getEventQueue()) {
-        if (ev.type == EventType::COMMAND_SYNC_COMPLETION &&
-            ev.streamID == N39_STREAM + 1) {
+        if (ev.type == EventType::COMMAND_SYNC_COMPLETION) {
+            // After BUG-NEW-2 fix, streamID must be 0 (CMD_SYNC has no StreamID operand).
+            EXPECT_EQ(ev.streamID, 0u)
+                << "BUG-NEW-2 fix: COMMAND_SYNC_COMPLETION streamID must be 0 (ARM §4.8)";
             EXPECT_EQ(ev.securityState, SecurityState::Secure)
                 << "SYNC completion event must carry Secure state from stream config";
             foundSecureSync = true;

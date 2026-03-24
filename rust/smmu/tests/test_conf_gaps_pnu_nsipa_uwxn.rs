@@ -49,6 +49,11 @@ fn setup_stage1_stream_with_strw(smmu: &SMMU, stream_id: StreamID, strw: StreamW
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = strw;
     cfg.t0sz = 0; // no VA range restriction
+    // BUG-RUST-2a fix: STRW bit[0]=1 (El2/El3) is forbidden for NonSecure streams.
+    // Use Secure when STRW has bit[0] set (El2 or El3).
+    if (strw as u8 & 0x01) != 0 {
+        cfg.security_state = SecurityState::Secure;
+    }
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     // Do NOT map the page — leave it unmapped so translate produces F_TRANSLATION.
@@ -141,7 +146,9 @@ fn gap1_pnu_el3_stream_fault_is_privileged() {
     let smmu = make_smmu();
     let stream_id = sid(0xA2);
     let mut cfg = StreamConfig::stage1_only();
-    cfg.strw = StreamWorld::El3;
+    // STRW=El3 is now forbidden even for Secure streams (BUG-RUST-2b fix, ARM §5.2).
+    // STRW=El2 has the same all-privileged semantics and is valid for Secure streams.
+    cfg.strw = StreamWorld::El2;
     cfg.security_state = SecurityState::Secure;
     cfg.t0sz = 0;
     smmu.configure_stream(stream_id, cfg).unwrap();
@@ -200,6 +207,8 @@ fn gap1_pnu_privcfg2_force_unprivileged_is_pnu_false() {
     let stream_id = sid(0xA4);
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = StreamWorld::El2; // would normally be privileged
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     cfg.priv_cfg = 2;             // PRIVCFG=2: Force Unprivileged override
     cfg.t0sz = 0;
     smmu.configure_stream(stream_id, cfg).unwrap();
@@ -324,6 +333,8 @@ fn gap3_uwxn_false_allows_privileged_execute_on_writable_page() {
     let stream_id = sid(0xC0);
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = StreamWorld::El2; // privileged stream
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     cfg.uwxn = false;
     cfg.t0sz = 0;
     smmu.configure_stream(stream_id, cfg).unwrap();
@@ -422,6 +433,8 @@ fn gap3_uwxn_true_privileged_stream_no_fault_on_privileged_only_page() {
     let stream_id = sid(0xC3);
     let mut cfg = StreamConfig::stage1_only();
     cfg.strw = StreamWorld::El2;
+    // STRW=El2 with NonSecure is rejected (BUG-RUST-2a fix, ARM §5.2 bit[0]=1 rule).
+    cfg.security_state = SecurityState::Secure;
     cfg.uwxn = true;
     cfg.wxn = false;
     cfg.t0sz = 0;
