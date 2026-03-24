@@ -146,6 +146,9 @@ TEST(Bug4DeadCodeLookup, STRWPromotion_InlinePathPromotesUnprivilegedAccess) {
     cfg.faultMode          = FaultMode::Terminate;
     cfg.strw               = StreamWorld::EL2; // EL2 promotes all accesses to privileged
     cfg.t0sz               = 0; // No VA-range restriction
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 (bit[0]=1) requires Secure security state
+    // when stage-1 is active.
+    cfg.securityState      = SecurityState::Secure;
 
     ASSERT_TRUE(setupStream(*smmu, SID_STRW, cfg))
         << "Stream setup must succeed";
@@ -153,14 +156,15 @@ TEST(Bug4DeadCodeLookup, STRWPromotion_InlinePathPromotesUnprivilegedAccess) {
     // Map a privilegedOnly page (read=true, write=true, execute=false, privilegedOnly=true).
     // An unprivileged Read would normally fail this page's permission check.
     PagePermissions privPerms(true, true, false, /*privilegedOnly=*/true);
-    ASSERT_TRUE(smmu->mapPage(SID_STRW, PASID0, TEST_IOVA, TEST_PA, privPerms).isOk())
+    ASSERT_TRUE(smmu->mapPage(SID_STRW, PASID0, TEST_IOVA, TEST_PA, privPerms,
+                              SecurityState::Secure).isOk())
         << "mapPage for privilegedOnly page must succeed";
 
     // --- First call: guaranteed cache MISS (populate TLB via slow path). ---
     smmu->invalidateStreamCache(SID_STRW);
     TranslationResult miss = smmu->translate(SID_STRW, PASID0, TEST_IOVA,
                                               AccessType::Read,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(miss.isOk())
         << "Slow-path (cache miss): STRW=EL2 must promote Read → ReadPrivileged "
            "before the permission check; the privilegedOnly page must be accessible. "
@@ -173,7 +177,7 @@ TEST(Bug4DeadCodeLookup, STRWPromotion_InlinePathPromotesUnprivilegedAccess) {
     // does not apply STRW promotion.  The inline path in translate() does.
     TranslationResult hit = smmu->translate(SID_STRW, PASID0, TEST_IOVA,
                                              AccessType::Read,
-                                             SecurityState::NonSecure);
+                                             SecurityState::Secure);
     ASSERT_TRUE(hit.isOk())
         << "Fast-path (cache hit): STRW=EL2 must promote Read → ReadPrivileged "
            "before the TLB permission check; the privilegedOnly page must be "

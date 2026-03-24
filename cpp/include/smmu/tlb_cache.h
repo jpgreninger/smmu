@@ -144,6 +144,8 @@ public:
     // (entry.vmid & vmidMask)==(vmid & vmidMask) AND entry.ipa is in [ipa, ipaEnd].
     // Only entries with entry.ipa != 0 are candidates (two-stage entries).
     void invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa, IOVA ipaEnd);
+    /// ARM §4.4.2.2: CMD_TLBI_NH_ASID — evict entries tagged with both VMID AND ASID (joint match)
+    void invalidateByVMIDAndASID(uint16_t vmid, uint16_t asid);
     // CONF-GAP-6: VA-targeted TLBI — invalidate entries by VA+ASID or VA-only (§4.4)
     void invalidateByVAAndASID(IOVA va, uint16_t asid);  ///< evict entries matching va AND asid
     void invalidateByVA(IOVA va);                         ///< evict entries matching va (all ASIDs)

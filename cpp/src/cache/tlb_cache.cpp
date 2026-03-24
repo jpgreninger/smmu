@@ -431,6 +431,43 @@ void TLBCache::invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa
     }
 }
 
+void TLBCache::invalidateByVMIDAndASID(uint16_t vmid, uint16_t asid) {
+    // BUG-CPP-2 fix: ARM §4.4.2.2 CMD_TLBI_NH_ASID — evict entries where
+    // entry.vmid == vmid AND entry.asid == asid (joint match).
+    // Previously the TLBI_NH_ASID case called invalidateByASID() which evicts
+    // ALL entries with the given ASID regardless of VMID, over-invalidating
+    // entries belonging to other VMIDs that happen to share the same ASID.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.vmid == vmid && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateByVAAndASID(IOVA va, uint16_t asid) {
     // CONF-GAP-6: VA+ASID targeted TLBI — evict entries where iova matches va AND asid matches.
     // va is page-aligned (strip offset bits) before comparison.

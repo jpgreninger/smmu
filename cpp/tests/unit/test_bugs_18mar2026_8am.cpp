@@ -122,18 +122,23 @@ TEST(BugB, ReadExecuteInAllPrivStreamToExecuteOnlyPage_GivesFPermission) {
 
     StreamConfig cfg = stage1Cfg();
     cfg.strw = StreamWorld::EL2;            // all-privileged stream
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 (bit[0]=1) requires Secure security state
+    // when stage-1 is active.
+    cfg.securityState = SecurityState::Secure;
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
     ASSERT_TRUE(smmu.createStreamPASID(sid, pid).isOk());
 
     // Map execute-only page: no read bit.
     PagePermissions execOnly{false, false, true};
-    ASSERT_TRUE(smmu.mapPage(sid, pid, 0x2000u, 0x2000u, execOnly).isOk());
+    ASSERT_TRUE(smmu.mapPage(sid, pid, 0x2000u, 0x2000u, execOnly,
+                             SecurityState::Secure).isOk());
 
     // ReadExecute needs both read and execute.  The execute-only page lacks read.
     // After Bug B fix, ReadExecute in EL2 stream → ReadExecutePrivileged →
     // permission check requires read AND execute → fails (no read bit).
-    auto result = smmu.translate(sid, pid, 0x2000u, AccessType::ReadExecute);
+    auto result = smmu.translate(sid, pid, 0x2000u, AccessType::ReadExecute,
+                                 SecurityState::Secure);
     EXPECT_TRUE(result.isError())
         << "ReadExecute in EL2 stream to execute-only page must fault (no read bit)";
 
@@ -196,15 +201,19 @@ TEST(BugB, ReadExecuteInAllPrivStreamToReadExecutePage_Succeeds) {
 
     StreamConfig cfg = stage1Cfg();
     cfg.strw = StreamWorld::EL2;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState = SecurityState::Secure;
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
     ASSERT_TRUE(smmu.createStreamPASID(sid, pid).isOk());
 
     // Map read+execute page.
     PagePermissions rx{true, false, true};
-    ASSERT_TRUE(smmu.mapPage(sid, pid, 0x4000u, 0x4000u, rx).isOk());
+    ASSERT_TRUE(smmu.mapPage(sid, pid, 0x4000u, 0x4000u, rx,
+                             SecurityState::Secure).isOk());
 
-    auto result = smmu.translate(sid, pid, 0x4000u, AccessType::ReadExecute);
+    auto result = smmu.translate(sid, pid, 0x4000u, AccessType::ReadExecute,
+                                 SecurityState::Secure);
     EXPECT_TRUE(result.isOk())
         << "ReadExecute in EL2 stream to read+execute page must succeed";
 }

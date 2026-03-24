@@ -35,6 +35,8 @@ static void setupTwoStageWithStrwEl2(SMMU& smmu) {
     cfg.strw               = StreamWorld::EL2; // STRW=EL2
     cfg.faultMode          = FaultMode::Terminate;
     cfg.aa64               = true;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState      = SecurityState::Secure;
     smmu.configureStream(D5_STREAM, cfg);
     smmu.enableStream(D5_STREAM);
     smmu.createStreamPASID(D5_STREAM, D5_PASID);
@@ -42,12 +44,12 @@ static void setupTwoStageWithStrwEl2(SMMU& smmu) {
     // Stage-1: map D5_IOVA -> D5_IPA with privilegedOnly=true
     // (so a non-privileged access must be denied)
     PagePermissions s1perms(true, false, false, /*privilegedOnly=*/true);
-    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_IPA, s1perms, SecurityState::NonSecure);
+    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_IPA, s1perms, SecurityState::Secure);
 
     // Stage-2 address space: map D5_IPA -> D5_PA (not privilegedOnly)
     std::shared_ptr<AddressSpace> s2as = std::make_shared<AddressSpace>();
     PagePermissions s2perms(true, false, false);
-    s2as->mapPage(D5_IPA, D5_PA, s2perms, SecurityState::NonSecure);
+    s2as->mapPage(D5_IPA, D5_PA, s2perms, SecurityState::Secure);
     smmu.setStreamStage2AddressSpace(D5_STREAM, s2as);
 }
 
@@ -62,7 +64,7 @@ TEST(StrwTwoStageSpec, TwoStage_StrwEl2_PrivilegedOnlyPage_PlainReadFails) {
     // Plain (non-privileged) Read — should FAIL because privilegedOnly is set
     // and STRW is ignored in two-stage mode (§5.2)
     TranslationResult result = smmu.translate(D5_STREAM, D5_PASID, D5_IOVA,
-                                             AccessType::Read, SecurityState::NonSecure);
+                                             AccessType::Read, SecurityState::Secure);
     EXPECT_TRUE(result.isError())
         << "Plain Read on privilegedOnly page must FAIL even with STRW=EL2 when stage-2 is enabled"
            " (STRW ignored per §5.2)";
@@ -86,23 +88,27 @@ TEST(StrwTwoStageSpec, Stage1Only_StrwEl2_PrivilegedOnlyPage_PlainReadSucceeds) 
     cfg.strw               = StreamWorld::EL2;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.aa64               = true;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState      = SecurityState::Secure;
     smmu.configureStream(D5_STREAM, cfg);
     smmu.enableStream(D5_STREAM);
     smmu.createStreamPASID(D5_STREAM, D5_PASID);
 
     // Map with privilegedOnly=true
     PagePermissions perms(true, false, false, /*privilegedOnly=*/true);
-    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_PA, perms, SecurityState::NonSecure);
+    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_PA, perms, SecurityState::Secure);
 
     // Plain Read should succeed because STRW=EL2 suppresses privilegedOnly for stage-1-only
     TranslationResult result = smmu.translate(D5_STREAM, D5_PASID, D5_IOVA,
-                                             AccessType::Read, SecurityState::NonSecure);
+                                             AccessType::Read, SecurityState::Secure);
     EXPECT_TRUE(result.isOk())
         << "Plain Read on privilegedOnly page must SUCCEED with STRW=EL2 in stage-1-only mode";
 }
 
 // -----------------------------------------------------------------------
-// Stage-1-only stream with STRW=EL3 and privilegedOnly page: plain Read succeeds
+// Stage-1-only stream with STRW=EL2 and privilegedOnly page: plain Read succeeds.
+// (Previously used EL3+Secure but ARM §5.2 BUG-CPP-3(b): EL3 is illegal for
+//  Secure streams when stage-1 is active. EL2+Secure is the correct equivalent.)
 // -----------------------------------------------------------------------
 TEST(StrwTwoStageSpec, Stage1Only_StrwEl3_PrivilegedOnlyPage_PlainReadSucceeds) {
     SMMU smmu;
@@ -112,8 +118,10 @@ TEST(StrwTwoStageSpec, Stage1Only_StrwEl3_PrivilegedOnlyPage_PlainReadSucceeds) 
     cfg.translationEnabled = true;
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = false;
-    cfg.strw               = StreamWorld::EL3;
-    // CONF-GAP-16: ARM §5.2.2 — STRW=EL3 is only valid for Secure streams.
+    // ARM §5.2 BUG-CPP-3(b): STRW=EL3 (0b11) is illegal for Secure+stage1.
+    // Use EL2 (0b01) which is valid for Secure streams and has the same
+    // all-privileged semantics.
+    cfg.strw               = StreamWorld::EL2;
     cfg.securityState      = SecurityState::Secure;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.aa64               = true;
@@ -122,12 +130,12 @@ TEST(StrwTwoStageSpec, Stage1Only_StrwEl3_PrivilegedOnlyPage_PlainReadSucceeds) 
     smmu.createStreamPASID(D5_STREAM, D5_PASID);
 
     PagePermissions perms(true, false, false, /*privilegedOnly=*/true);
-    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_PA, perms, SecurityState::NonSecure);
+    smmu.mapPage(D5_STREAM, D5_PASID, D5_IOVA, D5_PA, perms, SecurityState::Secure);
 
     TranslationResult result = smmu.translate(D5_STREAM, D5_PASID, D5_IOVA,
-                                             AccessType::Read, SecurityState::NonSecure);
+                                             AccessType::Read, SecurityState::Secure);
     EXPECT_TRUE(result.isOk())
-        << "Plain Read on privilegedOnly page must SUCCEED with STRW=EL3 in stage-1-only mode";
+        << "Plain Read on privilegedOnly page must SUCCEED with STRW=EL2 in stage-1-only mode";
 }
 
 } // namespace test

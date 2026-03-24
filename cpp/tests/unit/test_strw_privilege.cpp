@@ -201,6 +201,11 @@ static std::unique_ptr<SMMU> makeSmmuWithStrwStream(
     cfg.stage2Enabled      = false;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.strw               = strw;
+    // ARM §5.2 BUG-CPP-3(a)/(b): STRW bit[0]=1 (EL2/EL3) requires Secure security
+    // state when stage-1 is active.  Set Secure for EL2/EL3 streams.
+    if (strw == StreamWorld::EL2 || strw == StreamWorld::EL3) {
+        cfg.securityState = SecurityState::Secure;
+    }
     smmu->configureStream(sid, cfg);
     smmu->enableStream(sid);
     smmu->createStreamPASID(sid, pasid);
@@ -208,7 +213,9 @@ static std::unique_ptr<SMMU> makeSmmuWithStrwStream(
     // Map the page as privilegedOnly=true so that an unprivileged AccessType
     // (Read) normally fails validateAccessPermissions().
     PagePermissions privPerms(true, false, false, true); // read=true, privilegedOnly=true
-    smmu->mapPage(sid, pasid, iova, pa, privPerms);
+    smmu->mapPage(sid, pasid, iova, pa, privPerms,
+                  (strw == StreamWorld::EL2 || strw == StreamWorld::EL3)
+                      ? SecurityState::Secure : SecurityState::NonSecure);
 
     return smmu;
 }
@@ -232,7 +239,9 @@ TEST(TlbFastPathPrivilegeTest, El2TlbFastPathPrivilegePromotion) {
 
     // First translate: slow path; STRW=EL2 converts Read -> ReadPrivileged
     // inside StreamContext so the page-table walk allows the access.
-    TranslationResult first = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read);
+    // Use Secure security state: EL2 streams require Secure per ARM §5.2.
+    TranslationResult first = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read,
+                                              SecurityState::Secure);
     ASSERT_TRUE(first.isOk())
         << "First translate (slow path, EL2 stream, privilegedOnly page) must succeed";
 
@@ -241,7 +250,8 @@ TEST(TlbFastPathPrivilegeTest, El2TlbFastPathPrivilegePromotion) {
     // Second translate same IOVA: the STRW-aware re-check in translateUnlocked()
     // should find the TLB entry, promote Read -> ReadPrivileged, pass
     // validateAccessPermissions(), and return success from the fast path.
-    TranslationResult second = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read);
+    TranslationResult second = smmu->translate(SID, PID, IOVA_VAL, AccessType::Read,
+                                               SecurityState::Secure);
     EXPECT_TRUE(second.isOk())
         << "Second translate (TLB fast-path, EL2 stream, privilegedOnly page) must succeed";
 

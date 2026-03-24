@@ -150,11 +150,13 @@ protected:
         smmu_->processCommandQueue();
     }
 
-    // Helper: issue CMD_TLBI_NH_ASID targeted at the given ASID
-    void issueTlbiNhAsid(uint16_t asid) {
+    // Helper: issue CMD_TLBI_NH_ASID targeted at the given VMID and ASID.
+    // ARM §4.4.2.2: CMD_TLBI_NH_ASID invalidates by VMID AND ASID (joint match).
+    void issueTlbiNhAsid(uint16_t asid, uint16_t vmid = 0) {
         CommandEntry cmd;
         cmd.type = CommandType::TLBI_NH_ASID;
-        cmd.asid = asid;  // NEW field — triggers compile error
+        cmd.asid = asid;
+        cmd.vmid = vmid;
         smmu_->submitCommand(cmd);
         smmu_->processCommandQueue();
     }
@@ -274,8 +276,9 @@ TEST_F(ASIDVMIDTLBSpecTest, VMIDTargetedInvalidation_TLBI_S2_IPA) {
 TEST_F(ASIDVMIDTLBSpecTest, ASIDTargetedInvalidation_TLBI_NH_ASID) {
     populateTlbThenUnmapAll();
 
-    // Invalidate ASID=10 — should evict stream 0x10 only
-    issueTlbiNhAsid(ASID_10);
+    // Invalidate VMID=1, ASID=10 — should evict stream 0x10 only.
+    // ARM §4.4.2.2: CMD_TLBI_NH_ASID matches on VMID AND ASID jointly.
+    issueTlbiNhAsid(ASID_10, VMID_1);
 
     // Stream 0x20 (ASID=20) must still be a TLB hit
     TranslationResult r20 = smmu_->translate(STREAM_VMID2_ASID20, PASID_ZERO,

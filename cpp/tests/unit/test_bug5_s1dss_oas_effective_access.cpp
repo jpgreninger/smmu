@@ -142,11 +142,14 @@ TEST(Bug5S1dssOasEffectiveAccess, bug5_s1dss01_strw_el2_oas_fault_pnu_true) {
     cfg.s1dss              = 0x01u; // S1DSS=0b01: non-substream PASID=0 bypasses stage-1
     cfg.s1cdMax            = 4u;    // stream is substream-capable → s1dss active
     cfg.faultMode          = FaultMode::Terminate;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState      = SecurityState::Secure;
     ASSERT_TRUE(smmu.configureStream(SID_B, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(SID_B).isOk());
     ASSERT_TRUE(smmu.createStreamPASID(SID_B, PID).isOk());
 
-    auto r = smmu.translate(SID_B, PID, OVER_OAS_IOVA, AccessType::Read);
+    auto r = smmu.translate(SID_B, PID, OVER_OAS_IOVA, AccessType::Read,
+                             SecurityState::Secure);
     EXPECT_TRUE(r.isError())
         << "OAS overflow on S1DSS==0x01 bypass must produce a translation error";
 

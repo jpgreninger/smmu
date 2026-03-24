@@ -352,6 +352,8 @@ TEST_F(BugsCpp12DeadEffectiveAccess, PrivCfg_ForceUnprivileged_SingleStage) {
     cfg.strw               = StreamWorld::EL2;  // STRW=EL2 → promote unprivileged
     cfg.privCfg            = 2u;               // Force Unprivileged — overrides STRW
     cfg.t0sz               = 0u;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState      = SecurityState::Secure;
     setupStage1Stream(*smmu_, SID, cfg);
 
     // Map page: read allowed, privilegedOnly (unprivileged access denied).
@@ -360,13 +362,15 @@ TEST_F(BugsCpp12DeadEffectiveAccess, PrivCfg_ForceUnprivileged_SingleStage) {
     perms.write         = false;
     perms.execute       = false;
     perms.privilegedOnly = true;
-    ASSERT_TRUE(smmu_->mapPage(SID, PID, BASE_IOVA, BASE_PA, perms).isOk());
+    ASSERT_TRUE(smmu_->mapPage(SID, PID, BASE_IOVA, BASE_PA, perms,
+                               SecurityState::Secure).isOk());
 
     // Incoming ReadPrivileged:
     //   STRW=EL2 -> already privileged, no change.
     //   PRIVCFG=2 -> demote ReadPrivileged -> Read.
     //   Read on privilegedOnly=true -> DENY.
-    auto r = smmu_->translate(SID, PID, BASE_IOVA, AccessType::ReadPrivileged);
+    auto r = smmu_->translate(SID, PID, BASE_IOVA, AccessType::ReadPrivileged,
+                              SecurityState::Secure);
     EXPECT_TRUE(r.isError())
         << "BUG-CPP-1/2: PRIVCFG=2 (Force Unprivileged) + STRW=EL2 single-stage — "
            "ReadPrivileged demoted to Read by PRIVCFG=2; privilegedOnly page must DENY access";

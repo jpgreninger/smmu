@@ -899,11 +899,28 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // generateEvent() acquires queueMutex (and then the stripe lock for MEV check)
     // which would deadlock if called while holding the stripe lock.
 
-    // Validation 1: STRW=EL3 is forbidden for Non-secure streams (§5.2 Table 3-2).
-    if (config.securityState == SecurityState::NonSecure &&
-        config.strw == StreamWorld::EL3) {
-        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
-        return makeVoidError(SMMUError::InvalidConfiguration);
+    // Validation 1: STRW checks per ARM §5.2 SteIllegal() pseudocode.
+    // STRW is only meaningful when stage-1 is active (strwUnused = !stage1Enabled).
+    {
+        bool strwUnused = !config.stage1Enabled;
+        if (!strwUnused) {
+            // BUG-CPP-3(a) fix: ARM §5.2 bit[0]=1 pattern ('x1'): STRW encodings
+            // 0b01 (EL2) and 0b11 (EL3) are ILLEGAL for NonSecure/Realm streams.
+            // The previous check only tested STRW==EL3; EL2 (0b01) was silently
+            // accepted.  Now we check bit[0] so both EL2 and EL3 are rejected.
+            if (config.securityState == SecurityState::NonSecure &&
+                (static_cast<uint8_t>(config.strw) & 0x01u) != 0u) {
+                generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+                return makeVoidError(SMMUError::InvalidConfiguration);
+            }
+            // BUG-CPP-3(b) fix: ARM §5.2 SteIllegal() pseudocode — STRW=EL3 (0b11)
+            // is ILLEGAL for Secure streams.  This check was entirely missing before.
+            if (config.securityState == SecurityState::Secure &&
+                config.strw == StreamWorld::EL3) {
+                generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+                return makeVoidError(SMMUError::InvalidConfiguration);
+            }
+        }
     }
 
     // Validation 2: Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
@@ -3312,10 +3329,12 @@ void SMMU::processCommandQueue() {
         return;
     }
     while (!commandQueue.empty()) {
-        // BUG-04 fix: copy command by value before pop_front() so that the
-        // reference is not dangling when we inspect command.type afterwards.
+        // BUG-CPP-1 fix: Peek at front WITHOUT popping — pop only on success.
+        // ARM §7.1: on error, commandQueue.front() must remain the erroneous
+        // command so that CONS.RD and queue-front stay in sync after the break.
+        // Previously the code called pop_front() here (before processCommand),
+        // which desynced the queue from CONS.RD when an error caused a break.
         CommandEntry command = commandQueue.front();
-        commandQueue.pop_front();
 
         // Process the command based on type (invalidations, PRI_RESP, RESUME, etc.).
         processCommand(command, lock);
@@ -3389,6 +3408,13 @@ void SMMU::processCommandQueue() {
         if ((gerrorStatus.load(std::memory_order_relaxed) ^ gerrorNStatus.load(std::memory_order_relaxed)) & GERROR_CMDQ_ERR) {
             break;
         }
+
+        // SUCCESS path: remove the command from the deque and advance CONS.RD.
+        // BUG-CPP-1 fix: pop_front() moved here from the top of the loop so that
+        // erroneous commands (CS=3 and GERROR_CMDQ_ERR paths above) are NOT
+        // removed from commandQueue on error — they stay at front so that
+        // CONS.RD and commandQueue.front() remain in sync (ARM §7.1).
+        commandQueue.pop_front();
 
         // ARM §3.5.1: Advance consumer index only for successfully processed
         // commands (FINDING-M-01).
@@ -3775,8 +3801,11 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_NH_ASID:
-            // ARM §4.4: ASID-targeted invalidation (CMD_TLBI_NH_ASID, opcode 0x11)
-            tlbCache->invalidateByASID(asid);
+            // BUG-CPP-2 fix: ARM §4.4.2.2 CMD_TLBI_NH_ASID — NS/Realm queue — invalidate
+            // by VMID AND ASID (joint match).  Previously called invalidateByASID(asid)
+            // which ignored VMID, over-invalidating entries from other VMIDs that share
+            // the same ASID value.
+            tlbCache->invalidateByVMIDAndASID(vmid, asid);
             break;
 
         case CommandType::TLBI_EL2_ALL:

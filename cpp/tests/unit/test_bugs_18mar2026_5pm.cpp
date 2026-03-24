@@ -89,11 +89,14 @@ TEST(NewB_5pm, STRW_EL2_TerminateEvent_PnuIsTrue) {
     StreamConfig cfg;
     cfg.translationEnabled = true; cfg.stage1Enabled = true; cfg.stage2Enabled = false;
     cfg.faultMode = FaultMode::Terminate; cfg.strw = StreamWorld::EL2; cfg.t0sz = 0;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 (bit[0]=1) requires Secure security state
+    // when stage-1 is active.
+    cfg.securityState = SecurityState::Secure;
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
     ASSERT_TRUE(smmu.createStreamPASID(sid, 0).isOk());
 
-    smmu.translate(sid, 0, 0x3000u, AccessType::Read, SecurityState::NonSecure);
+    smmu.translate(sid, 0, 0x3000u, AccessType::Read, SecurityState::Secure);
 
     EventEntry ev = findEvent(smmu, EventType::F_TRANSLATION);
     EXPECT_EQ(ev.type, EventType::F_TRANSLATION);

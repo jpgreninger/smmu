@@ -135,6 +135,9 @@ TEST(Bug2GerrorToctou, CommandsNotProcessedWhenCmdqErrActive) {
 }
 
 // After clearGerror, commands must be processed again.
+// ARM §7.1: The erroneous command remains in the queue so software can
+// identify it.  Software must drain/clear the queue before re-enabling
+// processing.  After clearing the queue and resubmitting, processing resumes.
 TEST(Bug2GerrorToctou, CommandsProcessedAfterClearGerror) {
     SMMU smmu;
     smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
@@ -146,9 +149,18 @@ TEST(Bug2GerrorToctou, CommandsProcessedAfterClearGerror) {
     ASSERT_TRUE(smmu.submitCommand(illSync).isOk());
     smmu.processCommandQueue();
 
+    // Verify the erroneous command remains in the queue (BUG-CPP-1 fix).
+    ASSERT_EQ(smmu.getCommandQueueSize(), 1u)
+        << "Precondition: erroneous CMD_SYNC CS=3 must remain in queue after error";
+
     // Acknowledge the error.
     smmu.clearGerror(GERROR_CMDQ_ERR);
     EXPECT_EQ(smmu.getGerror() & GERROR_CMDQ_ERR, 0u);
+
+    // ARM §7.1: software must drain the erroneous command from the queue before
+    // resuming.  clearCommandQueue() advances CONS.RD past all pending entries.
+    smmu.clearCommandQueue();
+    ASSERT_EQ(smmu.getCommandQueueSize(), 0u) << "Queue must be empty after clear";
 
     uint32_t rdBefore = smmu.getCmdqConsIndex();
 
@@ -159,7 +171,8 @@ TEST(Bug2GerrorToctou, CommandsProcessedAfterClearGerror) {
 
     uint32_t rdAfter = smmu.getCmdqConsIndex();
     EXPECT_NE(rdBefore, rdAfter)
-        << "BUG-2: After clearGerror, processCommandQueue must resume processing";
+        << "BUG-2: After clearGerror + queue drain, processCommandQueue must resume "
+           "processing valid commands";
 }
 
 // ============================================================================
@@ -271,6 +284,8 @@ static void setupEl2StreamWithPrivPage(SMMU& smmu, StreamID sid) {
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = false;
     cfg.strw               = StreamWorld::EL2;
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    cfg.securityState      = SecurityState::Secure;
 
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
@@ -283,7 +298,8 @@ static void setupEl2StreamWithPrivPage(SMMU& smmu, StreamID sid) {
     perms.execute        = false;
     perms.privilegedOnly = true;
 
-    ASSERT_TRUE(smmu.mapPage(sid, 0u, 0x1000u, 0x8000u, perms).isOk());
+    ASSERT_TRUE(smmu.mapPage(sid, 0u, 0x1000u, 0x8000u, perms,
+                             SecurityState::Secure).isOk());
 }
 
 // Slow-path (first translation, cache miss): EL2 stream, privilegedOnly page.
@@ -294,7 +310,8 @@ TEST(Bug8PrivilegedOnlyEl2, SlowPathClearPrivilegedOnly) {
     setupEl2StreamWithPrivPage(smmu, 10u);
 
     // First translation: slow path (cache cold).
-    TranslationResult result = smmu.translate(10u, 0u, 0x1000u, AccessType::Read);
+    TranslationResult result = smmu.translate(10u, 0u, 0x1000u, AccessType::Read,
+                                              SecurityState::Secure);
 
     ASSERT_TRUE(result.isOk())
         << "BUG-8 slow path: EL2 stream must succeed on privilegedOnly page";
@@ -311,11 +328,13 @@ TEST(Bug8PrivilegedOnlyEl2, FastPathClearPrivilegedOnly) {
     setupEl2StreamWithPrivPage(smmu, 11u);
 
     // Warm the TLB.
-    TranslationResult warmup = smmu.translate(11u, 0u, 0x1000u, AccessType::Read);
+    TranslationResult warmup = smmu.translate(11u, 0u, 0x1000u, AccessType::Read,
+                                              SecurityState::Secure);
     ASSERT_TRUE(warmup.isOk()) << "Warm-up translation failed unexpectedly";
 
     // Second translation: fast-path TLB hit.
-    TranslationResult result = smmu.translate(11u, 0u, 0x1000u, AccessType::Read);
+    TranslationResult result = smmu.translate(11u, 0u, 0x1000u, AccessType::Read,
+                                              SecurityState::Secure);
 
     ASSERT_TRUE(result.isOk())
         << "BUG-8 fast path: EL2 stream must succeed on privilegedOnly page (TLB hit)";
@@ -325,7 +344,9 @@ TEST(Bug8PrivilegedOnlyEl2, FastPathClearPrivilegedOnly) {
         << "BUG-8 fast path: privilegedOnly must be false for EL2 STRW on TLB hit";
 }
 
-// EL3 stream — same expectation: privilegedOnly must be cleared.
+// Secure+EL2 stream — same expectation: privilegedOnly must be cleared.
+// (Previously tested EL3+Secure, but ARM §5.2 BUG-CPP-3(b): EL3 is illegal for
+//  Secure streams when stage-1 is active. EL2 is the correct valid encoding.)
 TEST(Bug8PrivilegedOnlyEl3, FastPathClearPrivilegedOnly) {
     SMMU smmu;
     smmu.enable();
@@ -336,7 +357,9 @@ TEST(Bug8PrivilegedOnlyEl3, FastPathClearPrivilegedOnly) {
     cfg.translationEnabled  = true;
     cfg.stage1Enabled       = true;
     cfg.stage2Enabled       = false;
-    cfg.strw                = StreamWorld::EL3;
+    // ARM §5.2 BUG-CPP-3(b): STRW=EL3 (0b11) is illegal for Secure+stage1.
+    // Use EL2 (0b01) which is valid for Secure streams.
+    cfg.strw                = StreamWorld::EL2;
     cfg.securityState       = SecurityState::Secure;
 
     ASSERT_TRUE(smmu.configureStream(12u, cfg).isOk());
@@ -353,16 +376,16 @@ TEST(Bug8PrivilegedOnlyEl3, FastPathClearPrivilegedOnly) {
 
     // Warm the TLB.
     TranslationResult warmup = smmu.translate(12u, 0u, 0x1000u, AccessType::Read, SecurityState::Secure);
-    ASSERT_TRUE(warmup.isOk()) << "EL3 warm-up failed";
+    ASSERT_TRUE(warmup.isOk()) << "EL2/Secure warm-up failed";
 
     // Fast-path hit.
     TranslationResult result = smmu.translate(12u, 0u, 0x1000u, AccessType::Read, SecurityState::Secure);
     ASSERT_TRUE(result.isOk())
-        << "BUG-8: EL3 stream must succeed on privilegedOnly page (TLB hit)";
+        << "BUG-8: EL2/Secure stream must succeed on privilegedOnly page (TLB hit)";
 
     const TranslationData& data = result.getValue();
     EXPECT_FALSE(data.permissions.privilegedOnly)
-        << "BUG-8: privilegedOnly must be false for EL3 STRW on TLB hit";
+        << "BUG-8: privilegedOnly must be false for EL2 STRW on TLB hit";
 }
 
 // ============================================================================

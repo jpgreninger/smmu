@@ -119,16 +119,19 @@ static bool setupStream(SMMU& smmu, StreamID sid, StreamWorld strw,
     cfg.stage2Enabled      = false;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.strw               = strw;
-    // CONF-GAP-16: ARM §5.2.2 — STRW=EL3 is only valid for Secure streams.
-    // NonSecure + EL3 is an illegal STE combination that generates C_BAD_STE.
-    if (strw == StreamWorld::EL3) {
+    // ARM §5.2 BUG-CPP-3(a)/(b): STRW bit[0]=1 (EL2=0b01 or EL3=0b11) requires
+    // Secure security state when stage-1 is active.
+    if (strw == StreamWorld::EL2 || strw == StreamWorld::EL3) {
         cfg.securityState = SecurityState::Secure;
     }
+
+    SecurityState ss = (strw == StreamWorld::EL2 || strw == StreamWorld::EL3)
+                           ? SecurityState::Secure : SecurityState::NonSecure;
 
     if (!smmu.configureStream(sid, cfg).isOk()) return false;
     if (!smmu.enableStream(sid).isOk())         return false;
     if (!smmu.createStreamPASID(sid, CPP6_PASID).isOk()) return false;
-    if (!smmu.mapPage(sid, CPP6_PASID, CPP6_IOVA, CPP6_PA, perms).isOk()) return false;
+    if (!smmu.mapPage(sid, CPP6_PASID, CPP6_IOVA, CPP6_PA, perms, ss).isOk()) return false;
     return true;
 }
 
@@ -151,7 +154,7 @@ TEST(BugCpp6StageB, T1_ReadUnpriv_StageA_Miss_StageB_Hit_EL2) {
     // Cold call — slow path runs and populates TLB.
     TranslationResult r1 = smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                                            AccessType::Read,
-                                           SecurityState::NonSecure);
+                                           SecurityState::Secure);
     ASSERT_TRUE(r1.isOk())
         << "T1: STRW=EL2 stream with privileged-only page — Read must succeed "
            "(STRW suppresses privilege check per ARM §13.4.1)";
@@ -160,7 +163,7 @@ TEST(BugCpp6StageB, T1_ReadUnpriv_StageA_Miss_StageB_Hit_EL2) {
     // privilegedOnly entry), Stage B promotes to ReadPrivileged and hits.
     TranslationResult r2 = smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                                            AccessType::Read,
-                                           SecurityState::NonSecure);
+                                           SecurityState::Secure);
     ASSERT_TRUE(r2.isOk())
         << "T1: Warm Read on STRW=EL2 stream must hit via Stage-B re-check";
 
@@ -187,12 +190,12 @@ TEST(BugCpp6StageB, T2_ReadPrivileged_StageA_Hits_Directly_EL2) {
     // Populate TLB with a Read call first so the entry exists.
     smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                     AccessType::Read,
-                    SecurityState::NonSecure);
+                    SecurityState::Secure);
 
     // Now call with ReadPrivileged: Stage A should hit directly.
     TranslationResult rPriv = smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                                               AccessType::ReadPrivileged,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(rPriv.isOk())
         << "T2: ReadPrivileged on warm STRW=EL2 TLB must hit at Stage A directly "
            "(Stage B skipped because effectiveAccessType == accessType)";
@@ -206,10 +209,10 @@ TEST(BugCpp6StageB, T3_Read_And_ReadPrivileged_Return_Same_PA_EL2) {
 
     TranslationResult rRead = smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                                               AccessType::Read,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     TranslationResult rReadPriv = smmu->translate(CPP6_SID_EL2, CPP6_PASID, CPP6_IOVA,
                                                   AccessType::ReadPrivileged,
-                                                  SecurityState::NonSecure);
+                                                  SecurityState::Secure);
 
     ASSERT_TRUE(rRead.isOk())     << "T3: Read must succeed on STRW=EL2 stream";
     ASSERT_TRUE(rReadPriv.isOk()) << "T3: ReadPrivileged must succeed on STRW=EL2 stream";
@@ -230,24 +233,27 @@ TEST(BugCpp6StageB, T4_EL1EL0_Read_On_PrivPage_Denied) {
 
     TranslationResult r = smmu->translate(CPP6_SID_EL1, CPP6_PASID, CPP6_IOVA,
                                           AccessType::Read,
-                                          SecurityState::NonSecure);
+                                          SecurityState::Secure);
     EXPECT_FALSE(r.isOk())
         << "T4: Read on a privileged-only page with STRW=EL1_EL0 must be denied "
            "(privilege checks are NOT suppressed for EL1_EL0)";
 }
 
-// ── T5: STRW=EL3 mirrors EL2 — Read on privOnly succeeds via Stage-B ────────
+// ── T5: Secure+EL2 stream mirrors EL3 semantics — Read on privOnly succeeds ──
+// ARM §5.2 BUG-CPP-3(b): STRW=EL3 is now illegal for Secure+stage1 streams.
+// EL2+Secure has the same all-privileged semantics and is the correct encoding.
 
 TEST(BugCpp6StageB, T5_EL3_Read_On_PrivPage_Succeeds) {
     auto smmu = makeEnabledSMMU();
-    ASSERT_TRUE(setupStream(*smmu, CPP6_SID_EL3, StreamWorld::EL3, privOnlyRW()));
+    // EL3 is now invalid for Secure+stage1; use EL2 (same semantics, valid encoding).
+    ASSERT_TRUE(setupStream(*smmu, CPP6_SID_EL3, StreamWorld::EL2, privOnlyRW()));
 
     TranslationResult r = smmu->translate(CPP6_SID_EL3, CPP6_PASID, CPP6_IOVA,
                                           AccessType::Read,
-                                          SecurityState::NonSecure);
+                                          SecurityState::Secure);
     ASSERT_TRUE(r.isOk())
-        << "T5: STRW=EL3 must suppress privilege checks just like EL2 "
-           "(ARM §13.4.1: both EL2 and EL3 suppress privilege)";
+        << "T5: Secure+EL2 stream must suppress privilege checks "
+           "(ARM §13.4.1: EL2 suppresses privilege; EL3 is now illegal per §5.2)";
 }
 
 // ── T6: Write variant on STRW=EL2 succeeds via Stage-B re-check ─────────────
@@ -261,14 +267,14 @@ TEST(BugCpp6StageB, T6_Write_StageBRecheck_EL2) {
     // Cold call with Write.
     TranslationResult rCold = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                               AccessType::Write,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(rCold.isOk())
         << "T6: Write on STRW=EL2 privOnly page must succeed (cold call)";
 
     // Warm call — hits via Stage-B re-check (Write → WritePrivileged).
     TranslationResult rWarm = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                               AccessType::Write,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(rWarm.isOk())
         << "T6: Write on STRW=EL2 privOnly page must succeed (warm TLB, Stage-B)";
 }
@@ -287,11 +293,11 @@ TEST(BugCpp6StageB, T7_WritePrivileged_StageA_Hit_EL2) {
     // Warm the TLB with a Write first.
     smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                     AccessType::Write,
-                    SecurityState::NonSecure);
+                    SecurityState::Secure);
 
     TranslationResult rPriv = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                               AccessType::WritePrivileged,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(rPriv.isOk())
         << "T7: WritePrivileged on warm STRW=EL2 TLB must hit at Stage A "
            "(Stage B skipped — already at correct privilege level)";
@@ -306,7 +312,7 @@ TEST(BugCpp6StageB, T8_Execute_StageBRecheck_EL2) {
 
     TranslationResult r = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                           AccessType::Execute,
-                                          SecurityState::NonSecure);
+                                          SecurityState::Secure);
     ASSERT_TRUE(r.isOk())
         << "T8: Execute on STRW=EL2 privileged-only execute page must succeed";
 }
@@ -323,11 +329,11 @@ TEST(BugCpp6StageB, T9_ExecutePrivileged_StageA_Hit_EL2) {
     // Warm the TLB.
     smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                     AccessType::Execute,
-                    SecurityState::NonSecure);
+                    SecurityState::Secure);
 
     TranslationResult rPriv = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                               AccessType::ExecutePrivileged,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     ASSERT_TRUE(rPriv.isOk())
         << "T9: ExecutePrivileged on warm STRW=EL2 TLB must hit at Stage A";
 }
@@ -342,14 +348,14 @@ TEST(BugCpp6StageB, T10_ReadWrite_And_ReadWritePrivileged_EL2) {
     // ReadWrite: Stage A fails (unprivileged check), Stage B promotes and hits.
     TranslationResult rRW = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                             AccessType::ReadWrite,
-                                            SecurityState::NonSecure);
+                                            SecurityState::Secure);
     ASSERT_TRUE(rRW.isOk())
         << "T10: ReadWrite on STRW=EL2 privOnly page must succeed via Stage-B";
 
     // ReadWritePrivileged: Stage A hits directly (default: break path in switch).
     TranslationResult rRWPriv = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                                 AccessType::ReadWritePrivileged,
-                                                SecurityState::NonSecure);
+                                                SecurityState::Secure);
     ASSERT_TRUE(rRWPriv.isOk())
         << "T10: ReadWritePrivileged on warm STRW=EL2 TLB must hit at Stage A";
 
@@ -372,13 +378,13 @@ TEST(BugCpp6StageB, T11_NormalPage_StageA_Hits_STRW_EL2) {
     // Cold call populates TLB.
     smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                     AccessType::Read,
-                    SecurityState::NonSecure);
+                    SecurityState::Secure);
 
     // Warm call: Stage A hits because privilegedOnly==false,
     // validateAccessPermissions(Read) → true without needing Stage B.
     TranslationResult r = smmu->translate(SID, CPP6_PASID, CPP6_IOVA,
                                           AccessType::Read,
-                                          SecurityState::NonSecure);
+                                          SecurityState::Secure);
     ASSERT_TRUE(r.isOk())
         << "T11: Warm Read on non-privileged page with STRW=EL2 must hit at Stage A";
 }

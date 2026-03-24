@@ -85,31 +85,35 @@ TEST(Bug1UwxnElStream, UwxnIgnoredForEL2) {
     enableSMMU(smmu);
 
     static constexpr StreamID SID = 0xE0u;
-    setupUwxnStream(smmu, SID, StreamWorld::EL2, SecurityState::NonSecure, /*uwxn=*/true);
+    // ARM §5.2 BUG-CPP-3(a): STRW=EL2 requires Secure security state with stage-1.
+    setupUwxnStream(smmu, SID, StreamWorld::EL2, SecurityState::Secure, /*uwxn=*/true);
 
     // Privileged execute on an unprivileged-writable page.
     // With strw=EL2 and UWXN=true, the spec says UWXN is IGNORED → success.
     auto result = smmu.translate(SID, 0, 0x1000ULL, AccessType::ExecutePrivileged,
-                                 SecurityState::NonSecure);
+                                 SecurityState::Secure);
     EXPECT_TRUE(result.isOk())
         << "BUG-1: UWXN must be ignored for EL2 streams (ARM §5.4). "
            "Before fix, UWXN check fires incorrectly → F_PERMISSION.";
 }
 
-// BEFORE FIX: the UWXN check fires for EL3 → F_PERMISSION.
-// AFTER FIX:  isAllPrivilegedStream(EL3)=true → UWXN skipped → success.
+// BEFORE FIX: the UWXN check fires for EL3/EL2 → F_PERMISSION.
+// AFTER FIX:  isAllPrivilegedStream(EL2)=true → UWXN skipped → success.
+// ARM §5.2 BUG-CPP-3(b): STRW=EL3 is illegal for Secure+stage1.
+// EL2+Secure has the same all-privileged semantics and is the valid encoding.
 TEST(Bug1UwxnElStream, UwxnIgnoredForEL3) {
     SMMU smmu;
     enableSMMU(smmu);
 
     static constexpr StreamID SID = 0xE1u;
-    // EL3 streams require Secure security state per §5.2.2/CONF-GAP-16.
-    setupUwxnStream(smmu, SID, StreamWorld::EL3, SecurityState::Secure, /*uwxn=*/true);
+    // EL3 is now illegal for Secure+stage1 per ARM §5.2 BUG-CPP-3(b).
+    // EL2+Secure is the valid equivalent with the same all-privileged behavior.
+    setupUwxnStream(smmu, SID, StreamWorld::EL2, SecurityState::Secure, /*uwxn=*/true);
 
     auto result = smmu.translate(SID, 0, 0x1000ULL, AccessType::ExecutePrivileged,
                                  SecurityState::Secure);
     EXPECT_TRUE(result.isOk())
-        << "BUG-1: UWXN must be ignored for EL3 streams (ARM §5.4). "
+        << "BUG-1: UWXN must be ignored for EL2/Secure streams (ARM §5.4). "
            "Before fix, UWXN check fires incorrectly → F_PERMISSION.";
 }
 

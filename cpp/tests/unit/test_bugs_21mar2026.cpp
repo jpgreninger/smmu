@@ -69,6 +69,11 @@ static void configureStage1StreamSTRW(SMMU& s, StreamID sid, StreamWorld strw) {
     cfg.faultMode          = FaultMode::Terminate;
     cfg.t0sz               = 0;
     cfg.strw               = strw;
+    // ARM §5.2 BUG-CPP-3(a): STRW bit[0]=1 (EL2/EL3) requires Secure security
+    // state when stage-1 is active.
+    if (strw == StreamWorld::EL2 || strw == StreamWorld::EL3) {
+        cfg.securityState = SecurityState::Secure;
+    }
     s.configureStream(sid, cfg);
     s.enableStream(sid);
     s.createStreamPASID(sid, 0);
@@ -227,10 +232,11 @@ static bool translateWithSTRWEL2(AccessType accessType) {
     perms.write         = true;
     perms.execute       = true;
     perms.privilegedOnly = true; // unprivileged access denied
-    smmu.mapPage(sid, 0, 0x1000u, 0x2000u, perms, SecurityState::NonSecure);
+    // EL2 stream is now Secure (ARM §5.2 BUG-CPP-3(a)); use Secure for map and translate.
+    smmu.mapPage(sid, 0, 0x1000u, 0x2000u, perms, SecurityState::Secure);
 
     TranslationResult result = smmu.translate(sid, 0, 0x1000u, accessType,
-                                              SecurityState::NonSecure);
+                                              SecurityState::Secure);
     return result.isOk();
 }
 
