@@ -266,6 +266,14 @@ public:
     /// Get the current SMMU_CR2 register value.
     uint32_t getCR2() const;
 
+    // BUG-NEW-11: IDR0.STALL_MODEL configuration (§4.7.1/§4.7.2).
+    // 0b00 = stall and terminate both supported (default).
+    // 0b01 = terminate-only; CMD_RESUME and CMD_STALL_TERM raise CERROR_ILL.
+    // Values 0b10/0b11 are reserved.
+    void setStallModel(uint8_t model);
+    /// Get the current STALL_MODEL value.
+    uint8_t getStallModel() const;
+
     // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
     /// Set the number of stream table entries as 2^log2size.
     /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
@@ -486,6 +494,10 @@ private:
     std::unordered_map<uint16_t, StallRecord> stallQueue_;   ///< STAG -> StallRecord map
     std::atomic<uint16_t> stagCounter_;                       ///< Monotonically incrementing STAG generator
     mutable std::mutex stallQueueMutex_;                      ///< Protects stallQueue_
+
+    // BUG-NEW-11: IDR0.STALL_MODEL — configurable stall model (§4.7.1/§4.7.2).
+    // 0b00 = stall+terminate (default); 0b01 = terminate-only (CMD_RESUME/STALL_TERM → CERROR_ILL).
+    std::atomic<uint8_t> stallModel_;   ///< STALL_MODEL value; default 0b00
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).

@@ -412,8 +412,11 @@ fn gap_h_priq_overflow_generates_auto_failure_response() {
         smmu.submit_page_request(req).expect("queue not yet full");
     }
 
-    // One more request — PRIQ is now full → auto-failure response
-    let overflow_req = PRIEntry::new(99, 0).with_prg_index(7);
+    // One more request — PRIQ is now full → auto-failure response.
+    // BUG-NEW-12: auto-failure PRG_RESPONSE is generated ONLY when is_last_request=true
+    // (ARM §8.1).  Set is_last_request=true so the device gets a FAILURE response.
+    let mut overflow_req = PRIEntry::new(99, 0).with_prg_index(7);
+    overflow_req.is_last_request = true;
     let result = smmu.submit_page_request(overflow_req);
     assert!(
         matches!(result, Err(smmu::types::SMMUError::PriQueueFull)),

@@ -152,10 +152,14 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
     let active = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
     assert_ne!(active, 0, "CMDQ_ERR must be active after processing bad command");
 
-    // Submit a valid sync command; it must NOT be processed while CMDQ_ERR is active
+    // Submit a valid sync command; it must NOT be processed while CMDQ_ERR is active.
+    // BUG-NEW-10: bad_cmd is no longer auto-cleared by submit_command().  It stays
+    // in the queue until clear_gerror() explicitly pops it.  So the queue now has
+    // 2 entries: [bad_cmd (stuck), good_cmd].
     let good_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
     smmu.submit_command(good_cmd).unwrap();
-    assert_eq!(smmu.get_command_queue_size(), 1, "one valid command pending");
+    assert_eq!(smmu.get_command_queue_size(), 2,
+        "BUG-NEW-10: after error the bad cmd stays in queue; queue=[bad_cmd, good_cmd]");
 
     // process_command_queue() must return Ok(0) — CMDQ_ERR is active
     let r1 = smmu.process_command_queue();
@@ -168,8 +172,8 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
     );
     assert_eq!(
         smmu.get_command_queue_size(),
-        1,
-        "valid command must remain in queue while CMDQ_ERR is active"
+        2,
+        "valid command must remain in queue while CMDQ_ERR is active (bad cmd also still present)"
     );
 
     // Clear the error — command queue processing must resume

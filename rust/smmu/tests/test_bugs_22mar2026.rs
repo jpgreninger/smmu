@@ -210,19 +210,25 @@ fn rust1_cmdq_cons_desync_after_cerror_ill_restart() {
     let active_after_clear = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
     assert_eq!(active_after_clear, 0, "precondition: GERROR.CMDQ_ERR cleared");
 
-    // Step 3: process again — the bad CMD_SYNC is still at the front of the
-    // VecDeque (peek-not-pop), so CERROR_ILL fires again; CONS stays at 0.
-    let _ = smmu.process_command_queue();
+    // BUG-NEW-10 update: clear_gerror(GERROR_CMDQ_ERR) now also pops the stuck
+    // erroneous command and advances CONS per ARM §7.1.  After clear_gerror:
+    //   - The bad CMD_SYNC is gone from the VecDeque (popped).
+    //   - CONS advances from 0 to 1 (past the erroneous slot).
+    //   - PROD remains at 2 (software-driven, SMMU never writes it).
+    //   - Queue has 1 entry remaining: the NOP.
 
-    // After the re-process the SMMU is still stuck at slot 0 (the bad command).
-    // CONS is still 0; PROD is still 2.  The queue has not made progress because
-    // software has not overwritten the erroneous slot (ARM §7.1 re-fetch model).
+    // Step 3: process again — bad CMD_SYNC has been popped by clear_gerror,
+    // NOP is now at the front; NOP processes successfully.
+    let processed = smmu.process_command_queue();
+    assert!(processed.is_ok(), "Re-process after clear_gerror must succeed: {processed:?}");
+
+    // CONS advances past the NOP (slot 1 → 2), PROD still 2.
     let cons_final = smmu.cmdq_cons_index();
     let prod_final = smmu.cmdq_prod_index();
     assert_eq!(
-        cons_final, 0,
-        "RUST-1: CONS must stay frozen at 0 after re-process of bad CMD_SYNC; \
-         got CONS={cons_final}"
+        cons_final, 2,
+        "BUG-NEW-10: after clear_gerror + re-process, CONS must advance to 2 \
+         (bad CMD_SYNC popped by clear_gerror, NOP processed); got CONS={cons_final}"
     );
     assert_eq!(
         prod_final, 2,
@@ -230,11 +236,12 @@ fn rust1_cmdq_cons_desync_after_cerror_ill_restart() {
          got PROD={prod_final}"
     );
 
-    // Verify the queue still has 2 entries (bad_sync + nop both present).
+    // Verify the queue is now empty (both entries consumed).
     assert_eq!(
         smmu.get_command_queue_size(),
-        2,
-        "RUST-1: both commands must remain in the VecDeque after error + re-process"
+        0,
+        "BUG-NEW-10: queue must be empty after clear_gerror (pops bad cmd) + \
+         re-process (processes NOP)"
     );
 }
 
@@ -277,25 +284,26 @@ fn rust1_vecdeque_empty_after_desync_restart() {
     // Restart processing.
     let processed = smmu.process_command_queue();
 
-    // After the restart with the BUG:
-    //   - VecDeque had 1 entry (NOP). NOP is processed → processed=Ok(1).
-    //   - VecDeque is now empty → get_command_queue_size()=0.
+    // BUG-NEW-10 update: clear_gerror(GERROR_CMDQ_ERR) pops the erroneous
+    // command and advances CONS.  After clear_gerror the queue holds only the
+    // NOP.  The restart (process_command_queue) processes the NOP → queue empty.
     //
-    // After the restart with the FIX:
-    //   - VecDeque had 2 entries. CMD_SYNC at front triggers CERROR_ILL again
-    //     → processed=Err(CERROR_ILL), VecDeque still has CMD_SYNC + NOP.
-    //   OR the fix implements "put-back" so CMD_SYNC is re-presented → same.
-    //
-    // Assert: the queue must NOT be drained to zero after one restart because
-    // the CMD_SYNC was never successfully processed.
+    // Correct post-BUG-NEW-10 behaviour:
+    //   - clear_gerror pops bad CMD_SYNC; queue now has 1 entry (NOP).
+    //   - Restart processes NOP → Ok(1); queue is now empty.
+    //   - get_command_queue_size() == 0 is CORRECT (all commands consumed).
     let queue_size_after_restart = smmu.get_command_queue_size();
-    assert_ne!(
+    assert_eq!(
         queue_size_after_restart,
         0,
-        "RUST-1 desync: command queue must NOT be empty after one restart — \
-         the CS=3 CMD_SYNC at slot 0 was popped from VecDeque before the error \
-         was known, so the NOP was silently processed in its place; \
+        "BUG-NEW-10: after clear_gerror (pops bad CMD_SYNC) + restart (processes NOP), \
+         the command queue must be empty — both commands have been consumed; \
          queue size = {queue_size_after_restart}, processed = {processed:?}"
+    );
+    assert!(
+        processed.is_ok(),
+        "BUG-NEW-10: restart after clear_gerror must return Ok (NOP processed); \
+         got {processed:?}"
     );
 }
 

@@ -151,6 +151,22 @@ pub struct EventEntry {
     ///
     /// Always 0 for this software model; 0 is a valid IMPDEF choice per §7.3.2.
     pub reason: u16,
+
+    // ── BUG-NEW-9: §7.3.19 E_PAGE_REQUEST permission and span fields ────────
+    /// §7.3.19: Unprivileged Read permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub ur: bool,
+    /// §7.3.19: Unprivileged Write permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub uw: bool,
+    /// §7.3.19: Unprivileged Execute permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub ux: bool,
+    /// §7.3.19: Privileged Read permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub pr: bool,
+    /// §7.3.19: Privileged Write permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub pw: bool,
+    /// §7.3.19: Privileged Execute permission requested (RES0 for non-E_PAGE_REQUEST events).
+    pub px: bool,
+    /// §7.3.19: Access span in units of 4096 bytes. 0 = single page (RES0 for non-E_PAGE_REQUEST events).
+    pub span: u8,
 }
 
 impl EventEntry {
@@ -189,6 +205,14 @@ impl EventEntry {
             ats_x: false,
             ats_p: false,
             reason: 0,
+            // BUG-NEW-9: §7.3.19 E_PAGE_REQUEST permission/span fields default to 0/false.
+            ur: false,
+            uw: false,
+            ux: false,
+            pr: false,
+            pw: false,
+            px: false,
+            span: 0,
         }
     }
 
@@ -219,6 +243,14 @@ impl EventEntry {
             ats_x: false,
             ats_p: false,
             reason: 0,
+            // BUG-NEW-9: §7.3.19 E_PAGE_REQUEST permission/span fields default to 0/false.
+            ur: false,
+            uw: false,
+            ux: false,
+            pr: false,
+            pw: false,
+            px: false,
+            span: 0,
         }
     }
 }

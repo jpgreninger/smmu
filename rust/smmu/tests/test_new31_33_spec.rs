@@ -207,11 +207,15 @@ fn cmd_sync_cs_reserved_generates_no_completion_event() {
     cmd.cs = 0b11; // Reserved value — must cause CERROR_ILL per §4.7.3
     smmu.submit_command(cmd).unwrap();
 
-    // process_command_queue must return Err (CERROR_ILL halts processing)
+    // BUG-NEW-10 update: process_command_queue() must return Ok (not Err) and
+    // report the CERROR_ILL via CMDQ_CONS.ERR + GERROR.CMDQ_ERR (ARM §7.1/§6.3.28).
+    // The previous spec had it returning Err; the new spec requires Ok so that
+    // CERROR_ILL persists until software explicitly clears it via SMMU_GERRORN.
     let result = smmu.process_command_queue();
     assert!(
-        result.is_err(),
-        "§4.7.3 / BUG-02: process_command_queue must return Err for CMD_SYNC CS=0b11"
+        result.is_ok(),
+        "§4.7.3 / BUG-NEW-10: process_command_queue must return Ok for CMD_SYNC CS=0b11; \
+         error is indicated via CMDQ_CONS.ERR=CERROR_ILL and GERROR.CMDQ_ERR (ARM §7.1/§6.3.28)"
     );
 
     // GERROR.CMDQ_ERR must be toggled per §7.5

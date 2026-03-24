@@ -40,7 +40,7 @@ struct QueueConfiguration {
     }
     
 private:
-    static const size_t MIN_QUEUE_SIZE = 16;
+    static const size_t MIN_QUEUE_SIZE = 4;
     static const size_t MAX_QUEUE_SIZE = 65536;
 };
 

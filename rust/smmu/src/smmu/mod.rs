@@ -270,6 +270,13 @@ pub struct SMMU {
     priq_prod: AtomicU32,
     /// PRI queue consumer index register (ARM §3.5.1)
     priq_cons: AtomicU32,
+    /// Number of entries emitted as E_PAGE_REQUEST events by process_pri_queue()
+    /// but not yet consumed (popped) by CMD_PRI_RESP (BUG-NEW-14).
+    ///
+    /// process_pri_queue() emits entries at positions [priq_emitted..queue.len()]
+    /// without popping them.  CMD_PRI_RESP pops+advances-CONS only when the head
+    /// entry matches (strict FIFO per §3.5.1/§4.5.2).
+    priq_emitted: AtomicU64,
 
     /// GAP-H: §3.13.6 — auto-PRG failure responses generated on PRIQ overflow.
     ///
@@ -484,6 +491,17 @@ pub struct SMMU {
     ///
     /// This follows the same pattern as C++ `cmdqProcessingMutex_`.
     cmdq_processing_mutex: Mutex<()>,
+
+    // ---- BUG-NEW-11: IDR0.STALL_MODEL configurable field (§4.7.1, §4.7.2) ----
+
+    /// IDR0.STALL_MODEL field override (§4.7.1, §4.7.2).
+    ///
+    /// When set to `0b01` (terminate-only), `CMD_RESUME` and `CMD_STALL_TERM`
+    /// must raise `CERROR_ILL` because the stall model is not supported.
+    ///
+    /// Reset value: `0b00` (both stall and terminate supported, matching IDR0
+    /// default returned by `read_idr0()`).
+    stall_model: AtomicU8,
 }
 
 impl SMMU {
@@ -772,6 +790,8 @@ impl SMMU {
             priq_prod: AtomicU32::new(0),
             priq_cons: AtomicU32::new(0),
             pri_auto_failure_responses: Mutex::new(Vec::new()),
+            // BUG-NEW-14: emitted-but-not-yet-acked entry count.
+            priq_emitted: AtomicU64::new(0),
             invalidation_count: AtomicU64::new(0),
             tlb_cache,
             fault_timestamp_counter: AtomicU64::new(0),
@@ -816,6 +836,8 @@ impl SMMU {
             irq_ctrlack: AtomicU32::new(0),
             // BUG-RUST-2: serialization mutex for process_command_queue().
             cmdq_processing_mutex: Mutex::new(()),
+            // BUG-NEW-11: STALL_MODEL=0b00 (both stall and terminate supported).
+            stall_model: AtomicU8::new(0),
         }
     }
 
@@ -1663,6 +1685,39 @@ impl SMMU {
         self.strtab_log2size.load(Ordering::Acquire)
     }
 
+    /// Configure `IDR0.STALL_MODEL` (BUG-NEW-11, §4.7.1, §4.7.2).
+    ///
+    /// When set to `0b01` (terminate-only), `CMD_RESUME` and `CMD_STALL_TERM`
+    /// are illegal and will cause `CERROR_ILL` when processed.
+    ///
+    /// Reset value is `0b00` (both stall and terminate supported).
+    ///
+    /// # Arguments
+    ///
+    /// * `model` — `0b00` = both models supported; `0b01` = terminate-only;
+    ///   other values are reserved (stored as-is).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// let smmu = SMMU::new();
+    /// smmu.set_stall_model(0x01); // terminate-only
+    /// assert_eq!(smmu.get_stall_model(), 0x01);
+    /// smmu.set_stall_model(0x00); // restore default
+    /// ```
+    pub fn set_stall_model(&self, model: u8) {
+        self.stall_model.store(model, Ordering::Release);
+    }
+
+    /// Read the currently configured `IDR0.STALL_MODEL` value (BUG-NEW-11).
+    ///
+    /// Returns `0b00` by default (both stall and terminate models supported).
+    #[must_use]
+    pub fn get_stall_model(&self) -> u8 {
+        self.stall_model.load(Ordering::Acquire)
+    }
+
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
     ///
     /// When SMMUEN=0 and this flag is true, all transactions are aborted
@@ -1896,6 +1951,28 @@ impl SMMU {
                 break;
             }
             std::hint::spin_loop();
+        }
+        // BUG-NEW-10 fix: §6.3.28 / §7.1 — when software acknowledges
+        // GERROR.CMDQ_ERR via GERRORN, clear CMDQ_CONS.ERR and discard the stuck
+        // erroneous command from the queue so processing can resume.
+        //
+        // ARM §7.1: after an error, CONS.RD points at the erroneous command.
+        // Software acknowledges the error by writing GERRORN (via clear_gerror).
+        // The SMMU then resumes from the NEXT command.  In the ring-buffer model
+        // software would advance CONS past the bad entry; in this SW model
+        // clear_gerror pops the stuck entry and advances cmdq_cons so that the
+        // next process_command_queue call processes fresh commands.
+        if bits & Self::GERROR_CMDQ_ERR != 0 {
+            // Pop and discard the erroneous command that stalled the queue.
+            {
+                let mut queue = self.command_queue.write().unwrap();
+                queue.pop_front();
+            }
+            let cons = self.cmdq_cons.load(Ordering::Relaxed);
+            self.cmdq_cons
+                .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
+            // Clear CMDQ_CONS.ERR: error acknowledged, queue ready to resume.
+            self.cmdq_cons_err.store(Self::CERROR_NONE, Ordering::Release);
         }
     }
 
@@ -4479,6 +4556,14 @@ impl SMMU {
             ats_p: false,
             // §7.3.2: F_UUT Reason field — always 0 (IMPDEF=0 per §7.3.2).
             reason: 0,
+            // §7.3.19: E_PAGE_REQUEST permission/span fields — RES0 for non-E_PAGE_REQUEST events.
+            ur: false,
+            uw: false,
+            ux: false,
+            pr: false,
+            pw: false,
+            px: false,
+            span: 0,
         };
 
         // BUG-RUST-1 fix: §7.3.9/§7.3.11 — C_BAD_SUBSTREAMID and C_BAD_CD have
@@ -5074,19 +5159,12 @@ impl SMMU {
         }
 
         let mut queue = self.command_queue.write().unwrap();
-        // RUST-1 fix: ARM §7.1 re-fetch model — when a previous command caused
-        // CERROR_ILL the erroneous command was left in the VecDeque (peek fix).
-        // Software signalling intent to submit a new command is equivalent to
-        // "overwriting the erroneous slot" in a real ring buffer.  Pop the stuck
-        // command now, advance CONS past it, and clear CERROR so that subsequent
-        // process_command_queue calls see a clean queue.
-        if self.cmdq_cons_err.load(Ordering::Acquire) == Self::CERROR_ILL {
-            queue.pop_front();
-            let cons = self.cmdq_cons.load(Ordering::Relaxed);
-            self.cmdq_cons
-                .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
-            self.cmdq_cons_err.store(Self::CERROR_NONE, Ordering::Release);
-        }
+        // BUG-NEW-10 fix: ARM §7.1/§6.3.28 — CERROR_ILL must persist until
+        // software explicitly acknowledges it via SMMU_GERRORN (clear_gerror).
+        // The previous block that auto-cleared CERROR_ILL on new submission
+        // violated the spec: the error must remain visible until software writes
+        // GERRORN to acknowledge it.  Removed the auto-pop + CERROR_NONE clear.
+        //
         // BUG-NEW3-08 fix: enforce capacity for ALL queue sizes, not just < 200.
         // The previous guard skipped overflow detection for large queues, allowing
         // unbounded growth that violates ARM §3.5.1 circular queue semantics.
@@ -5167,7 +5245,7 @@ impl SMMU {
                     // returning Err.  Reading after the call always sees
                     // CERROR_ILL and the "first occurrence" guard never fires.
                     let prior_err = self.cmdq_cons_err.load(Ordering::Acquire);
-                    if let Err(e) = self.process_single_command(cmd) {
+                    if let Err(_e) = self.process_single_command(cmd) {
                         // BUG-03 fix: use signal_gerror (XOR-toggle, only-if-inactive)
                         // instead of fetch_or (unconditional set).
                         // RUST-1 fix: do NOT pop or advance cmdq_cons on error —
@@ -5185,7 +5263,14 @@ impl SMMU {
                         // stored cons_at_err into cmdq_prod has been removed entirely.
                         let _ = prior_err; // suppress unused-variable warning
                         self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                        return Err(e);
+                        // BUG-NEW-10 fix: §7.1/§6.3.28 — do NOT return Err here.
+                        // CERROR_ILL and GERROR.CMDQ_ERR are already set inside
+                        // process_single_command().  process_command_queue() returns
+                        // Ok(processed) so that CERROR_ILL persists until software
+                        // explicitly acknowledges it via SMMU_GERRORN (clear_gerror).
+                        // Returning Err here would give the false impression that the
+                        // error state can be managed via the return value alone.
+                        break;
                     }
                     // Success: remove the command from the VecDeque and advance
                     // CONS.RD past it.  ARM §7.1: completed commands are consumed.
@@ -5574,6 +5659,14 @@ impl SMMU {
                 }
             },
             CommandType::Resume => {
+                // BUG-NEW-11: §4.7.1 — CMD_RESUME is illegal when STALL_MODEL=0b01 (terminate-only).
+                if self.stall_model.load(Ordering::Acquire) == 0x01 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_RESUME: CERROR_ILL — IDR0.STALL_MODEL=0b01 (terminate-only; ARM §4.7.1)".to_string(),
+                    ));
+                }
                 // CMD_RESUME (§4.6, §3.12.2): resolve the stalled transaction.
                 // The Ac (action) and Ab (abort) bits determine the outcome per ARM §4.6, Table 4-10:
                 //   Ac=1 (action=true):                 Retry — transaction retried as if freshly arrived.
@@ -5599,6 +5692,14 @@ impl SMMU {
                 }
             },
             CommandType::StallTerm => {
+                // BUG-NEW-11: §4.7.2 — CMD_STALL_TERM is illegal when STALL_MODEL=0b01 (terminate-only).
+                if self.stall_model.load(Ordering::Acquire) == 0x01 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_STALL_TERM: CERROR_ILL — IDR0.STALL_MODEL=0b01 (terminate-only; ARM §4.7.2)".to_string(),
+                    ));
+                }
                 // §4.7.2 / FINDING-NEW-30: CMD_STALL_TERM clears ALL stall records for
                 // the given StreamID, not just the one matching the STAG field.
                 // ARM §4.7.2 specifies no STAG operand — the command takes a StreamID
@@ -5625,15 +5726,16 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::PriResp => {
-                // ARM §3.5.1 / §6.3.98 / BUG-RUST-Q4 fix: The PRI queue is STRICT FIFO.
-                // §3.5.1: CONS may only advance forward; §6.3.98: CONS is updated to
-                // point at the entry after the one just consumed — i.e. the head.
-                // CMD_PRI_RESP may only retire the HEAD entry whose
-                // (stream_id, prg_index) matches the command.  If the head does
-                // not match, this is a software usage error per §4.5.2 (CMD_PRI_RESP
-                // command definition); the SMMU treats the command as a no-op.
-                // Searching and removing an interior entry (any pos > 0) violates
-                // the strict FIFO guarantee of §3.5.1 and §6.3.98.
+                // ARM §3.5.1 / §6.3.98 / BUG-NEW-14 fix:
+                // The PRI queue is STRICT FIFO per §3.5.1.  CMD_PRI_RESP may only
+                // consume the HEAD entry.  If the head does not match the command's
+                // (stream_id, prg_index, pasid), the command is a no-op (software
+                // usage error per §4.5.2).
+                //
+                // BUG-NEW-14 design: process_pri_queue() emits E_PAGE_REQUEST events
+                // WITHOUT popping entries (tracked by priq_emitted).  Entries remain
+                // in the VecDeque until CMD_PRI_RESP pops them here.  When CMD_PRI_RESP
+                // pops the head, priq_emitted is decremented by 1.
                 let mut queue = self.pri_queue.write().unwrap();
                 if let Some(head) = queue.front() {
                     if head.stream_id == command.stream_id
@@ -5641,9 +5743,14 @@ impl SMMU {
                         && head.pasid == command.pasid
                     {
                         queue.pop_front();
-                        // BUG-RUST-2 fix: preserve OVACKFLG (bit 31) — same invariant
-                        // as process_pri_queue(): software writes bit 31 to acknowledge
-                        // overflow and the SMMU must not clear it (ARM §8.1).
+                        // Decrement emitted count: this entry was emitted as an event.
+                        let emitted = self.priq_emitted.load(Ordering::Acquire);
+                        if emitted > 0 {
+                            self.priq_emitted.fetch_sub(1, Ordering::Release);
+                        }
+                        // BUG-RUST-2 fix: preserve OVACKFLG (bit 31) — software writes
+                        // this bit to acknowledge a PRI queue overflow; the SMMU must
+                        // not clear it (ARM §8.1).
                         let cons = self.priq_cons.load(Ordering::Relaxed);
                         self.priq_cons.store(
                             Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
@@ -5798,10 +5905,13 @@ impl SMMU {
             }
             // GAP-H fix: §3.13.6 — PRIQ overflow: auto-generate PRG_RESPONSE(FAILURE).
             // The device must not wait indefinitely for a response that will never come.
-            // Store the failed entry so callers can retrieve it via
-            // get_pri_auto_failure_responses().
-            if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
-                auto_resp.push(request);
+            // BUG-NEW-12 fix: §8.1 — auto-failure PRG_RESPONSE is required ONLY when
+            // is_last_request=true.  A PPR with is_last_request=false has no outstanding
+            // group response pending; silently discard with no auto-response.
+            if request.is_last_request {
+                if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                    auto_resp.push(request);
+                }
             }
             return Err(SMMUError::PriQueueFull);
         }
@@ -5851,22 +5961,41 @@ impl SMMU {
     /// gone — an unrecoverable silent loss.  This fix moves the pop to *after*
     /// a successful submission.
     pub fn process_pri_queue(&self) -> Result<usize, SMMUError> {
+        // BUG-NEW-14 fix: §8.1/§3.5.1 — PRIQ_CONS must NOT be advanced by
+        // process_pri_queue().  Only CMD_PRI_RESP may advance PRIQ_CONS.
+        //
+        // This function emits E_PAGE_REQUEST events for entries that have NOT yet
+        // been emitted (tracked by priq_emitted).  Entries remain in the VecDeque
+        // until CMD_PRI_RESP pops them (strict FIFO, §4.5.2).
+        //
+        // priq_emitted tracks how many entries from the front of the VecDeque have
+        // already been emitted.  process_pri_queue() starts from index priq_emitted
+        // and emits the remaining entries, advancing priq_emitted for each success.
+        //
+        // CMD_PRI_RESP matches against the HEAD entry (VecDeque[0]), pops it, and
+        // advances PRIQ_CONS.  On pop, priq_emitted is decremented by 1 (since the
+        // popped entry was already counted in the emitted set).
         let mut processed = 0;
 
         loop {
-            // Peek at the front entry WITHOUT removing it yet.
+            // Peek at the next un-emitted entry (at offset priq_emitted from the front).
+            let emit_offset = self.priq_emitted.load(Ordering::Acquire) as usize;
             let request = {
                 let queue = self.pri_queue.read().unwrap();
-                queue.front().copied()
+                queue.get(emit_offset).copied()
             };
 
             match request {
                 Some(req) => {
-                    // Build the E_PAGE_REQUEST event from the peeked entry.
-                    // The event carries the prg_index via the error_code field so
-                    // that software can correlate events with PRI queue entries.
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
 
+                    // BUG-NEW-9: §7.3.19 — populate ur/uw/ux/pr/pw/px from the
+                    // access type.  Unprivileged bits reflect non-privileged accesses;
+                    // privileged bits reflect privileged accesses.  span=0 (single page).
+                    let is_priv  = req.access_type.is_privileged();
+                    let can_r    = req.access_type.can_read();
+                    let can_w    = req.access_type.can_write();
+                    let can_x    = req.access_type.can_execute();
                     let event = EventEntry {
                         event_type: EventType::EPageRequest,
                         stream_id: req.stream_id,
@@ -5879,32 +6008,26 @@ impl SMMU {
                         timestamp,
                         stall: false,
                         stag: 0,
+                        // BUG-NEW-9: unprivileged permission bits for non-privileged accesses;
+                        // privileged permission bits for privileged accesses.
+                        ur: !is_priv && can_r,
+                        uw: !is_priv && can_w,
+                        ux: !is_priv && can_x,
+                        pr: is_priv && can_r,
+                        pw: is_priv && can_w,
+                        px: is_priv && can_x,
+                        span: 0,
                         ..EventEntry::zeroed()
                     };
 
-                    // Submit the event FIRST.  Only pop if submission succeeds.
-                    // If the event queue is full the entry stays at the front of
-                    // the PRI queue; stop processing so the caller can drain the
-                    // event queue and call us again.
+                    // Submit the event.  If the event queue is full, stop here so
+                    // the caller can drain the event queue and retry.
                     if self.submit_event(event).is_err() {
                         break;
                     }
 
-                    // Success: now pop the entry and advance PRIQ_CONS.
-                    {
-                        let mut queue = self.pri_queue.write().unwrap();
-                        queue.pop_front();
-                        // ARM §3.5.1: advance PRIQ_CONS after each dequeue.
-                        // BUG-RUST-1 fix: preserve OVACKFLG (bit 31) — software writes
-                        // this bit to acknowledge a PRI queue overflow; the SMMU must
-                        // never clear it during an index advance (ARM §8.1).
-                        let cons = self.priq_cons.load(Ordering::Relaxed);
-                        self.priq_cons.store(
-                            Self::advance_index(cons & !(1u32 << 31), self.priq_log2size)
-                                | (cons & (1u32 << 31)),
-                            Ordering::Release,
-                        );
-                    }
+                    // Advance the emitted cursor (entry stays in VecDeque until CMD_PRI_RESP).
+                    self.priq_emitted.fetch_add(1, Ordering::Release);
                     processed += 1;
                 },
                 None => break,
@@ -5932,6 +6055,8 @@ impl SMMU {
         queue.clear();
         self.priq_prod.store(0, Ordering::Release);
         self.priq_cons.store(0, Ordering::Release);
+        // BUG-NEW-14: reset emitted cursor so process_pri_queue() starts fresh.
+        self.priq_emitted.store(0, Ordering::Release);
     }
 
     /// GAP-H: §3.13.6 — retrieve and drain auto-generated PRG_RESPONSE(FAILURE) entries.

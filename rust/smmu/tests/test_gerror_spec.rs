@@ -239,7 +239,11 @@ fn test_cmdq_err_halts_remaining_commands() {
     smmu.submit_command(CommandEntry::new(CommandType::TlbiNhAll, 0, 0)).unwrap();
 
     let result = smmu.process_command_queue();
-    assert!(result.is_err(), "Queue must halt on command error");
+    // BUG-NEW-10 update: process_command_queue() returns Ok (not Err) when a
+    // command error occurs; the error is indicated via CMDQ_CONS.ERR=CERROR_ILL
+    // and GERROR.CMDQ_ERR (ARM §7.1/§6.3.28).
+    assert!(result.is_ok(), "BUG-NEW-10: Queue must return Ok even when halted on error \
+        (error indicated via CERROR_ILL + GERROR.CMDQ_ERR)");
 
     // The good TlbiNhAll command was never processed because queue halted
     assert_ne!(smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR, 0);

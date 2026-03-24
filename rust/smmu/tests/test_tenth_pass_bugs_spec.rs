@@ -72,7 +72,10 @@ fn bug09_cmd_sync_cs3_sets_gerror_cmdq_err() {
     smmu.submit_command(cmd).unwrap();
     let result = smmu.process_command_queue();
 
-    assert!(result.is_err(), "§4.7.3: process_command_queue must return Err for CS=0b11");
+    // BUG-NEW-10 update: process_command_queue() must return Ok (not Err); the error
+    // is indicated via CMDQ_CONS.ERR=CERROR_ILL and GERROR.CMDQ_ERR (ARM §7.1/§6.3.28).
+    assert!(result.is_ok(), "§4.7.3 / BUG-NEW-10: process_command_queue must return Ok for CS=0b11; \
+        error indicated via CERROR_ILL + GERROR.CMDQ_ERR (ARM §7.1/§6.3.28)");
     assert_ne!(
         smmu.get_gerror() & SMMU::GERROR_CMDQ_ERR,
         0,

@@ -41,8 +41,8 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationAllValid) {
 }
 
 TEST_F(ConfigurationCoverageTest, ValidateConfigurationInvalidQueueSize) {
-    // Test invalid queue configuration - event queue too small
-    QueueConfiguration invalidQueue(8, 256, 128);  // 8 < MIN_QUEUE_SIZE (16)
+    // Test invalid queue configuration - event queue too small (3 < MIN_QUEUE_SIZE = 4)
+    QueueConfiguration invalidQueue(3, 256, 128);  // 3 < MIN_QUEUE_SIZE (4)
 
     EXPECT_FALSE(invalidQueue.isValid());
 
@@ -72,8 +72,8 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationInvalidQueueSizeTooLarge)
 }
 
 TEST_F(ConfigurationCoverageTest, ValidateConfigurationInvalidCommandQueueSize) {
-    // Test invalid command queue size
-    QueueConfiguration invalidQueue(512, 8, 128);  // command queue 8 < MIN_QUEUE_SIZE (16)
+    // Test invalid command queue size (3 < MIN_QUEUE_SIZE = 4)
+    QueueConfiguration invalidQueue(512, 3, 128);  // command queue 3 < MIN_QUEUE_SIZE (4)
 
     EXPECT_FALSE(invalidQueue.isValid());
 
@@ -84,8 +84,8 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationInvalidCommandQueueSize) 
 }
 
 TEST_F(ConfigurationCoverageTest, ValidateConfigurationInvalidPriQueueSize) {
-    // Test invalid PRI queue size
-    QueueConfiguration invalidQueue(512, 256, 8);  // PRI queue 8 < MIN_QUEUE_SIZE (16)
+    // Test invalid PRI queue size (3 < MIN_QUEUE_SIZE = 4)
+    QueueConfiguration invalidQueue(512, 256, 3);  // PRI queue 3 < MIN_QUEUE_SIZE (4)
 
     EXPECT_FALSE(invalidQueue.isValid());
 
@@ -319,7 +319,7 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationDetailedErrors) {
     SMMUConfiguration config;
 
     // Set invalid queue configuration
-    QueueConfiguration badQueue(8, 8, 8);
+    QueueConfiguration badQueue(3, 3, 3);
 
     // Create a config with invalid components
     SMMUConfiguration badConfig(badQueue, CacheConfiguration(), AddressConfiguration(), ResourceLimits());
@@ -494,8 +494,8 @@ TEST_F(ConfigurationCoverageTest, ConfigurationParsingWithInvalidValues) {
 }
 
 TEST_F(ConfigurationCoverageTest, BoundaryValueQueueSizes) {
-    // Test boundary values for queue sizes - minimum valid
-    QueueConfiguration minQueue(16, 16, 16);  // MIN_QUEUE_SIZE
+    // Test boundary values for queue sizes - minimum valid (MIN_QUEUE_SIZE = 4)
+    QueueConfiguration minQueue(4, 4, 4);  // MIN_QUEUE_SIZE
     EXPECT_TRUE(minQueue.isValid());
 
     SMMUConfiguration config;
@@ -509,8 +509,8 @@ TEST_F(ConfigurationCoverageTest, BoundaryValueQueueSizes) {
     result = config.setQueueConfiguration(maxQueue);
     EXPECT_TRUE(result.isOk());
 
-    // Test just below minimum
-    QueueConfiguration belowMin(15, 16, 16);
+    // Test just below minimum (3 < MIN_QUEUE_SIZE = 4 is invalid)
+    QueueConfiguration belowMin(3, 4, 4);
     EXPECT_FALSE(belowMin.isValid());
 
     // Test just above maximum
@@ -698,7 +698,7 @@ TEST_F(ConfigurationCoverageTest, ConfigurationMergeWithInvalidConfig) {
     // Test merge() with invalid configuration
     SMMUConfiguration validConfig = SMMUConfiguration::createDefault();
 
-    QueueConfiguration invalidQueue(8, 8, 8);
+    QueueConfiguration invalidQueue(3, 3, 3);
     SMMUConfiguration invalidConfig(invalidQueue, CacheConfiguration(), AddressConfiguration(), ResourceLimits());
 
     VoidResult result = validConfig.merge(invalidConfig);
@@ -832,8 +832,8 @@ TEST_F(ConfigurationCoverageTest, UpdateMethodsWithInvalidValues) {
     // Test update methods with invalid values
     SMMUConfiguration config = SMMUConfiguration::createDefault();
 
-    // Try to update queue sizes with invalid values
-    VoidResult result = config.updateQueueSizes(8, 8, 8);
+    // Try to update queue sizes with invalid values (3 < MIN_QUEUE_SIZE = 4)
+    VoidResult result = config.updateQueueSizes(3, 3, 3);
     EXPECT_FALSE(result.isOk());
 
     // Try to update cache settings with invalid values
@@ -1016,7 +1016,7 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationErrorPaths) {
     EXPECT_TRUE(errors.empty());
 
     // Create invalid configuration and test
-    QueueConfiguration invalidQueue(8, 8, 8);
+    QueueConfiguration invalidQueue(3, 3, 3);
     SMMUConfiguration invalidConfig(invalidQueue, CacheConfiguration(), AddressConfiguration(), ResourceLimits());
 
     errors = invalidConfig.validateConfiguration();
@@ -1035,10 +1035,11 @@ TEST_F(ConfigurationCoverageTest, ValidateConfigurationErrorPaths) {
 
 TEST_F(ConfigurationCoverageTest, ParseConfigurationWithInvalidConfig) {
     // Test fromString() with configuration that would fail validation
+    // (sizes 3 < MIN_QUEUE_SIZE = 4 are invalid)
     std::string invalidConfigStr =
-        "event_queue_size=8\n"
-        "command_queue_size=8\n"
-        "pri_queue_size=8\n";
+        "event_queue_size=3\n"
+        "command_queue_size=3\n"
+        "pri_queue_size=3\n";
 
     Result<SMMUConfiguration> parseResult = SMMUConfiguration::fromString(invalidConfigStr);
 

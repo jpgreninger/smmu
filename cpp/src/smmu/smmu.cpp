@@ -115,6 +115,8 @@ SMMU::SMMU()
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1),
+      // BUG-NEW-11: STALL_MODEL defaults to 0b00 (stall+terminate both supported).
+      stallModel_(0),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -173,6 +175,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       strtabLog2Size_(32),
       // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
       stagCounter_(1),
+      // BUG-NEW-11: STALL_MODEL defaults to 0b00 (stall+terminate both supported).
+      stallModel_(0),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -1391,6 +1395,8 @@ void SMMU::reset() {
     }
     // BUG-NEW3-05 fix: Start at 1; STAG=0 is reserved per ARM §3.12.2.
     stagCounter_.store(1, std::memory_order_relaxed);
+    // BUG-NEW-11: Reset STALL_MODEL to 0b00 (default: stall+terminate supported).
+    stallModel_.store(0u, std::memory_order_release);
 }
 
 // Helper methods
@@ -3199,6 +3205,19 @@ uint32_t SMMU::getIrqCtrlAck() const {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BUG-NEW-11: STALL_MODEL configuration (§4.7.1/§4.7.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Set IDR0.STALL_MODEL.  0b00 = stall+terminate; 0b01 = terminate-only.
+void SMMU::setStallModel(uint8_t model) {
+    stallModel_.store(model, std::memory_order_release);
+}
+
+uint8_t SMMU::getStallModel() const {
+    return stallModel_.load(std::memory_order_acquire);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GAP-NEW-F: GATOS address translation wrapper (§9.1–9.9)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3525,12 +3544,16 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         // OVFLG unchanged and inhibit the new entry (do not push_back).
 
         // GAP-H fix: ARM IHI0070G.b §3.13.6 — PRIQ overflow auto-PRG_RESPONSE.
-        // When the PRIQ is full, the SMMU must automatically generate a FAILURE
-        // response for the overflowing page request group so the device is not
-        // left stalled indefinitely waiting for a response that will never arrive.
-        PRIAutoFailure autoFail(request.streamID, request.pasid,
-                                request.prgIndex, getCurrentTimestamp());
-        priAutoFailures_.push_back(autoFail);
+        // BUG-NEW-12 fix: §8.1 — an auto-failure PRG_RESPONSE is required ONLY
+        // when the overflowing PPR has isLastRequest=true (it is the last PPR in
+        // a Page Request Group and the device is waiting for a response).
+        // When isLastRequest=false the PPR must be silently discarded with no
+        // auto-response — the device does not expect a response for non-last PPRs.
+        if (request.isLastRequest) {
+            PRIAutoFailure autoFail(request.streamID, request.pasid,
+                                    request.prgIndex, getCurrentTimestamp());
+            priAutoFailures_.push_back(autoFail);
+        }
         return;
     }
 
@@ -3547,6 +3570,33 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     // §7.3.19 / FINDING-NEW-32: carry the request's security state, not a hardcoded NonSecure.
     // Only generate the E_PAGE_REQUEST event when the entry was actually enqueued.
     generateEvent(EventType::E_PAGE_REQUEST, request.streamID, request.pasid, request.requestedAddress, request.securityState);
+
+    // BUG-NEW-9: §7.3.19 — populate E_PAGE_REQUEST permission fields on the event
+    // just enqueued.  queueMutex is already held (recursive_mutex) so eventQueue is
+    // stable.  The event may have been parked in stallPending_ if the queue was full,
+    // but E_PAGE_REQUEST is a non-stall event so it goes to eventQueue.back() when
+    // enqueued successfully (EVENTQEN=1 and queue not full).
+    if ((cr0_.load(std::memory_order_acquire) & CR0_EVENTQEN) != 0u &&
+        !eventQueue.empty() &&
+        eventQueue.back().type == EventType::E_PAGE_REQUEST &&
+        eventQueue.back().streamID == request.streamID &&
+        eventQueue.back().pasid == request.pasid) {
+        EventEntry& ev = eventQueue.back();
+        const AccessType acc = request.accessType;
+        // Unprivileged permission bits derived from the access type.
+        ev.ur = (acc == AccessType::Read     || acc == AccessType::ReadWrite);
+        ev.uw = (acc == AccessType::Write    || acc == AccessType::ReadWrite);
+        ev.ux = (acc == AccessType::Execute  || acc == AccessType::ReadExecute ||
+                 acc == AccessType::ReadExecutePrivileged);
+        // Privileged permission bits — same logic applied to privileged access types.
+        ev.pr = (acc == AccessType::ReadPrivileged ||
+                 acc == AccessType::ReadWritePrivileged);
+        ev.pw = (acc == AccessType::WritePrivileged ||
+                 acc == AccessType::ReadWritePrivileged);
+        ev.px = (acc == AccessType::ExecutePrivileged ||
+                 acc == AccessType::ReadExecutePrivileged);
+        ev.span = 0u; // single page (default)
+    }
 }
 
 void SMMU::processPRIQueue() {
@@ -4168,14 +4218,23 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::PRI_RESP: {
-            // ARM §8.3: Find and complete the pending PRIEntry with matching
-            // streamID + prgIndex. Remove it from the PRI queue. (FINDING-M-08)
-            // processCommandQueue() holds queueMutex via recursive_mutex, so
-            // re-acquiring here is safe.
+            // BUG-NEW-13 fix: §3.5.1/§4.5.2 — CMD_PRI_RESP must only retire the
+            // HEAD entry of the PRI queue and must match on streamID, prgIndex, AND
+            // PASID.  A linear scan of all queue entries was incorrect: it could
+            // retire an interior entry (skipping the head) and did not check PASID.
+            //
+            // Correct behaviour per ARM §4.5.2:
+            //   1. Check only the HEAD of the queue (priQueue.front()).
+            //   2. Match on streamID, prgIndex, AND pasid.
+            //   3. If the head matches: retire it (pop_front, advance PRIQ_CONS).
+            //   4. If the head does not match: no-op (software error per §4.5.2).
             std::lock_guard<std::recursive_mutex> priLock(queueMutex);
-            for (auto it = priQueue.begin(); it != priQueue.end(); ++it) {
-                if (it->streamID == command.streamID && it->prgIndex == command.prgIndex) {
-                    priQueue.erase(it);
+            if (!priQueue.empty()) {
+                const PRIEntry& head = priQueue.front();
+                if (head.streamID == command.streamID &&
+                    head.prgIndex  == command.prgIndex  &&
+                    head.pasid     == command.pasid) {
+                    priQueue.pop_front();
                     // BUG-CPP-3 fix: §8.1 PRIQ_CONS.OVACKFLG (bit 31) is software-written;
                     // preserve bit 31 via RMW when advancing the consumer index here.
                     {
@@ -4183,15 +4242,22 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                         uint32_t newRD = advanceQueueIndex(oldCons & ~(1u << 31), priqLog2Size);
                         priqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
                     }
-                    break;
                 }
+                // If head does not match (wrong streamID/prgIndex/PASID): no-op.
+                // ARM §4.5.2: it is a software error to respond out-of-order.
             }
-            // If not found: PRGIndex is invalid — per ARM §8.3, this is a
-            // software error; no action taken (no event generated for simulation).
+            // If queue empty: no-op (software sent a spurious CMD_PRI_RESP).
             break;
         }
 
         case CommandType::RESUME: {
+            // BUG-NEW-11 fix: §4.7.1 — when IDR0.STALL_MODEL==0b01 (terminate-only),
+            // CMD_RESUME is not supported and must raise CERROR_ILL (ARM §4.7.1).
+            if (stallModel_.load(std::memory_order_acquire) == 0x01u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // ARM §4.6: CMD_RESUME — resume or abort a stalled transaction.
             // Three outcomes based on Ac (action) and Ab (abort) bits:
             //   Ac=1:           Retry  — transaction may be retried.
@@ -4200,35 +4266,46 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // Per §4.6: only retire the record if its StreamID matches.
             // CONF-GAP-24: Record the outcome BEFORE erasing the stall record so
             // software can observe which disposition was chosen via getResumeOutcome().
-            std::lock_guard<std::mutex> slock(stallQueueMutex_);
-            auto it = stallQueue_.find(command.stag);
-            if (it != stallQueue_.end() && it->second.streamID == command.streamID) {
-                // Classify outcome per ARM §4.6 Ac/Ab field encoding.
-                ResumeOutcome outcome;
-                if (command.action) {
-                    outcome = ResumeOutcome::Retry;
-                } else if (command.abort) {
-                    outcome = ResumeOutcome::Abort;
-                } else {
-                    outcome = ResumeOutcome::Terminate;
+            {
+                std::lock_guard<std::mutex> slock(stallQueueMutex_);
+                auto it = stallQueue_.find(command.stag);
+                if (it != stallQueue_.end() && it->second.streamID == command.streamID) {
+                    // Classify outcome per ARM §4.6 Ac/Ab field encoding.
+                    ResumeOutcome outcome;
+                    if (command.action) {
+                        outcome = ResumeOutcome::Retry;
+                    } else if (command.abort) {
+                        outcome = ResumeOutcome::Abort;
+                    } else {
+                        outcome = ResumeOutcome::Terminate;
+                    }
+                    // Record outcome for one-shot query via getResumeOutcome().
+                    resumeOutcomes_[command.stag] = outcome;
+                    stallQueue_.erase(it);
                 }
-                // Record outcome for one-shot query via getResumeOutcome().
-                resumeOutcomes_[command.stag] = outcome;
-                stallQueue_.erase(it);
+                // If STAG not found or StreamID mismatch: no effect (§4.6).
             }
-            // If STAG not found or StreamID mismatch: no effect (§4.6).
             break;
         }
 
         case CommandType::STALL_TERM: {
+            // BUG-NEW-11 fix: §4.7.2 — when IDR0.STALL_MODEL==0b01 (terminate-only),
+            // CMD_STALL_TERM is not supported and must raise CERROR_ILL (ARM §4.7.2).
+            if (stallModel_.load(std::memory_order_acquire) == 0x01u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // ARM §4.7: CMD_STALL_TERM — abort ALL stalled transactions for StreamID.
             // Removes every StallRecord whose streamID matches command.streamID.
-            std::lock_guard<std::mutex> slock(stallQueueMutex_);
-            for (auto it = stallQueue_.begin(); it != stallQueue_.end(); ) {
-                if (it->second.streamID == command.streamID) {
-                    it = stallQueue_.erase(it);
-                } else {
-                    ++it;
+            {
+                std::lock_guard<std::mutex> slock(stallQueueMutex_);
+                for (auto it = stallQueue_.begin(); it != stallQueue_.end(); ) {
+                    if (it->second.streamID == command.streamID) {
+                        it = stallQueue_.erase(it);
+                    } else {
+                        ++it;
+                    }
                 }
             }
             break;

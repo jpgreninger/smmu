@@ -28,7 +28,7 @@
 //! 8. Assert `is_priq_empty_by_index()` — FAILS before the fix when PROD !=
 //!    CONS after clear.
 
-use smmu::types::{AccessType, PRIEntry};
+use smmu::types::{AccessType, CommandEntry, CommandType, PRIEntry};
 use smmu::SMMU;
 
 // ---------------------------------------------------------------------------
@@ -81,23 +81,35 @@ fn bug1_clear_pri_queue_resets_priq_prod_to_zero() {
     );
 }
 
-/// After dequeueing entries (advancing priq_cons) and then calling
-/// `clear_pri_queue()`, `priq_cons_index()` must return 0.
+/// After dequeueing entries (advancing priq_cons via CMD_PRI_RESP) and then
+/// calling `clear_pri_queue()`, `priq_cons_index()` must return 0.
 ///
-/// Before the fix, `priq_cons` retains its non-zero value, so this assertion
-/// FAILS.
+/// BUG-NEW-14 update: `process_pri_queue()` no longer advances `priq_cons`
+/// (ARM §8.1/§3.5.1 — only CMD_PRI_RESP may advance PRIQ_CONS).  The test
+/// uses CMD_PRI_RESP to advance `priq_cons` before calling `clear_pri_queue`.
 #[test]
 fn bug1_clear_pri_queue_resets_priq_cons_to_zero() {
     let smmu = smmu_with_priq_enabled();
 
-    // Enqueue then process (dequeue) to advance priq_cons.
-    smmu.submit_page_request(make_req(1, 0x1000)).unwrap();
-    smmu.submit_page_request(make_req(2, 0x2000)).unwrap();
+    // Enqueue a page request.
+    let req1 = PRIEntry { stream_id: 1, pasid: 0, requested_address: 0x1000,
+        access_type: AccessType::Read, is_last_request: true, timestamp: 0,
+        prg_index: 0, security_state: smmu::types::SecurityState::NonSecure };
+    smmu.submit_page_request(req1).unwrap();
+
+    // Process the PRI queue to emit E_PAGE_REQUEST events (does NOT advance priq_cons
+    // per BUG-NEW-14 / ARM §8.1).
     smmu.process_pri_queue().unwrap();
 
-    // Confirm cons advanced past 0.
+    // Use CMD_PRI_RESP to advance priq_cons (the architectural mechanism, §8.1).
+    let mut resp = CommandEntry::new(CommandType::PriResp, 1, 0);
+    resp.prg_index = 0;
+    smmu.submit_command(resp).unwrap();
+    smmu.process_command_queue().unwrap();
+
+    // Confirm cons advanced past 0 (CMD_PRI_RESP advanced it).
     let cons_before = smmu.priq_cons_index();
-    assert!(cons_before > 0, "priq_cons must be > 0 after dequeueing");
+    assert!(cons_before > 0, "priq_cons must be > 0 after CMD_PRI_RESP");
 
     smmu.clear_pri_queue();
 

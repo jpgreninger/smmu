@@ -374,14 +374,14 @@ SMMUConfiguration::ValidationResult SMMUConfiguration::validate() const {
         result.isValid = false;
         result.errors.push_back("Queue configuration validation failed");
         
-        if (queueConfig.eventQueueSize < 16 || queueConfig.eventQueueSize > 65536) {
-            result.errors.push_back("Event queue size out of range [16, 65536]");
+        if (queueConfig.eventQueueSize < 4 || queueConfig.eventQueueSize > 65536) {
+            result.errors.push_back("Event queue size out of range [4, 65536]");
         }
-        if (queueConfig.commandQueueSize < 16 || queueConfig.commandQueueSize > 65536) {
-            result.errors.push_back("Command queue size out of range [16, 65536]");
+        if (queueConfig.commandQueueSize < 4 || queueConfig.commandQueueSize > 65536) {
+            result.errors.push_back("Command queue size out of range [4, 65536]");
         }
-        if (queueConfig.priQueueSize < 16 || queueConfig.priQueueSize > 65536) {
-            result.errors.push_back("PRI queue size out of range [16, 65536]");
+        if (queueConfig.priQueueSize < 4 || queueConfig.priQueueSize > 65536) {
+            result.errors.push_back("PRI queue size out of range [4, 65536]");
         }
     }
     

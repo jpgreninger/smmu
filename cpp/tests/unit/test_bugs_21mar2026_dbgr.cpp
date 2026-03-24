@@ -70,11 +70,11 @@ static void configureStage1Stream(SMMU& s, StreamID sid) {
 // Test 1: eventqLog2Size must match the default queue size after invalid config fallback.
 //
 // Default eventQueueSize = 512 → log2(512) = 9.
-// An invalid config uses queue sizes < MIN_QUEUE_SIZE (16); using size=1 (log2=0)
-// makes the mismatch observable.
+// An invalid config uses queue sizes < MIN_QUEUE_SIZE (4); using size=3 (log2=2)
+// makes the mismatch observable (default log2 = 9 for eventQueue=512).
 TEST(BugCpp1ConstructorSplitBrain, EventqLog2MatchesDefaultAfterInvalidConfig) {
-    // Build a config that fails isValid(): queue sizes below the minimum (16).
-    QueueConfiguration badQueue(/*eventSize=*/1, /*commandSize=*/1, /*priSize=*/1);
+    // Build a config that fails isValid(): queue sizes below the minimum (4).
+    QueueConfiguration badQueue(/*eventSize=*/3, /*commandSize=*/3, /*priSize=*/3);
     ASSERT_FALSE(badQueue.isValid()) << "precondition: badQueue must be invalid";
 
     CacheConfiguration  defaultCache;
@@ -105,7 +105,7 @@ TEST(BugCpp1ConstructorSplitBrain, EventqLog2MatchesDefaultAfterInvalidConfig) {
 //
 // Default commandQueueSize = 256 → log2(256) = 8.
 TEST(BugCpp1ConstructorSplitBrain, CmdqLog2MatchesDefaultAfterInvalidConfig) {
-    QueueConfiguration badQueue(1, 1, 1);
+    QueueConfiguration badQueue(3, 3, 3); // 3 < MIN_QUEUE_SIZE (4) — invalid
     CacheConfiguration  defaultCache;
     AddressConfiguration defaultAddr;
     ResourceLimits       defaultLimits;

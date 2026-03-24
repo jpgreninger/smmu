@@ -1646,12 +1646,23 @@ struct EventEntry {
 
     uint16_t reason; ///< §7.3.2: F_UUT Reason field at bits [79:64] — IMPLEMENTATION DEFINED; always 0 for this SW model
 
+    /// §7.3.19 E_PAGE_REQUEST permission fields.
+    /// Only meaningful when type == E_PAGE_REQUEST; RES0 for all other events.
+    bool     ur;     ///< Unprivileged Read requested
+    bool     uw;     ///< Unprivileged Write requested
+    bool     ux;     ///< Unprivileged Execute requested
+    bool     pr;     ///< Privileged Read requested
+    bool     pw;     ///< Privileged Write requested
+    bool     px;     ///< Privileged Execute requested
+    uint8_t  span;   ///< Access span in units of 4096 bytes (0 = single page)
+
     EventEntry() : type(EventType::F_TLB_CONFLICT), streamID(0), pasid(0),
                   address(0), securityState(SecurityState::NonSecure), errorCode(0), timestamp(0),
                   stall(false), stag(0),
                   ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
                   pnu(false), nsipa(false), ssv(false),
-                  ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
+                  ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0),
+                  ur(false), uw(false), ux(false), pr(false), pw(false), px(false), span(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr)
@@ -1660,7 +1671,8 @@ struct EventEntry {
           stall(false), stag(0),
           ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
           pnu(false), nsipa(false), ssv(false),
-          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
+          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0),
+          ur(false), uw(false), ux(false), pr(false), pw(false), px(false), span(0) {
     }
 
     EventEntry(EventType eventType, StreamID sid, PASID p, IOVA addr, SecurityState secState)
@@ -1669,7 +1681,8 @@ struct EventEntry {
           stall(false), stag(0),
           ipa(0), eventClass(0), s2(false), rnw(false), ind(false),
           pnu(false), nsipa(false), ssv(false),
-          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0) {
+          ats_r(false), ats_w(false), ats_x(false), ats_p(false), reason(0),
+          ur(false), uw(false), ux(false), pr(false), pw(false), px(false), span(0) {
     }
 };
 

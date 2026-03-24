@@ -45,8 +45,8 @@ TEST_F(ConfigurationTest, QueueConfigurationCustomValues) {
 }
 
 TEST_F(ConfigurationTest, QueueConfigurationInvalidValues) {
-    // Test invalid values - too small
-    QueueConfiguration smallConfig(8, 8, 8);
+    // Test invalid values - too small (size 3 is below MIN_QUEUE_SIZE of 4)
+    QueueConfiguration smallConfig(3, 3, 3);
     EXPECT_FALSE(smallConfig.isValid());
     
     // Test invalid values - too large
@@ -186,7 +186,7 @@ TEST_F(ConfigurationTest, SMMUConfigurationValidation) {
     EXPECT_TRUE(validation.errors.empty());
     
     // Test setting invalid queue configuration
-    QueueConfiguration invalidQueue(8, 8, 8); // Too small
+    QueueConfiguration invalidQueue(3, 3, 3); // Too small (size 3 < MIN_QUEUE_SIZE=4)
     VoidResult result = config.setQueueConfiguration(invalidQueue);
     EXPECT_FALSE(result.isOk());
     EXPECT_EQ(result.getError(), SMMUError::InvalidConfiguration);
@@ -267,7 +267,7 @@ TEST_F(ConfigurationTest, SMMUInvalidConfigurationRejection) {
     SMMU smmu;
     
     // Try to set invalid queue configuration
-    QueueConfiguration invalidConfig(8, 8, 8); // Too small
+    QueueConfiguration invalidConfig(3, 3, 3); // Too small (size 3 < MIN_QUEUE_SIZE=4)
     VoidResult result = smmu.updateQueueConfiguration(invalidConfig);
     EXPECT_FALSE(result.isOk());
     EXPECT_EQ(result.getError(), SMMUError::InvalidConfiguration);

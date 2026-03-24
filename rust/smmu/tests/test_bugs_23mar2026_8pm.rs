@@ -201,11 +201,15 @@ fn bug_new_7_pri_entry_consumed_on_success() {
 
     smmu.process_pri_queue().unwrap();
 
-    // On success the entry must be consumed and an event recorded.
+    // BUG-NEW-14 update: process_pri_queue() emits the E_PAGE_REQUEST event
+    // WITHOUT consuming (popping) the entry from the PRI queue.  Only CMD_PRI_RESP
+    // may pop and advance PRIQ_CONS (ARM §8.1/§3.5.1).
+    // The entry is still in the queue after process_pri_queue().
     assert_eq!(
         smmu.get_pri_queue_size(),
-        0,
-        "BUG-NEW-7 regression: PRI entry must be consumed after successful emit"
+        1,
+        "BUG-NEW-14: PRI entry must remain in queue after process_pri_queue() \
+         (only CMD_PRI_RESP may consume it — ARM §8.1)"
     );
     let events = smmu.get_events();
     assert_eq!(

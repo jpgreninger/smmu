@@ -1213,7 +1213,9 @@ fn test_pri_queue_process_generates_events() {
     // Process PRI queue
     let processed = smmu.process_pri_queue().unwrap();
     assert_eq!(processed, 1);
-    assert_eq!(smmu.get_pri_queue_size(), 0);
+    // BUG-NEW-14: entries remain in queue until CMD_PRI_RESP (ARM §8.1).
+    assert_eq!(smmu.get_pri_queue_size(), 1,
+        "BUG-NEW-14: entry remains in PRI queue after process_pri_queue()");
 
     // Verify PRI event was generated
     let events = smmu.get_events();
@@ -1246,7 +1248,9 @@ fn test_pri_queue_process_multiple_requests() {
 
     let processed = smmu.process_pri_queue().unwrap();
     assert_eq!(processed, 5);
-    assert_eq!(smmu.get_pri_queue_size(), 0);
+    // BUG-NEW-14: entries remain in queue until CMD_PRI_RESP (ARM §8.1).
+    assert_eq!(smmu.get_pri_queue_size(), 5,
+        "BUG-NEW-14: entries remain in PRI queue after process_pri_queue()");
 
     // Verify events were generated
     let events = smmu.get_events();
