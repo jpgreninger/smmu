@@ -66,5 +66,23 @@ rust/mutation-test-report.txt
 *.log
 leftoff.txt
 
+# Local bug notes (not tracked)
+bugs/
+
+# CMake FetchContent / out-of-source build artifacts
+_deps/
+compile_commands.json
+cpp/.cache/
+cpp/build_coverage/
+test_detail.json
+/tests/
+examples/
+
+# Coverage data
+*.info
+
+# Claude local settings artifacts
+.claude/settings.local.json.*
+
 # Serena
 .serena/
