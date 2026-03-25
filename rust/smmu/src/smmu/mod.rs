@@ -458,7 +458,7 @@ pub struct SMMU {
     /// MSI data register for CMD_SYNC MSI signalling (§4.7.3).
     cmdq_sync_msi_data: AtomicU32,
 
-    /// Last CMD_SYNC completion signal type used (0=none, 1=IRQ, 2=MSI).
+    /// Last CMD_SYNC completion signal type used (0=none, 1=IRQ, 2=SEV).
     cmd_sync_last_signal_type: AtomicU32,
 
     // ---- CONF-GAP-3: 2-level stream table format (§3.3.1.2) ----
@@ -1377,6 +1377,12 @@ impl SMMU {
             pasid: pasid.as_u32(),
             address: iova.as_u64(),
             timestamp,
+            // BUG-QA-8 fix: §7.3.12 — F_WALK_EABT CLASS must be 0b01 (TT =
+            // translation-table descriptor fetch), not 0b00 (CD).
+            event_class: 1,
+            // BUG-QA-10 fix: §7.3 — SSV must be set when the transaction carried
+            // a non-zero PASID (SubstreamID).
+            ssv: pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         self.enqueue_event(event);
@@ -1572,7 +1578,7 @@ impl SMMU {
     }
 
     // ========================================================================
-    // CONF-GAP-18: CMD_SYNC SIG_IRQ vs SIG_MSI tracking (§4.7.3)
+    // CONF-GAP-18: CMD_SYNC SIG_IRQ vs SIG_SEV tracking (§4.7.3)
     // ========================================================================
 
     /// Write the CMDQ_SYNC MSI attribute register (§4.7.3).
@@ -1601,7 +1607,7 @@ impl SMMU {
     ///
     /// - `0` — no sync processed yet (or SIG_NONE used last)
     /// - `1` — SIG_IRQ
-    /// - `2` — SIG_MSI
+    /// - `2` — SIG_SEV (PE-level wakeup event)
     #[must_use]
     pub fn get_cmd_sync_last_signal_type(&self) -> u8 {
         self.cmd_sync_last_signal_type.load(Ordering::Acquire) as u8
@@ -5494,7 +5500,16 @@ impl SMMU {
             // CONF-GAP-6: VA-targeted invalidation — selective by VA+ASID (§4.4).
             // CONF-GAP-8: RIL range-based invalidation (§4.4.1.1).
             // BUG-NEW-C fix: PTM guard removed — command-queue TLBI unconditional.
-            CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiEl3Va | CommandType::TlbiSEl2Va => {
+            // BUG-QA-9 fix: §4.4.2.6 — CMD_TLBI_EL3_VA is valid ONLY on the Secure
+            // Command queue.  This model only has a Non-secure Command queue, so
+            // CMD_TLBI_EL3_VA must ALWAYS raise CERROR_ILL (no TLB operation).
+            CommandType::TlbiEl3Va => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_EL3_VA: valid only on Secure Command queue — CERROR_ILL (ARM §4.4.2.6)".to_string(),
+                ));
+            },
+            CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiSEl2Va => {
                 if command.ril {
                     // Range invalidation: compute range from tg, num, scale.
                     // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
@@ -5646,7 +5661,7 @@ impl SMMU {
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
                 if command.cs != 0 {
                     // CONF-GAP-18: track last CMD_SYNC completion signal type (§4.7.3).
-                    // CS=1 = SIG_IRQ, CS=2 = SIG_MSI.
+                    // CS=1 = SIG_IRQ, CS=2 = SIG_SEV.
                     self.cmd_sync_last_signal_type.store(command.cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     // FINDING-NEW-44: use the stream's configured security state
@@ -5830,10 +5845,14 @@ impl SMMU {
             // no side-effect processing required in the software model.
             CommandType::PrefetchConfig
             | CommandType::PrefetchAddr => {},
-            // §4.1.1: EL3 TLB invalidation commands — invalidate all entries globally.
+            // BUG-QA-9 fix: §4.4.2.5 — CMD_TLBI_EL3_ALL is valid ONLY on the Secure
+            // Command queue.  This model only has a Non-secure Command queue, so
+            // CMD_TLBI_EL3_ALL must ALWAYS raise CERROR_ILL (no TLB operation).
             CommandType::TlbiEl3All => {
-                self.tlb_cache.invalidate_all();
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_EL3_ALL: valid only on Secure Command queue — CERROR_ILL (ARM §4.4.2.5)".to_string(),
+                ));
             },
             // §4.1.1: Secure EL2 ALL/SNH all — invalidate all entries.
             CommandType::TlbiSEl2All | CommandType::TlbiSnhAll => {

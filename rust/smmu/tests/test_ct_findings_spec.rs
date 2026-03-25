@@ -85,10 +85,12 @@ fn test_new_opcodes_processable_in_command_queue() {
 
     // DPTI_ALL / DPTI_PA excluded: require IDR3.DPT=1; result in CERROR_ILL
     // when DPT is not supported (§4.6.1, CONF-GAP-4 fix).
+    //
+    // BUG-QA-9 fix (§4.4.2.5/§4.4.2.6): TlbiEl3All and TlbiEl3Va are valid
+    // ONLY on the Secure Command queue.  This model only has a Non-secure queue,
+    // so they now correctly raise CERROR_ILL and are excluded from this list.
     let new_opcodes = [
         CommandType::CfgiVmsPidm,
-        CommandType::TlbiEl3All,
-        CommandType::TlbiEl3Va,
         CommandType::TlbiSEl2All,
         CommandType::TlbiSEl2Asid,
         CommandType::TlbiSEl2Va,
@@ -103,10 +105,10 @@ fn test_new_opcodes_processable_in_command_queue() {
         smmu.submit_command(cmd).unwrap();
     }
 
-    // All non-DPTI commands must process without error
+    // All non-DPTI, non-EL3 commands must process without error
     let result = smmu.process_command_queue();
     assert!(result.is_ok(), "Non-DPTI new opcodes must process without error: {result:?}");
-    assert_eq!(result.unwrap(), 10, "All 10 non-DPTI new opcodes must be processed");
+    assert_eq!(result.unwrap(), 8, "All 8 non-DPTI non-EL3 new opcodes must be processed");
 }
 
 // ============================================================================
