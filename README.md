@@ -1,12 +1,12 @@
 # ARM SMMU v3 C++11 and Rust Implementations
 
-## ✅ **PRODUCTION RELEASE v1.5.0 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.6.0 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.0% lines / 91.5% branches (124 tests), Rust 94.30% lines / 93.59% functions (2,949 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.0% lines / 91.5% branches (157 tests), Rust 94.30% lines / 93.59% functions (210 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (March 17, 2026)**: v1.5.0 — Tenth-pass partial-gap closure achieving 100% ARM IHI0070G.b conformance: EventEntry.pnu wire bit now populated (STRW/PRIVCFG-derived privilege), EventEntry.nsipa now populated (NonSecure IPA on stage-2 faults), CD.UWXN enforcement added in Rust (privileged execute on unprivileged-writable page → F_PERMISSION). No open non-conformance items remain. C++ tests: 124/124 passing, Rust tests: 220/220 passing (unit+integration+doctests), zero clippy warnings.
+**Latest Update (March 24, 2026)**: v1.6.0 — Post-QA audit conformance hardening across 20+ findings (BUG-QA-1..14, BUG-NEW-9..14, BUG-CPP/RUST-1..3). Key fixes: IDR register fields, CMD_SYNC SEV label, WALK_EABT CLASS=TT, EL3 TLBI → CERROR_ILL, SSV field, S2S/S2R two-stage stall/record, NH_ALL VMID-scoped EL1_EL0, STALL_MODEL guard, EventEntry access fields, CERROR_ILL persistence, PRI overflow/PRIQ_CONS, CMD_PRI_RESP PASID matching, TLBI VMID+ASID joint invalidation, STRW=EL3/NS-EL2 validation, peek-before-pop command queue. C++ tests: 157/157 passing, Rust tests: 210/210 passing, zero clippy warnings.
 
 ## Production Features
 

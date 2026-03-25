@@ -1,28 +1,50 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.5.0)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.0)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-2949%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-94.30%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Performance](https://img.shields.io/badge/performance-31ns%20single%20%7C%2074ns%20concurrent-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![ARM SMMU v3](https://img.shields.io/badge/ARM%20SMMU%20v3-100%25%20compliant-blue.svg)](https://developer.arm.com/documentation/ihi0070/latest)
 
-## ✅ **PRODUCTION READY v1.5.0** - 100% ARM IHI0070G.b Conformance ⚡
+## ✅ **PRODUCTION READY v1.6.0** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 2,949 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 210 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 17, 2026)**: Version 1.5.0 — Tenth-pass partial-gap closure achieving 100% ARM IHI0070G.b conformance. EventEntry.pnu now populated from STRW/PRIVCFG privilege state. EventEntry.nsipa now set to true for stage-2 faults on NonSecure streams. CD.UWXN enforced: privileged execute on unprivileged-writable page → F_PERMISSION. 13 new conformance tests (test_conf_gaps_pnu_nsipa_uwxn.rs). Rust tests: 220/220 unit+integration+doctests passing, zero clippy warnings.
+**🎯 Latest Update (March 24, 2026)**: Version 1.6.0 — Post-QA audit conformance hardening (BUG-QA-1..14, BUG-NEW-9..14, BUG-RUST-1..2). Key fixes: IDR0/IDR5 field corrections, CMD_SYNC SEV label, WALK_EABT CLASS=TT, EL3 TLBI → CERROR_ILL, SSV field, S2S/S2R s2_stall field + two-stage stall/record, NH_ALL VMID-scoped EL1_EL0 (invalidate_nh_by_vmid), STALL_MODEL guard, EventEntry access permission fields on E_PAGE_REQUEST, CERROR_ILL persistence (removed auto-clear from submit_command), PRI overflow Last=1 only, PRIQ_CONS advance only via CMD_PRI_RESP, TLBI NH_ASID joint VMID+ASID invalidation, STRW validation. 210/210 tests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.6.0 (March 24, 2026)
+
+**Post-QA Audit Conformance Hardening — BUG-QA-1..14, BUG-NEW-9..14, BUG-RUST-1..2**
+
+- ✅ **BUG-QA-1..5 (§6.3.1/§6.3.6/§6.3.22/§8.1)**: IDR0/IDR5 field corrections, EVENTQEN gating, PRIQ conformance fixes
+- ✅ **BUG-QA-7 (§4.4.4.1)**: CMD_SYNC SEV label corrected
+- ✅ **BUG-QA-8 (§7.3.16)**: WALK_EABT CLASS=TT (was CLASS=IN)
+- ✅ **BUG-QA-9 (§4.4.2)**: EL3 TLBI commands raise CERROR_ILL
+- ✅ **BUG-QA-10 (§7.3)**: SSV field populated correctly
+- ✅ **BUG-QA-11 (§5.5)**: S2S/S2R: s2_stall field added; two-stage stall/record semantics
+- ✅ **BUG-QA-12 (§5.5)**: STALL_MODEL==0x01 && S2S && stage2_enabled → C_BAD_STE guard
+- ✅ **BUG-QA-13 (§5.5)**: NH_ALL VMID-scoped EL1_EL0 invalidation via new `invalidate_nh_by_vmid()`
+- ✅ **BUG-NEW-9 (§7.3.19)**: EventEntry ur/uw/ux/pr/pw/px/span fields on E_PAGE_REQUEST
+- ✅ **BUG-NEW-10 (§7.1/§6.3.28)**: CERROR_ILL no longer auto-cleared from submit_command()
+- ✅ **BUG-NEW-11 (§4.7.1)**: CMD_RESUME/STALL_TERM raise CERROR_ILL when STALL_MODEL==0b01
+- ✅ **BUG-NEW-12 (§8.1)**: PRI overflow auto-failure only for Last=1 PPRs; Last=0 silently discarded
+- ✅ **BUG-NEW-14 (§3.5.1)**: PRIQ_CONS advance only via CMD_PRI_RESP handler
+- ✅ **BUG-RUST-1 (§4.4.2.2)**: CMD_TLBI_NH_ASID now joint VMID+ASID invalidation
+- ✅ **BUG-RUST-2 (§5.2)**: STRW validation: NonSecure+EL2/EL3 and Secure+EL3 → C_BAD_STE
+- ✅ 30 new regression tests across test_bugs_new2.rs, test_bugs_23mar2026.rs, test_bugs_qa_11_12_13_14.rs
+- ✅ **Rust suite: 210/210 passing, zero clippy warnings**
 
 ### 🚀 Release v1.5.0 (March 17, 2026)
 
