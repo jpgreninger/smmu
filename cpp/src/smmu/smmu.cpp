@@ -3420,11 +3420,12 @@ void SMMU::processCommandQueue() {
                 break;
             }
             // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
-            // CONF-GAP-18: Record the signal type for CS=1 (IRQ) and CS=2 (MSI).
+            // CONF-GAP-18: Record the signal type for CS=1 (IRQ) and CS=2 (SEV).
+            // BUG-QA-7 fix: CS=2 is SIG_SEV (PE-level wakeup), NOT SIG_MSI.
             if (command.cs == 1u) {
                 cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Irq), std::memory_order_release);
             } else if (command.cs == 2u) {
-                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Msi), std::memory_order_release);
+                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
             }
             if (command.cs != 0) {
                 // FINDING-NEW-39: derive security state from the stream config rather than
@@ -4416,6 +4417,14 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
 
         case CommandType::TLBI_EL3_ALL:
         case CommandType::TLBI_EL3_VA:
+            // BUG-QA-9 fix: ARM §4.4.2.5/§4.4.2.6 — CMD_TLBI_EL3_ALL and
+            // CMD_TLBI_EL3_VA are valid ONLY on the Secure Command queue.
+            // Issuing either on the Non-secure Command queue (the only queue in
+            // this model) must raise CERROR_ILL.  No TLB invalidation is performed.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
         case CommandType::TLBI_S_EL2_ALL:
         case CommandType::TLBI_S_EL2_ASID:
         case CommandType::TLBI_S_EL2_VA:
@@ -4423,7 +4432,7 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::TLBI_S_S12_VMALL:
         case CommandType::TLBI_S_S2_IPA:
         case CommandType::TLBI_SNH_ALL:
-            // TLB invalidation commands: delegate to TLB invalidation handler.
+            // Secure-queue TLB invalidation commands: delegate to TLB invalidation handler.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4978,6 +4987,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
                 // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault on the input address.
                 pendingEvent.eventClass = 2u;
                 break;
+            case EventType::F_WALK_EABT:
+                // BUG-QA-8 fix: ARM §7.3.12 — F_WALK_EABT CLASS=0b01 (TT).
+                // The fault originates from fetching a translation table descriptor
+                // (TT = Translation Table), not from the input address (IN) or CD.
+                pendingEvent.eventClass = 1u;
+                break;
             case EventType::F_UUT:
             case EventType::F_TRANSL_FORBIDDEN:
             case EventType::F_BAD_ATS_TREQ:
@@ -5196,6 +5211,11 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         case EventType::F_ACCESS:
             // §7.3 NEW-1 encoding: CLASS=0b10 (IN) — fault is on the input address itself.
             event.eventClass = 2u;
+            break;
+        case EventType::F_WALK_EABT:
+            // BUG-QA-8 fix: ARM §7.3.12 — F_WALK_EABT CLASS=0b01 (TT).
+            // The fault originates from fetching a translation table descriptor.
+            event.eventClass = 1u;
             break;
         case EventType::F_UUT:
         case EventType::F_TRANSL_FORBIDDEN:

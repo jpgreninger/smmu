@@ -1413,8 +1413,8 @@ enum class TransactionType : uint8_t {
 /// @brief CONF-GAP-18: CMD_SYNC completion signal type (ARM §4.7.3).
 enum class CmdSyncSignalType {
     None = 0, ///< SIG_NONE: no completion signal (CS=0b00)
-    Irq  = 1, ///< SIG_IRQ: interrupt/MSI completion signal (CS=0b01)
-    Msi  = 2  ///< SIG_MSI: MSI write completion signal (CS=0b10)
+    Irq  = 1, ///< SIG_IRQ: interrupt/MSI write completion signal (CS=0b01)
+    Sev  = 2  ///< SIG_SEV: PE-level wakeup event (CS=0b10) — NOT an MSI write
 };
 
 // ARM §6.3.17: CMDQ_CONS.ERR field (CONF-GAP-17).

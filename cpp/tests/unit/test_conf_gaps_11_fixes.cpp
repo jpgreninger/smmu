@@ -407,16 +407,17 @@ TEST(ConfGap17CmdqConsErr, GetCmdqConsErrAccessor) {
 }
 
 // ============================================================================
-// CONF-GAP-18: CMD_SYNC SIG_IRQ vs SIG_MSI not distinguished (§4.7.3)
+// CONF-GAP-18: CMD_SYNC SIG_IRQ vs SIG_SEV not distinguished (§4.7.3)
+// BUG-QA-7 fix: CS=2 is SIG_SEV (PE-level wakeup), NOT SIG_MSI.
 // ============================================================================
 
 TEST(ConfGap18CmdSync, CmdSyncSignalTypeEnumExists) {
     CmdSyncSignalType none = CmdSyncSignalType::None;
     CmdSyncSignalType irq  = CmdSyncSignalType::Irq;
-    CmdSyncSignalType msi  = CmdSyncSignalType::Msi;
+    CmdSyncSignalType sev  = CmdSyncSignalType::Sev;
     EXPECT_NE(none, irq);
-    EXPECT_NE(irq, msi);
-    EXPECT_NE(none, msi);
+    EXPECT_NE(irq, sev);
+    EXPECT_NE(none, sev);
 }
 
 TEST(ConfGap18CmdSync, CS1SetsIrqSignalType) {
@@ -433,18 +434,18 @@ TEST(ConfGap18CmdSync, CS1SetsIrqSignalType) {
     EXPECT_EQ(smmu.getCmdSyncLastSignalType(), CmdSyncSignalType::Irq);
 }
 
-TEST(ConfGap18CmdSync, CS2SetsMsiSignalType) {
+TEST(ConfGap18CmdSync, CS2SetsSevSignalType) {
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
     CommandEntry sync;
     sync.type = CommandType::SYNC;
-    sync.cs = 2u;  // SIG_MSI
+    sync.cs = 2u;  // SIG_SEV per ARM §4.7.3
     smmu.submitCommand(sync);
     smmu.processCommandQueue();
 
-    EXPECT_EQ(smmu.getCmdSyncLastSignalType(), CmdSyncSignalType::Msi);
+    EXPECT_EQ(smmu.getCmdSyncLastSignalType(), CmdSyncSignalType::Sev);
 }
 
 TEST(ConfGap18CmdSync, CS0NoSignal) {
