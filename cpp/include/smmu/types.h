@@ -1574,16 +1574,31 @@ struct PRIEntry {
 /// automatically generates a FAILURE response for the overflowing request group
 /// so the device is not left waiting indefinitely.
 struct PRIAutoFailure {
-    StreamID streamID;    ///< Stream that issued the overflowing page request
-    PASID    pasid;       ///< PASID of the overflowing page request
-    uint16_t prgIndex;    ///< Page Request Group index echoed back to device
-    uint64_t timestamp;   ///< Time the auto-failure was generated
+    StreamID streamID;       ///< Stream that issued the overflowing page request
+    PASID    pasid;          ///< PASID of the overflowing page request
+    uint16_t prgIndex;       ///< Page Request Group index echoed back to device
+    uint64_t timestamp;      ///< Time the auto-failure was generated
+    /// BUG-QA-4: §8.1 PRG_RESPONSE code: 0=Success, 0xF=Failure.
+    /// When the overflowing PPR has no PASID, responseCode=0 (Success).
+    /// When PASID is present and IDR3.PPS=0 and no PPAR info: responseCode=0xF (Failure).
+    uint8_t  responseCode;   ///< PRG_RESPONSE code; 0=Success, 0xF=Failure
+    /// BUG-QA-4: §8.1 Whether the PASID is included in the auto-PRG_RESPONSE.
+    /// false when the overflowing PPR has no PASID (or PPAR/PPS disallow it).
+    bool     includePASID;   ///< Whether PASID is echoed back in the auto-response
 
-    PRIAutoFailure() : streamID(0), pasid(0), prgIndex(0), timestamp(0) {
+    PRIAutoFailure() : streamID(0), pasid(0), prgIndex(0), timestamp(0),
+                       responseCode(0xFu), includePASID(false) {
     }
 
     PRIAutoFailure(StreamID sid, PASID p, uint16_t prg, uint64_t ts)
-        : streamID(sid), pasid(p), prgIndex(prg), timestamp(ts) {
+        : streamID(sid), pasid(p), prgIndex(prg), timestamp(ts),
+          responseCode(0xFu), includePASID(false) {
+    }
+
+    PRIAutoFailure(StreamID sid, PASID p, uint16_t prg, uint64_t ts,
+                   uint8_t rc, bool inclPasid)
+        : streamID(sid), pasid(p), prgIndex(prg), timestamp(ts),
+          responseCode(rc), includePASID(inclPasid) {
     }
 };
 

@@ -3098,8 +3098,10 @@ uint32_t SMMU::getIDR0() const {
          // terminate behaviors and does NOT validate CD.A=1.  ARM IHI0070G.b §6.3.1:
          // when TERM_MODEL=1, C_BAD_CD must fire if CD.A=0.  Setting TERM_MODEL=0
          // (RAZ/WI IS supported) matches the model's actual behaviour.
-         | (1u << 27);      // ST_LEVEL[0]: 2-level stream table supported
-                            // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
+         | (1u << 27)       // ST_LEVEL[0]: 2-level stream table supported
+         // BUG-QA-1: §6.3.1 STALL_MODEL[25:24] must reflect the runtime stallModel_
+         // value rather than being hardcoded to 0b00.
+         | ((static_cast<uint32_t>(stallModel_.load(std::memory_order_acquire)) & 0x3u) << 24);
 }
 
 uint32_t SMMU::getIDR1() const {
@@ -3144,11 +3146,14 @@ uint32_t SMMU::getIDR5() const {
     // bit  4:   GRAN4K  — 4KB granule supported
     // bit  5:   GRAN16K — 16KB granule supported
     // bit  6:   GRAN64K — 64KB granule supported
+    // bits[31:16]: STALL_MAX — RES0 when IDR0.STALL_MODEL==0b01 (terminate-only) per §6.3.6.
+    // BUG-QA-2: was hardcoded to 64; now conditional on stallModel_.
+    uint32_t stall_max = (stallModel_.load(std::memory_order_acquire) == 0x01u) ? 0u : 64u;
     return 5u           // OAS = 5 (48-bit) in bits[2:0]
          | (1u << 4)    // GRAN4K
          | (1u << 5)    // GRAN16K
          | (1u << 6)    // GRAN64K
-         | (64u << 16); // STALL_MAX[31:16] = 64: max outstanding stall transactions (§6.3.6, non-zero when STALL_MODEL=0b00)
+         | (stall_max << 16); // STALL_MAX[31:16]
 }
 
 // AIDR: ARM IHI0070G.b §6.3.8 SMMU_AIDR: ArchMinorRev=2 (SMMUv3.2).
@@ -3527,6 +3532,41 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     // BUG-03 fix: protect priQueue with queueMutex.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
 
+    // BUG-QA-5: §8.1 — check overflow-active state BEFORE checking queue capacity.
+    // Overflow is "active" when PRIQ_PROD.OVFLG (bit 31) differs from
+    // PRIQ_CONS.OVACKFLG (bit 31).  While active, new PPRs are inhibited even if
+    // the software consumer has drained the queue and physical space is available.
+    // Software must acknowledge the overflow (by writing OVACKFLG=OVFLG) before
+    // new entries are accepted.
+    {
+        uint32_t priqProdVal = priqProd.load(std::memory_order_relaxed);
+        uint32_t priqConsVal = priqCons.load(std::memory_order_relaxed);
+        bool overflowActive = (((priqProdVal >> 31) & 1u) != ((priqConsVal >> 31) & 1u));
+        if (overflowActive) {
+            // Inhibit the new entry — treat as if the queue were still full.
+            if (request.isLastRequest) {
+                // Determine responseCode/includePASID the same way as below.
+                bool hasPasid = false;
+                {
+                    size_t stripe = getStreamStripe(request.streamID);
+                    std::lock_guard<std::mutex> stripeLock(streamLockStripes[stripe]);
+                    auto it = streamMap.find(request.streamID);
+                    if (it != streamMap.end() && it->second) {
+                        StreamConfig cfg = it->second->getStreamConfiguration();
+                        hasPasid = (cfg.s1cdMax > 0 && request.pasid != 0);
+                    }
+                }
+                uint8_t rc       = hasPasid ? 0xFu : 0u;
+                bool    inclPasid = false;
+                PRIAutoFailure autoFail(request.streamID, request.pasid,
+                                        request.prgIndex, getCurrentTimestamp(),
+                                        rc, inclPasid);
+                priAutoFailures_.push_back(autoFail);
+            }
+            return;
+        }
+    }
+
     if (priQueue.size() >= maxPRIQueueSize) {
         // BUG-NEW-02 fix: ARM §8.1 specifies that PRIQ_PROD.OVFLG is toggled only
         // when transitioning from the non-overflow state to the overflow state.
@@ -3550,8 +3590,37 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         // When isLastRequest=false the PPR must be silently discarded with no
         // auto-response — the device does not expect a response for non-last PPRs.
         if (request.isLastRequest) {
+            // BUG-QA-4: §8.1 — determine responseCode and includePASID.
+            // Determine whether the PPR carries a valid PASID.  A PPR "has no PASID"
+            // when the stream is not substream-capable (s1cdMax==0) or the PASID is 0
+            // on a stream that has not been configured as substream-capable.
+            // IDR3.PPS is 0 in this implementation (not set in getIDR3()), so for
+            // PPRs that do carry a PASID the conservative fallback is Failure (0xF).
+            uint8_t  responseCode = 0xFu;  // default: Failure
+            bool     inclPasid    = false;
+            // Check whether the overflowing PPR has a PASID by inspecting the
+            // stream configuration (if the stream exists and is substream-capable).
+            bool hasPasid = false;
+            {
+                size_t stripe = getStreamStripe(request.streamID);
+                std::lock_guard<std::mutex> stripeLock(streamLockStripes[stripe]);
+                auto it = streamMap.find(request.streamID);
+                if (it != streamMap.end() && it->second) {
+                    StreamConfig cfg = it->second->getStreamConfiguration();
+                    // PPR has a PASID only if the stream is substream-capable
+                    // (s1cdMax > 0) and the PASID is non-zero.
+                    hasPasid = (cfg.s1cdMax > 0 && request.pasid != 0);
+                }
+            }
+            if (!hasPasid) {
+                // ARM §8.1: no PASID → responseCode=0 (Success), no PASID in response.
+                responseCode = 0u;
+                inclPasid    = false;
+            }
+            // else: PASID present, IDR3.PPS=0, no STE.PPAR field → conservative Failure.
             PRIAutoFailure autoFail(request.streamID, request.pasid,
-                                    request.prgIndex, getCurrentTimestamp());
+                                    request.prgIndex, getCurrentTimestamp(),
+                                    responseCode, inclPasid);
             priAutoFailures_.push_back(autoFail);
         }
         return;
@@ -3583,18 +3652,40 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         eventQueue.back().pasid == request.pasid) {
         EventEntry& ev = eventQueue.back();
         const AccessType acc = request.accessType;
-        // Unprivileged permission bits derived from the access type.
-        ev.ur = (acc == AccessType::Read     || acc == AccessType::ReadWrite);
-        ev.uw = (acc == AccessType::Write    || acc == AccessType::ReadWrite);
-        ev.ux = (acc == AccessType::Execute  || acc == AccessType::ReadExecute ||
-                 acc == AccessType::ReadExecutePrivileged);
-        // Privileged permission bits — same logic applied to privileged access types.
-        ev.pr = (acc == AccessType::ReadPrivileged ||
-                 acc == AccessType::ReadWritePrivileged);
-        ev.pw = (acc == AccessType::WritePrivileged ||
-                 acc == AccessType::ReadWritePrivileged);
-        ev.px = (acc == AccessType::ExecutePrivileged ||
-                 acc == AccessType::ReadExecutePrivileged);
+        // BUG-QA-6: §7.3.19 — use decomposed isPrivileged/canRead/canWrite/canExecute
+        // helpers to set permission bits correctly.
+        // Privileged access types: ReadPrivileged, WritePrivileged, ExecutePrivileged,
+        // ReadWritePrivileged, ReadExecutePrivileged.
+        // Non-privileged: Read, Write, Execute, ReadWrite, ReadExecute.
+        bool isPriv =
+            (acc == AccessType::ReadPrivileged     ||
+             acc == AccessType::WritePrivileged     ||
+             acc == AccessType::ExecutePrivileged   ||
+             acc == AccessType::ReadWritePrivileged ||
+             acc == AccessType::ReadExecutePrivileged);
+        bool canRead =
+            (acc == AccessType::Read               ||
+             acc == AccessType::ReadWrite           ||
+             acc == AccessType::ReadExecute         ||
+             acc == AccessType::ReadPrivileged      ||
+             acc == AccessType::ReadWritePrivileged ||
+             acc == AccessType::ReadExecutePrivileged);
+        bool canWrite =
+            (acc == AccessType::Write              ||
+             acc == AccessType::ReadWrite           ||
+             acc == AccessType::WritePrivileged     ||
+             acc == AccessType::ReadWritePrivileged);
+        bool canExecute =
+            (acc == AccessType::Execute            ||
+             acc == AccessType::ReadExecute         ||
+             acc == AccessType::ExecutePrivileged   ||
+             acc == AccessType::ReadExecutePrivileged);
+        ev.ur = (!isPriv && canRead);
+        ev.uw = (!isPriv && canWrite);
+        ev.ux = (!isPriv && canExecute);
+        ev.pr = (isPriv  && canRead);
+        ev.pw = (isPriv  && canWrite);
+        ev.px = (isPriv  && canExecute);
         ev.span = 0u; // single page (default)
     }
 }
