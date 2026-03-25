@@ -74,6 +74,8 @@ TEST(AsExhaustedSpec, TwoStage_NoStage2AS_ProducesTranslationFaultNotConfigFault
 // -----------------------------------------------------------------------
 // Verify the stall guard in translate() does NOT treat this as a config fault
 // (AddressSpaceExhausted is in isConfigFault guard — PageNotMapped is not)
+// QA-AUDIT-FIX-1: §5.5 — stage-2 faults in two-stage streams use S2S for the
+// stall decision.  Set s2s=true so the stage-2 F_TRANSLATION stalls.
 // -----------------------------------------------------------------------
 TEST(AsExhaustedSpec, TwoStage_NoStage2AS_StallMode_Stalls) {
     SMMU smmu;
@@ -83,7 +85,8 @@ TEST(AsExhaustedSpec, TwoStage_NoStage2AS_StallMode_Stalls) {
     cfg.translationEnabled = true;
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = true;
-    cfg.faultMode          = FaultMode::Stall; // stall mode
+    cfg.faultMode          = FaultMode::Stall; // stall mode (for stage-1 faults)
+    cfg.s2s                = true;             // §5.5: stage-2 faults use S2S, not FaultMode
     cfg.aa64               = true;
     smmu.configureStream(D9_STREAM, cfg);
     smmu.enableStream(D9_STREAM);

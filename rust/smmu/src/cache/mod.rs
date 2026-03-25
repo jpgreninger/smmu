@@ -22,6 +22,7 @@
 #![warn(missing_docs)]
 
 use crate::types::{PagePermissions, SecurityState, StreamID, IOVA, PA, PASID};
+use crate::types::config::StreamWorld;
 use smallvec::SmallVec;
 
 // ============================================================================
@@ -81,6 +82,13 @@ pub struct CacheEntry {
     /// Used by `CMD_TLBI_S2_IPA` to perform IPA-selective invalidation rather
     /// than over-invalidating all VMID-tagged entries.
     pub ipa: u64,
+
+    /// BUG-QA-14: Stream World tag for `CMD_TLBI_NSNH_ALL` scoped invalidation (§4.4.4.1).
+    ///
+    /// Tagged from `STE.STRW` when the entry is inserted.  `CMD_TLBI_NSNH_ALL`
+    /// evicts only entries tagged `El1El0` (Non-Secure Non-Hyp), preserving
+    /// `El2` and `El2E2h` entries per ARM §4.4.4.1.
+    pub strw: StreamWorld,
 }
 
 impl CacheEntry {
@@ -98,6 +106,7 @@ impl CacheEntry {
             asid: 0,
             vmid: 0,
             ipa: 0,
+            strw: StreamWorld::El1El0,
         }
     }
 
@@ -119,6 +128,7 @@ impl CacheEntry {
             asid: 0,
             vmid: 0,
             ipa: 0,
+            strw: StreamWorld::El1El0,
         }
     }
 
@@ -143,6 +153,7 @@ impl CacheEntry {
             asid,
             vmid: 0,
             ipa: 0,
+            strw: StreamWorld::El1El0,
         }
     }
 
@@ -171,6 +182,7 @@ impl CacheEntry {
             asid,
             vmid,
             ipa: 0,
+            strw: StreamWorld::El1El0,
         }
     }
 }
@@ -186,6 +198,7 @@ impl Default for CacheEntry {
             asid: 0,
             vmid: 0,
             ipa: 0,
+            strw: StreamWorld::El1El0,
         }
     }
 }
@@ -847,6 +860,43 @@ impl TlbCache {
         let count = self.entries.len();
         self.entries.clear();
 
+        self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    /// BUG-QA-14 fix: ARM §4.4.4.1 `CMD_TLBI_NSNH_ALL` — invalidate Non-Secure Non-Hyp entries.
+    ///
+    /// Evicts only entries tagged with `StreamWorld::El1El0`.  Preserves
+    /// NS-EL2 (`El2`) and NS-EL2-E2H (`El2E2h`) entries per §4.4.4.1.
+    pub fn invalidate_nsnh_all(&self) {
+        let mut count = 0usize;
+        self.entries.retain(|_key, entry| {
+            if entry.strw == StreamWorld::El1El0 {
+                count += 1;
+                false // remove
+            } else {
+                true // keep
+            }
+        });
+        self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    /// ARM §4.4.2.1 `CMD_TLBI_NH_ALL` — invalidate EL1_EL0 entries scoped to a VMID.
+    ///
+    /// Evicts only entries tagged with `StreamWorld::El1El0` **and** the given `vmid`.
+    /// Entries for a different VMID, or with a non-EL1_EL0 `strw`, are preserved.
+    ///
+    /// This is the correct behaviour per ARM §4.4.2.1: NH_ALL is a VMID-scoped
+    /// command that invalidates non-hyp (EL1_EL0) translations for that VMID only.
+    pub fn invalidate_nh_by_vmid(&self, vmid: u16) {
+        let mut count = 0usize;
+        self.entries.retain(|_key, entry| {
+            if entry.strw == StreamWorld::El1El0 && entry.vmid == vmid {
+                count += 1;
+                false // remove
+            } else {
+                true // keep
+            }
+        });
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 

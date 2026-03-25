@@ -2161,6 +2161,26 @@ impl SMMU {
             }
         }
 
+        // BUG-QA-12 fix: §5.5 — STALL_MODEL==0b01 (terminate-only) AND STE.S2S==1 → C_BAD_STE.
+        // Guard: S2S is only meaningful when stage-2 is active; bypass/stage1-only
+        // streams with s2_stall=true must not be rejected (QA-AUDIT-FIX-B).
+        if config.stage2_enabled && self.stall_model.load(Ordering::Acquire) == 0x01u8 && config.s2_stall {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STALL_MODEL=terminate-only (0b01) AND STE.S2S=1 are incompatible (ARM §5.5)".to_string(),
+            ));
+        }
+
         let stream_value = stream_id.as_u32();
 
         // BUG-6 fix: atomically reserve a slot BEFORE the DashMap insert.
@@ -3603,7 +3623,7 @@ impl SMMU {
         // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), stall mode,
         // and S1DSS / S1CDMax while holding the stream guard, so TLB entries
         // can be tagged and routing decisions made without re-locking the map.
-        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt) =
+        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt, stream_s2_stall, stream_s2_record, stream_strw) =
             if let Some(stream_ref) = stream_guard {
                 let raw_asid = stream_ref.value().get_pasid_asid_or_default(pasid);
                 // GAP-NEW-S3 fix: §6.3.12 / §3.17.5 — STRW=El2E2h (0b10) is only valid
@@ -3633,6 +3653,9 @@ impl SMMU {
                 };
                 let s1dss_val = stream_ref.value().get_s1dss();
                 let s1cd_max_val = stream_ref.value().get_s1cd_max();
+                let s2_stall_val = stream_ref.value().get_s2_stall();
+                let s2_record_val = stream_ref.value().get_s2_record();
+                let strw_val = stream_ref.value().get_strw();
 
                 // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range 0-39).
                 // §5.4 / CT-14: CD.AA64=false (AArch32 LPAE) is unsupported — C_BAD_CD.
@@ -3842,7 +3865,7 @@ impl SMMU {
                 let (r, stage2_ipa_opt) = stream_ref.value().translate_and_get_stage2_ipa(
                     pasid, lookup_iova, access, security_state,
                 );
-                (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt)
+                (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt, s2_stall_val, s2_record_val, strw_val)
             } else {
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                 // ARM §7.3.5 / SPEC-20: StreamID is within table bounds but STE.V=0
@@ -3981,6 +4004,8 @@ impl SMMU {
                 // Single-stage entries keep ipa=0 and are never matched by S2_IPA
                 // invalidation, which is correct per spec.
                 entry.ipa = stage2_ipa_opt.unwrap_or(0);
+                // BUG-QA-14: tag for CMD_TLBI_NSNH_ALL scoped invalidation (§4.4.4.1).
+                entry.strw = stream_strw;
                 self.tlb_cache.insert(cache_key, entry);
             }
         }
@@ -4137,7 +4162,14 @@ impl SMMU {
                     | FaultType::AccessFlagFault
                     | FaultType::PermissionFault
             );
-            let is_stall = stall_mode && is_stall_eligible;
+            // BUG-QA-12 fix: §5.5 STE.S2S — use s2_stall for stage-2 fault stall decision.
+            // stage2_ipa_opt is Some(ipa) when the fault came from a stage-2 path.
+            let is_stage2_fault = stage2_ipa_opt.is_some();
+            let is_stall = if is_stage2_fault {
+                stream_s2_stall && is_stall_eligible
+            } else {
+                stall_mode && is_stall_eligible
+            };
 
             // BUG-NEW-RUST-3 fix: hoist effective_access above stall-queue-full branch so
             // both the queue-full path and the normal fault path use post-INSTCFG/PRIVCFG
@@ -4241,6 +4273,13 @@ impl SMMU {
             let pnu = self.streams.get(&stream_id.as_u32())
                 .map_or(false, |ctx| ctx.is_access_privileged(effective_access));
             let nsipa = fault_s2 && security_state == SecurityState::NonSecure;
+
+            // BUG-QA-13 fix: §5.5 STE.S2R=0 && S2S=0 → suppress stage-2 fault events entirely.
+            // The error is still returned to the caller; only the event queue recording is skipped.
+            if is_stage2_fault && !stream_s2_record && !stream_s2_stall {
+                return Err(error.clone());
+            }
+
             self.record_translation_fault(
                 stream_id, pasid, iova, effective_access, security_state,
                 error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa,
@@ -5492,9 +5531,24 @@ impl SMMU {
                 self.tlb_cache.invalidate_by_asid(command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // BUG-NEW-C fix: same rationale — PTM must not gate command-queue TLBI.
-            CommandType::TlbiNhAll | CommandType::TlbiEl2All | CommandType::TlbiNsnhAll => {
+            // ARM §4.4.2.1: CMD_TLBI_NH_ALL — VMID-scoped EL1_EL0 invalidation.
+            // Evicts only El1El0 entries tagged with the command's VMID field.
+            // EL2 / El2E2h entries and entries for other VMIDs are preserved.
+            // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
+            CommandType::TlbiNhAll => {
+                self.tlb_cache.invalidate_nh_by_vmid(command.vmid);
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // ARM §4.4.2.9: CMD_TLBI_EL2_ALL — full EL2 invalidation (not VMID-scoped).
+            // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
+            CommandType::TlbiEl2All => {
                 self.tlb_cache.invalidate_all();
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // BUG-QA-14 fix: §4.4.4.1 — NSNH_ALL invalidates EL1_EL0 entries only
+            // (excludes EL2 / El2E2h entries per ARM §4.4.4.1).
+            CommandType::TlbiNsnhAll => {
+                self.tlb_cache.invalidate_nsnh_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-6: VA-targeted invalidation — selective by VA+ASID (§4.4).

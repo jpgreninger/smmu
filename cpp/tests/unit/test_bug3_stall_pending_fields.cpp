@@ -92,6 +92,9 @@ static void setupTwoStageStallStream(SMMU& smmu) {
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = true;
     cfg.faultMode          = FaultMode::Stall;
+    // QA-AUDIT-FIX-1: §5.5 — stage-2 faults in two-stage streams use S2S for
+    // the stall decision.  Set s2s=true so stage-2 F_TRANSLATION stalls.
+    cfg.s2s                = true;
     cfg.t0sz               = 0;   // No VA-range restriction
     cfg.s2t0sz             = 0;   // No IPA-range restriction
     cfg.ips                = 6;   // 52-bit stage-1 output (IPS)

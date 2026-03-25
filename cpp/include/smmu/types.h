@@ -1206,9 +1206,17 @@ struct StreamConfig {
     /// event queue will suppress a new identical event (merge/dedup).
     bool mev;  ///< STE.MEV; defaults to false (no merging)
 
-    /// CONF-GAP-16: ARM §5.2 STE.S2S — Stage-2 Secure bit.
-    /// When true, stage-2 translation uses Secure PA space.
-    bool s2s;  ///< STE.S2S; defaults to false
+    /// BUG-QA-12: ARM §5.5 STE.S2S — Stage-2 Stall.
+    /// When true, enables stall mode for stage-2 translation faults.
+    /// Independent of the stage-1 CD.S (FaultMode::Stall) setting.
+    /// Validation: STALL_MODEL==0b01 (terminate-only) AND S2S==1 → C_BAD_STE.
+    bool s2s;  ///< STE.S2S Stage-2 Stall; defaults to false
+
+    /// BUG-QA-13: ARM §5.2 STE.S2R — Stage-2 Record.
+    /// When false AND S2S=0, stage-2 fault events are suppressed (not recorded).
+    /// When true, stage-2 fault events are always recorded.
+    /// Analogous to CD.R for stage-1.
+    bool s2R;  ///< STE.S2R; defaults to true (record events by default)
     /// CONF-GAP-16: ARM §5.2 STE.EATS — Enhanced Address Translation Security.
     /// 2-bit field; 0=off, other values per spec.
     uint8_t eats;  ///< STE.EATS; defaults to 0
@@ -1273,7 +1281,7 @@ struct StreamConfig {
                     epd0(false), epd1(false),
                     s2t0sz(16), s2tg(0), s2sl0(1), s2aa64(true), s2ps(5), s2ttb(0),
                     securityState(SecurityState::NonSecure),
-                    mev(false), s2s(false), eats(0),
+                    mev(false), s2s(false), s2R(true), eats(0),
                     tbi(false), ips(6),
                     s1Stalld(false),
                     affd(false), s2affd(false), s2ha(false), s2hd(false),
@@ -1329,15 +1337,20 @@ struct TLBEntry {
     /// used as the operand of CMD_TLBI_S2_IPA to perform selective IPA invalidation.
     /// Zero for single-stage entries (no IPA to compare against).
     uint64_t ipa;   // Stage-1 output (IPA) for two-stage entries; 0 for single-stage
+    /// BUG-QA-14: ARM §4.4.4.1 — stream world tag for NSNH_ALL scoped invalidation.
+    /// Entries tagged with EL1_EL0 are evicted by CMD_TLBI_NSNH_ALL / CMD_TLBI_NH_ALL;
+    /// EL2 and EL2_E2H entries are preserved.
+    StreamWorld strw; ///< stream world tag; defaults to EL1_EL0
 
     TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0),
                  securityState(SecurityState::NonSecure), valid(false), timestamp(0),
-                 asid(0), vmid(0), ipa(0) {
+                 asid(0), vmid(0), ipa(0), strw(StreamWorld::EL1_EL0) {
     }
 
     TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState)
         : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms),
-          securityState(secState), valid(true), timestamp(0), asid(0), vmid(0), ipa(0) {
+          securityState(secState), valid(true), timestamp(0), asid(0), vmid(0), ipa(0),
+          strw(StreamWorld::EL1_EL0) {
     }
 };
 

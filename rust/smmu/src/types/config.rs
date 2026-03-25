@@ -374,6 +374,25 @@ pub struct StreamConfig {
     /// When `true` in a two-stage stream, translation through a Device-memory stage-2
     /// page → F_PERMISSION (prevents TTW from reaching Device MMIO regions).
     pub s2ptw: bool,
+
+    // ---- BUG-QA-12: STE.S2S — Stage-2 Stall (§5.5) ----
+
+    /// §5.2 STE.S2S — Stage-2 Stall.
+    /// When `true`, enables stall mode for stage-2 translation faults,
+    /// independent of the stage-1 CD.S (`FaultMode::Stall`) setting.
+    /// Validation: `STALL_MODEL==0b01` (terminate-only) AND `s2_stall==true` → `C_BAD_STE`.
+    ///
+    /// Default: `false` (terminate mode for stage-2 faults).
+    pub s2_stall: bool,
+
+    // ---- BUG-QA-13: STE.S2R — Stage-2 Record (§5.5) ----
+
+    /// §5.2 STE.S2R — Stage-2 Record.
+    /// When `false` AND `s2_stall==false`, stage-2 fault events are suppressed
+    /// (not recorded in the event queue).  Analogous to CD.R for stage-1.
+    ///
+    /// Default: `true` (record events, normal behavior).
+    pub s2_record: bool,
 }
 
 impl StreamConfig {
@@ -441,6 +460,8 @@ impl StreamConfig {
             wxn: false,
             uwxn: false,
             s2ptw: false,
+            s2_stall: false,
+            s2_record: true,
         }
     }
 
@@ -493,6 +514,8 @@ impl StreamConfig {
             wxn: false,
             uwxn: false,
             s2ptw: false,
+            s2_stall: false,
+            s2_record: true,
         }
     }
 
@@ -545,6 +568,8 @@ impl StreamConfig {
             wxn: false,
             uwxn: false,
             s2ptw: false,
+            s2_stall: false,
+            s2_record: true,
         }
     }
 
@@ -597,6 +622,8 @@ impl StreamConfig {
             wxn: false,
             uwxn: false,
             s2ptw: false,
+            s2_stall: false,
+            s2_record: true,
         }
     }
 
@@ -808,6 +835,10 @@ pub struct StreamConfigBuilder {
     uwxn: bool,
     // NEW-GAP-L
     s2ptw: bool,
+    // BUG-QA-12
+    s2_stall: bool,
+    // BUG-QA-13
+    s2_record: bool,
 }
 
 impl StreamConfigBuilder {
@@ -860,6 +891,8 @@ impl StreamConfigBuilder {
             wxn: false,
             uwxn: false,
             s2ptw: false,
+            s2_stall: false,
+            s2_record: true,
         }
     }
 
@@ -919,6 +952,26 @@ impl StreamConfigBuilder {
     #[must_use]
     pub fn s2ptw(mut self, s2ptw: bool) -> Self {
         self.s2ptw = s2ptw;
+        self
+    }
+
+    /// Set STE.S2S — Stage-2 Stall enable (BUG-QA-12, §5.5).
+    ///
+    /// When `true`, stage-2 faults stall independently of `FaultMode` (CD.S).
+    /// Rejected at configure time when `STALL_MODEL==0b01` (terminate-only).
+    #[must_use]
+    pub fn s2_stall(mut self, val: bool) -> Self {
+        self.s2_stall = val;
+        self
+    }
+
+    /// Set STE.S2R — Stage-2 Record (BUG-QA-13, §5.5).
+    ///
+    /// When `false` and `s2_stall==false`, stage-2 fault events are suppressed
+    /// from the event queue.  Default: `true` (events recorded normally).
+    #[must_use]
+    pub fn s2_record(mut self, val: bool) -> Self {
+        self.s2_record = val;
         self
     }
 
@@ -1259,6 +1312,8 @@ impl StreamConfigBuilder {
             wxn: self.wxn,
             uwxn: self.uwxn,
             s2ptw: self.s2ptw,
+            s2_stall: self.s2_stall,
+            s2_record: self.s2_record,
         };
 
         config.validate()?;

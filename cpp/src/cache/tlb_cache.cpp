@@ -244,6 +244,76 @@ void TLBCache::invalidateAll() {
     clear();
 }
 
+void TLBCache::invalidateNonHypEntries() {
+    // BUG-QA-14 fix: ARM §4.4.4.1 — CMD_TLBI_NSNH_ALL invalidates only EL1_EL0 entries.
+    // Entries tagged with EL2 or EL2_E2H (hypervisor) must be preserved.
+    // Same stripe-iteration pattern as invalidateByASID() / invalidateByVMID().
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.strw == StreamWorld::EL1_EL0) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateNonHypEntriesByVMID(uint16_t vmid) {
+    // QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — VMID-scoped Non-Hyp invalidation.
+    // Evicts only entries tagged with EL1_EL0 AND whose vmid matches the command operand.
+    // Preserves EL2, EL2_E2H, and EL1_EL0 entries belonging to other VMIDs.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.strw == StreamWorld::EL1_EL0 && it->second.vmid == vmid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateBySecurityState(SecurityState securityState) {
     // Acquire all locks for bulk invalidation
     AllLocksGuard allLocks(*this);

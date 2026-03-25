@@ -639,7 +639,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 (cr2_.load(std::memory_order_acquire) & CR2_E2H) == 0u) {
                 entryAsid = 0;
             }
-            cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid);
+            cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid, streamCfg.strw);
         }
     } else if (result.isError()) {
         // BUG-CPP-5 fix: §7.3 — compute the effective (post-STE-override) access type
@@ -699,8 +699,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // If the stream is configured for stall, enqueue a StallRecord and return
         // Stalled instead of the original error — software must issue CMD_RESUME.
         // GAP-NEW-G: STE.S1STALLD=1 forces abort semantics — override stall mode.
-        bool inStallMode = (streamContext->getFaultMode() == FaultMode::Stall &&
-                            !streamContext->isS1StallDisabled());
+        // QA-AUDIT-FIX-1: §5.5 STE.S2S governs stall for ALL stage-2 faults,
+        // including faults in the stage-2 walk of two-stage streams (stage-1 + stage-2).
+        // The previous !stage1Enabled guard was wrong: it caused two-stage streams to
+        // use FaultMode instead of S2S for their stage-2 faults.
+        bool isStage2Fault = tl_stage2FaultCtx.isStage2;
+        bool inStallMode = isStage2Fault
+            ? streamCfgSnapshot.s2s
+            : (streamContext->getFaultMode() == FaultMode::Stall &&
+               !streamContext->isS1StallDisabled());
         // BUG-NEW-02 fix: ARM §3.12.2 — configuration-class faults must always
         // abort immediately and must never be stalled.  Only F_TRANSLATION,
         // F_PERMISSION, and F_ADDR_SIZE are eligible for stall mode.
@@ -875,6 +882,14 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                           tl_stage2FaultCtx.isStage2, tl_stage2FaultCtx.ipa);
             return makeTranslationError(SMMUError::Stalled);
         }
+        // QA-AUDIT-FIX-1 / BUG-QA-13 fix: §5.5 STE.S2R=0 && STE.S2S=0 → suppress
+        // stage-2 fault events.  Now applies to ALL stage-2 faults (isStage2Fault),
+        // not just stage-2-only streams.  Configuration faults are always recorded.
+        if (isStage2Fault && !streamCfgSnapshot.s2R && !streamCfgSnapshot.s2s
+                && !isConfigFault) {
+            streamContext = nullptr;
+            return result;
+        }
         // BUG-NEW-CPP-3 fix: the stripe lock was already released before
         // performTwoStageTranslation(); do NOT call lock.unlock() again.
         // handleTranslationFailure() may call determineContextSecurityState() which
@@ -949,6 +964,16 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
             generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
             return makeVoidError(SMMUError::InvalidConfiguration);
         }
+    }
+
+    // BUG-QA-12 fix: §5.5 — STALL_MODEL==0b01 (terminate-only) AND STE.S2S==1 → C_BAD_STE.
+    // Checked before the stripe lock is acquired for the same reason as the STRW checks above
+    // (generateEvent() acquires queueMutex which would deadlock with the stripe lock).
+    // QA-AUDIT-FIX-3: guard by stage2Enabled — bypass and stage1-only streams never
+    // encounter stage-2 faults, so S2S is irrelevant and must not trigger C_BAD_STE.
+    if (config.stage2Enabled && stallModel_.load(std::memory_order_acquire) == 0x01u && config.s2s) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
     size_t stripe = getStreamStripe(streamID);
@@ -1618,6 +1643,15 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         }
         PagePermissions bypassPerms(true, true, true); // Full permissions in bypass
         TranslationData data(iova, bypassPerms, securityState);
+        // BUG-QA-11 fix: §5.2/§13.3 — apply STE output attribute overrides to bypass
+        // transactions.  Rust correctly calls apply_output_attrs() via
+        // StreamContext::translate_bypass(); C++ previously omitted this step.
+        data.memType      = config.mtCfg ? config.memAttr : 0u;
+        data.shareability = config.shCfg;
+        data.allocHint    = config.allocCfg;
+        data.instCfg      = config.instCfg;
+        data.privCfg      = config.privCfg;
+        data.nsCfgOut     = config.nsCfg;
         return TranslationResult(data);
     }
 
@@ -1978,7 +2012,7 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
 
 void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                  const TranslationResult& result, uint64_t currentTime,
-                                 uint16_t asid, uint16_t vmid) {
+                                 uint16_t asid, uint16_t vmid, StreamWorld strw) {
     if (!tlbCache || result.isError() || !cachingEnabled.load(std::memory_order_acquire)) {
         return; // Caching disabled or invalid result
     }
@@ -2006,6 +2040,8 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     entry.timestamp = currentTime;
     entry.asid = asid;
     entry.vmid = vmid;
+    // BUG-QA-14: tag TLB entry with stream world for NSNH_ALL scoped invalidation.
+    entry.strw = strw;
     // CONF-GAP-7: propagate IPA from two-stage translation result so that
     // TLBI_S2_IPA can perform selective IPA-based invalidation (§4.4).
     // For single-stage results data.ipa==0 (default), correctly marking the
@@ -3923,9 +3959,20 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
     // ARM SMMU v3 spec: Execute TLB-specific invalidation commands
     switch (type) {
         case CommandType::TLBI_NH_ALL:
+            // QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
+            // Only evicts EL1_EL0 entries belonging to the command's VMID operand.
+            // Preserves EL2, EL2_E2H, and EL1_EL0 entries of other VMIDs.
+            if (tlbCache) {
+                tlbCache->invalidateNonHypEntriesByVMID(vmid);
+            }
+            break;
+
         case CommandType::TLBI_NSNH_ALL:
-            // Non-secure all TLB invalidation — global flush
-            invalidateTranslationCache();
+            // BUG-QA-14 fix: ARM §4.4.4.1 CMD_TLBI_NSNH_ALL — Non-Secure Non-Hyp all.
+            // Evicts ALL EL1_EL0 entries across all VMIDs (VMID-agnostic per §4.4.4.1).
+            if (tlbCache) {
+                tlbCache->invalidateNonHypEntries();
+            }
             break;
 
         case CommandType::TLBI_NH_VA:

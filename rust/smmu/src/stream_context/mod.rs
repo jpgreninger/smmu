@@ -305,6 +305,16 @@ pub struct StreamContext {
 
     /// STE.S2PTW: Protected Table Walk — device-memory stage-2 page causes F_PERMISSION.
     s2ptw: AtomicBool,
+
+    // ---- BUG-QA-12: STE.S2S — Stage-2 Stall (§5.5) ----
+
+    /// STE.S2S: when `true`, stage-2 faults stall (independently of CD.S / FaultMode).
+    s2_stall: AtomicBool,
+
+    // ---- BUG-QA-13: STE.S2R — Stage-2 Record (§5.5) ----
+
+    /// STE.S2R: when `false` (and s2_stall=false), stage-2 fault events are suppressed.
+    s2_record: AtomicBool,
 }
 
 impl StreamContext {
@@ -375,6 +385,8 @@ impl StreamContext {
             wxn: AtomicBool::new(false),
             uwxn: AtomicBool::new(false),
             s2ptw: AtomicBool::new(false),
+            s2_stall: AtomicBool::new(false),
+            s2_record: AtomicBool::new(true),
         }
     }
 
@@ -1001,6 +1013,44 @@ impl StreamContext {
 
         // NEW-GAP-L: S2PTW protected table walk (§5.2)
         self.s2ptw.store(cfg.s2ptw, Ordering::Release);
+
+        // BUG-QA-12: STE.S2S — stage-2 stall enable (§5.5)
+        self.s2_stall.store(cfg.s2_stall, Ordering::Release);
+
+        // BUG-QA-13: STE.S2R — stage-2 record (§5.5)
+        self.s2_record.store(cfg.s2_record, Ordering::Release);
+    }
+
+    /// Returns whether STE.S2S (Stage-2 Stall) is enabled (BUG-QA-12, §5.5).
+    ///
+    /// When `true`, stage-2 translation faults cause stall semantics independently
+    /// of `FaultMode` / CD.S.
+    #[inline]
+    #[must_use]
+    pub fn get_s2_stall(&self) -> bool {
+        self.s2_stall.load(Ordering::Acquire)
+    }
+
+    /// Sets STE.S2S (Stage-2 Stall) for this stream (BUG-QA-12, §5.5).
+    #[inline]
+    pub fn set_s2_stall(&self, val: bool) {
+        self.s2_stall.store(val, Ordering::Release);
+    }
+
+    /// Returns whether STE.S2R (Stage-2 Record) is enabled (BUG-QA-13, §5.5).
+    ///
+    /// When `false` and `s2_stall=false`, stage-2 fault events are suppressed
+    /// from the event queue.
+    #[inline]
+    #[must_use]
+    pub fn get_s2_record(&self) -> bool {
+        self.s2_record.load(Ordering::Acquire)
+    }
+
+    /// Sets STE.S2R (Stage-2 Record) for this stream (BUG-QA-13, §5.5).
+    #[inline]
+    pub fn set_s2_record(&self, val: bool) {
+        self.s2_record.store(val, Ordering::Release);
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).

@@ -154,6 +154,12 @@ public:
     void invalidateByStream(StreamID streamID);
     void invalidateByPASID(StreamID streamID, PASID pasid);
     void invalidateAll();
+    /// BUG-QA-14: ARM §4.4.4.1 CMD_TLBI_NSNH_ALL — invalidate Non-Secure Non-Hyp entries only.
+    /// Evicts entries tagged with StreamWorld::EL1_EL0; preserves EL2 and EL2_E2H entries.
+    void invalidateNonHypEntries();
+    /// QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
+    /// Evicts only entries where strw==EL1_EL0 AND vmid==vmid; preserves all other entries.
+    void invalidateNonHypEntriesByVMID(uint16_t vmid);
     void invalidateStream(StreamID streamID);  // Alias
     void invalidatePASID(StreamID streamID, PASID pasid);  // Alias
     // Deprecated: prefer invalidate(). The securityState parameter defaults to NonSecure
