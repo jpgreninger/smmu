@@ -47,7 +47,7 @@ pub use fault_record::{FaultRecord, FaultRecordBuilder, FaultSyndrome, FaultSynd
 pub use fault_type::{AddressType, FaultContext, FaultSeverity, FaultType, TranslationStep};
 pub use page_entry::{PageEntry, PageEntryBuilder, PagePermissions};
 pub use pasid::{PASID, PASID_MAX};
-pub use pri_entry::PRIEntry;
+pub use pri_entry::{PRIEntry, PriAutoFailureResponse};
 pub use queue_statistics::QueueStatistics;
 pub use security_state::SecurityState;
 pub use smmu_error::SMMUError;

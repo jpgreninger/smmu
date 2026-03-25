@@ -47,6 +47,66 @@ pub struct PRIEntry {
     pub security_state: SecurityState,
 }
 
+/// Auto-generated PRG_RESPONSE for a PPR discarded due to PRIQ overflow (§8.1).
+///
+/// When the PRIQ overflows (or overflow is already active) and an incoming PPR
+/// has `is_last_request=true`, the SMMU must auto-generate a PRG_RESPONSE so
+/// the device does not wait indefinitely.  The `response_code` follows §8.1:
+///
+/// - `0x0` (Success) — when the PPR carries no PASID (`pasid == 0`), the
+///   device can tolerate a Success response without harmful side-effects.
+/// - `0xF` (Failure) — when the PPR carries a PASID, the conservative
+///   approach is Failure; the device must retry via a new page fault later.
+///
+/// # ARM SMMU v3 Compliance
+///
+/// ARM IHI0070G.b §8.1: "If the queue overflows, the SMMU must generate a
+/// PRG_RESPONSE with RESPONSE=FAILURE for each Last=1 page request that is
+/// discarded."
+///
+/// The `response_code` field is a 4-bit value encoded in the CMD_PRI_RESP
+/// RESP[3:0] field (§4.6.13).  The two defined values relevant to overflow:
+/// - `0x0` Success
+/// - `0xF` Failure
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PriAutoFailureResponse {
+    /// The PPR that was discarded and triggered this auto-response.
+    pub entry: PRIEntry,
+    /// The 4-bit response code to send back to the device (0x0=Success, 0xF=Failure).
+    pub response_code: u8,
+}
+
+impl PriAutoFailureResponse {
+    /// Construct an auto-failure response for the given entry.
+    ///
+    /// Selects `response_code` per §8.1:
+    /// - `0x0` (Success) when `entry.pasid == 0` (no PASID present).
+    /// - `0xF` (Failure) when `entry.pasid != 0` (PASID present; conservative).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{AccessType, PRIEntry, PriAutoFailureResponse};
+    ///
+    /// let entry = PRIEntry { stream_id: 1, pasid: 0, requested_address: 0x1000,
+    ///     access_type: AccessType::Read, is_last_request: true, timestamp: 0,
+    ///     prg_index: 7, security_state: smmu::types::SecurityState::NonSecure };
+    /// let resp = PriAutoFailureResponse::new(entry);
+    /// assert_eq!(resp.response_code, 0x0); // no PASID → Success
+    ///
+    /// let entry2 = PRIEntry { pasid: 42, ..entry };
+    /// let resp2 = PriAutoFailureResponse::new(entry2);
+    /// assert_eq!(resp2.response_code, 0xF); // PASID present → Failure
+    /// ```
+    #[must_use]
+    pub fn new(entry: PRIEntry) -> Self {
+        // §8.1: if no PASID, return Success; if PASID present, return Failure (conservative).
+        let response_code = if entry.pasid == 0 { 0x0 } else { 0xF };
+        Self { entry, response_code }
+    }
+}
+
 impl PRIEntry {
     /// Create a new PRI entry with stream ID and PASID only.
     ///

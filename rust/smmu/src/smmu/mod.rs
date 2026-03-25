@@ -57,9 +57,10 @@
 use crate::cache::{CacheEntry, CacheKey, ReplacementPolicy, TlbCache};
 use crate::stream_context::StreamContext;
 use crate::types::{
-    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry, PagePermissions,
-    QueueStatistics, SMMUConfig, SMMUError, SecurityState, StreamConfig, StreamID, StreamTableFormat,
-    TransactionType, TranslationError, TranslationResult, IOVA, PA, PASID,
+    AccessType, CommandEntry, CommandType, EventEntry, EventType, FaultRecord, FaultType, PRIEntry,
+    PagePermissions, PriAutoFailureResponse, QueueStatistics, SMMUConfig, SMMUError, SecurityState,
+    StreamConfig, StreamID, StreamTableFormat, TransactionType, TranslationError, TranslationResult,
+    IOVA, PA, PASID,
 };
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -280,11 +281,13 @@ pub struct SMMU {
 
     /// GAP-H: §3.13.6 — auto-PRG failure responses generated on PRIQ overflow.
     ///
-    /// When the PRIQ is full and a new page request cannot be enqueued, the SMMU
-    /// must automatically generate a PRG_RESPONSE with RESPONSE=FAILURE so the
-    /// device does not wait indefinitely.  The failed PRIEntry is stored here;
-    /// callers retrieve them via `get_pri_auto_failure_responses()`.
-    pri_auto_failure_responses: Mutex<Vec<PRIEntry>>,
+    /// When the PRIQ is full (or overflow is already active) and a new page
+    /// request cannot be enqueued, the SMMU must automatically generate a
+    /// PRG_RESPONSE for Last=1 PPRs so the device does not wait indefinitely.
+    /// Each entry carries the original PRIEntry plus the 4-bit response_code
+    /// chosen per §8.1 (0x0=Success when no PASID, 0xF=Failure when PASID).
+    /// Callers retrieve them via `get_pri_auto_failure_responses()`.
+    pri_auto_failure_responses: Mutex<Vec<PriAutoFailureResponse>>,
 
     /// Cache invalidation counter
     ///
@@ -1178,7 +1181,9 @@ impl SMMU {
         | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
         | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
         | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
-        // STALL_MODEL[25:24] = 0b00: both stall and terminate models supported (§6.3.1)
+        // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
+        // stored by set_stall_model() rather than being hardcoded to 0b00.
+        | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
         | (1u32 << 23)       // ATSRECERR: ATS error recovery (CR2.REC_CFG_ATS) implemented (§6.3.1, §2.5)
         // TERM_MODEL (bit 26) = 0: RAZ/WI termination IS supported (§6.3.1).
         // Bug 2 fix: the model does not validate CD.A=1 before permitting termination,
@@ -1253,11 +1258,14 @@ impl SMMU {
     /// - bits[31:16]: STALL_MAX — Maximum stall queue depth (64); must be non-zero when STALL_MODEL=0b00
     #[must_use]
     pub fn get_idr5(&self) -> u32 {
+        // BUG-QA-2 fix: §6.3.6 — STALL_MAX is RES0 when IDR0.STALL_MODEL==0b01
+        // (terminate-only model).  When STALL_MODEL==0b00 (default) STALL_MAX=64.
+        let stall_max = if self.stall_model.load(Ordering::Relaxed) == 0x01 { 0u32 } else { 64u32 };
         5u32            // OAS = 5 (48-bit) in bits[2:0]
         | (1u32 << 4)   // GRAN4K
         | (1u32 << 5)   // GRAN16K
         | (1u32 << 6)   // GRAN64K
-        | (64u32 << 16) // STALL_MAX: 64 outstanding stall entries (§6.3.6, required when STALL_MODEL=0b00)
+        | (stall_max << 16) // STALL_MAX: 0 when terminate-only, 64 otherwise (§6.3.6)
     }
 
     /// Read SMMU_AIDR (§6.3.7) — architecture implementation version.
@@ -1394,8 +1402,12 @@ impl SMMU {
             } else {
                 // BUG-NEW-B fix: ARM §7.4 — toggle OVFLG when a non-stall event
                 // is discarded due to a full queue.
+                // BUG-QA-3 fix: §7.4 — only toggle OVFLG when CR0.EVENTQEN=1;
+                // when EVENTQEN=0 events are silently discarded without setting OVFLG.
                 drop(queue);
-                self.toggle_ovflg_once();
+                if (self.cr0.load(Ordering::Relaxed) & Self::CR0_EVENTQEN) != 0 {
+                    self.toggle_ovflg_once();
+                }
             }
         }
     }
@@ -4859,11 +4871,16 @@ impl SMMU {
                     pending.push_back(event);
                 }
             } else {
-                // Non-stall event dropped due to full queue: toggle OVFLG once.
+                // Non-stall event dropped due to full queue: toggle OVFLG once,
+                // BUT ONLY when CR0.EVENTQEN=1 (BUG-QA-3 fix: §7.4 — OVFLG must
+                // not be toggled when the event queue is disabled; the C++ model
+                // early-returns at the top of generateEvent() when EVENTQEN=0).
                 // Release write lock first so toggle_ovflg_once() can acquire it
                 // independently if needed (it only touches atomics, so this is safe).
                 drop(queue);
-                self.toggle_ovflg_once();
+                if (self.cr0.load(Ordering::Relaxed) & Self::CR0_EVENTQEN) != 0 {
+                    self.toggle_ovflg_once();
+                }
             }
             return Err(SMMUError::EventQueueFull);
         }
@@ -5875,6 +5892,29 @@ impl SMMU {
         }
 
         let mut queue = self.pri_queue.write().unwrap();
+
+        // BUG-QA-5 fix: §8.1 — when overflow is already active (OVFLG != OVACKFLG)
+        // ALL incoming PPRs must be rejected, even if the queue has physical space.
+        // ARM §8.1: "If the PRIQ overflows, all subsequent PPRs are dropped until
+        // software acknowledges the overflow by writing PRIQ_CONS.OVACKFLG = PRIQ_PROD.OVFLG."
+        let overflow_active = {
+            let current_prod = self.priq_prod.load(Ordering::Acquire);
+            let current_cons = self.priq_cons.load(Ordering::Acquire);
+            (current_prod >> 31) != (current_cons >> 31)
+        };
+        if overflow_active {
+            // Overflow already active: no need to toggle OVFLG again (already toggled).
+            // Auto-generate PRG_RESPONSE(FAILURE) for Last=1 PPRs per §8.1.
+            // BUG-NEW-12 / BUG-QA-4: Last=0 → silent discard; Last=1 → auto-failure
+            // with response_code chosen per §8.1 PASID presence rule.
+            if request.is_last_request {
+                if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                    auto_resp.push(PriAutoFailureResponse::new(request));
+                }
+            }
+            return Err(SMMUError::PriQueueFull);
+        }
+
         // BUG-01 / ARM §8.1: enforce PRI queue capacity unconditionally — the
         // previous `< 200` guard was an implementation artifact with no spec basis.
         if queue.len() >= self.pri_queue_capacity {
@@ -5908,9 +5948,11 @@ impl SMMU {
             // BUG-NEW-12 fix: §8.1 — auto-failure PRG_RESPONSE is required ONLY when
             // is_last_request=true.  A PPR with is_last_request=false has no outstanding
             // group response pending; silently discard with no auto-response.
+            // BUG-QA-4 fix: §8.1 — response_code must be 0 (Success) when no PASID
+            // (pasid==0) and 0xF (Failure) when PASID is present (conservative).
             if request.is_last_request {
                 if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
-                    auto_resp.push(request);
+                    auto_resp.push(PriAutoFailureResponse::new(request));
                 }
             }
             return Err(SMMUError::PriQueueFull);
@@ -6059,17 +6101,20 @@ impl SMMU {
         self.priq_emitted.store(0, Ordering::Release);
     }
 
-    /// GAP-H: §3.13.6 — retrieve and drain auto-generated PRG_RESPONSE(FAILURE) entries.
+    /// GAP-H / BUG-QA-4: §3.13.6 / §8.1 — retrieve and drain auto-generated PRG_RESPONSE entries.
     ///
     /// Returns all auto-failure responses that were generated because the PRIQ was full
-    /// when a page request arrived.  Per ARM §3.13.6, when the PRIQ overflows the SMMU
-    /// must automatically generate a PRG_RESPONSE with RESPONSE=FAILURE so the device
-    /// does not stall indefinitely.
+    /// (or an overflow was already active) when a Last=1 page request arrived.
     ///
-    /// Each call drains (removes) all accumulated entries.  Callers should treat each
-    /// returned `PRIEntry` as a device that received a FAILURE response.
+    /// Per ARM §3.13.6, when the PRIQ overflows the SMMU must automatically generate a
+    /// PRG_RESPONSE so the device does not stall indefinitely.  Per ARM §8.1 the response
+    /// code is determined by PASID presence:
+    ///   - `response_code=0x0` (Success) when `pasid==0` (no PASID).
+    ///   - `response_code=0xF` (Failure) when `pasid!=0` (PASID present; conservative).
+    ///
+    /// Each call drains (removes) all accumulated entries.
     #[must_use]
-    pub fn get_pri_auto_failure_responses(&self) -> Vec<PRIEntry> {
+    pub fn get_pri_auto_failure_responses(&self) -> Vec<PriAutoFailureResponse> {
         if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
             std::mem::take(&mut *auto_resp)
         } else {
@@ -7715,6 +7760,12 @@ mod tests {
 
         // Directly set OVFLG=1 in PRIQ PROD (simulating a prior overflow at pos=0).
         smmu.priq_prod.store(1u32 << 31, Ordering::Release);
+        // BUG-QA-5 fix: also set OVACKFLG=1 in PRIQ CONS so that overflow is NOT
+        // "active" (OVFLG == OVACKFLG → acknowledged).  Without this, the BUG-QA-5
+        // check correctly rejects the enqueue, breaking this OVFLG-preservation test.
+        // The test intent is to verify OVFLG bit is preserved when the index advances,
+        // not to test overflow inhibition; an acknowledged overflow is the correct setup.
+        smmu.priq_cons.store(1u32 << 31, Ordering::Release);
 
         // Enqueue one PRI entry (queue is empty, space available).
         let req = crate::types::PRIEntry {

@@ -433,11 +433,11 @@ fn gap_h_priq_overflow_generates_auto_failure_response() {
         auto_failures.len()
     );
     assert_eq!(
-        auto_failures[0].stream_id, 99,
+        auto_failures[0].entry.stream_id, 99,
         "GAP-H: auto-failure response must carry the stream_id of the overflowing request"
     );
     assert_eq!(
-        auto_failures[0].prg_index, 7,
+        auto_failures[0].entry.prg_index, 7,
         "GAP-H: auto-failure response must carry the prg_index of the overflowing request"
     );
 

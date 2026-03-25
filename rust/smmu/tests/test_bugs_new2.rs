@@ -526,7 +526,7 @@ fn bug_new12_overflow_last_true_generates_auto_failure() {
         "BUG-NEW-12: overflow with is_last_request=true must generate exactly one \
          auto-failure PRG_RESPONSE (ARM §8.1). Got {failures:?}"
     );
-    assert_eq!(failures[0].prg_index, 0xBBu16,
+    assert_eq!(failures[0].entry.prg_index, 0xBBu16,
                "auto-failure prg_index must match the overflow PPR");
 }
 
@@ -580,7 +580,7 @@ fn bug_new12_overflow_mixed_only_last_true_generates_failure() {
     );
     if !failures.is_empty() {
         assert_eq!(
-            failures[0].prg_index, 0xDDu16,
+            failures[0].entry.prg_index, 0xDDu16,
             "BUG-NEW-12: the auto-failure must correspond to the Last=true PPR \
              (prg_index=0xDD)"
         );
