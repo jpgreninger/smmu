@@ -1984,6 +1984,37 @@ impl StreamContext {
         let stage2_enabled = self.stage2_enabled.load(Ordering::Acquire);
 
         if stage1_enabled && stage2_enabled {
+            // BUG-NEW-17 fix: §3.9 / §5.2 STE.S1DSS — apply S1DSS routing BEFORE
+            // entering the two-stage translation path.  The translate() function checks
+            // S1DSS at line ~1834, but translate_and_get_stage2_ipa() previously called
+            // translate_two_stage_with_ipa() directly, bypassing that check entirely.
+            //
+            // For a substream-capable stream (s1cd_max > 0) with PASID==0:
+            //   S1DSS=0: abort with F_STREAM_DISABLED (return StreamDisabled here so
+            //            smmu/mod.rs records the event on the normal S1DSS path).
+            //   S1DSS=1: bypass stage-1 (delegate to translate_bypass), returning
+            //            the IPA as None (stage-1 not attempted, so no stage-2 fault
+            //            IPA to report from this path; the smmu-level S1DSS=1 branch
+            //            in mod.rs will do the stage-2 call instead).
+            //   S1DSS=2: use CD[0], fall through to normal two-stage path.
+            let s1cd_max = self.s1cd_max.load(Ordering::Acquire);
+            if s1cd_max > 0 && pasid.as_u32() == 0 {
+                let s1dss = self.s1dss.load(Ordering::Acquire);
+                match s1dss {
+                    0 => return (Err(TranslationError::StreamDisabled), None),
+                    1 => {
+                        // Stage-1 bypassed; IOVA is forwarded as IPA to stage-2.
+                        // Return a sentinel that tells smmu/mod.rs to apply S1DSS=1 routing.
+                        // We return StreamDisabled here so the outer S1DSS block in
+                        // smmu/mod.rs (which already handles S1DSS=1 correctly via
+                        // translate_stage2_only) takes over.  The None IPA signals that
+                        // this is not a "stage-2 fault after stage-1 succeeded" case.
+                        return (Err(TranslationError::StreamDisabled), None);
+                    }
+                    _ => {} // S1DSS=2: use CD[0], fall through
+                }
+            }
+
             // NEW-04 fix: §5.4 CD.EPD0=1 — TTBR0 translation table walk disabled.
             // The single-stage translate() path already checks EPD0, but this two-stage
             // path calls translate_two_stage_with_ipa() directly, bypassing that check.

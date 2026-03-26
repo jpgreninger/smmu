@@ -247,6 +247,9 @@ void TLBCache::invalidateAll() {
 void TLBCache::invalidateNonHypEntries() {
     // BUG-QA-14 fix: ARM §4.4.4.1 — CMD_TLBI_NSNH_ALL invalidates only EL1_EL0 entries.
     // Entries tagged with EL2 or EL2_E2H (hypervisor) must be preserved.
+    // BUG-NEW-18 fix: ARM §4.4.4.1 — NSNH_ALL is scoped to NonSecure world only.
+    // The filter must also check securityState == NonSecure; Secure EL1_EL0
+    // entries must be preserved (NSNH = Non-Secure Non-Hyp).
     // Same stripe-iteration pattern as invalidateByASID() / invalidateByVMID().
     AllLocksGuard allLocks(*this);
 
@@ -254,7 +257,8 @@ void TLBCache::invalidateNonHypEntries() {
         CacheStripe& stripe = stripes[i];
         auto it = stripe.list.begin();
         while (it != stripe.list.end()) {
-            if (it->second.strw == StreamWorld::EL1_EL0) {
+            if (it->second.strw == StreamWorld::EL1_EL0 &&
+                it->second.securityState == SecurityState::NonSecure) {
                 const CacheKey& key = it->first;
 
                 auto& streamSet = stripe.streamIndex[key.streamID];

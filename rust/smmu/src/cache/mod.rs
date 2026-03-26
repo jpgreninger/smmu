@@ -863,18 +863,25 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
-    /// BUG-QA-14 fix: ARM §4.4.4.1 `CMD_TLBI_NSNH_ALL` — invalidate Non-Secure Non-Hyp entries.
+    /// BUG-QA-14 fix / BUG-NEW-18 fix: ARM §4.4.4.1 `CMD_TLBI_NSNH_ALL` —
+    /// invalidate Non-Secure Non-Hyp entries.
     ///
-    /// Evicts only entries tagged with `StreamWorld::El1El0`.  Preserves
-    /// NS-EL2 (`El2`) and NS-EL2-E2H (`El2E2h`) entries per §4.4.4.1.
+    /// Evicts only entries tagged **both** `StreamWorld::El1El0` **and**
+    /// `SecurityState::NonSecure`.  Secure EL1/EL0 entries and all EL2/EL2-E2H
+    /// entries are preserved per ARM §4.4.4.1.
+    ///
+    /// BUG-NEW-18: the previous implementation only checked `strw==El1El0`,
+    /// causing Secure El1El0 entries to be incorrectly evicted.
     pub fn invalidate_nsnh_all(&self) {
         let mut count = 0usize;
         self.entries.retain(|_key, entry| {
-            if entry.strw == StreamWorld::El1El0 {
+            if entry.strw == StreamWorld::El1El0
+                && entry.security_state == SecurityState::NonSecure
+            {
                 count += 1;
-                false // remove
+                false // remove — NonSecure EL1/EL0 only
             } else {
-                true // keep
+                true // keep — Secure El1El0 and all EL2 entries preserved
             }
         });
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);

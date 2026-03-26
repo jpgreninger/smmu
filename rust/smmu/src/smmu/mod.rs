@@ -505,6 +505,19 @@ pub struct SMMU {
     /// Reset value: `0b00` (both stall and terminate supported, matching IDR0
     /// default returned by `read_idr0()`).
     stall_model: AtomicU8,
+
+    // ---- BUG-NEW-16: IDR0.Hyp configurable field (ARM §6.3.1, §4.4.2.7) ----
+
+    /// IDR0.Hyp (bit 9) — whether EL2 hypervisor TLBI commands are supported.
+    ///
+    /// When `true` (default), `get_idr0()` sets bit 9 and `CMD_TLBI_EL2_ALL`
+    /// executes normally.  When `false`, `get_idr0()` clears bit 9 and
+    /// `CMD_TLBI_EL2_ALL` must raise `CERROR_ILL` (ARM §4.4.2.7).
+    ///
+    /// The guard at the `CMD_TLBI_EL2_ALL` match arm reads this flag via
+    /// `get_idr0()`.  Hardcoding bit 9 to 1 made that guard permanently dead
+    /// code (BUG-NEW-16 fix).
+    hyp_supported: AtomicBool,
 }
 
 impl SMMU {
@@ -841,6 +854,8 @@ impl SMMU {
             cmdq_processing_mutex: Mutex::new(()),
             // BUG-NEW-11: STALL_MODEL=0b00 (both stall and terminate supported).
             stall_model: AtomicU8::new(0),
+            // BUG-NEW-16: Hyp=true by default (EL2 TLBI commands supported).
+            hyp_supported: AtomicBool::new(true),
         }
     }
 
@@ -1180,7 +1195,10 @@ impl SMMU {
         | (1u32 << 18)       // VMID16
         | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
         | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
-        | (1u32 << 9)        // Hyp: mandatory for SMMUv3.2 when S1P=1 and S2P=1 (§6.3.1, §2.4)
+        // BUG-NEW-16 fix: IDR0.Hyp (bit 9) is now configurable via set_hyp_supported().
+        // Default=true to preserve existing behaviour; set_hyp_supported(false) enables
+        // the CMD_TLBI_EL2_ALL CERROR_ILL guard that was previously dead code.
+        | if self.hyp_supported.load(Ordering::Acquire) { 1u32 << 9 } else { 0 }
         // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
         // stored by set_stall_model() rather than being hardcoded to 0b00.
         | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
@@ -1380,9 +1398,10 @@ impl SMMU {
             // BUG-QA-8 fix: §7.3.12 — F_WALK_EABT CLASS must be 0b01 (TT =
             // translation-table descriptor fetch), not 0b00 (CD).
             event_class: 1,
-            // BUG-QA-10 fix: §7.3 — SSV must be set when the transaction carried
-            // a non-zero PASID (SubstreamID).
-            ssv: pasid.as_u32() != 0,
+            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented:
+            // either s1cd_max > 0 (PASID=0 on substream-capable stream counts) or
+            // a non-zero PASID was presented.
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         self.enqueue_event(event);
@@ -1734,6 +1753,17 @@ impl SMMU {
     #[must_use]
     pub fn get_stall_model(&self) -> u8 {
         self.stall_model.load(Ordering::Acquire)
+    }
+
+    /// BUG-NEW-16: Set whether EL2 hypervisor TLBI commands are supported.
+    ///
+    /// Controls IDR0 bit 9 (Hyp) and the CERROR_ILL gate on CMD_TLBI_EL2_ALL.
+    ///
+    /// - `true` (default): IDR0.Hyp=1, CMD_TLBI_EL2_ALL executes normally.
+    /// - `false`:          IDR0.Hyp=0, CMD_TLBI_EL2_ALL raises CERROR_ILL
+    ///   (ARM §4.4.2.7: EL2 TLBI commands are illegal when Hyp=0).
+    pub fn set_hyp_supported(&self, enabled: bool) {
+        self.hyp_supported.store(enabled, Ordering::Release);
     }
 
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
@@ -3200,7 +3230,8 @@ impl SMMU {
                             event_class: 0,
                             // BUG-RUST-3 fix: §7.3.6 wire format — bits 100(RnW)/99(InD)/98(PnU)
                             // are RES0 for F_BAD_ATS_TREQ; do NOT set from access type.
-                            ssv: pasid.as_u32() != 0,
+                            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
+                            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
                             // §7.3.6: ATS-specific permission bits [95:92] — pre-STE-override.
                             // R=true when access is not a pure write (read or execute).
                             // W=true when write permission is requested (!NW).
@@ -3247,7 +3278,8 @@ impl SMMU {
                             // BUG-RUST-3 fix: §7.3.8 wire format — RnW (bit 100) IS defined
                             // for F_TRANSL_FORBIDDEN; InD (bit 99) is RES0.  Keep rnw, zero ind.
                             rnw: !access.can_write(),
-                            ssv: pasid.as_u32() != 0,
+                            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
+                            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
                         if let Ok(mut queue) = self.event_queue.write() {
@@ -3325,6 +3357,9 @@ impl SMMU {
                     let s2 = stream_ref.value().is_stage2_enabled();
                     let eats = stream_ref.value().get_eats();
                     let abort = stream_ref.value().is_abort_mode();
+                    // BUG-NEW-20 fix: §7.3.20 — snapshot s1cd_max before dropping
+                    // stream_ref so SSV can be set correctly in inline event paths.
+                    let ats_s1cd_max = stream_ref.value().get_s1cd_max();
                     // Drop the DashMap reference before any borrow-sensitive operations.
                     drop(stream_ref);
 
@@ -3348,7 +3383,8 @@ impl SMMU {
                                 // §7.3.6: F_BAD_ATS_TREQ has no CLASS field — RES0, must be 0.
                                 event_class: 0,
                                 // BUG-RUST-3 fix: §7.3.6 wire format — bits 100/99/98 RES0.
-                                ssv: pasid.as_u32() != 0,
+                                // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
+                                ssv: ats_s1cd_max > 0 || pasid.as_u32() != 0,
                                 // §7.3.6: ATS-specific permission bits [95:92] — pre-STE-override.
                                 // R=true when access is not a pure write (read or execute).
                                 // W=true when write permission is requested (!NW).
@@ -3432,7 +3468,8 @@ impl SMMU {
                         event_class: 0,
                         // BUG-RUST-3 fix: §7.3.8 — RnW (bit 100) IS defined; InD (bit 99) RES0.
                         rnw: !access.can_write(),
-                        ssv: pasid.as_u32() != 0,
+                        // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
+                        ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
                         ..EventEntry::zeroed()
                     };
                     // RUST-3 fix: add else branch calling toggle_ovflg_once()
@@ -3670,6 +3707,9 @@ impl SMMU {
                         // the C_BAD_CD inline push block (same pattern as
                         // record_translation_fault()).
                         let stream_mev = stream_ref.value().mev();
+                        // BUG-NEW-20 fix: §7.3.20 — snapshot s1cd_max before dropping
+                        // stream_ref so SSV can be set to s1cd_max > 0 in the inline event.
+                        let cbadcd_s1cd_max = stream_ref.value().get_s1cd_max();
                         // Drop stream_ref guard before recording fault (not strictly needed
                         // but avoids holding the DashMap shard lock longer than necessary).
                         drop(stream_ref);
@@ -3702,8 +3742,10 @@ impl SMMU {
                                 timestamp,
                                 stall: false,
                                 stag: 0,
-                                // §7.3.11: SSV reflects whether a PASID was present.
-                                ssv: pasid.as_u32() != 0,
+                                // §7.3.11 / BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID
+                                // was presented: either s1cd_max > 0 (any PASID on a substream-
+                                // capable stream counts) or a non-zero PASID was presented.
+                                ssv: cbadcd_s1cd_max > 0 || pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
@@ -3769,6 +3811,10 @@ impl SMMU {
                             // the F_TRANSLATION inline push block (same pattern as
                             // record_translation_fault()).
                             let stream_mev = stream_ref.value().mev();
+                            // BUG-NEW-20 fix: §7.3.20 — snapshot s1cd_max before dropping
+                            // stream_ref so SSV can be set to s1cd_max > 0 in the inline
+                            // F_TRANSLATION event.
+                            let t0sz_s1cd_max = stream_ref.value().get_s1cd_max();
                             drop(stream_ref);
                             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                             // Record F_TRANSLATION fault and event inline (same pattern as C_BAD_CD block).
@@ -3805,7 +3851,10 @@ impl SMMU {
                                     // NEW-01 fix: pnu must reflect PRIVCFG/STRW-derived privilege,
                                     // computed above before stream_ref was dropped.
                                     pnu,
-                                    ssv: pasid.as_u32() != 0,
+                                    // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was
+                                    // presented: s1cd_max > 0 (PASID=0 counts on substream-capable
+                                    // stream) or a non-zero PASID was presented.
+                                    ssv: t0sz_s1cd_max > 0 || pasid.as_u32() != 0,
                                     ..EventEntry::zeroed()
                                 };
                                 if let Ok(mut queue) = self.event_queue.write() {
@@ -3900,7 +3949,7 @@ impl SMMU {
                         let p = ctx.is_access_privileged(access);
                         (eff, p)
                     });
-                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false);
+                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max);
                 return Err(oas_error);
             }
         }
@@ -3961,7 +4010,7 @@ impl SMMU {
             let pnu = self.streams.get(&stream_id.as_u32())
                 .map_or(false, |ctx| ctx.is_access_privileged(access));
             self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false,
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
             );
             return Err(substreamid_error);
         }
@@ -4093,7 +4142,7 @@ impl SMMU {
                         let pnu = self.streams.get(&stream_id.as_u32())
                             .map_or(false, |ctx| ctx.is_access_privileged(access));
                         self.record_translation_fault(
-                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false,
+                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
                         );
                         return Err(oas_error);
                     }
@@ -4118,7 +4167,7 @@ impl SMMU {
                                     let nsipa = security_state == SecurityState::NonSecure;
                                     self.record_translation_fault(
                                         stream_id, pasid, iova, access, security_state,
-                                        e, false, 0u16, true, iova.as_u64(), pnu, nsipa,
+                                        e, false, 0u16, true, iova.as_u64(), pnu, nsipa, stream_s1cd_max,
                                     );
                                     return Err(e.clone());
                                 }
@@ -4253,7 +4302,7 @@ impl SMMU {
                                     && security_state == SecurityState::NonSecure;
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, effective_access, security_state,
-                                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa,
+                                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa, stream_s1cd_max,
                                 );
                                 return Err(TranslationError::StallQueueFull);
                             }
@@ -4282,7 +4331,7 @@ impl SMMU {
 
             self.record_translation_fault(
                 stream_id, pasid, iova, effective_access, security_state,
-                error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa,
+                error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa, stream_s1cd_max,
             );
 
             if is_stall {
@@ -4518,6 +4567,7 @@ impl SMMU {
         ipa: u64,
         pnu: bool,
         nsipa: bool,
+        s1cd_max: u8,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -4604,8 +4654,10 @@ impl SMMU {
             nsipa,
             // GAP-N / ARM IHI0070G.b §7.3.9: C_BAD_SUBSTREAMID always has SSV=true —
             // "In this event, SubstreamID is always valid (there is no SSV qualifier)."
-            // For all other event types, SSV reflects whether a non-zero PASID was presented.
-            ssv: matches!(event_type, EventType::CBadSubstreamid) || pasid.as_u32() != 0,
+            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented:
+            // either s1cd_max > 0 (PASID=0 counts on substream-capable stream) or
+            // a non-zero PASID was presented (C_BAD_SUBSTREAMID: always SSV=true).
+            ssv: matches!(event_type, EventType::CBadSubstreamid) || s1cd_max > 0 || pasid.as_u32() != 0,
             // §7.3.6: ATS-specific permission bits [95:92] — RES0 for all non-ATS events.
             ats_r: false,
             ats_w: false,
@@ -5177,7 +5229,8 @@ impl SMMU {
             event_class: 0,
             rnw: !access.can_write(),
             ind: access.can_execute() && !access.can_write(),
-            ssv: pasid.as_u32() != 0,
+            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         if let Ok(mut queue) = self.event_queue.write() {
@@ -5435,6 +5488,16 @@ impl SMMU {
     #[must_use]
     pub fn priq_cons_index(&self) -> u32 {
         self.priq_cons.load(Ordering::Acquire)
+    }
+
+    /// BUG-NEW-21: Returns the count of PRI queue entries emitted as E_PAGE_REQUEST
+    /// events but not yet consumed by CMD_PRI_RESP.
+    ///
+    /// Used by tests to verify that the CAS-based decrement in the CMD_PRI_RESP
+    /// handler operates correctly.
+    #[must_use]
+    pub fn priq_emitted_count(&self) -> u64 {
+        self.priq_emitted.load(Ordering::Acquire)
     }
 
     /// Returns true if the command queue is empty (PROD == CONS, ARM §3.5.1).
@@ -5821,6 +5884,14 @@ impl SMMU {
                 self.stall_queue.retain(|_stag, record| record.stream_id != command.stream_id);
             },
             CommandType::CfgiCd => {
+                // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_CD: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
                 // Context Descriptor for the specified (stream, PASID) pair.
                 if let (Ok(stream_id), Ok(pasid)) = (
@@ -5832,6 +5903,14 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::CfgiCdAll => {
+                // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_CD_ALL: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // CMD_CFGI_CD_ALL (§4.3.4): invalidate TLB entries cached from
                 // all Context Descriptors of the specified stream.
                 if let Ok(stream_id) = StreamID::new(command.stream_id) {
@@ -5857,10 +5936,22 @@ impl SMMU {
                         && head.pasid == command.pasid
                     {
                         queue.pop_front();
-                        // Decrement emitted count: this entry was emitted as an event.
-                        let emitted = self.priq_emitted.load(Ordering::Acquire);
-                        if emitted > 0 {
-                            self.priq_emitted.fetch_sub(1, Ordering::Release);
+                        // BUG-NEW-21 fix: use a CAS loop so the load-check-decrement is
+                        // atomic.  The previous load+check+fetch_sub was a TOCTOU race.
+                        let mut current = self.priq_emitted.load(Ordering::Acquire);
+                        loop {
+                            if current == 0 {
+                                break;
+                            }
+                            match self.priq_emitted.compare_exchange_weak(
+                                current,
+                                current - 1,
+                                Ordering::AcqRel,
+                                Ordering::Acquire,
+                            ) {
+                                Ok(_) => break,
+                                Err(actual) => current = actual,
+                            }
                         }
                         // BUG-RUST-2 fix: preserve OVACKFLG (bit 31) — software writes
                         // this bit to acknowledge a PRI queue overflow; the SMMU must
@@ -5880,6 +5971,14 @@ impl SMMU {
             // §4.3.1 defines no error condition for an unknown StreamID.
             // C_BAD_STREAMID is a *transaction-path* fault (§7.3.3), not raised here.
             CommandType::CfgiSte => {
+                // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_STE: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // Nothing to flush if the stream does not exist; no-op is correct.
                 // (For a real HW model with an STE cache, this would evict the cached
                 //  entry if present, and be a harmless no-op if not.)
@@ -5891,6 +5990,14 @@ impl SMMU {
             //                  upper-bit prefix: (sid >> (range+1)) == (cmd.stream_id >> (range+1)).
             // NOTE: shifting a u32 by 32 bits is UB/panic, so range==31 is handled separately.
             CommandType::CfgiAll => {
+                // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_ALL: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // ARM §4.3.2: range is a 5-bit field (0–31).
                 //   range == 31: CMD_CFGI_ALL — global TLB invalidation.
                 //   range > 31:  reserved; clamp to CFGI_ALL (BUG-3 fix).

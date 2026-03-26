@@ -352,6 +352,10 @@ TEST(ConfGapModerate, Gap20_ExecuteAccess_SetsInd) {
 }
 
 TEST(ConfGapModerate, Gap20_NonZeroPASID_SetsSsv) {
+    // BUG-NEW-20 fix: ARM §7.3.20 — SSV=1 when a SubstreamID was presented.
+    // A SubstreamID can only be presented when the stream is substream-capable
+    // (s1cdMax > 0).  This test now uses s1cdMax=4 so the stream is genuinely
+    // substream-capable; SSV must be 1 for any fault on this stream.
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_EVENTQEN);
@@ -359,6 +363,7 @@ TEST(ConfGapModerate, Gap20_NonZeroPASID_SetsSsv) {
     StreamConfig cfg;
     cfg.translationEnabled = true;
     cfg.stage1Enabled = true;
+    cfg.s1cdMax = 4u;  // substream-capable (BUG-NEW-20 fix: was 0)
     smmu.configureStream(23, cfg);
     smmu.enableStream(23);
     smmu.createStreamPASID(23, 5);  // non-zero PASID
@@ -368,7 +373,7 @@ TEST(ConfGapModerate, Gap20_NonZeroPASID_SetsSsv) {
     bool found = false;
     for (const auto& e : smmu.getEventQueue()) {
         if (e.streamID == 23) {
-            EXPECT_TRUE(e.ssv) << "Non-zero PASID fault event must have ssv=true (CONF-GAP-20)";
+            EXPECT_TRUE(e.ssv) << "Substream-capable stream (s1cdMax>0) fault event must have ssv=true (CONF-GAP-20 / BUG-NEW-20)";
             found = true;
             break;
         }

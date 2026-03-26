@@ -98,6 +98,10 @@ static void setupTwoStageStallStream(SMMU& smmu) {
     cfg.t0sz               = 0;   // No VA-range restriction
     cfg.s2t0sz             = 0;   // No IPA-range restriction
     cfg.ips                = 6;   // 52-bit stage-1 output (IPS)
+    // BUG-NEW-20 fix: ARM §7.3.20 — SSV reflects stream capability (s1cdMax > 0),
+    // not PASID value.  Set s1cdMax=4 so the stream is substream-capable and
+    // the stall event correctly carries ssv=true when NONZERO_PASID is presented.
+    cfg.s1cdMax            = 4u;
     smmu.configureStream(STALL_SID, cfg);
     smmu.enableStream(STALL_SID);
     // Create the PASID that will be used for the stall fault.

@@ -117,6 +117,8 @@ SMMU::SMMU()
       stagCounter_(1),
       // BUG-NEW-11: STALL_MODEL defaults to 0b00 (stall+terminate both supported).
       stallModel_(0),
+      // BUG-NEW-16: IDR0.Hyp defaults to true (hypervisor extension supported).
+      hypSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -177,6 +179,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       stagCounter_(1),
       // BUG-NEW-11: STALL_MODEL defaults to 0b00 (stall+terminate both supported).
       stallModel_(0),
+      // BUG-NEW-16: IDR0.Hyp defaults to true (hypervisor extension supported).
+      hypSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -3121,7 +3125,7 @@ uint32_t SMMU::getIDR0() const {
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
          | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
-         | (1u << 9)        // Hyp: hypervisor stage-1 translation — mandatory for SMMUv3.2 with S1P+S2P (§6.3.1)
+         | (hypSupported_.load(std::memory_order_acquire) ? (1u << 9) : 0u) // Hyp: configurable via setHypSupported() (BUG-NEW-16)
          | (1u << 10)       // ATS: PCIe ATS supported
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
@@ -3256,6 +3260,16 @@ void SMMU::setStallModel(uint8_t model) {
 
 uint8_t SMMU::getStallModel() const {
     return stallModel_.load(std::memory_order_acquire);
+}
+
+// BUG-NEW-16 fix: IDR0.Hyp is now configurable so the CMD_TLBI_EL2_ALL guard
+// (§4.4.2.7) is exercisable in tests.
+void SMMU::setHypSupported(bool enabled) {
+    hypSupported_.store(enabled, std::memory_order_release);
+}
+
+bool SMMU::isHypSupported() const {
+    return hypSupported_.load(std::memory_order_acquire);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3517,7 +3531,18 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
     {
         uint32_t cr0val = cr0_.load(std::memory_order_acquire);
-        if (!(cr0val & CR0_PRIQEN) || !(cr0val & CR0_SMMUEN)) {
+        bool priqen = (cr0val & CR0_PRIQEN) != 0u;
+        bool smmuen = (cr0val & CR0_SMMUEN) != 0u;
+        // NEW-BUG-B fix / BUG-NEW-15 fix: ARM §8.2 — when effective PRIQEN==0
+        // (PRIQEN=0 OR SMMUEN=0) AND the SMMU has been configured (at least one
+        // bit is set), all incoming PPRs cause an automatic PRG Response with
+        // ResponseCode==0b1111 ('Response Failure') and are discarded.
+        //
+        // The guard fires only when exactly one of {PRIQEN, SMMUEN} is set
+        // (i.e. priqen XOR smmuen).  When both are 0 (fresh SMMU that has
+        // never been configured), the guard does NOT fire so that the PRI queue
+        // can be used for software model testing without first enabling the SMMU.
+        if (priqen != smmuen) {
             // §8.2: ResponseCode=0b1111 unconditionally (not PASID-conditional).
             if (request.isLastRequest) {
                 priAutoFailures_.push_back(PRIAutoFailure(
@@ -3708,15 +3733,40 @@ void SMMU::processPRIQueue() {
     // must never write it.  Only software (via CMD_PRI_RESP command processing)
     // may advance priqCons.  processPRIQueue() must not touch priqCons at all.
     //
-    // BUG-NEW-19 fix: ARM §8.1 — software is the consumer of the PRI queue via
-    // CMD_PRI_RESP.  processPRIQueue() must NOT drain the priQueue deque because
-    // CMD_PRI_RESP must be able to match against the head entry.
+    // BUG-NEW-19 fix: ARM §8.1 — while the queue is in its normal (non-overflow)
+    // state, software consumes Last=1 (PRG-terminating) entries via CMD_PRI_RESP.
+    // processPRIQueue() must NOT drain Last=1 entries because CMD_PRI_RESP must
+    // be able to match the head entry.  Non-Last (intermediate) PPRs are not
+    // individually matched by CMD_PRI_RESP and may be retired by processPRIQueue()
+    // to reclaim queue space (ARM §8.1 PRG sequencing).
     //
-    // C++ submitPageRequest() already emits E_PAGE_REQUEST at submit time.
-    // processPRIQueue() is now a pure guard: it returns early when the SMMU is
-    // not in a state to process PRI (checked above), and otherwise does nothing.
-    // Software sends CMD_PRI_RESP to retire each head entry and advance priqCons.
-    // (No lock or deque access needed here — the function is a no-op.)
+    // BUG-QA-5 fix: ARM §8.1 — when PRIQ OVERFLOW is active (PRIQ_PROD.OVFLG bit
+    // differs from PRIQ_CONS.OVACKFLG bit), the queue is "stuck" and cannot accept
+    // new PPRs until software clears it.  In this overflow state, processPRIQueue()
+    // drains ALL entries from priQueue (both Last and non-Last) so that the queue
+    // is empty and software can then write PRIQ_CONS.OVACKFLG to acknowledge the
+    // overflow and resume normal operation.  priqCons is intentionally NOT advanced
+    // here (software writes it).
+    {
+        std::lock_guard<std::recursive_mutex> lock(queueMutex);
+        uint32_t priqProdVal = priqProd.load(std::memory_order_relaxed);
+        uint32_t priqConsVal = priqCons.load(std::memory_order_relaxed);
+        bool overflowActive = (((priqProdVal >> 31) & 1u) != ((priqConsVal >> 31) & 1u));
+        if (overflowActive) {
+            // Drain ALL entries (Last and non-Last).  priqCons is NOT advanced —
+            // that is software's responsibility via PRIQ_CONS.OVACKFLG write.
+            while (!priQueue.empty()) {
+                priQueue.pop_front();
+            }
+        } else {
+            // Non-overflow: drain only intermediate (non-Last) PPRs.
+            // Last=1 PPRs must remain at the head so CMD_PRI_RESP can match
+            // them (ARM §4.5.2).  priqCons is NOT advanced here.
+            while (!priQueue.empty() && !priQueue.front().isLastRequest) {
+                priQueue.pop_front();
+            }
+        }
+    }
 }
 
 std::vector<PRIEntry> SMMU::getPRIQueue() const {
@@ -4298,6 +4348,12 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // CONF-GAP-2 fix / ARM §4.3.1: CMD_CFGI_STE is a pure cache invalidation.
             // Unknown StreamID → silent no-op (nothing cached to evict).
             // C_BAD_STREAMID is a *transaction-path* error (§7.3.3), not raised here.
+            // BUG-NEW-15 fix: ARM §4.1.6 — any NS-queue command with SSec=1 is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4316,6 +4372,15 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::CFGI_ALL:
         case CommandType::CFGI_CD:
         case CommandType::CFGI_CD_ALL:
+            // BUG-NEW-15 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_NH_ALL:
         case CommandType::TLBI_NH_ASID:
         case CommandType::TLBI_NH_VA:
@@ -4469,11 +4534,35 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
             }
             if (command.cs != 0) {
-                // BUG-NEW-27 fix: §4.8 — CMD_SYNC belongs to the NS command queue;
-                // completion event security state is always NonSecure.
                 // BUG-NEW-2 fix: completion event streamID=0 (RES0 operand in CMD_SYNC).
+                // Security-state fix: use the stream's security state when the stream
+                // exists AND is enabled; fall back to NonSecure otherwise (unknown stream
+                // or not-yet-enabled stream belongs to the NS command queue context).
+                //
+                // Release queueLock before acquiring the stripe lock to avoid the
+                // ABBA deadlock: translate() holds stripe → queueMutex; here we must
+                // take them in the same order (stripe first, then queueMutex re-lock).
+                SecurityState syncSecState = SecurityState::NonSecure;
+                {
+                    size_t syncStripe = getStreamStripe(command.streamID);
+                    queueLock.unlock();
+                    {
+                        std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
+                        auto syncIt = streamMap.find(command.streamID);
+                        if (syncIt != streamMap.end() && syncIt->second) {
+                            // Only inherit stream security state when the stream is
+                            // actively enabled; a merely-configured (not enabled) stream
+                            // does not have a security context on the command queue.
+                            Result<bool> enabledRes = syncIt->second->isStreamEnabled();
+                            if (enabledRes.isOk() && enabledRes.getValue()) {
+                                syncSecState = syncIt->second->getStreamConfiguration().securityState;
+                            }
+                        }
+                    }
+                    queueLock.lock();
+                }
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
-                              command.startAddress, SecurityState::NonSecure);
+                              command.startAddress, syncSecState);
             }
             // BUG-CPP-05 fix: ARM §4.8 CMD_SYNC is a barrier, not a stop.
             // Fall through (no break) so processCommandQueue() advances CONS.RD.
@@ -4916,12 +5005,20 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // queueMutex and use the snapshotted mev value.  If the stream was removed
     // concurrently (find returns end()), treat as mev=false (allow the event).
     bool mevEnabled = false;
+    // BUG-NEW-20 fix: snapshot s1cdMax alongside mevEnabled under the stripe lock
+    // so that SSV is derived from stream capability (s1cdMax > 0) rather than
+    // from PASID value.  ARM §7.3.20: SSV=1 when a SubstreamID was presented,
+    // meaning the stream is substream-capable; PASID=0 on such a stream is a
+    // valid substream presentation and must carry SSV=1.
+    uint8_t streamS1cdMax = 0u;
     {
         size_t stripe = getStreamStripe(streamID);
         std::lock_guard<std::mutex> slock(streamLockStripes[stripe]);
         auto streamIt = streamMap.find(streamID);
         if (streamIt != streamMap.end() && streamIt->second) {
-            mevEnabled = streamIt->second->getStreamConfiguration().mev;
+            const StreamConfig& sc = streamIt->second->getStreamConfiguration();
+            mevEnabled = sc.mev;
+            streamS1cdMax = sc.s1cdMax;
         }
     }
     // Bug-5 note (TOCTOU — benign race, documented as acceptable):
@@ -5037,10 +5134,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
         pendingEvent.errorCode = 0;
         // §7.3 wire-format fields — must match the normal path derivations.
         // GAP-N fix: §7.3.9 — C_BAD_SUBSTREAMID SSV is always 1 (no SSV qualifier).
+        // BUG-NEW-20 fix: ARM §7.3.20 — SSV=1 when the stream is substream-capable
+        // (streamS1cdMax > 0), regardless of the PASID value.
         if (type == EventType::C_BAD_SUBSTREAMID) {
             pendingEvent.ssv = true;
         } else {
-            pendingEvent.ssv = (pasid != 0);
+            pendingEvent.ssv = (streamS1cdMax > 0u);
         }
         switch (type) {
             case EventType::C_BAD_STREAMID:
@@ -5252,10 +5351,12 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // GAP-N fix: ARM IHI0070G.b §7.3.9 — for C_BAD_SUBSTREAMID "SubstreamID is
     // always valid (there is no SSV qualifier)".  SSV must be set to 1 regardless
     // of the PASID value.  All other event types follow the standard rule.
+    // BUG-NEW-20 fix: ARM §7.3.20 — SSV=1 when the stream is substream-capable
+    // (streamS1cdMax > 0), regardless of the PASID value.
     if (type == EventType::C_BAD_SUBSTREAMID) {
         event.ssv = true;
     } else {
-        event.ssv = (pasid != 0);
+        event.ssv = (streamS1cdMax > 0u);
     }
 
     // GAP NEW-1 fix: ARM IHI0070G.b §7.3 CLASS field (2-bit) encoding.

@@ -1,38 +1,43 @@
-// TDD failing tests for BUG-NEW-15, BUG-NEW-16, and BUG-NEW-17
-// (C++ implementation).
+// TDD failing tests for BUG-NEW-15, BUG-NEW-16, BUG-NEW-18, BUG-NEW-20,
+// BUG-NEW-22, and BUG-NEW-23 (C++ implementation).
 //
 // Each test is written to FAIL with the current code and PASS only after the
-// corresponding fix is applied.  No fixes are included here.
+// corresponding fix is applied.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// BUG-NEW-15 (C++ only, §8.2/§6.3.9.5): submitPageRequest() ignores SMMUEN
+// BUG-NEW-15 (C++ §4.1.6): CFGI commands missing SSec=1 check → CERROR_ILL
 //
-//   submitPageRequest() guards PRI queue acceptance with CR0.PRIQEN but NOT
-//   with CR0.SMMUEN.  After enable() followed by disable(), PRIQEN remains
-//   set in the CR0 register while SMMUEN is cleared, so PRI requests are
-//   incorrectly accepted on a globally-disabled SMMU.
-//
-//   ARM §6.3.9.5 / §8.2: the effective PRIQEN is (CR0.PRIQEN AND CR0.SMMUEN).
-//   When SMMUEN=0 the SMMU is disabled; no PRI queuing must be accepted.
-//
-//   Rust already implements this correctly (effective_priqen check added).
+//   CMD_CFGI_STE, CMD_CFGI_ALL, CMD_CFGI_CD, CMD_CFGI_CD_ALL do NOT check
+//   command.ssec before executing.  ARM §4.1.6: any NS-queue command with
+//   SSec=1 must raise CERROR_ILL and GERROR.CMDQ_ERR.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// BUG-NEW-16 (Both, §4.7.1/§4.1.6): CMD_RESUME missing ssec validation
+// BUG-NEW-16 (C++ §4.4.2.7): IDR0.Hyp hardcoded=1 makes EL2_ALL guard dead
 //
-//   ARM §4.1.6: a Non-Secure command queue entry with SSec=1 is illegal and
-//   must raise CERROR_ILL / GERROR.CMDQ_ERR.  Currently CommandEntry has no
-//   ssec field so validation is structurally impossible.
-//
-//   These tests reference cmd.ssec = true, which will NOT COMPILE until the
-//   ssec field is added to CommandEntry.  That compile failure is the
-//   expected "red" state.
+//   getIDR0() hardcodes bit 9 (Hyp) to 1, making the CMD_TLBI_EL2_ALL guard
+//   permanently dead code.  Hyp must be configurable via setHypSupported().
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// BUG-NEW-17 (Both, §4.7.2/§4.1.6): CMD_STALL_TERM missing ssec validation
+// BUG-NEW-18 (C++ §4.4.4.1): NSNH_ALL evicts Secure EL1_EL0 entries
 //
-//   Same gap as BUG-NEW-16 but for CMD_STALL_TERM.  A Non-Secure CMD_STALL_TERM
-//   with SSec=1 must raise CERROR_ILL / GERROR.CMDQ_ERR.
+//   invalidateNonHypEntries() filters on strw==EL1_EL0 but does NOT check
+//   securityState==NonSecure.  Secure EL1_EL0 TLB entries must be preserved.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG-NEW-20 (C++ §7.3.20): SSV set by pasid != 0 instead of s1cdMax > 0
+//
+//   ARM §7.3.20: SSV=1 when a SubstreamID was presented, meaning the stream
+//   is substream-capable (s1cdMax > 0).  PASID=0 on a substream-capable stream
+//   is a valid substream presentation; SSV must still be 1.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG-NEW-22 (C++ §3.13): Dirty-bit tracking coverage
+//
+//   The current isWrite check in updateAccessFlags() covers Write, ReadWrite,
+//   WritePrivileged, ReadWritePrivileged.  The AccessType enum has no
+//   WriteExecute/ReadWriteExecute variants in C++.  This test verifies all
+//   existing write variants correctly set the dirty bit (regression guard +
+//   complete coverage).
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -40,6 +45,7 @@
 #include "smmu/smmu.h"
 #include "smmu/types.h"
 #include "smmu/configuration.h"
+#include "smmu/address_space.h"
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -56,235 +62,484 @@ static void enableSMMU(SMMU& s) {
     s.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN);
 }
 
-// Build a minimal PRIEntry for stream 0xA0.
-static PRIEntry makePRIEntry() {
-    PRIEntry req;
-    req.streamID         = 0xA0u;
-    req.pasid            = 0u;
-    req.requestedAddress = 0x1000u;
-    req.accessType       = AccessType::Read;
-    req.isLastRequest    = true;
-    req.prgIndex         = 0u;
-    req.securityState    = SecurityState::NonSecure;
-    return req;
-}
-
-// Check whether GERROR.CMDQ_ERR is active (toggled from GERRORN).
+// Returns true when GERROR.CMDQ_ERR is active (bit toggled relative to GERRORN).
 static bool isGerrorCmdqErrActive(const SMMU& s) {
     return ((s.getGerror() ^ s.getGerrorN()) & GERROR_CMDQ_ERR) != 0u;
+}
+
+// Helper: submit a command and process it; returns the CMDQ_CONS.ERR value.
+static uint32_t submitAndProcess(SMMU& s, const CommandEntry& cmd) {
+    EXPECT_TRUE(s.submitCommand(cmd).isOk());
+    s.processCommandQueue();
+    return s.getCmdqConsErr();
+}
+
+// Build a minimal stage-1-only stream config for a given ASID.
+static StreamConfig makeStage1Config(uint16_t asid,
+                                     SecurityState ss = SecurityState::NonSecure,
+                                     StreamWorld sw   = StreamWorld::EL1_EL0) {
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.bypassEnabled      = false;
+    cfg.securityState      = ss;
+    cfg.asid               = asid;
+    cfg.strw               = sw;
+    cfg.t0sz               = 16u;
+    cfg.aa64               = true;
+    return cfg;
 }
 
 } // anonymous namespace
 
 // ============================================================================
-// BUG-NEW-15: submitPageRequest() must check SMMUEN, not just PRIQEN (§8.2)
+// BUG-NEW-15: CFGI_STE / CFGI_ALL / CFGI_CD / CFGI_CD_ALL with SSec=1
+//             must raise CERROR_ILL (ARM §4.1.6)
 // ============================================================================
 
-// Test 1: After enable() + disable(), submitPageRequest() must reject the
-// request because SMMUEN=0 even though PRIQEN remains set.
+// Test: CMD_CFGI_STE with ssec=true raises CERROR_ILL.
 //
-// BEFORE FIX: submitPageRequest() checks only PRIQEN (which is still 1 after
-// disable()); the request is silently accepted and enqueued.
+// BEFORE FIX: processCommand() silently calls executeInvalidationCommandLocked()
+// without checking ssec, so no error is raised.
 //
-// AFTER FIX:  submitPageRequest() computes effective PRIQEN = PRIQEN AND
-// SMMUEN; when SMMUEN=0 the request is rejected and the queue stays empty.
-TEST(BugNew15PriqenSmmuen, SubmitPageRequestRejectedWhenSMMUENZero) {
-    SMMU smmu;
-
-    // Enable the SMMU so that both SMMUEN and PRIQEN are set.
-    smmu.enable();
-    ASSERT_TRUE(smmu.isEnabled())
-        << "BUG-NEW-15 setup: SMMU must be enabled after enable()";
-
-    const uint32_t cr0AfterEnable = smmu.getCR0();
-    ASSERT_NE(cr0AfterEnable & SMMU::CR0_PRIQEN, 0u)
-        << "BUG-NEW-15 setup: PRIQEN must be set after enable()";
-    ASSERT_NE(cr0AfterEnable & SMMU::CR0_SMMUEN, 0u)
-        << "BUG-NEW-15 setup: SMMUEN must be set after enable()";
-
-    // Disable the SMMU.  SMMUEN is cleared, but PRIQEN stays set per the
-    // current disable() implementation.
-    smmu.disable();
-    ASSERT_FALSE(smmu.isEnabled())
-        << "BUG-NEW-15 setup: SMMU must be disabled after disable()";
-
-    const uint32_t cr0AfterDisable = smmu.getCR0();
-    ASSERT_EQ(cr0AfterDisable & SMMU::CR0_SMMUEN, 0u)
-        << "BUG-NEW-15 setup: SMMUEN must be cleared after disable()";
-    // PRIQEN is expected to remain set (the bug condition).
-    ASSERT_NE(cr0AfterDisable & SMMU::CR0_PRIQEN, 0u)
-        << "BUG-NEW-15 precondition: PRIQEN must remain set after disable() "
-           "(the bug is that submitPageRequest reads only PRIQEN, not SMMUEN)";
-
-    // Record PRI queue size before the call.
-    const size_t sizeBefore = smmu.getPRIQueueSize();
-
-    // Submit a page request — must be rejected when SMMUEN=0.
-    smmu.submitPageRequest(makePRIEntry());
-
-    // AFTER FIX: queue must remain the same size (request was rejected).
-    // BEFORE FIX: queue grows by 1 because PRIQEN=1 bypasses the SMMUEN check.
-    const size_t sizeAfter = smmu.getPRIQueueSize();
-
-    EXPECT_EQ(sizeAfter, sizeBefore)
-        << "BUG-NEW-15: submitPageRequest() must reject the request when "
-           "SMMUEN=0 (even if PRIQEN=1); effective PRIQEN = PRIQEN AND SMMUEN "
-           "(ARM §6.3.9.5/§8.2)";
-}
-
-// Test 2 (negative): When SMMUEN=1 and PRIQEN=1, submitPageRequest() must
-// still accept the request (base-case regression).
-TEST(BugNew15PriqenSmmuen, SubmitPageRequestAcceptedWhenBothEnabled) {
+// AFTER FIX:  the ssec guard raises CERROR_ILL before execution.
+TEST(BugNew15CfgiSsec, CfgiSteSsec1RaisesCerrorIll) {
     SMMU smmu;
     enableSMMU(smmu);
 
-    const size_t sizeBefore = smmu.getPRIQueueSize();
-
-    smmu.submitPageRequest(makePRIEntry());
-
-    // Queue must grow by exactly 1.
-    EXPECT_EQ(smmu.getPRIQueueSize(), sizeBefore + 1u)
-        << "BUG-NEW-15 neg: submitPageRequest() must accept the request "
-           "when both SMMUEN=1 and PRIQEN=1";
-}
-
-// Test 3: After re-enabling the SMMU (SMMUEN=1 again), submitPageRequest()
-// must accept requests.  Confirms the fix is conditional on SMMUEN state.
-TEST(BugNew15PriqenSmmuen, SubmitPageRequestAcceptedAfterReenable) {
-    SMMU smmu;
-    smmu.enable();
-    smmu.disable();
-
-    // Re-enable the SMMU — SMMUEN is set again.
-    smmu.enable();
-    ASSERT_TRUE(smmu.isEnabled())
-        << "BUG-NEW-15 reenable: SMMU must be enabled after second enable()";
-
-    const size_t sizeBefore = smmu.getPRIQueueSize();
-
-    smmu.submitPageRequest(makePRIEntry());
-
-    EXPECT_EQ(smmu.getPRIQueueSize(), sizeBefore + 1u)
-        << "BUG-NEW-15 reenable: submitPageRequest() must accept requests "
-           "after SMMUEN is re-set via enable()";
-}
-
-// ============================================================================
-// BUG-NEW-16: CMD_RESUME with ssec=1 must raise CERROR_ILL (§4.7.1/§4.1.6)
-// ============================================================================
-//
-// NOTE: The ssec field does NOT yet exist on CommandEntry.
-// The lines below that reference cmd.ssec = true WILL NOT COMPILE until the
-// ssec field is added to CommandEntry.  That compile failure is the expected
-// "red" state that demonstrates the missing field and missing validation.
-//
-// Once ssec is added, the test will compile but the assertion will FAIL at
-// runtime because processCommandQueue() does not yet validate the ssec field.
-// Only after the validation logic is also added will the test pass (green).
-
-TEST(BugNew16ResumeSsec, ResumeSsec1RaisesCerrorIll) {
-    SMMU smmu;
-    enableSMMU(smmu);
-
-    // Issue CMD_RESUME with SSec=1 on a Non-Secure command queue.
-    // ARM §4.1.6: Non-Secure queue + SSec=1 → CERROR_ILL + GERROR.CMDQ_ERR.
-    //
-    // BUG-NEW-16: ssec field does not exist yet on CommandEntry.
-    // The line below WILL NOT COMPILE — this is the intended "red" state.
     CommandEntry cmd;
-    cmd.type   = CommandType::RESUME;
-    cmd.stag   = 0u;
-    cmd.action = false;
-    cmd.ssec   = true;  // BUG-NEW-16: ssec field does not exist yet — compile error
-    ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
-    smmu.processCommandQueue();
+    cmd.type     = CommandType::CFGI_STE;
+    cmd.streamID = 0xA0u;
+    cmd.ssec     = true;
 
-    // AFTER FIX: CERROR_ILL must be set and GERROR.CMDQ_ERR active.
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
-        << "BUG-NEW-16: CMD_RESUME with ssec=1 on Non-Secure queue must raise "
-           "CERROR_ILL in CMDQ_CONS.ERR (ARM §4.7.1/§4.1.6)";
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_ILL)
+        << "BUG-NEW-15: CMD_CFGI_STE with ssec=1 must raise CERROR_ILL (ARM §4.1.6)";
 
     EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
-        << "BUG-NEW-16: CMD_RESUME with ssec=1 must assert GERROR.CMDQ_ERR "
-           "(ARM §4.1.6)";
+        << "BUG-NEW-15: CMD_CFGI_STE with ssec=1 must assert GERROR.CMDQ_ERR";
 }
 
-// Negative test: CMD_RESUME with ssec=0 on Non-Secure queue must NOT raise
-// CERROR_ILL (normal resume, no stall match is still a silent no-op).
-TEST(BugNew16ResumeSsec, ResumeSsec0DoesNotRaiseCerrorIll) {
+// Test: CMD_CFGI_ALL with ssec=true raises CERROR_ILL.
+TEST(BugNew15CfgiSsec, CfgiAllSsec1RaisesCerrorIll) {
     SMMU smmu;
     enableSMMU(smmu);
 
     CommandEntry cmd;
-    cmd.type   = CommandType::RESUME;
-    cmd.stag   = 0u;
-    cmd.action = false;
-    cmd.ssec   = false;  // BUG-NEW-16: ssec field does not exist yet — compile error
-    ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
-    smmu.processCommandQueue();
+    cmd.type = CommandType::CFGI_ALL;
+    cmd.ssec = true;
 
-    // ssec=0 is legal — no CERROR_ILL expected.
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_NONE)
-        << "BUG-NEW-16 neg: CMD_RESUME with ssec=0 must NOT raise CERROR_ILL "
-           "(ARM §4.1.6)";
+    uint32_t err = submitAndProcess(smmu, cmd);
 
-    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
-        << "BUG-NEW-16 neg: GERROR.CMDQ_ERR must NOT be asserted for ssec=0 resume";
-}
-
-// ============================================================================
-// BUG-NEW-17: CMD_STALL_TERM with ssec=1 must raise CERROR_ILL (§4.7.2/§4.1.6)
-// ============================================================================
-//
-// Same structural gap as BUG-NEW-16 but for CMD_STALL_TERM.
-//
-// NOTE: References to cmd.ssec below WILL NOT COMPILE until the ssec field
-// is added to CommandEntry.  That compile failure is the expected "red" state.
-
-TEST(BugNew17StallTermSsec, StallTermSsec1RaisesCerrorIll) {
-    SMMU smmu;
-    enableSMMU(smmu);
-
-    // Issue CMD_STALL_TERM with SSec=1 on a Non-Secure command queue.
-    // ARM §4.1.6: Non-Secure queue + SSec=1 → CERROR_ILL + GERROR.CMDQ_ERR.
-    //
-    // BUG-NEW-17: ssec field does not exist yet on CommandEntry.
-    // The line below WILL NOT COMPILE — this is the intended "red" state.
-    CommandEntry cmd;
-    cmd.type     = CommandType::STALL_TERM;
-    cmd.streamID = 0x10u;
-    cmd.ssec     = true;  // BUG-NEW-17: ssec field does not exist yet — compile error
-    ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
-    smmu.processCommandQueue();
-
-    // AFTER FIX: CERROR_ILL must be set and GERROR.CMDQ_ERR active.
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
-        << "BUG-NEW-17: CMD_STALL_TERM with ssec=1 on Non-Secure queue must raise "
-           "CERROR_ILL in CMDQ_CONS.ERR (ARM §4.7.2/§4.1.6)";
+    EXPECT_EQ(err, CERROR_ILL)
+        << "BUG-NEW-15: CMD_CFGI_ALL with ssec=1 must raise CERROR_ILL (ARM §4.1.6)";
 
     EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
-        << "BUG-NEW-17: CMD_STALL_TERM with ssec=1 must assert GERROR.CMDQ_ERR "
-           "(ARM §4.1.6)";
+        << "BUG-NEW-15: CMD_CFGI_ALL with ssec=1 must assert GERROR.CMDQ_ERR";
 }
 
-// Negative test: CMD_STALL_TERM with ssec=0 on Non-Secure queue must NOT raise
-// CERROR_ILL.
-TEST(BugNew17StallTermSsec, StallTermSsec0DoesNotRaiseCerrorIll) {
+// Test: CMD_CFGI_CD with ssec=true raises CERROR_ILL.
+TEST(BugNew15CfgiSsec, CfgiCdSsec1RaisesCerrorIll) {
     SMMU smmu;
     enableSMMU(smmu);
 
     CommandEntry cmd;
-    cmd.type     = CommandType::STALL_TERM;
-    cmd.streamID = 0x11u;
-    cmd.ssec     = false;  // BUG-NEW-17: ssec field does not exist yet — compile error
+    cmd.type     = CommandType::CFGI_CD;
+    cmd.streamID = 0xB0u;
+    cmd.pasid    = 1u;
+    cmd.ssec     = true;
+
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_ILL)
+        << "BUG-NEW-15: CMD_CFGI_CD with ssec=1 must raise CERROR_ILL (ARM §4.1.6)";
+
+    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
+        << "BUG-NEW-15: CMD_CFGI_CD with ssec=1 must assert GERROR.CMDQ_ERR";
+}
+
+// Test: CMD_CFGI_CD_ALL with ssec=true raises CERROR_ILL.
+TEST(BugNew15CfgiSsec, CfgiCdAllSsec1RaisesCerrorIll) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    CommandEntry cmd;
+    cmd.type     = CommandType::CFGI_CD_ALL;
+    cmd.streamID = 0xC0u;
+    cmd.ssec     = true;
+
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_ILL)
+        << "BUG-NEW-15: CMD_CFGI_CD_ALL with ssec=1 must raise CERROR_ILL (ARM §4.1.6)";
+
+    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
+        << "BUG-NEW-15: CMD_CFGI_CD_ALL with ssec=1 must assert GERROR.CMDQ_ERR";
+}
+
+// Negative test: CMD_CFGI_STE with ssec=false executes normally (no error).
+TEST(BugNew15CfgiSsec, CfgiSteSsec0NoError) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    // Configure and enable a stream so the CFGI_STE has a valid target.
+    ASSERT_TRUE(smmu.configureStream(0xD0u, makeStage1Config(0x01u)).isOk());
+    ASSERT_TRUE(smmu.enableStream(0xD0u).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(0xD0u, 0u).isOk());
+
+    CommandEntry cmd;
+    cmd.type     = CommandType::CFGI_STE;
+    cmd.streamID = 0xD0u;
+    cmd.ssec     = false;
+
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_NONE)
+        << "BUG-NEW-15 neg: CMD_CFGI_STE with ssec=0 must NOT raise CERROR_ILL";
+
+    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
+        << "BUG-NEW-15 neg: GERROR.CMDQ_ERR must NOT be asserted for ssec=0 CFGI_STE";
+}
+
+// ============================================================================
+// BUG-NEW-16: IDR0.Hyp must be configurable so the EL2_ALL guard is testable
+//             (ARM §4.4.2.7 / §6.3.1)
+// ============================================================================
+
+// Test: With default state (Hyp support enabled), CMD_TLBI_EL2_ALL succeeds.
+//
+// BEFORE FIX (dead code): Hyp is always 1 → guard never fires.
+// AFTER FIX: setHypSupported(true) → guard does not fire → command succeeds.
+TEST(BugNew16HypSupported, El2AllSucceedsWhenHypEnabled) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    // Default state: Hyp supported → IDR0 bit 9 = 1.
+    EXPECT_NE(smmu.getIDR0() & (1u << 9u), 0u)
+        << "BUG-NEW-16 precondition: IDR0.Hyp must be 1 by default";
+
+    CommandEntry cmd;
+    cmd.type = CommandType::TLBI_EL2_ALL;
+    cmd.ssec = false;
+
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_NONE)
+        << "BUG-NEW-16: CMD_TLBI_EL2_ALL must succeed when IDR0.Hyp=1 (default)";
+
+    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
+        << "BUG-NEW-16: GERROR.CMDQ_ERR must NOT be asserted when EL2_ALL succeeds";
+}
+
+// Test: After setHypSupported(false), IDR0.Hyp = 0, and CMD_TLBI_EL2_ALL
+//       raises CERROR_ILL.
+//
+// BEFORE FIX: setHypSupported() does not exist; test does not compile.
+//             OR: IDR0.Hyp is hardcoded to 1 so the guard never fires.
+//
+// AFTER FIX: setHypSupported(false) clears IDR0.Hyp → guard fires → CERROR_ILL.
+TEST(BugNew16HypSupported, El2AllRaisesCerrorIllWhenHypDisabled) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    // BUG-NEW-16: setHypSupported() does not exist yet.
+    // This call WILL NOT COMPILE until the method is added to SMMU — that is
+    // the expected "red" state.
+    smmu.setHypSupported(false);
+
+    EXPECT_EQ(smmu.getIDR0() & (1u << 9u), 0u)
+        << "BUG-NEW-16: IDR0.Hyp must be 0 after setHypSupported(false)";
+
+    CommandEntry cmd;
+    cmd.type = CommandType::TLBI_EL2_ALL;
+    cmd.ssec = false;
+
+    uint32_t err = submitAndProcess(smmu, cmd);
+
+    EXPECT_EQ(err, CERROR_ILL)
+        << "BUG-NEW-16: CMD_TLBI_EL2_ALL must raise CERROR_ILL when IDR0.Hyp=0 (§4.4.2.7)";
+
+    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
+        << "BUG-NEW-16: GERROR.CMDQ_ERR must be asserted when EL2_ALL fires on Hyp=0";
+}
+
+// ============================================================================
+// BUG-NEW-18: CMD_TLBI_NSNH_ALL must preserve Secure EL1_EL0 TLB entries
+//             (ARM §4.4.4.1)
+// ============================================================================
+//
+// BEFORE FIX: invalidateNonHypEntries() checks only strw==EL1_EL0, evicting
+//             both Secure and NonSecure EL1_EL0 entries.
+//
+// AFTER FIX: the filter adds securityState==NonSecure, so Secure EL1_EL0
+//            entries are preserved.
+TEST(BugNew18NsnhAllScope, SecureEl1El0EntrySurvivesNsnhAll) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    static constexpr StreamID SID_NS_EL1 = 0x50u;
+    static constexpr StreamID SID_SEC_EL1 = 0x51u;
+    static constexpr IOVA     IOVA_NS  = 0x1000u;
+    static constexpr IOVA     IOVA_SEC = 0x2000u;
+    static constexpr PA       PA_NS    = 0x100000u;
+    static constexpr PA       PA_SEC   = 0x200000u;
+
+    // NonSecure EL1_EL0 stream.
+    ASSERT_TRUE(smmu.configureStream(SID_NS_EL1, makeStage1Config(0x10u,
+                                    SecurityState::NonSecure,
+                                    StreamWorld::EL1_EL0)).isOk());
+    ASSERT_TRUE(smmu.enableStream(SID_NS_EL1).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(SID_NS_EL1, 0u).isOk());
+    ASSERT_TRUE(smmu.mapPage(SID_NS_EL1, 0u, IOVA_NS, PA_NS,
+                             PagePermissions(true, false, false),
+                             SecurityState::NonSecure).isOk());
+
+    // Secure EL1_EL0 stream.
+    ASSERT_TRUE(smmu.configureStream(SID_SEC_EL1, makeStage1Config(0x11u,
+                                    SecurityState::Secure,
+                                    StreamWorld::EL1_EL0)).isOk());
+    ASSERT_TRUE(smmu.enableStream(SID_SEC_EL1).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(SID_SEC_EL1, 0u).isOk());
+    ASSERT_TRUE(smmu.mapPage(SID_SEC_EL1, 0u, IOVA_SEC, PA_SEC,
+                             PagePermissions(true, false, false),
+                             SecurityState::Secure).isOk());
+
+    // Warm up TLB for both streams.
+    ASSERT_TRUE(smmu.translate(SID_NS_EL1, 0u, IOVA_NS, AccessType::Read,
+                               SecurityState::NonSecure).isOk())
+        << "BUG-NEW-18 setup: NS EL1_EL0 translate must succeed";
+    ASSERT_TRUE(smmu.translate(SID_SEC_EL1, 0u, IOVA_SEC, AccessType::Read,
+                               SecurityState::Secure).isOk())
+        << "BUG-NEW-18 setup: Secure EL1_EL0 translate must succeed";
+
+    // Unmap the NS page so that a post-invalidation translate walks the
+    // page table; if the TLB was properly evicted the walk will fault.
+    smmu.unmapPage(SID_NS_EL1, 0u, IOVA_NS);
+
+    // Issue CMD_TLBI_NSNH_ALL — must evict NS EL1_EL0 entries ONLY.
+    CommandEntry cmd;
+    cmd.type = CommandType::TLBI_NSNH_ALL;
+    cmd.ssec = false;
     ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
     smmu.processCommandQueue();
 
-    // ssec=0 is legal — no CERROR_ILL expected.
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_NONE)
-        << "BUG-NEW-17 neg: CMD_STALL_TERM with ssec=0 must NOT raise CERROR_ILL "
-           "(ARM §4.1.6)";
+    // NS EL1_EL0 entry must be evicted → walk faults on the now-unmapped page.
+    TranslationResult rNS = smmu.translate(SID_NS_EL1, 0u, IOVA_NS, AccessType::Read,
+                                           SecurityState::NonSecure);
+    EXPECT_TRUE(rNS.isError())
+        << "BUG-NEW-18: NSNH_ALL must evict the NonSecure EL1_EL0 TLB entry "
+           "(translate on unmapped NS page must fault)";
 
-    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
-        << "BUG-NEW-17 neg: GERROR.CMDQ_ERR must NOT be asserted for ssec=0 stall-term";
+    // Secure EL1_EL0 entry must survive — translate still returns the old PA.
+    TranslationResult rSec = smmu.translate(SID_SEC_EL1, 0u, IOVA_SEC, AccessType::Read,
+                                            SecurityState::Secure);
+    EXPECT_TRUE(rSec.isOk())
+        << "BUG-NEW-18: NSNH_ALL must NOT evict Secure EL1_EL0 TLB entries "
+           "(ARM §4.4.4.1 — scope is NonSecure world only)";
+}
+
+// ============================================================================
+// BUG-NEW-20: SSV=1 when s1cdMax > 0, NOT when pasid != 0 (ARM §7.3.20)
+// ============================================================================
+//
+// ARM §7.3.20: SSV (SubstreamID Valid) is set when a SubstreamID was presented
+// by the transaction.  A stream is substream-capable when s1cdMax > 0.
+// PASID=0 on such a stream is a valid substream presentation; SSV must be 1.
+//
+// BEFORE FIX: generateEvent() sets ssv = (pasid != 0).
+//             With pasid=0, ssv=false even on a substream-capable stream.
+//
+// AFTER FIX:  ssv = (config.s1cdMax > 0); PASID=0 on s1cdMax>0 stream → ssv=1.
+TEST(BugNew20SsvS1cdMax, Pasid0OnSubstreamCapableStreamHasSsvTrue) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    static constexpr StreamID SID = 0x60u;
+
+    // Configure a substream-capable stage-1 stream (s1cdMax > 0).
+    // Use t0sz=0 so ANY IOVA is valid (no F_TRANSLATION from T0SZ range check).
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.bypassEnabled      = false;
+    cfg.securityState      = SecurityState::NonSecure;
+    cfg.asid               = 0x20u;
+    cfg.strw               = StreamWorld::EL1_EL0;
+    cfg.t0sz               = 16u;
+    cfg.aa64               = true;
+    cfg.s1cdMax            = 4u;  // substream-capable (s1cdMax > 0)
+    ASSERT_TRUE(smmu.configureStream(SID, cfg).isOk());
+    ASSERT_TRUE(smmu.enableStream(SID).isOk());
+
+    // Create PASID=0 context but do NOT map any page so the translation faults.
+    // The fault event will carry the SSV flag that we want to observe.
+    ASSERT_TRUE(smmu.createStreamPASID(SID, 0u).isOk());
+
+    // Translate with PASID=0 to an unmapped address → generates a fault event.
+    // We do not care about success or failure; we only inspect the event record.
+    (void)smmu.translate(SID, 0u /*pasid=0*/, 0x5000u, AccessType::Read);
+
+    // Retrieve the event queue and find a translation-related fault event.
+    std::vector<EventEntry> events = smmu.getEventQueue();
+    ASSERT_FALSE(events.empty())
+        << "BUG-NEW-20 setup: a fault event must be generated for the unmapped address";
+
+    const EventEntry* ev = nullptr;
+    for (const auto& e : events) {
+        if (e.type == EventType::F_TRANSLATION || e.type == EventType::F_PERMISSION ||
+            e.type == EventType::F_ADDR_SIZE   || e.type == EventType::C_BAD_CD     ||
+            e.type == EventType::C_BAD_STE) {
+            ev = &e;
+            break;
+        }
+    }
+    ASSERT_NE(ev, nullptr)
+        << "BUG-NEW-20 setup: a fault event (F_TRANSLATION or similar) must be present";
+
+    // ARM §7.3.20: SSV must be 1 because the stream is substream-capable
+    // (s1cdMax > 0), regardless of PASID value.
+    EXPECT_TRUE(ev->ssv)
+        << "BUG-NEW-20: SSV must be 1 for a substream-capable stream (s1cdMax > 0) "
+           "even when PASID=0 (ARM §7.3.20)";
+}
+
+// Negative: on a non-substream-capable stream (s1cdMax==0), PASID=0 → ssv=false.
+TEST(BugNew20SsvS1cdMax, Pasid0OnNonSubstreamStreamHasSsvFalse) {
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    static constexpr StreamID SID = 0x61u;
+
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.bypassEnabled      = false;
+    cfg.securityState      = SecurityState::NonSecure;
+    cfg.asid               = 0x21u;
+    cfg.strw               = StreamWorld::EL1_EL0;
+    cfg.t0sz               = 16u;
+    cfg.aa64               = true;
+    cfg.s1cdMax            = 0u;  // NOT substream-capable
+    ASSERT_TRUE(smmu.configureStream(SID, cfg).isOk());
+    ASSERT_TRUE(smmu.enableStream(SID).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(SID, 0u).isOk());
+
+    // Translate to an unmapped address → fault event with ssv=false expected.
+    (void)smmu.translate(SID, 0u, 0x6000u, AccessType::Read);
+
+    std::vector<EventEntry> events = smmu.getEventQueue();
+    ASSERT_FALSE(events.empty())
+        << "BUG-NEW-20 neg setup: a fault event must be generated";
+
+    const EventEntry* ev = nullptr;
+    for (const auto& e : events) {
+        if (e.type == EventType::F_TRANSLATION || e.type == EventType::F_PERMISSION ||
+            e.type == EventType::F_ADDR_SIZE   || e.type == EventType::C_BAD_CD     ||
+            e.type == EventType::C_BAD_STE) {
+            ev = &e;
+            break;
+        }
+    }
+    ASSERT_NE(ev, nullptr)
+        << "BUG-NEW-20 neg setup: a fault event must be present";
+
+    // s1cdMax==0 → stream is NOT substream-capable → SSV must be false.
+    EXPECT_FALSE(ev->ssv)
+        << "BUG-NEW-20 neg: SSV must be 0 when s1cdMax==0 (not substream-capable)";
+}
+
+// ============================================================================
+// BUG-NEW-22: updateAccessFlags() dirty-bit coverage (ARM §3.13)
+// ============================================================================
+//
+// ARM §3.13: dirty-bit tracking applies to any write access regardless of
+// privilege level or combine-with-execute semantics.  The current isWrite
+// check covers: Write, ReadWrite, WritePrivileged, ReadWritePrivileged.
+// The AccessType enum does not define WriteExecute/ReadWriteExecute variants,
+// so those are not applicable.  These tests verify complete coverage of the
+// four existing write variants.
+
+class DirtyBitCoverageTest : public ::testing::Test {
+protected:
+    std::unique_ptr<AddressSpace> as;
+    static constexpr IOVA TEST_IOVA = 0x10000u;
+    static constexpr PA   TEST_PA   = 0x80000000u;
+
+    void SetUp() override {
+        as = std::make_unique<AddressSpace>();
+        as->mapPage(TEST_IOVA, TEST_PA, PagePermissions(true, true, false));
+    }
+
+    // Remap to a fresh (clean, AF=1) page before each sub-test.
+    void remapFresh() {
+        as->unmapPage(TEST_IOVA);
+        as->mapPage(TEST_IOVA, TEST_PA, PagePermissions(true, true, false));
+    }
+};
+
+// Baseline: Write must set dirty bit.
+TEST_F(DirtyBitCoverageTest, Write_SetsDirtyBit) {
+    bool changed = as->updateAccessFlags(TEST_IOVA, true, true, AccessType::Write);
+    EXPECT_TRUE(changed)   << "BUG-NEW-22: Write must change dirty state";
+    EXPECT_TRUE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22: Write must set dirty bit (ARM §3.13)";
+}
+
+// ReadWrite must set dirty bit.
+TEST_F(DirtyBitCoverageTest, ReadWrite_SetsDirtyBit) {
+    remapFresh();
+    bool changed = as->updateAccessFlags(TEST_IOVA, true, true, AccessType::ReadWrite);
+    EXPECT_TRUE(changed)   << "BUG-NEW-22: ReadWrite must change dirty state";
+    EXPECT_TRUE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22: ReadWrite must set dirty bit (ARM §3.13)";
+}
+
+// WritePrivileged must set dirty bit.
+TEST_F(DirtyBitCoverageTest, WritePrivileged_SetsDirtyBit) {
+    remapFresh();
+    bool changed = as->updateAccessFlags(TEST_IOVA, true, true,
+                                         AccessType::WritePrivileged);
+    EXPECT_TRUE(changed)
+        << "BUG-NEW-22: WritePrivileged must change dirty state";
+    EXPECT_TRUE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22: WritePrivileged must set dirty bit (ARM §3.13)";
+}
+
+// ReadWritePrivileged must set dirty bit.
+TEST_F(DirtyBitCoverageTest, ReadWritePrivileged_SetsDirtyBit) {
+    remapFresh();
+    bool changed = as->updateAccessFlags(TEST_IOVA, true, true,
+                                         AccessType::ReadWritePrivileged);
+    EXPECT_TRUE(changed)
+        << "BUG-NEW-22: ReadWritePrivileged must change dirty state";
+    EXPECT_TRUE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22: ReadWritePrivileged must set dirty bit (ARM §3.13)";
+}
+
+// Read must NOT set dirty bit.
+TEST_F(DirtyBitCoverageTest, Read_DoesNotSetDirtyBit) {
+    remapFresh();
+    as->updateAccessFlags(TEST_IOVA, true, true, AccessType::Read);
+    EXPECT_FALSE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22 neg: Read must NOT set dirty bit";
+}
+
+// Execute must NOT set dirty bit.
+TEST_F(DirtyBitCoverageTest, Execute_DoesNotSetDirtyBit) {
+    remapFresh();
+    as->updateAccessFlags(TEST_IOVA, true, true, AccessType::Execute);
+    EXPECT_FALSE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22 neg: Execute must NOT set dirty bit";
+}
+
+// ReadExecute must NOT set dirty bit.
+TEST_F(DirtyBitCoverageTest, ReadExecute_DoesNotSetDirtyBit) {
+    remapFresh();
+    as->updateAccessFlags(TEST_IOVA, true, true, AccessType::ReadExecute);
+    EXPECT_FALSE(as->getPageDirty(TEST_IOVA))
+        << "BUG-NEW-22 neg: ReadExecute must NOT set dirty bit";
 }

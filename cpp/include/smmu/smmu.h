@@ -274,6 +274,13 @@ public:
     /// Get the current STALL_MODEL value.
     uint8_t getStallModel() const;
 
+    // BUG-NEW-16: IDR0.Hyp configurable (§4.4.2.7 / §6.3.1).
+    // When true (default): IDR0 bit 9 (Hyp) is set; CMD_TLBI_EL2_ALL is permitted.
+    // When false: IDR0 bit 9 is cleared; CMD_TLBI_EL2_ALL raises CERROR_ILL.
+    void setHypSupported(bool enabled);
+    /// Returns true when IDR0.Hyp=1 (hypervisor extension supported).
+    bool isHypSupported() const;
+
     // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
     /// Set the number of stream table entries as 2^log2size.
     /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
@@ -498,6 +505,11 @@ private:
     // BUG-NEW-11: IDR0.STALL_MODEL — configurable stall model (§4.7.1/§4.7.2).
     // 0b00 = stall+terminate (default); 0b01 = terminate-only (CMD_RESUME/STALL_TERM → CERROR_ILL).
     std::atomic<uint8_t> stallModel_;   ///< STALL_MODEL value; default 0b00
+
+    // BUG-NEW-16: IDR0.Hyp — configurable hypervisor extension support (§4.4.2.7/§6.3.1).
+    // When true (default): IDR0 bit 9 = 1; CMD_TLBI_EL2_ALL is permitted.
+    // When false: IDR0 bit 9 = 0; CMD_TLBI_EL2_ALL raises CERROR_ILL.
+    std::atomic<bool> hypSupported_;    ///< IDR0.Hyp bit; default true
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).
