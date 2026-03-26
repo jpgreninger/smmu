@@ -5987,6 +5987,20 @@ impl SMMU {
         let cr0 = self.cr0.load(Ordering::Acquire);
         let effective_priqen = (cr0 & Self::CR0_PRIQEN) != 0 && (cr0 & Self::CR0_SMMUEN) != 0;
         if !effective_priqen {
+            // NEW-BUG-B fix: ARM §8.2 — when effective PRIQEN=0, all incoming PPRs
+            // cause an automatic PRG Response with ResponseCode=0b1111 ('Response
+            // Failure').  ResponseCode=0b1111 is unconditional (not PASID-conditional),
+            // which is why we construct the struct literal directly instead of using
+            // PriAutoFailureResponse::new() (which would return 0x0 for pasid==0).
+            // Only Last=1 PPRs require a PRG response (PRIv2 protocol).
+            if request.is_last_request {
+                if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                    auto_resp.push(PriAutoFailureResponse {
+                        entry: request,
+                        response_code: 0xF,
+                    });
+                }
+            }
             return Err(SMMUError::InvalidConfiguration(
                 "effective CR0.PRIQEN=0: PRI queue is not enabled (SMMUEN or PRIQEN is clear)".to_string(),
             ));

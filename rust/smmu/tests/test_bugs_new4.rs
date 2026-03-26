@@ -536,6 +536,139 @@ fn bug_new26_cmd_sync_nonsecure_stream_stays_nonsecure() {
     );
 }
 
+// ============================================================================
+// NEW-BUG-B: submit_page_request() must auto-generate PRG-Response(Failure=0b1111)
+// when effective PRIQEN==0 (ARM §8.2)
+// ============================================================================
+
+/// NEW-BUG-B (primary): Last=1 PPR generates `ResponseCode=0b1111` auto-failure
+/// when effective PRIQEN=0 (§8.2).
+///
+/// ARM §8.2: "If... the effective value of SMMU_CR0.PRIQEN==0... all of the
+/// following apply: No entries are written to the PRI queue.  All incoming PPRs
+/// cause an automatic PRG Response having ResponseCode==0b1111 ('Response
+/// Failure') and the messages are discarded."
+///
+/// BEFORE FIX: `get_pri_auto_failure_responses()` is empty — test fails (red).
+/// AFTER FIX:  one response with `response_code=0xF` — test passes (green).
+#[test]
+fn new_bug_b_submit_last1_when_effective_priqen_zero_generates_auto_failure() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+    smmu.disable().unwrap(); // clears SMMUEN; PRIQEN remains set
+    assert_eq!(
+        smmu.get_cr0() & SMMU::CR0_SMMUEN,
+        0,
+        "SMMUEN must be 0 after disable"
+    );
+    assert_ne!(
+        smmu.get_cr0() & SMMU::CR0_PRIQEN,
+        0,
+        "PRIQEN must remain set after disable"
+    );
+
+    let req = PRIEntry {
+        stream_id: 1,
+        pasid: 0,
+        requested_address: 0x1000,
+        access_type: AccessType::Read,
+        is_last_request: true,
+        timestamp: 0,
+        prg_index: 7,
+        security_state: SecurityState::NonSecure,
+    };
+    let _ = smmu.submit_page_request(req);
+
+    let failures = smmu.get_pri_auto_failure_responses();
+    assert_eq!(
+        failures.len(),
+        1,
+        "§8.2: Last=1 PPR must generate auto-failure response when effective PRIQEN=0"
+    );
+    assert_eq!(
+        failures[0].response_code,
+        0xF,
+        "§8.2: ResponseCode must be 0b1111 unconditionally when effective PRIQEN=0"
+    );
+    assert_eq!(failures[0].entry.stream_id, 1);
+    assert_eq!(failures[0].entry.prg_index, 7);
+}
+
+/// NEW-BUG-B (negative): Last=0 PPR must NOT generate an auto-failure response
+/// when effective PRIQEN=0.
+///
+/// PRIv2 protocol: only Last=1 PPRs require a PRG response.  Last=0 PPRs are
+/// silently discarded without generating any response (§8.2 / §PRIv2).
+///
+/// BEFORE FIX: no auto-failure is generated (returns early on the error path),
+///   so this test passes trivially before the fix.
+/// AFTER FIX: the new branch only fires for `is_last_request=true`, so this
+///   test continues to pass.
+#[test]
+fn new_bug_b_submit_last0_when_effective_priqen_zero_no_auto_failure() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+    smmu.disable().unwrap();
+
+    let req = PRIEntry {
+        stream_id: 2,
+        pasid: 0,
+        requested_address: 0x2000,
+        access_type: AccessType::Read,
+        is_last_request: false, // Last=0 — no PRG response required
+        timestamp: 0,
+        prg_index: 3,
+        security_state: SecurityState::NonSecure,
+    };
+    let _ = smmu.submit_page_request(req);
+
+    let failures = smmu.get_pri_auto_failure_responses();
+    assert_eq!(
+        failures.len(),
+        0,
+        "§8.2: Last=0 PPR requires no PRG response — no auto-failure expected"
+    );
+}
+
+/// NEW-BUG-B (ResponseCode unconditional): `ResponseCode=0b1111` must be used
+/// unconditionally — even when the PPR carries a non-zero PASID — when
+/// effective PRIQEN=0.
+///
+/// This differs from the PRIQ-overflow path (§8.1), where `PriAutoFailureResponse::new()`
+/// uses `0x0` (Success) when `pasid==0`.  ARM §8.2 mandates `0b1111` for ALL PPRs
+/// regardless of PASID presence.  Using `PriAutoFailureResponse::new()` would
+/// incorrectly yield `0x0` for the no-PASID case.
+///
+/// BEFORE FIX: no response generated at all — test fails on `failures.len()`.
+/// AFTER FIX: response generated with `response_code=0xF` — test passes.
+#[test]
+fn new_bug_b_response_code_unconditional_failure_even_with_pasid() {
+    let smmu = SMMU::new();
+    smmu.enable().unwrap();
+    smmu.disable().unwrap();
+
+    let req = PRIEntry {
+        stream_id: 3,
+        pasid: 42, // non-zero PASID
+        requested_address: 0x3000,
+        access_type: AccessType::Read,
+        is_last_request: true,
+        timestamp: 0,
+        prg_index: 5,
+        security_state: SecurityState::NonSecure,
+    };
+    let _ = smmu.submit_page_request(req);
+
+    let failures = smmu.get_pri_auto_failure_responses();
+    assert_eq!(failures.len(), 1, "should have exactly one failure");
+    assert_eq!(
+        failures[0].response_code,
+        0xF,
+        "§8.2: ResponseCode=0b1111 must be unconditional when PRIQEN=0, regardless of PASID"
+    );
+    assert_eq!(failures[0].entry.pasid, 42);
+}
+
 /// BUG-NEW-26 (no-stream): CMD_SYNC with a stream_id that has no configured stream
 /// must also produce a `NonSecure` completion event (the fallback `map_or` default
 /// was already NonSecure, but after the fix stream lookup is removed entirely).

@@ -3508,18 +3508,25 @@ void SMMU::clearCommandQueue() {
 
 // Task 5.3: PRI Queue for Page Requests (Task 5.3.3)
 void SMMU::submitPageRequest(const PRIEntry& request) {
-    // BUG-NEW-15 fix: §6.3.9.5/§8.2 — effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
-    // After disable(), PRIQEN remains set while SMMUEN is cleared.  Reject all
-    // PRI requests when the effective PRIQEN is 0.
+    // NEW-BUG-B fix + BUG-NEW-15 fix: effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
+    // §8.2: when effective PRIQEN==0, all incoming PPRs cause an automatic PRG
+    // Response with ResponseCode==0b1111 ('Response Failure') and are discarded.
+    // Only the Last=1 PPR of a PRG requires a response (PRIv2 protocol).
+    // Lock is acquired first so priAutoFailures_ is protected.
+    // BUG-03 fix: protect priQueue with queueMutex.
+    std::lock_guard<std::recursive_mutex> lock(queueMutex);
     {
         uint32_t cr0val = cr0_.load(std::memory_order_acquire);
         if (!(cr0val & CR0_PRIQEN) || !(cr0val & CR0_SMMUEN)) {
+            // §8.2: ResponseCode=0b1111 unconditionally (not PASID-conditional).
+            if (request.isLastRequest) {
+                priAutoFailures_.push_back(PRIAutoFailure(
+                    request.streamID, request.pasid, request.prgIndex,
+                    getCurrentTimestamp(), 0xFu, false));
+            }
             return;
         }
     }
-
-    // BUG-03 fix: protect priQueue with queueMutex.
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
 
     // BUG-QA-5: §8.1 — check overflow-active state BEFORE checking queue capacity.
     // Overflow is "active" when PRIQ_PROD.OVFLG (bit 31) differs from
@@ -4294,6 +4301,18 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
+        case CommandType::TLBI_EL2_ALL:
+            // NEW-BUG-A fix: ARM §4.4.2.7 — "If SMMU_IDR0.Hyp==0, CERROR_ILL."
+            // CMD_TLBI_EL2_ALL requires hypervisor extension support (IDR0.Hyp=1).
+            // Must not be in the shared fall-through group so the guard can fire.
+            if ((getIDR0() & (1u << 9u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::CFGI_ALL:
         case CommandType::CFGI_CD:
         case CommandType::CFGI_CD_ALL:
@@ -4301,7 +4320,6 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::TLBI_NH_ASID:
         case CommandType::TLBI_NH_VA:
         case CommandType::TLBI_NH_VAA:
-        case CommandType::TLBI_EL2_ALL:
         case CommandType::TLBI_EL2_ASID:
         case CommandType::TLBI_EL2_VA:
         case CommandType::TLBI_EL2_VAA:
