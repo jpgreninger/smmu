@@ -166,30 +166,47 @@ fn test_pri_resp_removes_only_matching_entry() {
 
 #[test]
 fn test_process_pri_queue_echoes_prg_index_in_event() {
-    // process_pri_queue() should drain the PRI queue and return 1 processed
-    // entry when one PRIEntry with prg_index=5 is pending.
-    let smmu = make_smmu();
+    // BUG-NEW-22 update: submit_page_request() now emits E_PAGE_REQUEST immediately.
+    // process_pri_queue() returns 0 for entries already emitted at submit time.
+    // The event is already present in the queue after submit, carrying prg_index.
+    use smmu::types::EventType;
+    let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN | SMMU::CR0_EVENTQEN);
 
     let mut req = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
     req.prg_index = 5;
     smmu.submit_page_request(req).unwrap();
 
+    // BUG-NEW-22: event is already emitted by submit — process_pri_queue() returns 0.
     let processed = smmu.process_pri_queue().unwrap();
-    assert_eq!(processed, 1);
+    assert_eq!(processed, 0,
+        "BUG-NEW-22: process_pri_queue() must return 0 when all entries were already \
+         emitted by submit_page_request()");
+
+    // Verify the event was emitted at submit time with correct prg_index.
+    let events = smmu.get_events();
+    let page_req = events.iter()
+        .find(|e| e.event_type == EventType::EPageRequest)
+        .expect("E_PAGE_REQUEST must be present after submit_page_request()");
+    assert_eq!(page_req.error_code, 5,
+        "E_PAGE_REQUEST.error_code (prg_index) must be 5");
 }
 
 #[test]
 fn test_process_pri_queue_drains_queue() {
-    // BUG-NEW-14 update: After process_pri_queue(), the PRI queue is NOT drained.
+    // BUG-NEW-22 update: submit_page_request() now emits E_PAGE_REQUEST immediately.
+    // After two submits, both entries have been emitted so process_pri_queue() returns 0.
     // Entries remain in the VecDeque until CMD_PRI_RESP pops them (ARM §8.1/§3.5.1).
-    // process_pri_queue() only emits E_PAGE_REQUEST events; it does not advance PRIQ_CONS.
     let smmu = make_smmu();
 
     smmu.submit_page_request(PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)).unwrap();
     smmu.submit_page_request(PRIEntry::with_address(2, 0, 0x2000, AccessType::Write)).unwrap();
 
+    // BUG-NEW-22: both entries were emitted at submit time; process returns 0.
     let processed = smmu.process_pri_queue().unwrap();
-    assert_eq!(processed, 2);
+    assert_eq!(processed, 0,
+        "BUG-NEW-22: process_pri_queue() must return 0 when all entries were already \
+         emitted by submit_page_request()");
     // Entries remain in the queue until CMD_PRI_RESP acknowledges them.
     assert_eq!(smmu.get_pri_queue().len(), 2,
         "BUG-NEW-14: entries must remain in PRI queue after process_pri_queue() \

@@ -101,21 +101,27 @@ fn test_atc_completion_uses_stream_security_state() {
     );
 }
 
-// ── Test 2: CommandSyncCompletion must use the stream's security state ────────
+// ── Test 2: CommandSyncCompletion must always be NonSecure (§4.8 / BUG-NEW-26) ──
 
-/// Configure a stream with `SecurityState::Secure`, send `CMD_SYNC` (CS=0x01 to
-/// generate an event), retrieve events, find `CommandSyncCompletion`, and assert
-/// its `security_state` is `Secure` — not `NonSecure`.
+/// BUG-NEW-26 fix: `CMD_SYNC` has no StreamID operand (ARM §4.8).
+/// The `CommandSyncCompletion` event security state must always be `NonSecure`,
+/// regardless of whether a Secure stream is configured with the same ID.
+///
+/// FINDING-NEW-44 had incorrectly made `CMD_SYNC` completion derive security state
+/// from a stream lookup.  BUG-NEW-26 reverts this for `CMD_SYNC` only —
+/// `AtcInvalidateCompletion` (which has a real StreamID operand) still uses the
+/// stream's security state (see Test 1).
 #[test]
-fn test_sync_completion_uses_stream_security_state() {
+fn test_sync_completion_always_nonsecure() {
     let smmu = make_smmu();
     let stream_id = sid(0xB0);
 
-    // Configure stream with Secure state
+    // Configure a Secure stream so a stream lookup by this ID would return Secure.
     smmu.configure_stream(stream_id, secure_stage1_config()).unwrap();
 
-    // Submit CMD_SYNC with CS=0x01 (SIG_IRQ) so a completion event is generated
-    // The CMD_SYNC stream_id associates the command with this stream.
+    // Submit CMD_SYNC with CS=0x01 (SIG_IRQ) so a completion event is generated.
+    // The stream_id field in CMD_SYNC is architecturally undefined — the SMMU
+    // must not use it to derive the event security state (ARM §4.8).
     let mut cmd = CommandEntry::new(CommandType::Sync, 0xB0, 0);
     cmd.cs = 0x01; // SIG_IRQ — causes CommandSyncCompletion event
 
@@ -131,9 +137,9 @@ fn test_sync_completion_uses_stream_security_state() {
 
     assert_eq!(
         completion.security_state,
-        SecurityState::Secure,
-        "FINDING-NEW-44: CommandSyncCompletion.security_state must match the \
-         stream's configured security state (Secure), not hardcoded NonSecure. \
+        SecurityState::NonSecure,
+        "BUG-NEW-26: CommandSyncCompletion.security_state must always be NonSecure \
+         (CMD_SYNC has no StreamID operand, ARM §4.8). \
          Got: {:?}",
         completion.security_state
     );

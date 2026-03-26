@@ -5539,10 +5539,22 @@ impl SMMU {
                 self.tlb_cache.invalidate_nh_by_vmid(command.vmid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // ARM §4.4.2.9: CMD_TLBI_EL2_ALL — full EL2 invalidation (not VMID-scoped).
+            // ARM §4.4.2.7: CMD_TLBI_EL2_ALL — invalidate EL2 TLB entries only.
             // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
+            // BUG-NEW-18 fix: §4.4.2.7 — use invalidate_el2_all() so that El1El0
+            //   entries are preserved; the previous invalidate_all() over-invalidated.
+            // BUG-NEW-24 fix: §4.4.2.7 — IDR0.Hyp==0 makes this command illegal
+            //   (CERROR_ILL + GERROR.CMDQ_ERR).
             CommandType::TlbiEl2All => {
-                self.tlb_cache.invalidate_all();
+                if (self.get_idr0() & (1 << 9)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_EL2_ALL: IDR0.Hyp=0 — EL2 TLBI not supported (ARM §4.4.2.7)"
+                            .to_string(),
+                    ));
+                }
+                self.tlb_cache.invalidate_el2_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // BUG-QA-14 fix: §4.4.4.1 — NSNH_ALL invalidates EL1_EL0 entries only
@@ -5718,13 +5730,13 @@ impl SMMU {
                     // CS=1 = SIG_IRQ, CS=2 = SIG_SEV.
                     self.cmd_sync_last_signal_type.store(command.cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                    // FINDING-NEW-44: use the stream's configured security state
-                    // instead of hardcoding NonSecure.  The stream_id in command is used
-                    // here only to derive security state — it does NOT appear in the event.
-                    let stream_sec_state = self
-                        .streams
-                        .get(&command.stream_id)
-                        .map_or(SecurityState::NonSecure, |ctx| ctx.security_state());
+                    // BUG-NEW-26 fix: §4.8 — CMD_SYNC has no StreamID operand; the
+                    // completion event security state must always be NonSecure.
+                    // FINDING-NEW-44 incorrectly derived security state from a stream
+                    // lookup using command.stream_id, which can return Secure if a
+                    // Secure stream happens to carry that ID.  The stream_id field in
+                    // CMD_SYNC is architecturally meaningless — use NonSecure directly.
+                    let stream_sec_state = SecurityState::NonSecure;
 
                     let event = EventEntry {
                         event_type: EventType::CommandSyncCompletion, // IMPDEF §7.3.21
@@ -6057,6 +6069,45 @@ impl SMMU {
                 Self::advance_index(prod, self.priq_log2size) | (prod & (1u32 << 31)),
                 Ordering::Release,
             );
+
+        // BUG-NEW-22 fix: §3.12.4/§8.1 — emit E_PAGE_REQUEST immediately at
+        // submit time, matching the C++ submitPageRequest() behaviour.
+        // The write lock is released before calling submit_event() to avoid a
+        // potential deadlock; the entry is already in the queue at this point.
+        drop(queue);
+
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let is_priv = request.access_type.is_privileged();
+        let can_r   = request.access_type.can_read();
+        let can_w   = request.access_type.can_write();
+        let can_x   = request.access_type.can_execute();
+        let event = EventEntry {
+            event_type: EventType::EPageRequest,
+            stream_id: request.stream_id,
+            pasid: request.pasid,
+            address: request.requested_address,
+            security_state: request.security_state,
+            error_code: u32::from(request.prg_index),
+            timestamp,
+            stall: false,
+            stag: 0,
+            ur: !is_priv && can_r,
+            uw: !is_priv && can_w,
+            ux: !is_priv && can_x,
+            pr: is_priv && can_r,
+            pw: is_priv && can_w,
+            px: is_priv && can_x,
+            span: 0,
+            ..EventEntry::zeroed()
+        };
+        // submit_event() may fail if the event queue is full; in that case the
+        // request is already in the PRI queue and process_pri_queue() can retry.
+        // priq_emitted is advanced only on successful submission so that
+        // process_pri_queue() does not re-emit this entry.
+        if self.submit_event(event).is_ok() {
+            self.priq_emitted.fetch_add(1, Ordering::Release);
+        }
+
         Ok(())
     }
 

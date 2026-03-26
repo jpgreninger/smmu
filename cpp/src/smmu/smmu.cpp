@@ -3430,69 +3430,11 @@ void SMMU::processCommandQueue() {
         // Process the command based on type (invalidations, PRI_RESP, RESUME, etc.).
         processCommand(command, lock);
 
-        // ARM SMMU v3 spec: Handle synchronization commands.
-        // NOTE: CMD_SYNC CS=3 (CERROR_ILL) is detected and handled here, after
-        // processCommand(), so that CONS.RD has not yet been advanced.
-        if (command.type == CommandType::SYNC) {
-            // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL.
-            // Suppress the completion event and record a configuration fault.
-            // BUG-CPP-5 fix: do NOT advance CONS.RD — the break below leaves it
-            // pointing at this erroneous command, as required by ARM §7.1.
-            if (command.cs == 3u) {  // 0b11 = 3: Reserved per §4.8
-                FaultRecord illFault;
-                illFault.streamID = command.streamID;
-                illFault.pasid = command.pasid;
-                illFault.faultType = FaultType::ConfigurationCacheFault;
-                recordFault(illFault);
-                // BUG-NEW-04 fix: set GERROR.CMDQ_ERR so software can detect
-                // the CERROR_ILL halt, per ARM §4.8 / §6.3.17.
-                // CONF-GAP-17: Write CERROR_ILL to CMDQ_CONS.ERR before signalling GERROR.
-                writeCmdqConsErr(CERROR_ILL);
-                // BUG-NEW-CPP-1 fix: use signalGerror() CAS loop instead of
-                // the TOCTOU load-compare-fetch_xor pattern.
-                signalGerror(GERROR_CMDQ_ERR);
-                // Do NOT advance CONS.RD here — fall out without reaching the
-                // advance block below so that CONS.RD stays at this command.
-                break;
-            }
-            // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
-            // CONF-GAP-18: Record the signal type for CS=1 (IRQ) and CS=2 (SEV).
-            // BUG-QA-7 fix: CS=2 is SIG_SEV (PE-level wakeup), NOT SIG_MSI.
-            if (command.cs == 1u) {
-                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Irq), std::memory_order_release);
-            } else if (command.cs == 2u) {
-                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
-            }
-            if (command.cs != 0) {
-                // FINDING-NEW-39: derive security state from the stream config rather than
-                // hardcoding NonSecure, per ARM §4.8.
-                // BUG-CPP-C01 fix: release queueMutex before acquiring the stripe lock to
-                // prevent the ABBA deadlock: translate() holds stripe->queueMutex whereas
-                // the old code held queueMutex->stripe here.
-                SecurityState syncEventSecState = SecurityState::NonSecure;
-                {
-                    size_t syncStripe = getStreamStripe(command.streamID);
-                    lock.unlock();
-                    {
-                        std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
-                        auto syncIt = streamMap.find(command.streamID);
-                        if (syncIt != streamMap.end()) {
-                            syncEventSecState = syncIt->second->getStreamConfiguration().securityState;
-                        }
-                    }
-                    lock.lock();
-                }
-                // BUG-NEW-2 fix: §4.8 — CMD_SYNC has no StreamID operand; the
-                // completion event must use streamID=0, not command.streamID.
-                generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
-                              command.startAddress, syncEventSecState);
-            }
-            // BUG-CPP-05 fix: ARM §4.8 specifies CMD_SYNC as a barrier, not a stop.
-            // After completing the sync and emitting the optional completion event,
-            // processing must continue with the next command.  Only the CS=0b11
-            // CERROR_ILL error path (above) should stop processing via break.
-            // Fall through to the CONS.RD advance below (do not use continue).
-        }
+        // BUG-NEW-23 fix: CMD_SYNC validation and completion is now fully
+        // handled inside processCommand() (SYNC case).  processCommandQueue()
+        // relies on the GERROR_CMDQ_ERR check below to detect the CS=3 error
+        // path, which processCommand() signals via signalGerror(GERROR_CMDQ_ERR).
+        // No additional CMD_SYNC special-casing is needed here.
 
         // ARM §6.3.17: Commands must not be processed while GERROR.CMDQ_ERR is active.
         // If processCommand() signalled CMDQ_ERR, halt queue processing immediately.
@@ -3738,10 +3680,15 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
 }
 
 void SMMU::processPRIQueue() {
-    // §CT-33: When CR0.PRIQEN=0, PRI queue processing is disabled.
+    // §CT-33 / BUG-NEW-25 fix: Effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
+    // When SMMUEN=0 the SMMU is globally disabled and PRI processing must also
+    // be disabled, even if PRIQEN remains set after disable() (ARM §6.3.9).
     // BUG-CPP-NEW-1 fix: use load() for the atomic cr0_.
-    if ((cr0_.load(std::memory_order_acquire) & CR0_PRIQEN) == 0u) {
-        return;
+    {
+        uint32_t cr0val = cr0_.load(std::memory_order_acquire);
+        if (!(cr0val & CR0_PRIQEN) || !(cr0val & CR0_SMMUEN)) {
+            return;
+        }
     }
 
     // BUG-NEW-3 fix: ARM §3.5.1 — software is the producer of the Command queue;
@@ -3754,18 +3701,15 @@ void SMMU::processPRIQueue() {
     // must never write it.  Only software (via CMD_PRI_RESP command processing)
     // may advance priqCons.  processPRIQueue() must not touch priqCons at all.
     //
-    // Correct behaviour: processPRIQueue() is a pure drain-and-acknowledge function.
-    // It removes entries from priQueue so the queue does not remain permanently
-    // blocked, but it does NOT enqueue any commands and does NOT advance priqCons.
-    // Software reads E_PAGE_REQUEST events from the Event queue, handles them (e.g.
-    // triggers demand paging), and then sends CMD_PRI_RESP via submitCommand() to
-    // acknowledge each entry and advance priqCons.
-    std::lock_guard<std::recursive_mutex> lock(queueMutex);
-    while (!priQueue.empty()) {
-        priQueue.pop_front();
-        // priqCons is intentionally NOT advanced here — it is software-written
-        // and must only be advanced by CMD_PRI_RESP processing (ARM §8.1).
-    }
+    // BUG-NEW-19 fix: ARM §8.1 — software is the consumer of the PRI queue via
+    // CMD_PRI_RESP.  processPRIQueue() must NOT drain the priQueue deque because
+    // CMD_PRI_RESP must be able to match against the head entry.
+    //
+    // C++ submitPageRequest() already emits E_PAGE_REQUEST at submit time.
+    // processPRIQueue() is now a pure guard: it returns early when the SMMU is
+    // not in a state to process PRI (checked above), and otherwise does nothing.
+    // Software sends CMD_PRI_RESP to retire each head entry and advance priqCons.
+    // (No lock or deque access needed here — the function is a no-op.)
 }
 
 std::vector<PRIEntry> SMMU::getPRIQueue() const {
@@ -4021,8 +3965,11 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_EL2_ALL:
-            // EL2 TLB invalidation — global flush
-            invalidateTranslationCache();
+            // BUG-NEW-18 fix: ARM §4.4.2.7 CMD_TLBI_EL2_ALL — evict only
+            // EL2 and EL2_E2H tagged TLB entries; preserve EL1_EL0 entries.
+            // The previous call to invalidateTranslationCache() over-invalidated
+            // by evicting all entries regardless of StreamWorld tag.
+            tlbCache->invalidateEL2Entries();
             break;
 
         case CommandType::TLBI_EL2_VA:
@@ -4475,9 +4422,43 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         }
 
         case CommandType::SYNC:
-            // Synchronization barrier
-            // ARM SMMU v3 spec: Ensure command ordering and completion
-            // Handled in processCommandQueue()
+            // BUG-NEW-23 fix: CMD_SYNC validation and completion fully handled
+            // here in processCommand() instead of being split across
+            // processCommandQueue().  processCommandQueue() detects the CS=3
+            // error path via the GERROR_CMDQ_ERR check after this call returns.
+            //
+            // §4.8 / FINDING-NEW-33: CS=0b11 is Reserved → CERROR_ILL.
+            // CONF-GAP-17: Write CERROR_ILL to CMDQ_CONS.ERR before signalling GERROR.
+            // BUG-CPP-5 / BUG-NEW-CPP-1 fixes apply here as well.
+            if (command.cs == 3u) {  // 0b11 = 3: Reserved per §4.8
+                FaultRecord illFault;
+                illFault.streamID = command.streamID;
+                illFault.pasid    = command.pasid;
+                illFault.faultType = FaultType::ConfigurationCacheFault;
+                recordFault(illFault);
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                // processCommandQueue() will detect GERROR_CMDQ_ERR and break
+                // without advancing CONS.RD, keeping it at this command.
+                break;
+            }
+            // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
+            // CONF-GAP-18: Record the signal type for CS=1 (IRQ) and CS=2 (SEV).
+            // BUG-QA-7 fix: CS=2 is SIG_SEV (PE-level wakeup), NOT SIG_MSI.
+            if (command.cs == 1u) {
+                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Irq), std::memory_order_release);
+            } else if (command.cs == 2u) {
+                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
+            }
+            if (command.cs != 0) {
+                // BUG-NEW-27 fix: §4.8 — CMD_SYNC belongs to the NS command queue;
+                // completion event security state is always NonSecure.
+                // BUG-NEW-2 fix: completion event streamID=0 (RES0 operand in CMD_SYNC).
+                generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
+                              command.startAddress, SecurityState::NonSecure);
+            }
+            // BUG-CPP-05 fix: ARM §4.8 CMD_SYNC is a barrier, not a stop.
+            // Fall through (no break) so processCommandQueue() advances CONS.RD.
             break;
 
         // §4.1.1 / CT-30: Additional spec-defined command opcodes

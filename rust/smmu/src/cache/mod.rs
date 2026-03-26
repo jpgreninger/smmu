@@ -880,6 +880,30 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
+    /// BUG-NEW-18 fix: ARM §4.4.2.7 `CMD_TLBI_EL2_ALL` — invalidate EL2 entries only.
+    ///
+    /// Evicts entries tagged with `StreamWorld::El2` or `StreamWorld::El2E2h`.
+    /// Entries tagged `El1El0` or `El3` are preserved, because CMD_TLBI_EL2_ALL
+    /// is scoped to the EL2 world and must not affect EL1/EL0 translations.
+    ///
+    /// # ARM Specification
+    ///
+    /// ARM IHI0070G.b §4.4.2.7: CMD_TLBI_EL2_ALL invalidates all TLB entries
+    /// for EL2 translations (NS-EL2 and NS-EL2-E2H).  It does not affect
+    /// NS-EL1/EL0 (`El1El0`) entries.
+    pub fn invalidate_el2_all(&self) {
+        let mut count = 0usize;
+        self.entries.retain(|_key, entry| {
+            if entry.strw == StreamWorld::El2 || entry.strw == StreamWorld::El2E2h {
+                count += 1;
+                false // remove
+            } else {
+                true // keep
+            }
+        });
+        self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
+    }
+
     /// ARM §4.4.2.1 `CMD_TLBI_NH_ALL` — invalidate EL1_EL0 entries scoped to a VMID.
     ///
     /// Evicts only entries tagged with `StreamWorld::El1El0` **and** the given `vmid`.

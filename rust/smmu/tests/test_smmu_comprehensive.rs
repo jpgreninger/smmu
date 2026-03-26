@@ -1228,14 +1228,17 @@ fn test_pri_queue_process_generates_events() {
     };
     smmu.submit_page_request(pri_entry).unwrap();
 
-    // Process PRI queue
+    // BUG-NEW-22: E_PAGE_REQUEST is already emitted at submit time.
+    // process_pri_queue() returns 0 (all entries already emitted).
     let processed = smmu.process_pri_queue().unwrap();
-    assert_eq!(processed, 1);
+    assert_eq!(processed, 0,
+        "BUG-NEW-22: process_pri_queue() must return 0 when all entries already \
+         emitted by submit_page_request()");
     // BUG-NEW-14: entries remain in queue until CMD_PRI_RESP (ARM §8.1).
     assert_eq!(smmu.get_pri_queue_size(), 1,
         "BUG-NEW-14: entry remains in PRI queue after process_pri_queue()");
 
-    // Verify PRI event was generated
+    // Verify PRI event was generated at submit time
     let events = smmu.get_events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, EventType::EPageRequest);
@@ -1264,13 +1267,17 @@ fn test_pri_queue_process_multiple_requests() {
         smmu.submit_page_request(pri_entry).unwrap();
     }
 
+    // BUG-NEW-22: E_PAGE_REQUEST events already emitted at submit time.
+    // process_pri_queue() returns 0 (all entries already emitted).
     let processed = smmu.process_pri_queue().unwrap();
-    assert_eq!(processed, 5);
+    assert_eq!(processed, 0,
+        "BUG-NEW-22: process_pri_queue() must return 0 when all entries already \
+         emitted by submit_page_request()");
     // BUG-NEW-14: entries remain in queue until CMD_PRI_RESP (ARM §8.1).
     assert_eq!(smmu.get_pri_queue_size(), 5,
         "BUG-NEW-14: entries remain in PRI queue after process_pri_queue()");
 
-    // Verify events were generated
+    // Verify events were generated at submit time
     let events = smmu.get_events();
     assert_eq!(events.len(), 5);
 }
@@ -1460,7 +1467,7 @@ fn test_queue_statistics() {
     .unwrap();
 
     let stats = smmu.get_queue_statistics();
-    assert_eq!(stats.event_queue_size(), 1);
+    assert_eq!(stats.event_queue_size(), 2, "BUG-NEW-22: FTranslation + E_PAGE_REQUEST from PRI submit");
     assert_eq!(stats.command_queue_size(), 1);
     assert_eq!(stats.pri_queue_size(), 1);
 }

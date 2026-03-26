@@ -314,6 +314,42 @@ void TLBCache::invalidateNonHypEntriesByVMID(uint16_t vmid) {
     }
 }
 
+void TLBCache::invalidateEL2Entries() {
+    // BUG-NEW-18 fix: ARM §4.4.2.7 CMD_TLBI_EL2_ALL — evict only EL2 and
+    // EL2_E2H tagged TLB entries.  EL1_EL0 entries must be preserved.
+    // Mirrors the pattern of invalidateNonHypEntries() which evicts EL1_EL0.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.strw == StreamWorld::EL2 ||
+                it->second.strw == StreamWorld::EL2_E2H) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateBySecurityState(SecurityState securityState) {
     // Acquire all locks for bulk invalidation
     AllLocksGuard allLocks(*this);

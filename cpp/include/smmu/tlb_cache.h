@@ -157,6 +157,9 @@ public:
     /// BUG-QA-14: ARM §4.4.4.1 CMD_TLBI_NSNH_ALL — invalidate Non-Secure Non-Hyp entries only.
     /// Evicts entries tagged with StreamWorld::EL1_EL0; preserves EL2 and EL2_E2H entries.
     void invalidateNonHypEntries();
+    /// BUG-NEW-18: ARM §4.4.2.7 CMD_TLBI_EL2_ALL — invalidate EL2 and EL2_E2H entries only.
+    /// Evicts entries tagged with StreamWorld::EL2 or StreamWorld::EL2_E2H; preserves EL1_EL0.
+    void invalidateEL2Entries();
     /// QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
     /// Evicts only entries where strw==EL1_EL0 AND vmid==vmid; preserves all other entries.
     void invalidateNonHypEntriesByVMID(uint16_t vmid);
