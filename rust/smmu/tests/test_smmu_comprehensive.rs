@@ -160,6 +160,7 @@ fn test_command_queue_submit_tlbi_nh_all() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -193,6 +194,7 @@ fn test_command_queue_submit_tlbi_el2_all() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -226,6 +228,7 @@ fn test_command_queue_submit_tlbi_s12_vmall() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -259,6 +262,7 @@ fn test_command_queue_submit_atc_inv() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -293,6 +297,7 @@ fn test_command_queue_submit_atc_inv_invalid_range() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -330,6 +335,7 @@ fn test_command_queue_submit_sync() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -363,6 +369,7 @@ fn test_command_queue_submit_prefetch_config() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -395,6 +402,7 @@ fn test_command_queue_submit_prefetch_addr() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -427,6 +435,7 @@ fn test_command_queue_submit_cfgi_ste() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -459,6 +468,7 @@ fn test_command_queue_submit_cfgi_all() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -491,6 +501,7 @@ fn test_command_queue_submit_pri_resp() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -523,6 +534,7 @@ fn test_command_queue_submit_resume() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -557,6 +569,7 @@ fn test_command_queue_process_single_tlbi() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -602,6 +615,7 @@ fn test_command_queue_process_multiple_commands() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
         };
@@ -645,6 +659,7 @@ fn test_command_queue_process_atc_inv_generates_event() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -687,6 +702,7 @@ fn test_command_queue_process_sync_generates_event() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -736,6 +752,7 @@ fn test_command_queue_clear() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
         };
@@ -778,6 +795,7 @@ fn test_command_queue_is_full() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
         };
@@ -1423,6 +1441,7 @@ fn test_queue_statistics() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     })
@@ -1478,6 +1497,7 @@ fn test_cache_statistics_invalidation_count() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
         })
@@ -1531,6 +1551,7 @@ fn test_reset_queues_atomically() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     })

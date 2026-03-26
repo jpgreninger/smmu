@@ -77,6 +77,7 @@ fn test_atc_completion_uses_stream_security_state() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };
@@ -172,6 +173,7 @@ fn test_atc_completion_nonsecure_stream_stays_nonsecure() {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     };

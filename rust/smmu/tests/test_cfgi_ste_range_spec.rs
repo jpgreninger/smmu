@@ -95,6 +95,7 @@ const fn cfgi_all_cmd() -> CommandEntry {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     }
@@ -123,6 +124,7 @@ const fn cfgi_ste_range_cmd(stream_id: u32, range: u8) -> CommandEntry {
         num: 0,
         scale: 0,
         ttl: 0,
+        ssec: false,
         ril: false,
         security_state: SecurityState::NonSecure,
     }

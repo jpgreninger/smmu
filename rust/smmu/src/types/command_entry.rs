@@ -254,6 +254,15 @@ pub struct CommandEntry {
     ///
     /// Defaults to `SecurityState::NonSecure` (least privileged).
     pub security_state: crate::types::SecurityState,
+
+    /// ARM §4.1.6: Security domain bit (SSec) for commands that carry a StreamID.
+    ///
+    /// On the Non-secure command queue this MUST be `false` (SSec=0). A value of
+    /// `true` on the NS queue is ILLEGAL and must raise `CERROR_ILL` and signal
+    /// `GERROR_CMDQ_ERR` per ARM §4.1.6.
+    ///
+    /// Defaults to `false` (Non-secure).
+    pub ssec: bool,
 }
 
 impl CommandEntry {
@@ -291,6 +300,7 @@ impl CommandEntry {
             num: 0,
             scale: 0,
             ttl: 0,
+            ssec: false,
             ril: false,
         }
     }

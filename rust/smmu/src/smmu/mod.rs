@@ -5745,6 +5745,14 @@ impl SMMU {
                 }
             },
             CommandType::Resume => {
+                // BUG-NEW-16 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_RESUME: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // BUG-NEW-11: §4.7.1 — CMD_RESUME is illegal when STALL_MODEL=0b01 (terminate-only).
                 if self.stall_model.load(Ordering::Acquire) == 0x01 {
                     self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -5778,6 +5786,14 @@ impl SMMU {
                 }
             },
             CommandType::StallTerm => {
+                // BUG-NEW-17 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_STALL_TERM: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // BUG-NEW-11: §4.7.2 — CMD_STALL_TERM is illegal when STALL_MODEL=0b01 (terminate-only).
                 if self.stall_model.load(Ordering::Acquire) == 0x01 {
                     self.write_cmdq_cons_err(Self::CERROR_ILL);

@@ -3566,6 +3566,16 @@ void SMMU::clearCommandQueue() {
 
 // Task 5.3: PRI Queue for Page Requests (Task 5.3.3)
 void SMMU::submitPageRequest(const PRIEntry& request) {
+    // BUG-NEW-15 fix: §6.3.9.5/§8.2 — effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
+    // After disable(), PRIQEN remains set while SMMUEN is cleared.  Reject all
+    // PRI requests when the effective PRIQEN is 0.
+    {
+        uint32_t cr0val = cr0_.load(std::memory_order_acquire);
+        if (!(cr0val & CR0_PRIQEN) || !(cr0val & CR0_SMMUEN)) {
+            return;
+        }
+    }
+
     // BUG-03 fix: protect priQueue with queueMutex.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
 
@@ -4390,6 +4400,13 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         }
 
         case CommandType::RESUME: {
+            // BUG-NEW-16 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+            // Any CMD_RESUME with ssec=true must raise CERROR_ILL.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-NEW-11 fix: §4.7.1 — when IDR0.STALL_MODEL==0b01 (terminate-only),
             // CMD_RESUME is not supported and must raise CERROR_ILL (ARM §4.7.1).
             if (stallModel_.load(std::memory_order_acquire) == 0x01u) {
@@ -4428,6 +4445,13 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         }
 
         case CommandType::STALL_TERM: {
+            // BUG-NEW-17 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+            // Any CMD_STALL_TERM with ssec=true must raise CERROR_ILL.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-NEW-11 fix: §4.7.2 — when IDR0.STALL_MODEL==0b01 (terminate-only),
             // CMD_STALL_TERM is not supported and must raise CERROR_ILL (ARM §4.7.2).
             if (stallModel_.load(std::memory_order_acquire) == 0x01u) {

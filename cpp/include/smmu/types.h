@@ -1538,13 +1538,18 @@ struct CommandEntry {
     uint8_t scale; ///< RIL log2 scale factor; effective range 0-39; values >39 treated as 39 per ARM §4.4.1.1; range=(num+1)*(1<<(5*scale)) granules; default 0
     uint8_t ttl;   ///< RIL target TLB level hint (2-bit: 0=any,1=L1,2=L2,3=L3); default 0
     bool    ril;   ///< RIL range invalidation leaf flag; true=use TG/NUM/SCALE range; default false
+    /// ARM §4.1.6: Security domain bit (SSec) for commands that carry a StreamID.
+    /// On the Non-secure command queue this MUST be 0 (false).  A value of true
+    /// on the NS queue is ILLEGAL and must raise CERROR_ILL and GERROR_CMDQ_ERR.
+    /// Defaults to false (Non-secure).
+    bool ssec;  ///< defaults to false
 
     CommandEntry() : type(CommandType::SYNC), streamID(0), pasid(0),
                     startAddress(0), endAddress(0), flags(0), timestamp(0),
                     prgIndex(0), range(31), stag(0), action(false), abort(false),
                     asid(0), vmid(0), leaf(false), cs(0),
                     securityState(SecurityState::NonSecure),
-                    tg(0), num(0), scale(0), ttl(0), ril(false) {
+                    tg(0), num(0), scale(0), ttl(0), ril(false), ssec(false) {
     }
 
     CommandEntry(CommandType cmdType, StreamID sid, PASID p, IOVA start, IOVA end)
@@ -1552,7 +1557,7 @@ struct CommandEntry {
           flags(0), timestamp(0), prgIndex(0), range(31), stag(0), action(false), abort(false),
           asid(0), vmid(0), leaf(false), cs(0),
           securityState(SecurityState::NonSecure),
-          tg(0), num(0), scale(0), ttl(0), ril(false) {
+          tg(0), num(0), scale(0), ttl(0), ril(false), ssec(false) {
     }
 };
 
