@@ -3311,6 +3311,30 @@ impl SMMU {
         self.translate_with_type_ssv(stream_id, pasid, iova, access, security_state, TransactionType::Ordinary, ssv)
     }
 
+    /// Full translation API exposing both `transaction_type` and `ssv` parameters.
+    ///
+    /// This is the most general public translation entry-point, combining the
+    /// ATS-type awareness of [`translate_with_type`](Self::translate_with_type)
+    /// with the SubstreamID-Valid flag of [`translate_with_ssv`](Self::translate_with_ssv).
+    ///
+    /// Required for testing scenarios where an ATS Translation Request carries a
+    /// SubstreamID (SSV=1): specifically the ARM §5.2 STE.S1DSS ATS event-suppression
+    /// path (NEW-FINDING-1) where S1DSS==0b10 + SSV==1 + PASID==0 must abort with CA
+    /// but must NOT record an event.
+    #[allow(clippy::too_many_arguments)]
+    pub fn translate_with_type_and_ssv(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+        transaction_type: TransactionType,
+        ssv: bool,
+    ) -> TranslationResult {
+        self.translate_with_type_ssv(stream_id, pasid, iova, access, security_state, transaction_type, ssv)
+    }
+
     /// Internal translation dispatch with full parameter set.
     ///
     /// All public translate variants delegate here.  The `ssv` flag carries the
@@ -4313,42 +4337,49 @@ impl SMMU {
                     //   "When STE.S1DSS==0b10, transactions that arrive with SubstreamID 0
                     //    [and SSV=1] are aborted and an event recorded."
                     if ssv {
-                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                        let fault = crate::types::FaultRecord::builder()
-                            .stream_id(stream_id)
-                            .pasid(pasid)
-                            .address(iova)
-                            .fault_type(crate::types::FaultType::StreamDisabled)
-                            .access_type(access)
-                            .security_state(security_state)
-                            .timestamp(timestamp)
-                            .build();
-                        self.record_fault(fault);
-                        let event = EventEntry {
-                            event_type: EventType::FStreamDisabled,
-                            stream_id: stream_id.as_u32(),
-                            pasid: 0,
-                            address: 0,
-                            security_state,
-                            error_code: 0,
-                            timestamp,
-                            stall: false,
-                            stag: 0,
-                            ..EventEntry::zeroed()
-                        };
-                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
-                            if let Ok(mut queue) = self.event_queue.write() {
-                                if queue.len() < self.event_queue_capacity {
-                                    queue.push_back(event);
-                                    self.event_count.fetch_add(1, Ordering::Relaxed);
-                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                    self.eventq_prod.store(
-                                        Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
-                                        Ordering::Release,
-                                    );
-                                } else {
-                                    self.toggle_ovflg_once();
+                        // NEW-FINDING-1 fix (ARM §5.2 STE.S1DSS line 6725):
+                        // "For ATS Translation Requests, if the cases described in
+                        //  0b00 and 0b10 lead to termination, the Translation Request
+                        //  is terminated with a CA and no event is recorded."
+                        // Only record the fault/event for non-ATS transactions.
+                        if transaction_type != TransactionType::AtsTranslationRequest {
+                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                            let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                            let fault = crate::types::FaultRecord::builder()
+                                .stream_id(stream_id)
+                                .pasid(pasid)
+                                .address(iova)
+                                .fault_type(crate::types::FaultType::StreamDisabled)
+                                .access_type(access)
+                                .security_state(security_state)
+                                .timestamp(timestamp)
+                                .build();
+                            self.record_fault(fault);
+                            let event = EventEntry {
+                                event_type: EventType::FStreamDisabled,
+                                stream_id: stream_id.as_u32(),
+                                pasid: 0,
+                                address: 0,
+                                security_state,
+                                error_code: 0,
+                                timestamp,
+                                stall: false,
+                                stag: 0,
+                                ..EventEntry::zeroed()
+                            };
+                            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                                if let Ok(mut queue) = self.event_queue.write() {
+                                    if queue.len() < self.event_queue_capacity {
+                                        queue.push_back(event);
+                                        self.event_count.fetch_add(1, Ordering::Relaxed);
+                                        let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                        self.eventq_prod.store(
+                                            Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
+                                            Ordering::Release,
+                                        );
+                                    } else {
+                                        self.toggle_ovflg_once();
+                                    }
                                 }
                             }
                         }

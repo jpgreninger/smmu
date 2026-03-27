@@ -604,20 +604,29 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // "When STE.S1DSS==0b10, transactions that arrive with SubstreamID 0 [and SSV=1]
     // are aborted and an event recorded." (ARM §3.9 table note on S1DSS==0b10.)
     // This check is placed in the outer translate() so ssv is in scope.
+    //
+    // NEW-FINDING-1 fix (§5.2 STE.S1DSS line 6725):
+    // "For ATS Translation Requests, if the cases described in 0b00 and 0b10 lead to
+    //  termination, the Translation Request is terminated with a CA and no event is
+    //  recorded."
+    // ATS Translation Requests must abort (CA) but must NOT record F_STREAM_DISABLED.
     if (ssv && pasid == 0 &&
         streamCfgSnapshot.stage1Enabled &&
         streamCfgSnapshot.s1cdMax > 0 &&
         streamCfgSnapshot.s1dss == 0x02u) {
-        FaultRecord s1dssFault;
-        s1dssFault.streamID = streamID;
-        s1dssFault.pasid = pasid;
-        s1dssFault.address = iova;
-        s1dssFault.faultType = FaultType::StreamDisabled;
-        s1dssFault.accessType = accessType;
-        s1dssFault.securityState = securityState;
-        s1dssFault.timestamp = currentTime;
-        recordFault(s1dssFault);
-        generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+        // Only record the fault/event for non-ATS transactions (§5.2 STE.S1DSS line 6725).
+        if (transactionType != TransactionType::AtsTranslationRequest) {
+            FaultRecord s1dssFault;
+            s1dssFault.streamID = streamID;
+            s1dssFault.pasid = pasid;
+            s1dssFault.address = iova;
+            s1dssFault.faultType = FaultType::StreamDisabled;
+            s1dssFault.accessType = accessType;
+            s1dssFault.securityState = securityState;
+            s1dssFault.timestamp = currentTime;
+            recordFault(s1dssFault);
+            generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+        }
         return makeTranslationError(SMMUError::SubstreamDisabled);
     }
 

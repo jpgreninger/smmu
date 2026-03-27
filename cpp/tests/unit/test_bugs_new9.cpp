@@ -1,4 +1,4 @@
-// TDD failing tests for BUG-A, BUG-B, BUG-C1, BUG-C2, BUG-C3, BUG-D, BUG-G.
+// TDD failing tests for BUG-A, BUG-B, BUG-C1, BUG-C2, BUG-C3, BUG-D, BUG-G, NEW-FINDING-1.
 //
 // Each test is written to FAIL with the current code (red) and PASS only after
 // the corresponding fix is applied (green).
@@ -63,6 +63,15 @@
 //   and that the CFGI_VMS_PIDM CERROR_ILL guard uses the correct bit when MPAM
 //   is definitionally absent.  A separate test verifies that bit 6 of IDR3 is
 //   always 0 (RES0 per spec).
+//
+// NEW-FINDING-1 (§5.2 STE.S1DSS line 6725): ATS Translation Requests terminated
+//   by S1DSS==0b10 + SSV==1 + PASID==0 must NOT record an F_STREAM_DISABLED event.
+//   ARM §5.2 STE.S1DSS: "For ATS Translation Requests, if the cases described in
+//   0b00 and 0b10 lead to termination, the Translation Request is terminated with a
+//   CA and no event is recorded."
+//   Current code: F_STREAM_DISABLED event is always recorded, even for ATS TR.
+//   BEFORE FIX: F_STREAM_DISABLED event IS present --> test FAILS.
+//   AFTER FIX:  F_STREAM_DISABLED event is NOT recorded --> test PASSES.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <gtest/gtest.h>
@@ -570,4 +579,76 @@ TEST(BugNewE_S1DSS10_SSV, S1DSS10_SSV0_PASID0_NormalTranslation) {
 
     EXPECT_FALSE(hasEvent(smmu, EventType::F_STREAM_DISABLED))
         << "BUG-E regression: S1DSS==0b10 + SSV==0 must NOT generate F_STREAM_DISABLED";
+}
+
+// ============================================================================
+// NEW-FINDING-1: ATS TR + S1DSS==0b10 + SSV==1 + PASID==0 must NOT record event
+// ============================================================================
+//
+// ARM §5.2 STE.S1DSS (line 6725): "For ATS Translation Requests, if the cases
+// described in 0b00 and 0b10 lead to termination, the Translation Request is
+// terminated with a CA and no event is recorded."
+//
+// The BUG-E fix correctly aborts the transaction but unconditionally records
+// F_STREAM_DISABLED.  For ATS Translation Requests this is incorrect: the abort
+// must still happen but the event must be suppressed.
+//
+// BEFORE FIX: F_STREAM_DISABLED event IS in queue --> test FAILS.
+// AFTER FIX:  Transaction aborts, no F_STREAM_DISABLED event --> test PASSES.
+
+// Test NF1-1: ATS TR + S1DSS==0b10 + SSV==1 + PASID==0 aborts with CA,
+// no F_STREAM_DISABLED event recorded.
+//
+// IMPORTANT: The stream must have eats!=0 to pass the ATS-support check at
+// translate() lines 573-580.  With eats==0 the SMMU returns F_BAD_ATS_TREQ
+// before reaching the S1DSS check, which never exercises the suppression path.
+TEST(NewFinding1_AtsEventSuppression, AtsTranslationRequest_S1DSS10_SSV1_PASID0_NoEvent) {
+    // ARM §5.2 STE.S1DSS: ATS TR terminated by S1DSS==0b10 must NOT record an event.
+    SMMU smmu;
+    enableSMMU(smmu);
+
+    // Configure with eats=1 so ATS is supported (passes the atsSupported check).
+    const uint32_t kStream = 30u;
+    StreamConfig cfg = makeStage1Config();
+    cfg.s1cdMax = 1u;
+    cfg.s1dss   = 0x02u; // use CD[0]; SSV=1+PASID=0 must abort
+    cfg.eats    = 1u;    // ATS capable: bypass the F_BAD_ATS_TREQ guard
+    smmu.configureStream(kStream, cfg);
+    smmu.enableStream(kStream);
+    smmu.createStreamPASID(kStream, 0u);
+    smmu.mapPage(kStream, 0u, 0x1000u, 0x1000u, PagePermissions(true, true, false));
+
+    auto result = smmu.translate(kStream, 0u, 0x1000u, AccessType::Read,
+                                 SecurityState::NonSecure,
+                                 TransactionType::AtsTranslationRequest,
+                                 /*ssv=*/true);
+
+    // CA termination must still occur (transaction must abort).
+    EXPECT_FALSE(result.isOk())
+        << "NF1-1: ATS TR + S1DSS10 + SSV1 + PASID0 must abort (CA)";
+    // No F_STREAM_DISABLED event must be recorded (ARM §5.2 STE.S1DSS line 6725).
+    EXPECT_FALSE(hasEvent(smmu, EventType::F_STREAM_DISABLED))
+        << "NF1-1: ATS TR + S1DSS10 + SSV1 + PASID0 must NOT record "
+           "F_STREAM_DISABLED (ARM §5.2 STE.S1DSS line 6725)";
+}
+
+// Test NF1-2: Ordinary tx + S1DSS==0b10 + SSV==1 + PASID==0 MUST still
+// record F_STREAM_DISABLED (regression guard for BUG-E fix).
+TEST(NewFinding1_AtsEventSuppression, Ordinary_S1DSS10_SSV1_PASID0_DoesRecordEvent) {
+    // ARM §3.9 / §7.3.7: Ordinary transaction must still record F_STREAM_DISABLED.
+    // The ATS event-suppression exception must NOT apply to non-ATS transactions.
+    SMMU smmu;
+    enableSMMU(smmu);
+    uint32_t sid = configStage1WithS1DSS2(smmu);
+
+    auto result = smmu.translate(sid, 0u, 0x1000u, AccessType::Read,
+                                 SecurityState::NonSecure,
+                                 TransactionType::Ordinary,
+                                 /*ssv=*/true);
+
+    EXPECT_FALSE(result.isOk())
+        << "NF1-2 regression: Ordinary + S1DSS10 + SSV1 + PASID0 must abort";
+    EXPECT_TRUE(hasEvent(smmu, EventType::F_STREAM_DISABLED))
+        << "NF1-2 regression: Ordinary + S1DSS10 + SSV1 + PASID0 "
+           "must STILL record F_STREAM_DISABLED (ARM §3.9/§7.3.7)";
 }

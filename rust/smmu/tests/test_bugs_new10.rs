@@ -1,4 +1,4 @@
-//! TDD failing tests for BUG-A, BUG-B, BUG-C1, BUG-C2, BUG-C3, BUG-D, BUG-G.
+//! TDD failing tests for BUG-A, BUG-B, BUG-C1, BUG-C2, BUG-C3, BUG-D, BUG-G, NEW-FINDING-1.
 //!
 //! Each test is written to FAIL with the current code (red) and PASS only after
 //! the corresponding fix is applied (green).
@@ -66,6 +66,18 @@
 //! The CFGI_VMS_PIDM handler checks `get_idr3() & (1 << 6)` (wrong bit).
 //! Since this model reports MPAM=0 always (neither bit set), the observable
 //! behaviour is accidentally correct.  Tests document the invariants.
+//!
+//! # NEW-FINDING-1 (§5.2 STE.S1DSS): ATS TR event suppression for S1DSS==0b10
+//!
+//! ARM §5.2 STE.S1DSS line 6725: "For ATS Translation Requests, if the cases
+//! described in 0b00 and 0b10 lead to termination, the Translation Request is
+//! terminated with a CA and no event is recorded."
+//!
+//! The BUG-E fix records F_STREAM_DISABLED for all transaction types.
+//! For ATS Translation Requests the event must be suppressed.
+//!
+//! BEFORE FIX: F_STREAM_DISABLED event is always recorded.
+//! AFTER FIX:  ATS TR aborts (CA) but no event recorded.
 
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)]
@@ -75,7 +87,7 @@
 
 use smmu::types::{
     AccessType, CommandEntry, CommandType, EventType, FaultMode, PagePermissions, SecurityState,
-    StreamConfig, StreamID, IOVA, PA, PASID,
+    StreamConfig, StreamID, TransactionType, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -699,5 +711,115 @@ fn bug_new_f_cmd_sync_cs3_inline_signal_gerror() {
         "BUG-F: CMD_SYNC CS=0b11 must set CMDQ_CONS.ERR=CERROR_ILL (ARM §6.3.17). \
          Got CERROR={}",
         smmu.get_cmdq_cons_err()
+    );
+}
+
+// ============================================================================
+// NEW-FINDING-1: ATS TR + S1DSS==0b10 + SSV==1 + PASID==0 — no event
+// ============================================================================
+// ARM §5.2 STE.S1DSS: "For ATS Translation Requests, if the cases described in
+// 0b00 and 0b10 lead to termination, the Translation Request is terminated with
+// a CA and no event is recorded."
+//
+// The BUG-E fix unconditionally records F_STREAM_DISABLED; for ATS TR the event
+// must be suppressed (CA only, no event).
+//
+// BEFORE FIX: F_STREAM_DISABLED IS recorded → FAILS.
+// AFTER FIX:  CA returned, no event → PASSES.
+
+/// NEW-FINDING-1: ATS TR + S1DSS==0b10 + SSV==1 + PASID==0 must abort (CA)
+/// but must NOT record F_STREAM_DISABLED.
+///
+/// ARM §5.2 STE.S1DSS line 6725: ATS TR terminated by S1DSS==0b10 must not
+/// record an event.
+///
+/// The stream must have `eats != 0` so it passes the ATS-support check
+/// (otherwise `FBadAtsTreq` fires before the S1DSS path, never reaching the
+/// suppression code and making the test vacuously pass).
+#[test]
+fn new_finding_1_ats_tr_s1dss10_ssv1_pasid0_no_event() {
+    let smmu = make_smmu();
+
+    // eats=1: ATS capable — passes the ats_supported check so we reach S1DSS path.
+    let mut cfg = StreamConfig::stage1_only();
+    cfg.security_state = SecurityState::NonSecure;
+    cfg.s1cd_max = 1;
+    cfg.s1dss = 0x02; // S1DSS==0b10: use CD[0]; SSV=1+PASID=0 must abort
+    cfg.eats = 1;     // ATS capable: bypass the FBadAtsTreq guard
+
+    let sid = StreamID::new(20).unwrap();
+    smmu.configure_stream(sid, cfg).unwrap();
+    smmu.create_pasid(sid, PASID::new(0).unwrap()).unwrap();
+    smmu.map_page(
+        sid,
+        PASID::new(0).unwrap(),
+        IOVA::new(0x1000).unwrap(),
+        PA::new(0x1000).unwrap(),
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    ).unwrap();
+
+    // ATS Translation Request + SSV=1 + PASID=0 → CA, no event (ARM §5.2 line 6725).
+    let result = smmu.translate_with_type_and_ssv(
+        sid,
+        PASID::new(0).unwrap(),
+        IOVA::new(0x1000).unwrap(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+        TransactionType::AtsTranslationRequest,
+        true, // ssv = true
+    );
+
+    assert!(
+        result.is_err(),
+        "NF1: ATS TR + S1DSS10 + SSV1 + PASID0 must abort (CA) (ARM §5.2)"
+    );
+    assert!(
+        !has_event(&smmu, EventType::FStreamDisabled),
+        "NF1: ATS TR + S1DSS10 + SSV1 + PASID0 must NOT record F_STREAM_DISABLED (ARM §5.2 STE.S1DSS line 6725)"
+    );
+}
+
+/// NEW-FINDING-1 regression: Ordinary tx + S1DSS==0b10 + SSV==1 + PASID==0
+/// must still record F_STREAM_DISABLED (BUG-E fix must remain intact).
+#[test]
+fn new_finding_1_ordinary_s1dss10_ssv1_pasid0_does_record_event() {
+    let smmu = make_smmu();
+
+    let mut cfg = StreamConfig::stage1_only();
+    cfg.security_state = SecurityState::NonSecure;
+    cfg.s1cd_max = 1;
+    cfg.s1dss = 0x02;
+
+    let sid = StreamID::new(21).unwrap();
+    smmu.configure_stream(sid, cfg).unwrap();
+    smmu.create_pasid(sid, PASID::new(0).unwrap()).unwrap();
+    smmu.map_page(
+        sid,
+        PASID::new(0).unwrap(),
+        IOVA::new(0x1000).unwrap(),
+        PA::new(0x2000).unwrap(),
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    ).unwrap();
+
+    // Ordinary + SSV=1 + PASID=0 → must record F_STREAM_DISABLED.
+    let result = smmu.translate_with_type_and_ssv(
+        sid,
+        PASID::new(0).unwrap(),
+        IOVA::new(0x1000).unwrap(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+        TransactionType::Ordinary,
+        true, // ssv = true
+    );
+
+    assert!(
+        result.is_err(),
+        "NF1 regression: Ordinary + S1DSS10 + SSV1 + PASID0 must abort (ARM §3.9)"
+    );
+    assert!(
+        has_event(&smmu, EventType::FStreamDisabled),
+        "NF1 regression: Ordinary + S1DSS10 + SSV1 + PASID0 must STILL record F_STREAM_DISABLED (ARM §3.9/§7.3.7)"
     );
 }
