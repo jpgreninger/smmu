@@ -1206,14 +1206,15 @@ impl SMMU {
         | (1u32 << 14)       // SEV (stall model)
         | (1u32 << 15)       // ATOS (GATOS implemented)
         | (1u32 << 16)       // PRI
-        | (1u32 << 17)       // VMW
+        | (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 17 } else { 0 })  // VMW: gated on S2P (BUG-A fix §6.3.1)
         | (1u32 << 18)       // VMID16
         | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
         | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
         // BUG-NEW-16 fix: IDR0.Hyp (bit 9) is now configurable via set_hyp_supported().
         // Default=true to preserve existing behaviour; set_hyp_supported(false) enables
         // the CMD_TLBI_EL2_ALL CERROR_ILL guard that was previously dead code.
-        | if self.hyp_supported.load(Ordering::Acquire) { 1u32 << 9 } else { 0 }
+        | if self.hyp_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 9 } else { 0 }
+        // Hyp: BUG-B fix §6.3.1 — gated on both hyp_supported AND s2p_supported
         // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
         // stored by set_stall_model() rather than being hardcoded to 0b00.
         | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
@@ -2221,7 +2222,8 @@ impl SMMU {
         // BUG-QA-12 fix: §5.5 — STALL_MODEL==0b01 (terminate-only) AND STE.S2S==1 → C_BAD_STE.
         // Guard: S2S is only meaningful when stage-2 is active; bypass/stage1-only
         // streams with s2_stall=true must not be rejected (QA-AUDIT-FIX-B).
-        if config.stage2_enabled && self.stall_model.load(Ordering::Acquire) == 0x01u8 && config.s2_stall {
+        let stall_model = self.stall_model.load(Ordering::Acquire);
+        if config.stage2_enabled && stall_model == 0x01u8 && config.s2_stall {
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                 let event = EventEntry {
@@ -2235,6 +2237,57 @@ impl SMMU {
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: STALL_MODEL=terminate-only (0b01) AND STE.S2S=1 are incompatible (ARM §5.5)".to_string(),
+            ));
+        }
+        // BUG-C1 fix: §5.5 — STALL_MODEL==0b10 (forced-stall) + stage2_enabled + s2_stall==false → C_BAD_STE.
+        if config.stage2_enabled && stall_model == 0x02u8 && !config.s2_stall {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STALL_MODEL==0b10 requires S2S=1 for stage-2 streams (ARM §5.5)".to_string(),
+            ));
+        }
+        // BUG-C2 fix: §5.5 — STALL_MODEL==0b10 (forced-stall) + stage1_enabled + fault_mode!=Stall → C_BAD_CD.
+        if config.stage1_enabled && stall_model == 0x02u8 && config.fault_mode != crate::types::FaultMode::Stall {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadCd,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_CD: STALL_MODEL==0b10 requires CD.S=1 (FaultMode::Stall) for stage-1 streams (ARM §5.5)".to_string(),
+            ));
+        }
+        // BUG-C3 fix: §5.5 — STALL_MODEL!=0b00 + s1_stalld==true → C_BAD_STE.
+        if config.stage1_enabled && stall_model != 0x00u8 && config.s1_stalld {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STALL_MODEL!=0b00 conflicts with S1STALLD=1 (ARM §5.5)".to_string(),
             ));
         }
 
@@ -3224,7 +3277,6 @@ impl SMMU {
     /// - **`AtsTranslated`** — ATS TT; when `CR0.ATSCHK == 1` the SMMU re-checks
     ///   the mapping as an Ordinary translation; failure generates F_BAD_ATS_TREQ.
     ///   When `CR0.ATSCHK == 0` the TT proceeds identically to Ordinary.
-    #[allow(clippy::too_many_lines)]
     pub fn translate_with_type(
         &self,
         stream_id: StreamID,
@@ -3233,6 +3285,47 @@ impl SMMU {
         access: AccessType,
         security_state: SecurityState,
         transaction_type: TransactionType,
+    ) -> TranslationResult {
+        self.translate_with_type_ssv(stream_id, pasid, iova, access, security_state, transaction_type, false)
+    }
+
+    /// Translate an IOVA with explicit SubstreamID-Valid flag (BUG-E fix, §3.9/§7.3.7).
+    ///
+    /// When `ssv` is `true` the transaction carries a presented SubstreamID.  For
+    /// streams where `STE.S1DSS == 0b10` ("use CD[0] for non-substream"), a
+    /// transaction that **has** a SubstreamID presented (SSV=1) but arrives with
+    /// PASID==0 is architecturally an abort per ARM §3.9: the SMMU raises
+    /// `F_STREAM_DISABLED` (event code 0x06).
+    ///
+    /// For all other S1DSS values, or when `ssv` is `false`, the behaviour is
+    /// identical to [`translate`](Self::translate).
+    pub fn translate_with_ssv(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+        ssv: bool,
+    ) -> TranslationResult {
+        self.translate_with_type_ssv(stream_id, pasid, iova, access, security_state, TransactionType::Ordinary, ssv)
+    }
+
+    /// Internal translation dispatch with full parameter set.
+    ///
+    /// All public translate variants delegate here.  The `ssv` flag carries the
+    /// SubstreamID-Valid signal from the originating transaction (ARM §3.9).
+    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
+    fn translate_with_type_ssv(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        access: AccessType,
+        security_state: SecurityState,
+        transaction_type: TransactionType,
+        ssv: bool,
     ) -> TranslationResult {
         // ── NEW-13 §3.9.1.2/3.9.1.3: SMMUEN=0 ATS events ────────────────────
         // When SMMUEN=0, ATS TR must emit F_BAD_ATS_TREQ (gated on REC_CFG_ATS)
@@ -4212,8 +4305,57 @@ impl SMMU {
                     ));
                 }
                 _ => {
-                    // s1dss == 0b10 (or any reserved value): use CD[0] — result already
-                    // computed, fall through to the normal success/fault handling below.
+                    // BUG-E fix: §3.9 / §7.3.7 — S1DSS==0b10 + SSV==1 + PASID==0 → F_STREAM_DISABLED.
+                    // When STE.S1DSS==0b10, the SMMU uses CD[0] for transactions that arrive
+                    // *without* a SubstreamID (SSV=0).  A transaction that *has* a SubstreamID
+                    // presented (SSV=1) but carries PASID==0 is architecturally illegal and must
+                    // abort with F_STREAM_DISABLED per ARM §3.9:
+                    //   "When STE.S1DSS==0b10, transactions that arrive with SubstreamID 0
+                    //    [and SSV=1] are aborted and an event recorded."
+                    if ssv {
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let fault = crate::types::FaultRecord::builder()
+                            .stream_id(stream_id)
+                            .pasid(pasid)
+                            .address(iova)
+                            .fault_type(crate::types::FaultType::StreamDisabled)
+                            .access_type(access)
+                            .security_state(security_state)
+                            .timestamp(timestamp)
+                            .build();
+                        self.record_fault(fault);
+                        let event = EventEntry {
+                            event_type: EventType::FStreamDisabled,
+                            stream_id: stream_id.as_u32(),
+                            pasid: 0,
+                            address: 0,
+                            security_state,
+                            error_code: 0,
+                            timestamp,
+                            stall: false,
+                            stag: 0,
+                            ..EventEntry::zeroed()
+                        };
+                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            if let Ok(mut queue) = self.event_queue.write() {
+                                if queue.len() < self.event_queue_capacity {
+                                    queue.push_back(event);
+                                    self.event_count.fetch_add(1, Ordering::Relaxed);
+                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                    self.eventq_prod.store(
+                                        Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
+                                        Ordering::Release,
+                                    );
+                                } else {
+                                    self.toggle_ovflg_once();
+                                }
+                            }
+                        }
+                        return Err(TranslationError::StreamDisabled);
+                    }
+                    // s1dss == 0b10, SSV==0 (or any reserved value): use CD[0] — result
+                    // already computed, fall through to the normal success/fault handling below.
                 }
             }
         }
@@ -5613,14 +5755,7 @@ impl SMMU {
             // by ASID AND VMID jointly; entries with a different VMID must NOT be evicted.
             // CMD_TLBI_EL2_ASID (§4.4.2.10) uses ASID-only (VMID field is RES0 in encoding).
             CommandType::TlbiNhAsid => {
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_NH_ASID: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_by_vmid_and_asid(command.vmid, command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5643,14 +5778,7 @@ impl SMMU {
             // EL2 / El2E2h entries and entries for other VMIDs are preserved.
             // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
             CommandType::TlbiNhAll => {
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_NH_ALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_nh_by_vmid(command.vmid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5675,14 +5803,7 @@ impl SMMU {
             // BUG-QA-14 fix: §4.4.4.1 — NSNH_ALL invalidates EL1_EL0 entries only
             // (excludes EL2 / El2E2h entries per ARM §4.4.4.1).
             CommandType::TlbiNsnhAll => {
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_NSNH_ALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_nsnh_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5743,14 +5864,7 @@ impl SMMU {
                 ));
             },
             CommandType::TlbiNhVa => {
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_NH_VA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 if command.ril {
                     // Range invalidation: compute range from tg, num, scale.
                     // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
@@ -5847,14 +5961,7 @@ impl SMMU {
                 ));
             },
             CommandType::TlbiNhVaa => {
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_NH_VAA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 // BUG-NEW-37 fix: ARM §4.4.2.4 — TLBI_NH_VAA is VMID-scoped.
                 // Use VMID+VA invalidation (any ASID) to preserve other VMIDs' entries.
                 // BUG-NEW-41 fix: ARM §4.4.1.1 — TlbiNhVaa must honour RIL range fields.
@@ -5903,14 +6010,7 @@ impl SMMU {
                         "CMD_TLBI_S12_VMALL: IDR0.S2P=0 — stage-2 not supported (ARM §4.4.3.1)".to_string(),
                     ));
                 }
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_S12_VMALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 // CONF-GAP-12: apply CR0.VMW wildcard mask to VMID comparison.
                 let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
@@ -5939,14 +6039,7 @@ impl SMMU {
                         "CMD_TLBI_S2_IPA: IDR0.S2P=0 — stage-2 not supported (ARM §4.4.3.2)".to_string(),
                     ));
                 }
-                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
-                if command.ssec {
-                    self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                    return Err(SMMUError::InvalidCommandParameters(
-                        "CMD_TLBI_S2_IPA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
-                    ));
-                }
+                // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
                 let ipa_start = command.start_address;
@@ -6035,12 +6128,11 @@ impl SMMU {
                 if command.cs == 0b11 {
                     // CONF-GAP-17: write CERROR_ILL to CMDQ_CONS.ERR before signalling GERROR (§6.3.17).
                     self.write_cmdq_cons_err(Self::CERROR_ILL);
-                    // BUG-09/15 fix: do NOT call fetch_xor here.  Per §6.3.19 / §7.5,
-                    // GERROR bits use "activate-only-if-inactive" (OR) semantics —
-                    // the SMMU must not toggle a bit when the error is already active.
-                    // fetch_xor would briefly clear an already-set CMDQ_ERR bit before
-                    // process_command_queue applies its authoritative fetch_or, creating
-                    // a race window.  Let process_command_queue apply the single fetch_or.
+                    // BUG-F fix: §4.7.3 / §6.3.17 — signal GERROR.CMDQ_ERR inline, consistent with
+                    // all other CERROR_ILL paths.  process_command_queue also calls signal_gerror on
+                    // Err return, but the inline call ensures the error is visible even if the caller
+                    // processes the command asynchronously.
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
                     return Err(SMMUError::InvalidCommandParameters(
                         "CMD_SYNC: CS=0b11 is Reserved — CERROR_ILL (ARM §4.7.3)".to_string(),
                     ));
@@ -6363,8 +6455,9 @@ impl SMMU {
                     ));
                 }
                 // ARM §4.3.5 — CMD_CFGI_VMS_PIDM requires IDR3.MPAM==1.
-                // This model reports IDR3.MPAM=0 (bit 6), so this command is always CERROR_ILL.
-                if (self.get_idr3() & (1 << 6)) == 0 {
+                // BUG-G fix: §6.3.4 — IDR3.MPAM is at bit [7] not bit [6]. Bit [6] is RES0.
+                // This model reports IDR3.MPAM=0 (bit 7), so this command is always CERROR_ILL.
+                if (self.get_idr3() & (1 << 7)) == 0 {
                     self.write_cmdq_cons_err(Self::CERROR_ILL);
                     self.signal_gerror(Self::GERROR_CMDQ_ERR);
                     return Err(SMMUError::InvalidCommandParameters(

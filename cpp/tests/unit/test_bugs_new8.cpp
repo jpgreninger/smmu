@@ -14,6 +14,15 @@
 //   SSec=1 on the NS queue they silently execute instead of raising CERROR_ILL.
 //   Fix: split into individual cases each with an SSec guard.
 //
+// BUG-D (ARM IHI0070G.b §4.1.6 re-evaluation):
+//   The SSec field is RES0 in the encodings of TLBI_NH_ALL, TLBI_NH_ASID,
+//   TLBI_NH_VA, TLBI_NH_VAA, TLBI_S12_VMALL, TLBI_S2_IPA, and TLBI_NSNH_ALL.
+//   Setting a RES0 bit is CONSTRAINED UNPREDICTABLE — NOT a defined CERROR_ILL
+//   path.  Tests 3–9 are updated to reflect the corrected (post-BUG-D) behaviour:
+//   these seven commands must execute normally without raising CERROR_ILL even
+//   when ssec=1.  Test 10 (ATC_INV) retains the original assertion because
+//   ATC_INV has a real SSec field.
+//
 // BUG-NEW-39 (§4.4.3.1/§4.4.3.2):
 //   TLBI_S12_VMALL and TLBI_S2_IPA are missing an IDR0.S2P==0 → CERROR_ILL
 //   guard (mirroring the IDR0.Hyp guard already present for TLBI_EL2_ALL).
@@ -186,12 +195,16 @@ TEST(BugNew37TlbiNhVaaVmidScope, NhVaa_TargetsVmidA_PreservesVmidB_Entry) {
 }
 
 // ============================================================================
-// BUG-NEW-38 (§4.1.6): SSec=1 on NS queue must raise CERROR_ILL for 8 commands
+// BUG-NEW-38 / BUG-D (§4.1.6): SSec=1 on NS queue — 7 RES0 commands must NOT
+// raise CERROR_ILL (BUG-D correction); ATC_INV (real SSec field) still must.
 // ============================================================================
-// Each test submits the command with ssec=true and verifies CERROR_ILL + GERROR.
+// Tests 3–9 are updated per BUG-D: these commands have RES0 SSec fields and
+// must execute normally without raising CERROR_ILL when ssec=1.
+// Test 10 (ATC_INV) retains the original CERROR_ILL assertion.
 
 // Helper: submits cmd with ssec=true, processes queue, checks CERROR_ILL and GERROR.
 // Returns true if the error was correctly detected.
+// Used only for ATC_INV (test 10) which has a real SSec field.
 static bool checkSSecRaisesIll(SMMU& smmu, CommandType type) {
     smmu.clearGerror(smmu.getGerror()); // clear any pre-existing error
 
@@ -204,60 +217,84 @@ static bool checkSSecRaisesIll(SMMU& smmu, CommandType type) {
     return (smmu.getCmdqConsErr() == CERROR_ILL) && isGerrorCmdqErrActive(smmu);
 }
 
-// Test 3: TLBI_NH_ALL with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiNhAll_SSec1_Raises_CERROR_ILL) {
-    SMMU smmu;
-    enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_NH_ALL))
-        << "BUG-NEW-38: TLBI_NH_ALL with SSec=1 must raise CERROR_ILL on NS queue";
+// BUG-D: Check that a command with ssec=1 does NOT raise CERROR_ILL.
+// Returns true when the command executed without error (correct behavior post BUG-D fix).
+static bool checkSSecNoIllError(SMMU& smmu, CommandType type) {
+    smmu.clearGerror(smmu.getGerror());
+    CommandEntry cmd = makeCmd(type);
+    cmd.ssec = true;
+    if (!smmu.submitCommand(cmd).isOk()) {
+        return false;
+    }
+    smmu.processCommandQueue();
+    return !isGerrorCmdqErrActive(smmu);
 }
 
-// Test 4: TLBI_NH_ASID with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiNhAsid_SSec1_Raises_CERROR_ILL) {
+// Test 3: TLBI_NH_ALL with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+TEST(BugNew38SSecGuard8Commands, TlbiNhAll_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_NH_ASID))
-        << "BUG-NEW-38: TLBI_NH_ASID with SSec=1 must raise CERROR_ILL on NS queue";
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_NH_ALL))
+        << "BUG-D correction: TLBI_NH_ALL with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
-// Test 5: TLBI_NH_VA with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiNhVa_SSec1_Raises_CERROR_ILL) {
+// Test 4: TLBI_NH_ASID with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+TEST(BugNew38SSecGuard8Commands, TlbiNhAsid_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_NH_VA))
-        << "BUG-NEW-38: TLBI_NH_VA with SSec=1 must raise CERROR_ILL on NS queue";
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_NH_ASID))
+        << "BUG-D correction: TLBI_NH_ASID with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
-// Test 6: TLBI_NH_VAA with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiNhVaa_SSec1_Raises_CERROR_ILL) {
+// Test 5: TLBI_NH_VA with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+TEST(BugNew38SSecGuard8Commands, TlbiNhVa_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_NH_VAA))
-        << "BUG-NEW-38: TLBI_NH_VAA with SSec=1 must raise CERROR_ILL on NS queue";
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_NH_VA))
+        << "BUG-D correction: TLBI_NH_VA with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
-// Test 7: TLBI_S12_VMALL with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiS12Vmall_SSec1_Raises_CERROR_ILL) {
+// Test 6: TLBI_NH_VAA with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+TEST(BugNew38SSecGuard8Commands, TlbiNhVaa_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_S12_VMALL))
-        << "BUG-NEW-38: TLBI_S12_VMALL with SSec=1 must raise CERROR_ILL on NS queue";
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_NH_VAA))
+        << "BUG-D correction: TLBI_NH_VAA with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
-// Test 8: TLBI_S2_IPA with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiS2Ipa_SSec1_Raises_CERROR_ILL) {
+// Test 7: TLBI_S12_VMALL with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+// S2P must be enabled so the S2P==0 guard (BUG-NEW-39) does not fire first.
+TEST(BugNew38SSecGuard8Commands, TlbiS12Vmall_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_S2_IPA))
-        << "BUG-NEW-38: TLBI_S2_IPA with SSec=1 must raise CERROR_ILL on NS queue";
+    smmu.setS2PSupported(true); // prevent S2P==0 guard from firing
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_S12_VMALL))
+        << "BUG-D correction: TLBI_S12_VMALL with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
-// Test 9: TLBI_NSNH_ALL with SSec=1 must raise CERROR_ILL (§4.1.6).
-TEST(BugNew38SSecGuard8Commands, TlbiNsnhAll_SSec1_Raises_CERROR_ILL) {
+// Test 8: TLBI_S2_IPA with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+// S2P must be enabled so the S2P==0 guard (BUG-NEW-39) does not fire first.
+TEST(BugNew38SSecGuard8Commands, TlbiS2Ipa_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
     SMMU smmu;
     enableSMMU(smmu);
-    EXPECT_TRUE(checkSSecRaisesIll(smmu, CommandType::TLBI_NSNH_ALL))
-        << "BUG-NEW-38: TLBI_NSNH_ALL with SSec=1 must raise CERROR_ILL on NS queue";
+    smmu.setS2PSupported(true); // prevent S2P==0 guard from firing
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_S2_IPA))
+        << "BUG-D correction: TLBI_S2_IPA with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
+}
+
+// Test 9: TLBI_NSNH_ALL with SSec=1 must NOT raise CERROR_ILL (BUG-D: SSec is RES0).
+TEST(BugNew38SSecGuard8Commands, TlbiNsnhAll_SSec1_NoCERROR_ILL_SSec_Is_RES0) {
+    SMMU smmu;
+    enableSMMU(smmu);
+    EXPECT_TRUE(checkSSecNoIllError(smmu, CommandType::TLBI_NSNH_ALL))
+        << "BUG-D correction: TLBI_NSNH_ALL with ssec=1 must NOT raise CERROR_ILL "
+           "— SSec is RES0 in this command's encoding";
 }
 
 // Test 10: ATC_INV with SSec=1 must raise CERROR_ILL (§4.1.6).

@@ -61,9 +61,11 @@ public:
     
     // Main translation API
     // NEW-12: extended with defaulted TransactionType parameter (backward compatible).
+    // BUG-E fix: extended with ssv (SubstreamID Valid) parameter (§3.9 / §7.3.7).
     TranslationResult translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType,
                                 SecurityState securityState = SecurityState::NonSecure,
-                                TransactionType transactionType = TransactionType::Ordinary);
+                                TransactionType transactionType = TransactionType::Ordinary,
+                                bool ssv = false);
     
     // Stream management
     VoidResult configureStream(StreamID streamID, const StreamConfig& config);

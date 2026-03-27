@@ -218,12 +218,11 @@ fn bug_new37_tlbi_nh_vaa_vmid_scope_preserves_other_vmid() {
 // BUG-NEW-38 — SSec==1 guard for TlbiNhAll
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiNhAll` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiNhAll` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: "Any command with SSec=1 on the Non-secure Command queue causes CERROR_ILL."
-///
-/// BEFORE FIX: TlbiNhAll executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.2.1: TlbiNhAll has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
 #[test]
 fn bug_new38_tlbi_nh_all_ssec1_cerror_ill() {
     let smmu = make_smmu();
@@ -233,15 +232,16 @@ fn bug_new38_tlbi_nh_all_ssec1_cerror_ill() {
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiNhAll ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiNhAll ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.2.1). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiNhAll ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiNhAll ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.2.1)"
     );
 }
 
@@ -249,12 +249,11 @@ fn bug_new38_tlbi_nh_all_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiNhAsid
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiNhAsid` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiNhAsid` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiNhAsid executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.2.2: TlbiNhAsid has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
 #[test]
 fn bug_new38_tlbi_nh_asid_ssec1_cerror_ill() {
     let smmu = make_smmu();
@@ -264,15 +263,16 @@ fn bug_new38_tlbi_nh_asid_ssec1_cerror_ill() {
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiNhAsid ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiNhAsid ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.2.2). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiNhAsid ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiNhAsid ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.2.2)"
     );
 }
 
@@ -280,12 +280,11 @@ fn bug_new38_tlbi_nh_asid_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiNhVa
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiNhVa` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiNhVa` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiNhVa executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.2.3: TlbiNhVa has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
 #[test]
 fn bug_new38_tlbi_nh_va_ssec1_cerror_ill() {
     let smmu = make_smmu();
@@ -295,15 +294,16 @@ fn bug_new38_tlbi_nh_va_ssec1_cerror_ill() {
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiNhVa ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiNhVa ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.2.3). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiNhVa ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiNhVa ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.2.3)"
     );
 }
 
@@ -311,12 +311,11 @@ fn bug_new38_tlbi_nh_va_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiNhVaa
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiNhVaa` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiNhVaa` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiNhVaa executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.2.4: TlbiNhVaa has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
 #[test]
 fn bug_new38_tlbi_nh_vaa_ssec1_cerror_ill() {
     let smmu = make_smmu();
@@ -326,15 +325,16 @@ fn bug_new38_tlbi_nh_vaa_ssec1_cerror_ill() {
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiNhVaa ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiNhVaa ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.2.4). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiNhVaa ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiNhVaa ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.2.4)"
     );
 }
 
@@ -342,30 +342,32 @@ fn bug_new38_tlbi_nh_vaa_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiS12Vmall
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiS12Vmall` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiS12Vmall` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiS12Vmall executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.3.1: TlbiS12Vmall has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
+/// S2P must be enabled so the S2P guard does not fire first.
 #[test]
 fn bug_new38_tlbi_s12_vmall_ssec1_cerror_ill() {
     let smmu = make_smmu();
+    smmu.set_s2p_supported(true); // prevent S2P==0 guard from firing
 
     let mut cmd = CommandEntry::new(CommandType::TlbiS12Vmall, 0, 0);
     cmd.ssec = true;
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiS12Vmall ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiS12Vmall ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.3.1). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiS12Vmall ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiS12Vmall ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.3.1)"
     );
 }
 
@@ -373,30 +375,32 @@ fn bug_new38_tlbi_s12_vmall_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiS2Ipa
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiS2Ipa` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiS2Ipa` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiS2Ipa executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.3.2: TlbiS2Ipa has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
+/// S2P must be enabled so the S2P guard does not fire first.
 #[test]
 fn bug_new38_tlbi_s2_ipa_ssec1_cerror_ill() {
     let smmu = make_smmu();
+    smmu.set_s2p_supported(true); // prevent S2P==0 guard from firing
 
     let mut cmd = CommandEntry::new(CommandType::TlbiS2Ipa, 0, 0);
     cmd.ssec = true;
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiS2Ipa ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiS2Ipa ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.3.2). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiS2Ipa ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiS2Ipa ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.3.2)"
     );
 }
 
@@ -404,12 +408,11 @@ fn bug_new38_tlbi_s2_ipa_ssec1_cerror_ill() {
 // BUG-NEW-38 — SSec==1 guard for TlbiNsnhAll
 // ============================================================================
 
-/// BUG-NEW-38: `TlbiNsnhAll` with `ssec=true` on NS queue must raise CERROR_ILL.
+/// BUG-D correction: `TlbiNsnhAll` SSec field is RES0 — setting ssec=1 must NOT
+/// raise CERROR_ILL (supersedes BUG-NEW-38 for this command).
 ///
-/// ARM §4.1.6: SSec=1 on NS queue is always illegal.
-///
-/// BEFORE FIX: TlbiNsnhAll executes normally → CMDQ_ERR not set → test FAILS.
-/// AFTER FIX:  ssec guard fires → CERROR_ILL → CMDQ_ERR toggled → PASSES.
+/// ARM IHI0070G.b §4.4.4.1: TlbiNsnhAll has no SSec field in its encoding.
+/// Setting a RES0 bit is CONSTRAINED UNPREDICTABLE; CERROR_ILL must not be raised.
 #[test]
 fn bug_new38_tlbi_nsnh_all_ssec1_cerror_ill() {
     let smmu = make_smmu();
@@ -419,15 +422,16 @@ fn bug_new38_tlbi_nsnh_all_ssec1_cerror_ill() {
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
+    // BUG-D fix: SSec is RES0 — no CERROR_ILL expected.
     assert_eq!(
         smmu.get_cmdq_cons_err(),
-        SMMU::CERROR_ILL,
-        "BUG-NEW-38: TlbiNsnhAll ssec=1 must write CERROR_ILL (ARM §4.1.6). Got CERROR={}",
+        0,
+        "BUG-D: TlbiNsnhAll ssec=1 must NOT write CERROR_ILL — SSec is RES0 (ARM §4.4.4.1). Got CERROR={}",
         smmu.get_cmdq_cons_err()
     );
     assert!(
-        is_gerror_cmdq_err_active(&smmu),
-        "BUG-NEW-38: TlbiNsnhAll ssec=1 must set GERROR.CMDQ_ERR (ARM §4.1.6)"
+        !is_gerror_cmdq_err_active(&smmu),
+        "BUG-D: TlbiNsnhAll ssec=1 must NOT set GERROR.CMDQ_ERR — SSec is RES0 (ARM §4.4.4.1)"
     );
 }
 

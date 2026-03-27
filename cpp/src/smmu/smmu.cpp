@@ -226,7 +226,8 @@ SMMU::~SMMU() {
 // Main translate() API - Enhanced with Task 5.2: Two-stage translation and TLBCache integration
 // NEW-12: extended with TransactionType parameter (defaulted to Ordinary for backward compat).
 TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType,
-                                  SecurityState securityState, TransactionType transactionType) {
+                                  SecurityState securityState, TransactionType transactionType,
+                                  bool ssv) {
     // GAP NEW-2: Reset thread-local stage-2 fault context at the start of each translation.
     // This prevents stale context from a prior translation on the same thread from leaking.
     tl_stage2FaultCtx.isStage2 = false;
@@ -597,6 +598,27 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // Re-translation succeeded — return the re-translated result as the
         // canonical answer (the re-translation IS the verification result).
         return recheck;
+    }
+
+    // BUG-E fix: §3.9 / §7.3.7 — S1DSS==0b10 + SSV==1 + PASID==0 → F_STREAM_DISABLED.
+    // "When STE.S1DSS==0b10, transactions that arrive with SubstreamID 0 [and SSV=1]
+    // are aborted and an event recorded." (ARM §3.9 table note on S1DSS==0b10.)
+    // This check is placed in the outer translate() so ssv is in scope.
+    if (ssv && pasid == 0 &&
+        streamCfgSnapshot.stage1Enabled &&
+        streamCfgSnapshot.s1cdMax > 0 &&
+        streamCfgSnapshot.s1dss == 0x02u) {
+        FaultRecord s1dssFault;
+        s1dssFault.streamID = streamID;
+        s1dssFault.pasid = pasid;
+        s1dssFault.address = iova;
+        s1dssFault.faultType = FaultType::StreamDisabled;
+        s1dssFault.accessType = accessType;
+        s1dssFault.securityState = securityState;
+        s1dssFault.timestamp = currentTime;
+        recordFault(s1dssFault);
+        generateEvent(EventType::F_STREAM_DISABLED, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::SubstreamDisabled);
     }
 
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
@@ -980,6 +1002,27 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // QA-AUDIT-FIX-3: guard by stage2Enabled — bypass and stage1-only streams never
     // encounter stage-2 faults, so S2S is irrelevant and must not trigger C_BAD_STE.
     if (config.stage2Enabled && stallModel_.load(std::memory_order_acquire) == 0x01u && config.s2s) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-C1 fix: §5.5 — STALL_MODEL==0b10 (forced-stall) + stage2Enabled + s2s==false → C_BAD_STE.
+    // When forced-stall is required, every stage-2 stream must have S2S=1.
+    if (config.stage2Enabled && stallModel_.load(std::memory_order_acquire) == 0x02u && !config.s2s) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-C2 fix: §5.5 — STALL_MODEL==0b10 (forced-stall) + stage1Enabled + faultMode==Terminate (CD.S=0) → C_BAD_CD.
+    // When forced-stall is required, stage-1 streams must have CD.S=1 (FaultMode::Stall).
+    if (config.stage1Enabled && stallModel_.load(std::memory_order_acquire) == 0x02u && config.faultMode != FaultMode::Stall) {
+        generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-C3 fix: §5.5 — STALL_MODEL!=0b00 + s1Stalld==true → C_BAD_STE.
+    // When stall is required by the model, S1STALLD=1 (which disables stage-1 stall) is contradictory.
+    if (config.stage1Enabled && stallModel_.load(std::memory_order_acquire) != 0x00u && config.s1Stalld) {
         generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
@@ -3131,13 +3174,13 @@ uint32_t SMMU::getIDR0() const {
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
          | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
-         | (hypSupported_.load(std::memory_order_acquire) ? (1u << 9) : 0u) // Hyp: configurable via setHypSupported() (BUG-NEW-16)
+         | ((hypSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on both Hyp and S2P (BUG-B fix §6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
          | (1u << 16)       // PRI: page request interface supported
-         | (1u << 17)       // VMW: VMID wildcard bits in CR0
+         | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 17) : 0u)  // VMW: gated on S2P (BUG-A fix §6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
          // BUG-2 fix: TERM_MODEL (bit 26) cleared — model implements both stall and
@@ -4317,42 +4360,26 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::TLBI_NH_ALL:
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_ASID:
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_VA:
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_VAA:
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4364,12 +4391,8 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4381,22 +4404,14 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NSNH_ALL:
-            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
-            if (command.ssec) {
-                writeCmdqConsErr(CERROR_ILL);
-                signalGerror(GERROR_CMDQ_ERR);
-                break;
-            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
+            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4603,8 +4618,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 break;
             }
             // BUG-NEW-32 fix: ARM §4.3.5 — CMD_CFGI_VMS_PIDM requires IDR3.MPAM==1.
+            // BUG-G fix: §6.3.4 — IDR3.MPAM is at bit [7] not bit [6]. Bit [6] is RES0.
             // This model reports IDR3.MPAM=0, so this command is always CERROR_ILL.
-            if ((getIDR3() & (1u << 6u)) == 0u) {
+            if ((getIDR3() & (1u << 7u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
