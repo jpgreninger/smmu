@@ -630,6 +630,20 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         return makeTranslationError(SMMUError::SubstreamDisabled);
     }
 
+    // NEW-A fix: §5.2 STE.S1DSS line 6725 — For ATS Translation Requests, S1DSS==0b00
+    // termination must NOT record an event.  "The Translation Request is terminated with
+    // a CA and no event is recorded." (ARM §5.2).
+    // This pre-check intercepts ATS TR before performTwoStageTranslation() (which lacks
+    // transactionType) so the ATS abort is silent.  Ordinary transactions fall through to
+    // performTwoStageTranslation() where the S1DSS==0b00 block records F_STREAM_DISABLED.
+    if (transactionType == TransactionType::AtsTranslationRequest &&
+        pasid == 0 &&
+        streamCfgSnapshot.stage1Enabled &&
+        streamCfgSnapshot.s1cdMax > 0 &&
+        streamCfgSnapshot.s1dss == 0x00u) {
+        return makeTranslationError(SMMUError::SubstreamDisabled);
+    }
+
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
     TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
 
@@ -1025,6 +1039,15 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // BUG-C2 fix: §5.5 — STALL_MODEL==0b10 (forced-stall) + stage1Enabled + faultMode==Terminate (CD.S=0) → C_BAD_CD.
     // When forced-stall is required, stage-1 streams must have CD.S=1 (FaultMode::Stall).
     if (config.stage1Enabled && stallModel_.load(std::memory_order_acquire) == 0x02u && config.faultMode != FaultMode::Stall) {
+        generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // NEW-B fix: §5.5 CdIllegal() — STALL_MODEL==0b01 (terminate-only) + stage1Enabled + CD.S==1 → C_BAD_CD.
+    // When terminate-only mode is set, stall (CD.S==1) on a stage-1 stream is illegal.
+    // ARM §5.5 CdIllegal() pseudocode: "if stall_model == '01' && CD.S == '1' then return TRUE".
+    if (config.stage1Enabled && stallModel_.load(std::memory_order_acquire) == 0x01u
+            && config.faultMode == FaultMode::Stall) {
         generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
         return makeVoidError(SMMUError::InvalidConfiguration);
     }

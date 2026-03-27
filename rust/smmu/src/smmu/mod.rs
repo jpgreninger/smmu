@@ -2273,6 +2273,26 @@ impl SMMU {
                 "C_BAD_CD: STALL_MODEL==0b10 requires CD.S=1 (FaultMode::Stall) for stage-1 streams (ARM §5.5)".to_string(),
             ));
         }
+        // NEW-B fix: §5.5 CdIllegal() — STALL_MODEL==0b01 (terminate-only) + stage1_enabled
+        // + CD.S==1 (FaultMode::Stall) → C_BAD_CD.
+        // ARM §5.5: "if stall_model == '01' && CD.S == '1' then return TRUE"
+        // When terminate-only mode is set, stall is not supported; CD.S==1 is illegal.
+        if config.stage1_enabled && stall_model == 0x01u8 && config.fault_mode == crate::types::FaultMode::Stall {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadCd,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_CD: STALL_MODEL==0b01 (terminate-only) requires CD.S==0 (FaultMode::Terminate) for stage-1 streams (ARM §5.5 CdIllegal)".to_string(),
+            ));
+        }
         // BUG-C3 fix: §5.5 — STALL_MODEL!=0b00 + s1_stalld==true → C_BAD_STE.
         if config.stage1_enabled && stall_model != 0x00u8 && config.s1_stalld {
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
@@ -4225,50 +4245,57 @@ impl SMMU {
                     // This overrides any Ok result from the inner translate() call.
                     // If the inner call already returned Err, we still need to count and record
                     // the failure as F_STREAM_DISABLED specifically.
-                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                    // Directly enqueue the F_STREAM_DISABLED event — record_translation_fault
-                    // suppresses EventEntry for StreamDisabled (from the STE.Config==0b000 path).
-                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                    let fault = crate::types::FaultRecord::builder()
-                        .stream_id(stream_id)
-                        .pasid(pasid)
-                        .address(iova)
-                        .fault_type(crate::types::FaultType::StreamDisabled)
-                        .access_type(access)
-                        .security_state(security_state)
-                        .timestamp(timestamp)
-                        .build();
-                    self.record_fault(fault);
-                    // BUG-RUST-1 fix: §7.3.7 — F_STREAM_DISABLED has no InputAddr field.
-                    // address and pasid are RES0.  Only stream_id and security_state
-                    // are architecturally defined for this event type.
-                    let event = EventEntry {
-                        event_type: EventType::FStreamDisabled,
-                        stream_id: stream_id.as_u32(),
-                        // §7.3.7: no InputAddr — pasid and address are RES0.
-                        pasid: 0,
-                        address: 0,
-                        security_state,
-                        error_code: 0,
-                        timestamp,
-                        stall: false,
-                        stag: 0,
-                        // §7.3.7 wire format — RnW, InD, SSV are all RES0.
-                        ..EventEntry::zeroed()
-                    };
-                    // BUG-RUST-2 fix: §7.2.1 / §3.5.3 — all events including
-                    // F_STREAM_DISABLED must be gated on CR0.EVENTQEN.
-                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
-                        if let Ok(mut queue) = self.event_queue.write() {
-                            if queue.len() < self.event_queue_capacity {
-                                queue.push_back(event);
-                                self.event_count.fetch_add(1, Ordering::Relaxed);
-                                // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
-                                let prod = self.eventq_prod.load(Ordering::Relaxed);
-                                self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
-                            } else {
-                                // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
-                                self.toggle_ovflg_once();
+                    //
+                    // NEW-A fix: §5.2 — "For ATS Translation Requests, if the cases described
+                    // in 0b00 and 0b10 lead to termination, the Translation Request is terminated
+                    // with a CA and no event is recorded."  Only record fault/event for
+                    // non-ATS transactions; the abort (return Err) is always unconditional.
+                    if transaction_type != TransactionType::AtsTranslationRequest {
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        // Directly enqueue the F_STREAM_DISABLED event — record_translation_fault
+                        // suppresses EventEntry for StreamDisabled (from the STE.Config==0b000 path).
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let fault = crate::types::FaultRecord::builder()
+                            .stream_id(stream_id)
+                            .pasid(pasid)
+                            .address(iova)
+                            .fault_type(crate::types::FaultType::StreamDisabled)
+                            .access_type(access)
+                            .security_state(security_state)
+                            .timestamp(timestamp)
+                            .build();
+                        self.record_fault(fault);
+                        // BUG-RUST-1 fix: §7.3.7 — F_STREAM_DISABLED has no InputAddr field.
+                        // address and pasid are RES0.  Only stream_id and security_state
+                        // are architecturally defined for this event type.
+                        let event = EventEntry {
+                            event_type: EventType::FStreamDisabled,
+                            stream_id: stream_id.as_u32(),
+                            // §7.3.7: no InputAddr — pasid and address are RES0.
+                            pasid: 0,
+                            address: 0,
+                            security_state,
+                            error_code: 0,
+                            timestamp,
+                            stall: false,
+                            stag: 0,
+                            // §7.3.7 wire format — RnW, InD, SSV are all RES0.
+                            ..EventEntry::zeroed()
+                        };
+                        // BUG-RUST-2 fix: §7.2.1 / §3.5.3 — all events including
+                        // F_STREAM_DISABLED must be gated on CR0.EVENTQEN.
+                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            if let Ok(mut queue) = self.event_queue.write() {
+                                if queue.len() < self.event_queue_capacity {
+                                    queue.push_back(event);
+                                    self.event_count.fetch_add(1, Ordering::Relaxed);
+                                    // BUG-2 fix: ARM §3.5.4 — advance PROD.WR to publish record.
+                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                    self.eventq_prod.store(Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)), Ordering::Release);
+                                } else {
+                                    // ARM §7.4: Toggle OVFLG atomically via CAS loop on queue overflow.
+                                    self.toggle_ovflg_once();
+                                }
                             }
                         }
                     }
