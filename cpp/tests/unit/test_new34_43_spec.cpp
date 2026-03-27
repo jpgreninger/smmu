@@ -434,16 +434,19 @@ TEST(CompletionEventSecurityStateTest, SyncCompletionUsesStreamSecurityState) {
     smmu.processCommandQueue();
 
     // BUG-NEW-2 fix: COMMAND_SYNC_COMPLETION now uses streamID=0 (ARM §4.8 —
-    // CMD_SYNC has no StreamID operand).  The security state is still derived
-    // from the stream config of command.streamID, but the event streamID=0.
+    // CMD_SYNC has no StreamID operand).
+    // BUG-NEW-26 fix: CMD_SYNC has no architectural StreamID operand (§4.7.3/§4.8).
+    // The completion event security state must always be NonSecure — the command
+    // queue operates in the NS domain and the stream_id field is meaningless here.
     bool foundSecureSync = false;
     for (const auto& ev : smmu.getEventQueue()) {
         if (ev.type == EventType::COMMAND_SYNC_COMPLETION) {
             // After BUG-NEW-2 fix, streamID must be 0 (CMD_SYNC has no StreamID operand).
             EXPECT_EQ(ev.streamID, 0u)
                 << "BUG-NEW-2 fix: COMMAND_SYNC_COMPLETION streamID must be 0 (ARM §4.8)";
-            EXPECT_EQ(ev.securityState, SecurityState::Secure)
-                << "SYNC completion event must carry Secure state from stream config";
+            // After BUG-NEW-26 fix, security state must always be NonSecure (§4.7.3/§4.8).
+            EXPECT_EQ(ev.securityState, SecurityState::NonSecure)
+                << "BUG-NEW-26 fix: SYNC completion event must always use NonSecure (§4.7.3/§4.8)";
             foundSecureSync = true;
         }
     }

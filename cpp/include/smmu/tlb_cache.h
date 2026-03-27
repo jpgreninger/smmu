@@ -151,6 +151,13 @@ public:
     void invalidateByVA(IOVA va);                         ///< evict entries matching va (all ASIDs)
     // CONF-GAP-8: Range TLBI — invalidate entries in [start, end] for given ASID
     void invalidateByVARange(IOVA start, IOVA end, uint16_t asid);
+    // BUG-NEW-37: VMID-scoped VA invalidation methods for TLBI_NH_VA / TLBI_NH_VAA (§4.4.2.3/4).
+    /// Evict entries where vmid matches AND iova matches va AND asid matches (single-page, VMID+VA+ASID).
+    void invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asid);
+    /// Evict entries where vmid matches AND iova in [start,end] AND asid matches (range, VMID+VA+ASID).
+    void invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, uint16_t asid);
+    /// Evict entries where vmid matches AND iova matches va (single-page, VMID+VA, any ASID).
+    void invalidateByVMIDAndVA(uint16_t vmid, IOVA va);
     void invalidateByStream(StreamID streamID);
     void invalidateByPASID(StreamID streamID, PASID pasid);
     void invalidateAll();

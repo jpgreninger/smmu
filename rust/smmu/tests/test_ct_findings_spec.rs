@@ -76,21 +76,34 @@ fn test_new_opcodes_usable_in_command_entry() {
     assert_eq!(cmd3.cmd_type, CommandType::DptiPa);
 }
 
-/// New opcodes (excluding DPTI which requires IDR3.DPT=1) can be submitted
-/// and processed without error.  DPTI commands intentionally omitted here —
-/// they generate `CERROR_ILL` when `IDR3.DPT=0` (§4.6.1, CONF-GAP-4).
+/// BUG-NEW-28/29/30/32: Secure-queue-only opcodes and MPAM commands must raise
+/// `CERROR_ILL` on the Non-secure Command queue.
+///
+/// Per ARM §4.4.2.11–14, §4.4.4.2, §4.4.3.3, §4.4.3.4, and §4.3.5, the
+/// following commands are illegal on the NS queue and each must set
+/// `CMDQ_CONS.ERR=CERROR_ILL`:
+///   - `TlbiSEl2All`  (§4.4.2.11)
+///   - `TlbiSEl2Va`   (§4.4.2.12)
+///   - `TlbiSEl2Vaa`  (§4.4.2.13)
+///   - `TlbiSEl2Asid` (§4.4.2.14)
+///   - `TlbiSnhAll`   (§4.4.4.2)
+///   - `TlbiSS2Ipa`   (§4.4.3.3)
+///   - `TlbiSS12Vmall` (§4.4.3.4)
+///   - `CfgiVmsPidm`  (§4.3.5: `IDR3.MPAM=0` → `CERROR_ILL`)
+///
+/// (Previously this test asserted they processed without error, which was
+/// incorrect pre-BUG-NEW-28/29/30/32 fix.)
 #[test]
 fn test_new_opcodes_processable_in_command_queue() {
-    let smmu = make_smmu();
-
     // DPTI_ALL / DPTI_PA excluded: require IDR3.DPT=1; result in CERROR_ILL
     // when DPT is not supported (§4.6.1, CONF-GAP-4 fix).
     //
-    // BUG-QA-9 fix (§4.4.2.5/§4.4.2.6): TlbiEl3All and TlbiEl3Va are valid
-    // ONLY on the Secure Command queue.  This model only has a Non-secure queue,
-    // so they now correctly raise CERROR_ILL and are excluded from this list.
-    let new_opcodes = [
-        CommandType::CfgiVmsPidm,
+    // BUG-QA-9 fix (§4.4.2.5): TlbiEl3All is valid ONLY on the Secure Command
+    // queue and is excluded from this list.
+    //
+    // BUG-NEW-28/29/30/32: all 8 remaining "new" opcodes also raise CERROR_ILL
+    // on the NS queue — each is tested individually below.
+    let secure_only_opcodes = [
         CommandType::TlbiSEl2All,
         CommandType::TlbiSEl2Asid,
         CommandType::TlbiSEl2Va,
@@ -98,17 +111,20 @@ fn test_new_opcodes_processable_in_command_queue() {
         CommandType::TlbiSS12Vmall,
         CommandType::TlbiSS2Ipa,
         CommandType::TlbiSnhAll,
+        CommandType::CfgiVmsPidm,
     ];
 
-    for opcode in new_opcodes {
+    for opcode in secure_only_opcodes {
+        let smmu = make_smmu();
         let cmd = CommandEntry::new(opcode, 0, 0);
         smmu.submit_command(cmd).unwrap();
+        let _ = smmu.process_command_queue();
+        assert_eq!(
+            smmu.get_cmdq_cons_err(),
+            SMMU::CERROR_ILL,
+            "{opcode:?} on NS queue must write CERROR_ILL per ARM spec"
+        );
     }
-
-    // All non-DPTI, non-EL3 commands must process without error
-    let result = smmu.process_command_queue();
-    assert!(result.is_ok(), "Non-DPTI new opcodes must process without error: {result:?}");
-    assert_eq!(result.unwrap(), 8, "All 8 non-DPTI non-EL3 new opcodes must be processed");
 }
 
 // ============================================================================

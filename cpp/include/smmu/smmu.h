@@ -281,6 +281,14 @@ public:
     /// Returns true when IDR0.Hyp=1 (hypervisor extension supported).
     bool isHypSupported() const;
 
+    // BUG-NEW-39: IDR0.S2P configurable (§4.4.3.1/§4.4.3.2 / §6.3.1).
+    // When true (default): IDR0 bit 0 (S2P) is set; TLBI_S12_VMALL and TLBI_S2_IPA
+    // are permitted.
+    // When false: IDR0 bit 0 is cleared; those commands raise CERROR_ILL.
+    void setS2PSupported(bool enabled);
+    /// Returns true when IDR0.S2P=1 (stage-2 translation supported).
+    bool isS2PSupported() const;
+
     // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
     /// Set the number of stream table entries as 2^log2size.
     /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
@@ -510,6 +518,11 @@ private:
     // When true (default): IDR0 bit 9 = 1; CMD_TLBI_EL2_ALL is permitted.
     // When false: IDR0 bit 9 = 0; CMD_TLBI_EL2_ALL raises CERROR_ILL.
     std::atomic<bool> hypSupported_;    ///< IDR0.Hyp bit; default true
+
+    // BUG-NEW-39: IDR0.S2P — configurable stage-2 translation support (§4.4.3.1/§4.4.3.2/§6.3.1).
+    // When true (default): IDR0 bit 0 = 1; TLBI_S12_VMALL and TLBI_S2_IPA are permitted.
+    // When false: IDR0 bit 0 = 0; those commands raise CERROR_ILL.
+    std::atomic<bool> s2pSupported_;    ///< IDR0.S2P bit; default true
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).

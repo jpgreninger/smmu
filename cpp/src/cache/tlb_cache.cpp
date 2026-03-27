@@ -682,6 +682,120 @@ void TLBCache::invalidateByVARange(IOVA start, IOVA end, uint16_t asid) {
     }
 }
 
+void TLBCache::invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asid) {
+    // BUG-NEW-37 fix: ARM §4.4.2.3 CMD_TLBI_NH_VA — evict entries where
+    // entry.vmid == vmid AND entry.iova == va AND entry.asid == asid (joint match).
+    // Previously called invalidateByVAAndASID() which ignores VMID, evicting
+    // entries from other VMIDs sharing the same VA+ASID — a spec violation.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.vmid == vmid &&
+                it->second.iova == pageAlignedVA &&
+                it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, uint16_t asid) {
+    // BUG-NEW-37 fix: ARM §4.4.2.3 CMD_TLBI_NH_VA (RIL path) — evict entries where
+    // entry.vmid == vmid AND iova in [start,end] AND entry.asid == asid (joint match).
+    IOVA pageAlignedStart = start & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            IOVA entryVA = it->second.iova;
+            if (it->second.vmid == vmid &&
+                entryVA >= pageAlignedStart && entryVA <= end &&
+                it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateByVMIDAndVA(uint16_t vmid, IOVA va) {
+    // BUG-NEW-37 fix: ARM §4.4.2.4 CMD_TLBI_NH_VAA — evict entries where
+    // entry.vmid == vmid AND entry.iova == va (any ASID, VMID-scoped).
+    // Previously called invalidateByVA() which ignores VMID, evicting entries
+    // from other VMIDs sharing the same VA — a spec violation.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.vmid == vmid && it->second.iova == pageAlignedVA) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateStream(StreamID streamID) {
     // Per-stripe iteration: acquire only one stripe lock at a time
     // to allow concurrent operations on other stripes

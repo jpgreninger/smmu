@@ -518,6 +518,16 @@ pub struct SMMU {
     /// `get_idr0()`.  Hardcoding bit 9 to 1 made that guard permanently dead
     /// code (BUG-NEW-16 fix).
     hyp_supported: AtomicBool,
+
+    // ---- BUG-NEW-39: IDR0.S2P configurable field (ARM §6.3.1, §4.4.3.1/4.4.3.2) ----
+
+    /// IDR0.S2P (bit 0) — whether stage-2 translation is supported.
+    ///
+    /// When `true` (default), `get_idr0()` sets bit 0 and stage-2 TLBI commands
+    /// (`CMD_TLBI_S12_VMALL`, `CMD_TLBI_S2_IPA`) execute normally.
+    /// When `false`, `get_idr0()` clears bit 0 and those commands must raise
+    /// `CERROR_ILL` (ARM §4.4.3.1/§4.4.3.2).
+    s2p_supported: AtomicBool,
 }
 
 impl SMMU {
@@ -856,6 +866,8 @@ impl SMMU {
             stall_model: AtomicU8::new(0),
             // BUG-NEW-16: Hyp=true by default (EL2 TLBI commands supported).
             hyp_supported: AtomicBool::new(true),
+            // BUG-NEW-39: S2P=true by default (stage-2 TLBI commands supported).
+            s2p_supported: AtomicBool::new(true),
         }
     }
 
@@ -1183,7 +1195,10 @@ impl SMMU {
     /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
     #[must_use]
     pub fn get_idr0(&self) -> u32 {
-          (1u32 << 0)        // S2P
+        // BUG-NEW-39 fix: IDR0.S2P (bit 0) is now configurable via set_s2p_supported().
+        // Default=true to preserve existing behaviour; set_s2p_supported(false) enables
+        // the CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA CERROR_ILL guard.
+          (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 0 } else { 0 })
         | (1u32 << 1)        // S1P
         | (0b10u32 << 2)     // TTF = AArch64 S1+S2
         | (1u32 << 10)       // ATS
@@ -1764,6 +1779,18 @@ impl SMMU {
     ///   (ARM §4.4.2.7: EL2 TLBI commands are illegal when Hyp=0).
     pub fn set_hyp_supported(&self, enabled: bool) {
         self.hyp_supported.store(enabled, Ordering::Release);
+    }
+
+    /// BUG-NEW-39: Set whether stage-2 translation is supported.
+    ///
+    /// Controls IDR0 bit 0 (S2P) and the CERROR_ILL gate on
+    /// `CMD_TLBI_S12_VMALL` and `CMD_TLBI_S2_IPA`.
+    ///
+    /// - `true` (default): IDR0.S2P=1, stage-2 TLBI commands execute normally.
+    /// - `false`:          IDR0.S2P=0, stage-2 TLBI commands raise CERROR_ILL
+    ///   (ARM §4.4.3.1/§4.4.3.2: illegal when stage-2 not supported).
+    pub fn set_s2p_supported(&self, enabled: bool) {
+        self.s2p_supported.store(enabled, Ordering::Release);
     }
 
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
@@ -5586,11 +5613,28 @@ impl SMMU {
             // by ASID AND VMID jointly; entries with a different VMID must NOT be evicted.
             // CMD_TLBI_EL2_ASID (§4.4.2.10) uses ASID-only (VMID field is RES0 in encoding).
             CommandType::TlbiNhAsid => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_ASID: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 self.tlb_cache.invalidate_by_vmid_and_asid(command.vmid, command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CMD_TLBI_EL2_ASID (§4.4.2.10): ASID-only (VMID field is RES0 in encoding).
+            // BUG-NEW-27 fix: ARM §4.4.2.10 — "When SMMU_IDR0.Hyp == 0, CERROR_ILL."
             CommandType::TlbiEl2Asid => {
+                if (self.get_idr0() & (1 << 9)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_EL2_ASID: IDR0.Hyp=0 — EL2 TLBI not supported (ARM §4.4.2.10)"
+                            .to_string(),
+                    ));
+                }
                 self.tlb_cache.invalidate_by_asid(command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5599,6 +5643,14 @@ impl SMMU {
             // EL2 / El2E2h entries and entries for other VMIDs are preserved.
             // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
             CommandType::TlbiNhAll => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_ALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 self.tlb_cache.invalidate_nh_by_vmid(command.vmid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5623,22 +5675,82 @@ impl SMMU {
             // BUG-QA-14 fix: §4.4.4.1 — NSNH_ALL invalidates EL1_EL0 entries only
             // (excludes EL2 / El2E2h entries per ARM §4.4.4.1).
             CommandType::TlbiNsnhAll => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NSNH_ALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 self.tlb_cache.invalidate_nsnh_all();
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-6: VA-targeted invalidation — selective by VA+ASID (§4.4).
             // CONF-GAP-8: RIL range-based invalidation (§4.4.1.1).
             // BUG-NEW-C fix: PTM guard removed — command-queue TLBI unconditional.
-            // BUG-QA-9 fix: §4.4.2.6 — CMD_TLBI_EL3_VA is valid ONLY on the Secure
-            // Command queue.  This model only has a Non-secure Command queue, so
-            // CMD_TLBI_EL3_VA must ALWAYS raise CERROR_ILL (no TLB operation).
+            // BUG-NEW-36 fix: ARM §4.4.2.6 — CMD_TLBI_EL3_VA causes CERROR_ILL:
+            //   (1) when used on the Non-secure Command queue, OR
+            //   (2) when IDR0.RME_IMPL==1 (EL3 StreamWorld unsupported per RME extension).
+            // This model implements only the NS queue and reports RME_IMPL=0, so
+            // condition (1) is always met. CERROR_ILL unconditional.
+            // BUG-NEW-34 fix: add inline signal_gerror — consistent with all other
+            // non-SYNC CERROR_ILL paths per ARM §7.1 (GERROR.CMDQ_ERR activated
+            // atomically with CMDQ_CONS.ERR, not deferred to the caller).
             CommandType::TlbiEl3Va => {
                 self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
                 return Err(SMMUError::InvalidCommandParameters(
                     "CMD_TLBI_EL3_VA: valid only on Secure Command queue — CERROR_ILL (ARM §4.4.2.6)".to_string(),
                 ));
             },
-            CommandType::TlbiNhVa | CommandType::TlbiEl2Va | CommandType::TlbiSEl2Va => {
+            // BUG-NEW-27 fix: ARM §4.4.2.8 — CMD_TLBI_EL2_VA requires IDR0.Hyp=1.
+            // Split from TlbiNhVa | TlbiSEl2Va to add the guard before the invalidation.
+            CommandType::TlbiEl2Va => {
+                if (self.get_idr0() & (1 << 9)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_EL2_VA: IDR0.Hyp=0 — EL2 TLBI not supported (ARM §4.4.2.8)"
+                            .to_string(),
+                    ));
+                }
+                if command.ril {
+                    let granule_size: u64 = match command.tg {
+                        1 => 65536,
+                        2 => 16384,
+                        _ => 4096,
+                    };
+                    let shift = u32::from(command.scale.min(39));
+                    let blocks = (command.num as u64 + 1)
+                        .checked_shl(shift)
+                        .unwrap_or(u64::MAX);
+                    let range_end = command.start_address
+                        .saturating_add(blocks.saturating_mul(granule_size))
+                        .saturating_sub(1);
+                    self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
+                } else {
+                    self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
+                }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // BUG-NEW-29 fix: ARM §4.4.2.12 — CMD_TLBI_S_EL2_VA causes CERROR_ILL on NS queue.
+            CommandType::TlbiSEl2Va => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_EL2_VA: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.2.12)".to_string(),
+                ));
+            },
+            CommandType::TlbiNhVa => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_VA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 if command.ril {
                     // Range invalidation: compute range from tg, num, scale.
                     // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
@@ -5672,20 +5784,133 @@ impl SMMU {
                     let range_end = command.start_address
                         .saturating_add(blocks.saturating_mul(granule_size))
                         .saturating_sub(1);
-                    self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
+                    // BUG-NEW-37 fix: ARM §4.4.2.3 — TLBI_NH_VA is VMID-scoped.
+                    // Use VMID+VA+ASID invalidation to preserve other VMIDs' entries.
+                    self.tlb_cache.invalidate_by_vmid_and_va_range_and_asid(
+                        command.vmid, command.start_address, range_end, command.asid,
+                    );
                 } else {
-                    self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
+                    // BUG-NEW-37 fix: ARM §4.4.2.3 — TLBI_NH_VA is VMID-scoped.
+                    // Use VMID+VA+ASID invalidation to preserve other VMIDs' entries.
+                    self.tlb_cache.invalidate_by_vmid_and_va_and_asid(
+                        command.vmid, command.start_address, command.asid,
+                    );
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // CONF-GAP-6: VAA-targeted invalidation — selective by VA, any ASID (§4.4).
             // BUG-NEW-C fix: PTM guard removed.
-            CommandType::TlbiNhVaa | CommandType::TlbiEl2Vaa | CommandType::TlbiSEl2Vaa => {
-                self.tlb_cache.invalidate_by_va(command.start_address);
+            // BUG-NEW-27 fix: ARM §4.4.2.9 — CMD_TLBI_EL2_VAA requires IDR0.Hyp=1.
+            // Split from TlbiNhVaa | TlbiSEl2Vaa to add the guard before the invalidation.
+            CommandType::TlbiEl2Vaa => {
+                if (self.get_idr0() & (1 << 9)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_EL2_VAA: IDR0.Hyp=0 — EL2 TLBI not supported (ARM §4.4.2.9)"
+                            .to_string(),
+                    ));
+                }
+                // BUG-NEW-42 fix: ARM §4.4.1.1 — TlbiEl2Vaa must honour RIL range fields.
+                if command.ril {
+                    let granule_size: u64 = match command.tg {
+                        1 => 65536,
+                        2 => 16384,
+                        _ => 4096,
+                    };
+                    let shift = u32::from(command.scale.min(39));
+                    let blocks = (command.num as u64 + 1)
+                        .checked_shl(shift)
+                        .unwrap_or(u64::MAX);
+                    let range_end = command.start_address
+                        .saturating_add(blocks.saturating_mul(granule_size))
+                        .saturating_sub(1);
+                    let page_size: u64 = 4096;
+                    let mut cur = command.start_address & !0xFFF_u64;
+                    loop {
+                        self.tlb_cache.invalidate_by_va(cur);
+                        if cur > u64::MAX - page_size { break; }
+                        cur += page_size;
+                        if cur > range_end { break; }
+                    }
+                } else {
+                    self.tlb_cache.invalidate_by_va(command.start_address);
+                }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
+            // BUG-NEW-29 fix: ARM §4.4.2.13 — CMD_TLBI_S_EL2_VAA causes CERROR_ILL on NS queue.
+            CommandType::TlbiSEl2Vaa => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_EL2_VAA: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.2.13)".to_string(),
+                ));
+            },
+            CommandType::TlbiNhVaa => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_VAA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
+                // BUG-NEW-37 fix: ARM §4.4.2.4 — TLBI_NH_VAA is VMID-scoped.
+                // Use VMID+VA invalidation (any ASID) to preserve other VMIDs' entries.
+                // BUG-NEW-41 fix: ARM §4.4.1.1 — TlbiNhVaa must honour RIL range fields.
+                if command.ril {
+                    let granule_size: u64 = match command.tg {
+                        1 => 65536,
+                        2 => 16384,
+                        _ => 4096,
+                    };
+                    let shift = u32::from(command.scale.min(39));
+                    let blocks = (command.num as u64 + 1)
+                        .checked_shl(shift)
+                        .unwrap_or(u64::MAX);
+                    let range_end = command.start_address
+                        .saturating_add(blocks.saturating_mul(granule_size))
+                        .saturating_sub(1);
+                    let page_size: u64 = 4096;
+                    let mut cur = command.start_address & !0xFFF_u64;
+                    loop {
+                        self.tlb_cache.invalidate_by_vmid_and_va(command.vmid, cur);
+                        if cur > u64::MAX - page_size { break; }
+                        cur += page_size;
+                        if cur > range_end { break; }
+                    }
+                } else {
+                    self.tlb_cache.invalidate_by_vmid_and_va(command.vmid, command.start_address);
+                }
+                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            },
+            // BUG-NEW-30 fix: ARM §4.4.3.4 — CMD_TLBI_S_S12_VMALL causes CERROR_ILL on NS queue.
+            CommandType::TlbiSS12Vmall => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_S12_VMALL: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.3.4)".to_string(),
+                ));
+            },
             // CONF-GAP-12: VMID-targeted (all) invalidation with CR0.VMW wildcard masking (§6.3.9).
-            CommandType::TlbiS12Vmall | CommandType::TlbiSS12Vmall => {
+            CommandType::TlbiS12Vmall => {
+                // BUG-NEW-39 fix: ARM §4.4.3.1 — CMD_TLBI_S12_VMALL causes CERROR_ILL when
+                // IDR0.S2P=0 (stage-2 translation not supported).
+                if (self.get_idr0() & (1 << 0)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_S12_VMALL: IDR0.S2P=0 — stage-2 not supported (ARM §4.4.3.1)".to_string(),
+                    ));
+                }
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_S12_VMALL: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // CONF-GAP-12: apply CR0.VMW wildcard mask to VMID comparison.
                 let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
@@ -5696,7 +5921,32 @@ impl SMMU {
             //
             // Use start_address as the IPA operand.  When RIL is active, use the
             // pre-computed end_address; otherwise invalidate a single 4 KB page.
-            CommandType::TlbiS2Ipa | CommandType::TlbiSS2Ipa => {
+            // BUG-NEW-30 fix: ARM §4.4.3.3 — CMD_TLBI_S_S2_IPA causes CERROR_ILL on NS queue.
+            CommandType::TlbiSS2Ipa => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_S2_IPA: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.3.3)".to_string(),
+                ));
+            },
+            CommandType::TlbiS2Ipa => {
+                // BUG-NEW-39 fix: ARM §4.4.3.2 — CMD_TLBI_S2_IPA causes CERROR_ILL when
+                // IDR0.S2P=0 (stage-2 translation not supported).
+                if (self.get_idr0() & (1 << 0)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_S2_IPA: IDR0.S2P=0 — stage-2 not supported (ARM §4.4.3.2)".to_string(),
+                    ));
+                }
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_S2_IPA: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
                 let ipa_start = command.start_address;
@@ -5709,6 +5959,14 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
+                // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_ATC_INV: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
+                    ));
+                }
                 // CMD_ATC_INV (§4.5.1): range-based or global ATC invalidation.
                 //
                 // flags bit 0 = G (Global):
@@ -6030,36 +6288,99 @@ impl SMMU {
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
-            // CMD_PREFETCH_CONFIG, CMD_PREFETCH_ADDR —
-            // no side-effect processing required in the software model.
-            CommandType::PrefetchConfig
-            | CommandType::PrefetchAddr => {},
-            // BUG-QA-9 fix: §4.4.2.5 — CMD_TLBI_EL3_ALL is valid ONLY on the Secure
-            // Command queue.  This model only has a Non-secure Command queue, so
-            // CMD_TLBI_EL3_ALL must ALWAYS raise CERROR_ILL (no TLB operation).
+            // CMD_PREFETCH_CONFIG — no side-effect processing required in the software model.
+            // BUG-NEW-25 fix: ARM §4.2.1/§4.1.6 — SSec=1 on NS queue is ILLEGAL → CERROR_ILL.
+            CommandType::PrefetchConfig => {
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_PREFETCH_CONFIG: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
+                // No prefetch side effects in SW model.
+            },
+            // CMD_PREFETCH_ADDR — no side-effect processing required in the software model.
+            // BUG-NEW-25 fix: ARM §4.2.2/§4.1.6 — SSec=1 on NS queue is ILLEGAL → CERROR_ILL.
+            CommandType::PrefetchAddr => {
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_PREFETCH_ADDR: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
+                // No prefetch side effects in SW model.
+            },
+            // BUG-NEW-36 fix: ARM §4.4.2.5 — CMD_TLBI_EL3_ALL causes CERROR_ILL:
+            //   (1) when used on the Non-secure Command queue, OR
+            //   (2) when IDR0.RME_IMPL==1 (EL3 StreamWorld unsupported per RME extension).
+            // This model implements only the NS queue and reports RME_IMPL=0, so
+            // condition (1) is always met. CERROR_ILL unconditional.
+            // BUG-NEW-34 fix: add inline signal_gerror — consistent with all other
+            // non-SYNC CERROR_ILL paths per ARM §7.1 (GERROR.CMDQ_ERR activated
+            // atomically with CMDQ_CONS.ERR, not deferred to the caller).
             CommandType::TlbiEl3All => {
                 self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
                 return Err(SMMUError::InvalidCommandParameters(
                     "CMD_TLBI_EL3_ALL: valid only on Secure Command queue — CERROR_ILL (ARM §4.4.2.5)".to_string(),
                 ));
             },
-            // §4.1.1: Secure EL2 ALL/SNH all — invalidate all entries.
-            CommandType::TlbiSEl2All | CommandType::TlbiSnhAll => {
-                self.tlb_cache.invalidate_all();
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+            // BUG-NEW-29 fix: ARM §4.4.2.11 — CMD_TLBI_S_EL2_ALL causes CERROR_ILL on NS queue.
+            CommandType::TlbiSEl2All => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_EL2_ALL: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.2.11)".to_string(),
+                ));
             },
-            // §4.1.1: Secure EL2 ASID-targeted TLB invalidation.
+            // BUG-NEW-28 fix: ARM §4.4.4.2 — CMD_TLBI_SNH_ALL causes CERROR_ILL when used
+            // on the Non-secure Command queue. This model implements only the NS queue.
+            CommandType::TlbiSnhAll => {
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_SNH_ALL: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.4.2)".to_string(),
+                ));
+            },
+            // BUG-NEW-29 fix: ARM §4.4.2.14 — CMD_TLBI_S_EL2_ASID causes CERROR_ILL on NS queue.
             CommandType::TlbiSEl2Asid => {
-                self.tlb_cache.invalidate_by_asid(command.asid);
-                self.invalidation_count.fetch_add(1, Ordering::Relaxed);
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(
+                    "CMD_TLBI_S_EL2_ASID: CERROR_ILL — valid only on Secure Command queue (ARM §4.4.2.14)".to_string(),
+                ));
             },
-            // §4.1.1: CMD_CFGI_VMS_PIDM — no TLB state to flush in this model.
-            CommandType::CfgiVmsPidm => {},
+            // BUG-NEW-32 fix: ARM §4.1.6 / §4.3.5 — CMD_CFGI_VMS_PIDM guards.
+            CommandType::CfgiVmsPidm => {
+                // ARM §4.1.6 — SSec=1 on NS queue is always CERROR_ILL.
+                if command.ssec {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_VMS_PIDM: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
+                    ));
+                }
+                // ARM §4.3.5 — CMD_CFGI_VMS_PIDM requires IDR3.MPAM==1.
+                // This model reports IDR3.MPAM=0 (bit 6), so this command is always CERROR_ILL.
+                if (self.get_idr3() & (1 << 6)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_VMS_PIDM: CERROR_ILL — IDR3.MPAM=0, MPAM not supported (ARM §4.3.5)".to_string(),
+                    ));
+                }
+                // No VMS/PIDM cache in this model.
+            },
             // §4.6.1 (CONF-GAP-4 fix): DPTI commands require IDR3.DPT=1.
             // This model does not implement DPT (IDR3.DPT=0), so CMD_DPTI_ALL
             // and CMD_DPTI_PA must result in CERROR_ILL per §4.6.1.
+            // BUG-NEW-35 fix: add inline signal_gerror — consistent with all other
+            // non-SYNC CERROR_ILL paths per ARM §7.1.
             CommandType::DptiAll | CommandType::DptiPa => {
                 self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
                 return Err(SMMUError::InvalidCommandParameters(
                     "CMD_DPTI_ALL/DPTI_PA: IDR3.DPT=0, dirty page tracking not supported — CERROR_ILL (§4.6.1)".to_string(),
                 ));

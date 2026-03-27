@@ -3400,6 +3400,9 @@ TEST(SMMUPRGIndexTest, PRIRespMatchingRemovesPRIEntry) {
 
 TEST(SMMUPRGIndexTest, PRIRespNonMatchingIndexDoesNotClear) {
     smmu::SMMU s;
+    // BUG-NEW-31 fix: ARM §8.2 — effective PRIQEN = PRIQEN AND SMMUEN.
+    // Both must be set for requests to enter the queue; enable all queue bits.
+    s.setCR0(smmu::SMMU::CR0_SMMUEN | smmu::SMMU::CR0_EVENTQEN | smmu::SMMU::CR0_CMDQEN | smmu::SMMU::CR0_PRIQEN);
 
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     req.prgIndex = 7;
@@ -3450,6 +3453,9 @@ TEST(SMMUPRGIndexTest, ProcessPRIQueueDoesNotAutoSubmitCmdPriResp) {
 
 TEST(SMMUPRGIndexTest, PRIQProdAdvancesOnSubmit) {
     smmu::SMMU s;
+    // BUG-NEW-31 fix: ARM §8.2 — effective PRIQEN = PRIQEN AND SMMUEN.
+    // Both must be set for requests to enter the queue; enable all queue bits.
+    s.setCR0(smmu::SMMU::CR0_SMMUEN | smmu::SMMU::CR0_EVENTQEN | smmu::SMMU::CR0_CMDQEN | smmu::SMMU::CR0_PRIQEN);
     EXPECT_EQ(s.getPriqProdIndex(), 0u);
     smmu::PRIEntry req(1, 0, 0x1000, smmu::AccessType::Read);
     s.submitPageRequest(req);

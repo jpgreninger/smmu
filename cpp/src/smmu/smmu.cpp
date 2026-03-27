@@ -119,6 +119,8 @@ SMMU::SMMU()
       stallModel_(0),
       // BUG-NEW-16: IDR0.Hyp defaults to true (hypervisor extension supported).
       hypSupported_(true),
+      // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
+      s2pSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -181,6 +183,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       stallModel_(0),
       // BUG-NEW-16: IDR0.Hyp defaults to true (hypervisor extension supported).
       hypSupported_(true),
+      // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
+      s2pSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -3120,7 +3124,9 @@ void SMMU::reportUnsupportedTransaction(StreamID streamID, PASID pasid,
 
 uint32_t SMMU::getIDR0() const {
     // ARM IHI0070G.b §6.3.1 SMMU_IDR0 — verified bit positions:
-    return (1u << 0)        // S2P: stage-2 translation present
+    // BUG-NEW-39: S2P (bit 0) is now conditional on s2pSupported_ so that
+    // setS2PSupported(false) can disable stage-2 TLBI commands for testing.
+    return (s2pSupported_.load(std::memory_order_acquire) ? (1u << 0) : 0u) // S2P: configurable
          | (1u << 1)        // S1P: stage-1 translation present
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
          | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
@@ -3270,6 +3276,16 @@ void SMMU::setHypSupported(bool enabled) {
 
 bool SMMU::isHypSupported() const {
     return hypSupported_.load(std::memory_order_acquire);
+}
+
+// BUG-NEW-39 fix: IDR0.S2P is now configurable so the CERROR_ILL guard for
+// TLBI_S12_VMALL / TLBI_S2_IPA (§4.4.3.1/§4.4.3.2) is exercisable in tests.
+void SMMU::setS2PSupported(bool enabled) {
+    s2pSupported_.store(enabled, std::memory_order_release);
+}
+
+bool SMMU::isS2PSupported() const {
+    return s2pSupported_.load(std::memory_order_acquire);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3533,16 +3549,13 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         uint32_t cr0val = cr0_.load(std::memory_order_acquire);
         bool priqen = (cr0val & CR0_PRIQEN) != 0u;
         bool smmuen = (cr0val & CR0_SMMUEN) != 0u;
-        // NEW-BUG-B fix / BUG-NEW-15 fix: ARM §8.2 — when effective PRIQEN==0
-        // (PRIQEN=0 OR SMMUEN=0) AND the SMMU has been configured (at least one
-        // bit is set), all incoming PPRs cause an automatic PRG Response with
-        // ResponseCode==0b1111 ('Response Failure') and are discarded.
-        //
-        // The guard fires only when exactly one of {PRIQEN, SMMUEN} is set
-        // (i.e. priqen XOR smmuen).  When both are 0 (fresh SMMU that has
-        // never been configured), the guard does NOT fire so that the PRI queue
-        // can be used for software model testing without first enabling the SMMU.
-        if (priqen != smmuen) {
+        // BUG-NEW-31 fix / NEW-BUG-B fix / BUG-NEW-15 fix: ARM §8.2 — effective
+        // PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.  When effective PRIQEN==0 (i.e.
+        // EITHER bit is clear), all incoming PPRs cause an automatic PRG Response
+        // with ResponseCode==0b1111 ('Response Failure') and are discarded.
+        // The previous XOR check only fired when exactly one bit differed; the
+        // correct OR semantics ensure both-zero also triggers auto-failure.
+        if (!priqen || !smmuen) {
             // §8.2: ResponseCode=0b1111 unconditionally (not PASID-conditional).
             if (request.isLastRequest) {
                 priAutoFailures_.push_back(PRIAutoFailure(
@@ -3903,19 +3916,6 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
         }
 
-        // §4.1.1 / CT-30: Additional TLB invalidation commands
-        case CommandType::TLBI_EL3_ALL:
-        case CommandType::TLBI_EL3_VA:
-        case CommandType::TLBI_S_EL2_ALL:
-        case CommandType::TLBI_S_EL2_ASID:
-        case CommandType::TLBI_S_EL2_VA:
-        case CommandType::TLBI_S_EL2_VAA:
-        case CommandType::TLBI_S_S12_VMALL:
-        case CommandType::TLBI_S_S2_IPA:
-        case CommandType::TLBI_SNH_ALL:
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
-            break;
-
         default:
             // Invalid invalidation command
             generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
@@ -3987,29 +3987,31 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_NH_VA:
-            // CONF-GAP-6: VA+ASID targeted invalidation (or RIL range)
+            // BUG-NEW-37 fix: ARM §4.4.2.3 CMD_TLBI_NH_VA — must be VMID-scoped.
+            // The previous calls to invalidateByVARange / invalidateByVAAndASID ignored
+            // VMID and could evict entries from other VMIDs sharing the same VA+ASID.
             if (ril) {
-                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+                tlbCache->invalidateByVMIDAndVARange(vmid,
+                    iova, computeRILRangeEnd(iova, tg, num, scale), asid);
             } else {
-                tlbCache->invalidateByVAAndASID(iova, asid);
+                tlbCache->invalidateByVMIDAndVAAndASID(vmid, iova, asid);
             }
             break;
 
         case CommandType::TLBI_NH_VAA:
-            // CONF-GAP-6: VAA = VA all-ASID invalidation (or RIL range, all ASIDs)
+            // BUG-NEW-37 fix: ARM §4.4.2.4 CMD_TLBI_NH_VAA — must be VMID-scoped.
+            // The previous calls to invalidateByVA (in both RIL and non-RIL paths)
+            // ignored VMID and could evict entries from other VMIDs sharing the same VA.
             if (ril) {
-                // For VAA, invalidate the range for all ASIDs (pass 0 and use VA-only for each page)
                 IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
-                // invalidateByVARange with wildcard asid: use invalidateByVA for the range
-                // Approximate: scan page-by-page (small ranges expected)
                 IOVA cur = iova & ~PAGE_MASK;
                 while (cur <= rangeEnd) {
-                    tlbCache->invalidateByVA(cur);
+                    tlbCache->invalidateByVMIDAndVA(vmid, cur);
                     if (cur > UINT64_MAX - PAGE_SIZE) break;
                     cur += PAGE_SIZE;
                 }
             } else {
-                tlbCache->invalidateByVA(iova);
+                tlbCache->invalidateByVMIDAndVA(vmid, iova);
             }
             break;
 
@@ -4084,75 +4086,11 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             }
             break;
 
-        case CommandType::TLBI_S_S12_VMALL:
-            // Secure Stage-1+2 VMID-targeted invalidation — apply VMW mask
-            tlbCache->invalidateByVMIDWithMask(vmid, getVmidMask());
-            break;
-
-        case CommandType::TLBI_S_S2_IPA:
-            // CONF-GAP-7: Secure Stage-2 IPA-selective invalidation (same logic as TLBI_S2_IPA).
-            if (ril) {
-                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
-                                                 iova, computeRILRangeEnd(iova, tg, num, scale));
-            } else {
-                // BUG-9 fix: use PAGE_MASK instead of the literal 0xFFFu (consistent with
-                // TLBI_S2_IPA fix above).
-                IOVA pageBase = iova & ~static_cast<IOVA>(PAGE_MASK);
-                tlbCache->invalidateByVMIDAndIPA(vmid, getVmidMask(),
-                                                 pageBase,
-                                                 pageBase | static_cast<IOVA>(PAGE_MASK));
-            }
-            break;
-
-        // §4.1.1 / CT-30: EL3 and Secure EL2 TLB invalidation
-        case CommandType::TLBI_EL3_ALL:
-        case CommandType::TLBI_SNH_ALL:
-            // EL3 / Secure NH TLB invalidation — global flush in SW model
-            invalidateTranslationCache();
-            break;
-
-        case CommandType::TLBI_EL3_VA:
-            // EL3 VA targeted invalidation
-            if (ril) {
-                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
-            } else {
-                tlbCache->invalidateByVAAndASID(iova, asid);
-            }
-            break;
-
-        case CommandType::TLBI_S_EL2_ALL:
-            // Secure EL2 TLB invalidation — global flush in SW model
-            invalidateTranslationCache();
-            break;
-
-        case CommandType::TLBI_S_EL2_VA:
-            // Secure EL2 VA targeted invalidation
-            if (ril) {
-                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
-            } else {
-                tlbCache->invalidateByVAAndASID(iova, asid);
-            }
-            break;
-
-        case CommandType::TLBI_S_EL2_VAA:
-            // Secure EL2 VAA invalidation
-            if (ril) {
-                IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
-                IOVA cur = iova & ~PAGE_MASK;
-                while (cur <= rangeEnd) {
-                    tlbCache->invalidateByVA(cur);
-                    if (cur > UINT64_MAX - PAGE_SIZE) break;
-                    cur += PAGE_SIZE;
-                }
-            } else {
-                tlbCache->invalidateByVA(iova);
-            }
-            break;
-
-        case CommandType::TLBI_S_EL2_ASID:
-            // Secure EL2 ASID-targeted invalidation
-            tlbCache->invalidateByASID(asid);
-            break;
+        // BUG-NEW-33 fix: TLBI_EL3_ALL, TLBI_EL3_VA, TLBI_S_EL2_ALL, TLBI_S_EL2_VA,
+        // TLBI_S_EL2_VAA, TLBI_S_EL2_ASID, TLBI_S_S12_VMALL, TLBI_S_S2_IPA, and
+        // TLBI_SNH_ALL are all intercepted by processCommand() with CERROR_ILL and
+        // never reach this function.  Their former cases have been removed to eliminate
+        // the dead TLB mutation paths that were a maintenance hazard.
 
         default:
             // Not a TLB invalidation command
@@ -4307,19 +4245,6 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
             break;
         }
 
-        // §4.1.1 / CT-30: Additional TLB invalidation commands
-        case CommandType::TLBI_EL3_ALL:
-        case CommandType::TLBI_EL3_VA:
-        case CommandType::TLBI_S_EL2_ALL:
-        case CommandType::TLBI_S_EL2_ASID:
-        case CommandType::TLBI_S_EL2_VA:
-        case CommandType::TLBI_S_EL2_VAA:
-        case CommandType::TLBI_S_S12_VMALL:
-        case CommandType::TLBI_S_S2_IPA:
-        case CommandType::TLBI_SNH_ALL:
-            executeTLBInvalidationCommand(command.type, command.streamID, command.pasid, command.asid, command.vmid, command.startAddress, command.ril, command.tg, command.num, command.scale);
-            break;
-
         default:
             // Invalid invalidation command
             generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
@@ -4335,13 +4260,23 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
     // ARM SMMU v3 spec: Process individual command based on type
     switch (command.type) {
         case CommandType::PREFETCH_CONFIG:
-            // Configuration prefetch - ARM SMMU v3 optimization
-            // Could implement stream table entry prefetching
+            // BUG-NEW-25 fix: ARM §4.2.1/§4.1.6 — SSec=1 on NS queue is ILLEGAL → CERROR_ILL.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // No prefetch side effects in SW model.
             break;
 
         case CommandType::PREFETCH_ADDR:
-            // Address prefetch - ARM SMMU v3 optimization
-            // Could implement translation prefetching for specific addresses
+            // BUG-NEW-25 fix: ARM §4.2.2/§4.1.6 — SSec=1 on NS queue is ILLEGAL → CERROR_ILL.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // No prefetch side effects in SW model.
             break;
 
         case CommandType::CFGI_STE:
@@ -4382,17 +4317,131 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::TLBI_NH_ALL:
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_NH_ASID:
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_NH_VA:
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_NH_VAA:
-        case CommandType::TLBI_EL2_ASID:
-        case CommandType::TLBI_EL2_VA:
-        case CommandType::TLBI_EL2_VAA:
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_S12_VMALL:
+            // BUG-NEW-39 fix: ARM §4.4.3.1 — "If SMMU_IDR0.S2P==0, CERROR_ILL."
+            // Stage-2 VMALL requires stage-2 support (IDR0.S2P=1).
+            if ((getIDR0() & (1u << 0u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_S2_IPA:
+            // BUG-NEW-39 fix: ARM §4.4.3.2 — "If SMMU_IDR0.S2P==0, CERROR_ILL."
+            // Stage-2 IPA invalidation requires stage-2 support (IDR0.S2P=1).
+            if ((getIDR0() & (1u << 0u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::TLBI_NSNH_ALL:
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
         case CommandType::ATC_INV:
-            // Cache invalidation commands
+            // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on the NS command queue is illegal.
+            // The SSec guard MUST come before the queueLock.unlock() call inside
+            // executeInvalidationCommandLocked to avoid releasing the lock under an error.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
+        case CommandType::TLBI_EL2_VA:
+            // BUG-NEW-24 fix: ARM §4.4.2.8 — "If SMMU_IDR0.Hyp==0, CERROR_ILL."
+            // Same pattern as TLBI_EL2_ALL (§4.4.2.7): hypervisor extension required.
+            if ((getIDR0() & (1u << 9u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
+        case CommandType::TLBI_EL2_VAA:
+            // BUG-NEW-24 fix: ARM §4.4.2.9 — "If SMMU_IDR0.Hyp==0, CERROR_ILL."
+            // Same pattern as TLBI_EL2_ALL (§4.4.2.7): hypervisor extension required.
+            if ((getIDR0() & (1u << 9u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            executeInvalidationCommandLocked(command, queueLock);
+            break;
+
+        case CommandType::TLBI_EL2_ASID:
+            // BUG-NEW-24 fix: ARM §4.4.2.10 — "If SMMU_IDR0.Hyp==0, CERROR_ILL."
+            // Same pattern as TLBI_EL2_ALL (§4.4.2.7): hypervisor extension required.
+            if ((getIDR0() & (1u << 9u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4430,7 +4479,7 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         }
 
         case CommandType::RESUME: {
-            // BUG-NEW-16 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+            // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
             // Any CMD_RESUME with ssec=true must raise CERROR_ILL.
             if (command.ssec) {
                 writeCmdqConsErr(CERROR_ILL);
@@ -4475,7 +4524,7 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         }
 
         case CommandType::STALL_TERM: {
-            // BUG-NEW-17 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+            // BUG-NEW-15 fix: §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
             // Any CMD_STALL_TERM with ssec=true must raise CERROR_ILL.
             if (command.ssec) {
                 writeCmdqConsErr(CERROR_ILL);
@@ -4535,34 +4584,11 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             }
             if (command.cs != 0) {
                 // BUG-NEW-2 fix: completion event streamID=0 (RES0 operand in CMD_SYNC).
-                // Security-state fix: use the stream's security state when the stream
-                // exists AND is enabled; fall back to NonSecure otherwise (unknown stream
-                // or not-yet-enabled stream belongs to the NS command queue context).
-                //
-                // Release queueLock before acquiring the stripe lock to avoid the
-                // ABBA deadlock: translate() holds stripe → queueMutex; here we must
-                // take them in the same order (stripe first, then queueMutex re-lock).
-                SecurityState syncSecState = SecurityState::NonSecure;
-                {
-                    size_t syncStripe = getStreamStripe(command.streamID);
-                    queueLock.unlock();
-                    {
-                        std::lock_guard<std::mutex> syncLock(streamLockStripes[syncStripe]);
-                        auto syncIt = streamMap.find(command.streamID);
-                        if (syncIt != streamMap.end() && syncIt->second) {
-                            // Only inherit stream security state when the stream is
-                            // actively enabled; a merely-configured (not enabled) stream
-                            // does not have a security context on the command queue.
-                            Result<bool> enabledRes = syncIt->second->isStreamEnabled();
-                            if (enabledRes.isOk() && enabledRes.getValue()) {
-                                syncSecState = syncIt->second->getStreamConfiguration().securityState;
-                            }
-                        }
-                    }
-                    queueLock.lock();
-                }
+                // BUG-NEW-26 fix: CMD_SYNC has no architectural StreamID operand (§4.7.3/§4.8).
+                // The completion event security state must always be NonSecure — the command
+                // queue operates in the NS domain and the stream_id field is meaningless here.
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
-                              command.startAddress, syncSecState);
+                              command.startAddress, SecurityState::NonSecure);
             }
             // BUG-CPP-05 fix: ARM §4.8 CMD_SYNC is a barrier, not a stop.
             // Fall through (no break) so processCommandQueue() advances CONS.RD.
@@ -4570,29 +4596,76 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
 
         // §4.1.1 / CT-30: Additional spec-defined command opcodes
         case CommandType::CFGI_VMS_PIDM:
-            // Secure substream PIDM cache invalidation: invalidate CD cache for (SID, SSID).
+            // BUG-NEW-32 fix: ARM §4.1.6 — SSec=1 on the NS command queue is ILLEGAL.
+            if (command.ssec) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // BUG-NEW-32 fix: ARM §4.3.5 — CMD_CFGI_VMS_PIDM requires IDR3.MPAM==1.
+            // This model reports IDR3.MPAM=0, so this command is always CERROR_ILL.
+            if ((getIDR3() & (1u << 6u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             invalidatePASIDCache(command.streamID, command.pasid);
             break;
 
         case CommandType::TLBI_EL3_ALL:
         case CommandType::TLBI_EL3_VA:
-            // BUG-QA-9 fix: ARM §4.4.2.5/§4.4.2.6 — CMD_TLBI_EL3_ALL and
-            // CMD_TLBI_EL3_VA are valid ONLY on the Secure Command queue.
-            // Issuing either on the Non-secure Command queue (the only queue in
-            // this model) must raise CERROR_ILL.  No TLB invalidation is performed.
+            // BUG-QA-9 fix: ARM §4.4.2.5 — CMD_TLBI_EL3_ALL causes CERROR_ILL:
+            //   (1) when used on the Non-secure Command queue, OR
+            //   (2) when IDR0.RME_IMPL==1 (EL3 StreamWorld unsupported per RME extension).
+            // ARM §4.4.2.6 — CMD_TLBI_EL3_VA carries the same two conditions.
+            // This model implements only the NS queue and reports RME_IMPL=0, so condition
+            // (1) is always met. CERROR_ILL unconditional.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
+        case CommandType::TLBI_SNH_ALL:
+            // BUG-NEW-28 fix: ARM §4.4.4.2 — "This command causes CERROR_ILL when used
+            // on the Non-secure Command queue." This model implements only the NS command
+            // queue, so CERROR_ILL always fires.
             writeCmdqConsErr(CERROR_ILL);
             signalGerror(GERROR_CMDQ_ERR);
             break;
 
         case CommandType::TLBI_S_EL2_ALL:
-        case CommandType::TLBI_S_EL2_ASID:
+            // BUG-NEW-29 fix: ARM §4.4.2.11 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
         case CommandType::TLBI_S_EL2_VA:
+            // BUG-NEW-29 fix: ARM §4.4.2.12 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
         case CommandType::TLBI_S_EL2_VAA:
-        case CommandType::TLBI_S_S12_VMALL:
+            // BUG-NEW-29 fix: ARM §4.4.2.13 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
+        case CommandType::TLBI_S_EL2_ASID:
+            // BUG-NEW-29 fix: ARM §4.4.2.14 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
         case CommandType::TLBI_S_S2_IPA:
-        case CommandType::TLBI_SNH_ALL:
-            // Secure-queue TLB invalidation commands: delegate to TLB invalidation handler.
-            executeInvalidationCommandLocked(command, queueLock);
+            // BUG-NEW-30 fix: ARM §4.4.3.3 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
+            break;
+
+        case CommandType::TLBI_S_S12_VMALL:
+            // BUG-NEW-30 fix: ARM §4.4.3.4 — CERROR_ILL on NS queue.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
             break;
 
         case CommandType::DPTI_ALL:

@@ -1289,6 +1289,110 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
     }
 
+    /// Invalidate TLB entries matching a given VMID, VA, and ASID (§4.4.2.3).
+    ///
+    /// Implements `CMD_TLBI_NH_VA`: evicts EL1_EL0 stage-1 entries where
+    /// `entry.vmid == target_vmid` AND `entry.asid == target_asid` AND
+    /// `entry.iova` matches the page-aligned `va`.
+    ///
+    /// This is the VMID-scoped version of `invalidate_by_va_and_asid`.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - VMID to match
+    /// * `va`          - Virtual address (raw u64; lower 12 bits are masked)
+    /// * `target_asid` - ASID to match
+    pub fn invalidate_by_vmid_and_va_and_asid(&self, target_vmid: u16, va: u64, target_asid: u16) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if e.vmid == target_vmid
+                && e.asid == target_asid
+                && (e.iova.as_u64() & PAGE_MASK) == page_va
+            {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate TLB entries matching a given VMID, VA range, and ASID (§4.4.2.3 RIL).
+    ///
+    /// Implements range-based `CMD_TLBI_NH_VA` (RIL path): evicts entries where
+    /// `entry.vmid == target_vmid` AND `entry.asid == target_asid` AND
+    /// `start <= entry.iova <= end`.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - VMID to match
+    /// * `start`       - Inclusive start of the VA range (raw u64)
+    /// * `end`         - Inclusive end of the VA range (raw u64)
+    /// * `target_asid` - ASID to match
+    pub fn invalidate_by_vmid_and_va_range_and_asid(
+        &self,
+        target_vmid: u16,
+        start: u64,
+        end: u64,
+        target_asid: u16,
+    ) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            let iova = e.iova.as_u64();
+            if e.vmid == target_vmid && e.asid == target_asid && iova >= start && iova <= end {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// Invalidate TLB entries matching a given VMID and VA (any ASID) (§4.4.2.4).
+    ///
+    /// Implements `CMD_TLBI_NH_VAA`: evicts EL1_EL0 stage-1 entries where
+    /// `entry.vmid == target_vmid` AND `entry.iova` matches the page-aligned `va`,
+    /// regardless of ASID.
+    ///
+    /// This is the VMID-scoped version of `invalidate_by_va`.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_vmid` - VMID to match
+    /// * `va`          - Virtual address (raw u64; lower 12 bits are masked)
+    pub fn invalidate_by_vmid_and_va(&self, target_vmid: u16, va: u64) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if e.vmid == target_vmid && (e.iova.as_u64() & PAGE_MASK) == page_va {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
     /// Invalidate TLB entries by VMID with wildcard masking (§6.3.9 CR0.VMW).
     ///
     /// Evicts entries where `(entry.vmid & vmid_mask) == (target_vmid & vmid_mask)`.
