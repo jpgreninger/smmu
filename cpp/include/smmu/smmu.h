@@ -291,6 +291,12 @@ public:
     /// Returns true when IDR0.S2P=1 (stage-2 translation supported).
     bool isS2PSupported() const;
 
+    // BUG-AUDIT-01: IDR0.NS1ATS configurable (§5.2 SteIllegal() / §6.3.1 bit 11).
+    // When true: IDR0 bit 11 (NS1ATS) is set; EATS==0b10 in configureStream()
+    // raises C_BAD_STE (ARM §5.2 SteIllegal: EATS==0b10 AND NS1ATS==1 is illegal).
+    // When false (default): IDR0 bit 11 is cleared; the NS1ATS+EATS check does not fire.
+    void setNS1ATSSupported(bool supported);
+
     /// BUG-NEW-G fix: Controls IDR0.PRI (bit 16) and CERROR_ILL gate on CMD_PRI_RESP (ARM §4.5.2).
     /// Default true. Set false to test IDR0.PRI==0 behavior.
     void setPRISupported(bool enabled);
@@ -534,6 +540,11 @@ private:
     std::atomic<bool> s2pSupported_;    ///< IDR0.S2P bit; default true
 
     std::atomic<bool> priSupported_;   ///< BUG-NEW-G: IDR0.PRI (bit 16) configurable for testing
+
+    // BUG-AUDIT-01: IDR0.NS1ATS — configurable NS1ATS support (§5.2 SteIllegal() / §6.3.1).
+    // When true: IDR0 bit 11 = 1; EATS==0b10 in configureStream() raises C_BAD_STE.
+    // When false (default): IDR0 bit 11 = 0; the NS1ATS+EATS guard does not fire.
+    std::atomic<bool> ns1atsSupported_;  ///< IDR0.NS1ATS bit; default false
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).

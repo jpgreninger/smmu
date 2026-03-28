@@ -532,6 +532,18 @@ pub struct SMMU {
     /// BUG-NEW-G fix: IDR0.PRI (bit 16) is configurable to test PRI==0 CERROR_ILL behavior.
     /// When `false`, `get_idr0()` clears bit 16 and CMD_PRI_RESP raises CERROR_ILL.
     pri_supported: AtomicBool,
+
+    // ---- BUG-AUDIT-01: IDR0.NS1ATS configurable field (ARM §6.3.1, §5.2 SteIllegal) ----
+
+    /// IDR0.NS1ATS (bit 11) — whether non-secure stage-1-only ATS is supported.
+    ///
+    /// When `true`, `get_idr0()` sets bit 11 and `configure_stream()` rejects any
+    /// STE with `EATS==0b10` (`C_BAD_STE`) per ARM §5.2 `SteIllegal()`:
+    /// ```text
+    ///   if STE.EATS == '10' && NS1ATS == '1' then return TRUE;  // → C_BAD_STE
+    /// ```
+    /// When `false` (default), bit 11 is 0 and the EATS+NS1ATS guard is inactive.
+    ns1ats_supported: AtomicBool,
 }
 
 impl SMMU {
@@ -874,6 +886,8 @@ impl SMMU {
             s2p_supported: AtomicBool::new(true),
             // BUG-NEW-G: PRI=true by default (PRI queue supported).
             pri_supported: AtomicBool::new(true),
+            // BUG-AUDIT-01: NS1ATS=false by default (EATS+NS1ATS guard inactive).
+            ns1ats_supported: AtomicBool::new(false),
         }
     }
 
@@ -1275,8 +1289,10 @@ impl SMMU {
     /// - bits \[12:11\] (BBML) = 0b01: BBML level 1 (bit 11 set, bit 12 clear)
     #[must_use]
     pub fn get_idr3(&self) -> u32 {
+        // BUG-AUDIT-02 fix: IDR3.XNX (bit 4) is RES0 when IDR0.S2P==0 (ARM §6.3.4).
+        let xnx = if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 4 } else { 0 };
         (1u32 << 2)   // HAD: hierarchical attribute disable
-        | (1u32 << 4)   // XNX: stage-2 execute-never control; mandatory for SMMUv3.1+ with S2P (§6.3.4, §2.3)
+        | xnx           // XNX: stage-2 execute-never control; RES0 when S2P=0 (§6.3.4, §2.3)
         | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
@@ -1806,6 +1822,17 @@ impl SMMU {
     /// - `false`: IDR0.PRI=0, CMD_PRI_RESP raises CERROR_ILL (ARM §4.5.2).
     pub fn set_pri_supported(&self, enabled: bool) {
         self.pri_supported.store(enabled, Ordering::Release);
+    }
+
+    /// BUG-AUDIT-01: Controls IDR0 bit 11 (NS1ATS) and the `SteIllegal` check for
+    /// `EATS==0b10` per ARM §5.2.
+    ///
+    /// - `false` (default): IDR0.NS1ATS=0; no extra restriction on `EATS==0b10`.
+    /// - `true`:            IDR0.NS1ATS=1; `configure_stream()` emits `CBadSte` and
+    ///   returns `Err` for any STE with `eats==2` (ARM §5.2 `SteIllegal()` line:
+    ///   `if STE.EATS == '10' && NS1ATS == '1' then return TRUE`).
+    pub fn set_ns1ats_supported(&self, enabled: bool) {
+        self.ns1ats_supported.store(enabled, Ordering::Release);
     }
 
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
@@ -2385,6 +2412,27 @@ impl SMMU {
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: EATS==0b01 with S2S=1 and stage-2 enabled is ILLEGAL (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-01 fix: ARM §5.2 SteIllegal() — EATS==0b10 AND NS1ATS==1 → C_BAD_STE.
+        // Pseudocode: `if STE.EATS == '10' && NS1ATS == '1' then return TRUE`
+        // This check is independent of Config/two-stage/S2S — it fires whenever both
+        // EATS==0b10 and the SMMU reports NS1ATS==1 via IDR0 bit 11.
+        if config.eats == 2 && self.ns1ats_supported.load(Ordering::Acquire) {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: EATS==0b10 AND NS1ATS==1 is ILLEGAL (ARM §5.2 SteIllegal)".to_string(),
             ));
         }
 
@@ -6541,6 +6589,12 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::PriResp => {
+                // BUG-AUDIT-03 fix: ARM §4.5.2 lines 6075-6079 — CMD_PRI_RESP must be
+                // silently ignored when SMMUEN==0 (no CERROR_ILL, no PRIQ_CONS advance,
+                // no side-effects of any kind).
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) == 0 {
+                    return Ok(());
+                }
                 // BUG-NEW-A fix: ARM §4.5.2 — the 2-bit Resp field encodes the response type.
                 // Resp==0b11 is Reserved/ILLEGAL → raise CERROR_ILL + GERROR_CMDQ_ERR.
                 // The Resp value is carried in bits[1:0] of the `flags` field.

@@ -123,6 +123,8 @@ SMMU::SMMU()
       s2pSupported_(true),
       // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
       priSupported_(true),
+      // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
+      ns1atsSupported_(false),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -189,6 +191,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       s2pSupported_(true),
       // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
       priSupported_(true),
+      // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
+      ns1atsSupported_(false),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -1089,6 +1093,12 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     bool twoStage = config.stage1Enabled && config.stage2Enabled;
     if (config.eats == 2u) {
         if (!twoStage || config.s2s) {
+            generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+            return makeVoidError(SMMUError::InvalidConfiguration);
+        }
+        // BUG-AUDIT-01 fix: ARM §5.2 SteIllegal() — EATS==0b10 is also illegal when
+        // IDR0.NS1ATS==1 (even for a legal two-stage, S2S=0 configuration).
+        if (ns1atsSupported_.load(std::memory_order_acquire)) {
             generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
             return makeVoidError(SMMUError::InvalidConfiguration);
         }
@@ -3247,6 +3257,7 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
          | ((hypSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on both Hyp and S2P (BUG-B fix §6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
+         | (ns1atsSupported_.load(std::memory_order_acquire) ? (1u << 11) : 0u) // NS1ATS: configurable (BUG-AUDIT-01 fix §5.2)
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
@@ -3289,8 +3300,10 @@ uint32_t SMMU::getIDR2() const {
 
 // IDR3: ARM IHI0070G.b §6.3.4 — capability bits for SMMUv3.2 features implemented.
 uint32_t SMMU::getIDR3() const {
+    // BUG-AUDIT-02 fix: IDR3.XNX (bit 4) is RES0 when IDR0.S2P==0 (ARM §6.3.4).
+    // Gate bit 4 on s2pSupported_ so that setS2PSupported(false) correctly clears XNX.
     return (1u << 2)   // HAD: hierarchical attribute disable supported
-         | (1u << 4)   // XNX: execute-never differentiation for EL0/EL1 — mandatory for SMMUv3.1+ with S2P (§6.3.4)
+         | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 4) : 0u) // XNX: gated on S2P (BUG-AUDIT-02 fix §6.3.4)
          | (1u << 8)   // FWB: stage-2 force write-back attribute control supported
          | (1u << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
          | (1u << 11); // BBML[0]: basic bus master lock level 1 (BBML=0b01)
@@ -3406,6 +3419,12 @@ bool SMMU::isS2PSupported() const {
 // for CMD_PRI_RESP (ARM §4.5.2) can be tested with PRI==0.
 void SMMU::setPRISupported(bool enabled) {
     priSupported_.store(enabled, std::memory_order_release);
+}
+
+// BUG-AUDIT-01 fix: IDR0.NS1ATS (bit 11) is now configurable so the C_BAD_STE
+// guard for EATS==0b10+NS1ATS==1 (ARM §5.2 SteIllegal()) is exercisable in tests.
+void SMMU::setNS1ATSSupported(bool supported) {
+    ns1atsSupported_.store(supported, std::memory_order_release);
 }
 
 // BUG-NEW-H fix: ARM §8.1 — PRIQ_CONS.OVACKFLG (bit 31) is written by software to
@@ -4603,6 +4622,11 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::PRI_RESP: {
+            // BUG-AUDIT-03 fix: ARM §4.5.2 lines 6075-6079 — CMD_PRI_RESP must be
+            // silently ignored when SMMU_CR0.SMMUEN==0.  No error, no side-effects.
+            if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) == 0u) {
+                break;
+            }
             // BUG-NEW-A fix: ARM §4.5.2 — Resp==0b11 is Reserved/ILLEGAL → CERROR_ILL.
             // The 2-bit Resp field is encoded in bits[1:0] of the flags field.
             // Any Resp value of 0b11 must raise CERROR_ILL and GERROR_CMDQ_ERR before
