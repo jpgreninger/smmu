@@ -170,7 +170,7 @@ fn bug_qa8_walk_eabt_event_class_is_tt() {
     let stream_id = sid(1);
     let p = pasid(0);
     let addr = iova(0x1000);
-    smmu.inject_walk_eabt(stream_id, p, addr);
+    smmu.inject_walk_eabt(stream_id, p, addr, false, 1);
 
     let events = smmu.get_events();
     assert_eq!(events.len(), 1, "Expected exactly one event after inject_walk_eabt");
@@ -191,7 +191,7 @@ fn bug_qa8_walk_eabt_event_class_is_tt() {
 fn bug_qa8_walk_eabt_event_type_correct() {
     let smmu = make_smmu();
 
-    smmu.inject_walk_eabt(sid(2), pasid(0), iova(0x2000));
+    smmu.inject_walk_eabt(sid(2), pasid(0), iova(0x2000), false, 1);
 
     let events = smmu.get_events();
     assert_eq!(events.len(), 1);
@@ -311,7 +311,7 @@ fn bug_qa9_tlbi_el3_all_no_invalidation_side_effect() {
 fn bug_qa10_walk_eabt_ssv_true_when_pasid_nonzero() {
     let smmu = make_smmu();
 
-    smmu.inject_walk_eabt(sid(3), pasid(5), iova(0x3000));
+    smmu.inject_walk_eabt(sid(3), pasid(5), iova(0x3000), false, 1);
 
     let events = smmu.get_events();
     assert_eq!(events.len(), 1, "Expected exactly one event");
@@ -331,7 +331,7 @@ fn bug_qa10_walk_eabt_ssv_true_when_pasid_nonzero() {
 fn bug_qa10_walk_eabt_ssv_false_when_pasid_zero() {
     let smmu = make_smmu();
 
-    smmu.inject_walk_eabt(sid(4), pasid(0), iova(0x4000));
+    smmu.inject_walk_eabt(sid(4), pasid(0), iova(0x4000), false, 1);
 
     let events = smmu.get_events();
     assert_eq!(events.len(), 1, "Expected exactly one event");
@@ -350,7 +350,7 @@ fn bug_qa10_walk_eabt_ssv_false_when_pasid_zero() {
 fn bug_qa8_and_qa10_walk_eabt_combined_fix() {
     let smmu = make_smmu();
 
-    smmu.inject_walk_eabt(sid(5), pasid(42), iova(0x5000));
+    smmu.inject_walk_eabt(sid(5), pasid(42), iova(0x5000), false, 1);
 
     let events = smmu.get_events();
     assert_eq!(events.len(), 1, "Expected exactly one event");

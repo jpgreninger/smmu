@@ -1422,7 +1422,25 @@ impl SMMU {
     /// Simulates an external abort during a translation table walk for the
     /// given stream, PASID, and IOVA.  The event is recorded only when
     /// `CR0.EVENTQEN=1`.
-    pub fn inject_walk_eabt(&self, stream_id: StreamID, pasid: PASID, iova: IOVA) {
+    ///
+    /// The `is_stage2` and `event_class` parameters distinguish the three
+    /// F_WALK_EABT contexts defined in ARM §7.3.12:
+    /// - Single-stage S1 walk: `is_stage2=false`, `event_class=1` (CLASS=TT).
+    /// - Two-stage S2 TT walk: `is_stage2=true`,  `event_class=1` (CLASS=TT).
+    /// - Two-stage S2 IPA input: `is_stage2=true`, `event_class=2` (CLASS=IN).
+    ///
+    /// # NEW-AUDIT-05 fix (§7.3.12 line 27078)
+    ///
+    /// The previous three-parameter API always emitted `s2=false` and
+    /// `event_class=1`, making it impossible to represent two-stage walk aborts.
+    pub fn inject_walk_eabt(
+        &self,
+        stream_id: StreamID,
+        pasid: PASID,
+        iova: IOVA,
+        is_stage2: bool,
+        event_class: u8,
+    ) {
         if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
             return;
         }
@@ -1433,9 +1451,10 @@ impl SMMU {
             pasid: pasid.as_u32(),
             address: iova.as_u64(),
             timestamp,
-            // BUG-QA-8 fix: §7.3.12 — F_WALK_EABT CLASS must be 0b01 (TT =
-            // translation-table descriptor fetch), not 0b00 (CD).
-            event_class: 1,
+            // NEW-AUDIT-05 fix: §7.3.12 — use caller-supplied event_class and s2
+            // so all three F_WALK_EABT contexts can be expressed.
+            event_class,
+            s2: is_stage2,
             // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented:
             // either s1cd_max > 0 (PASID=0 on substream-capable stream counts) or
             // a non-zero PASID was presented.
@@ -6562,6 +6581,21 @@ impl SMMU {
                         "CMD_CFGI_CD: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
                     ));
                 }
+                // NEW-AUDIT-04 fix: §4.3.3 line 5362 — "This command raises CERROR_ILL
+                // when stage 1 is not implemented."  Check the stream config; if stage-1
+                // is absent (bypass-only or stage-2-only), raise CERROR_ILL.  An unknown
+                // StreamID is treated as a silent no-op (consistent with invalidation
+                // semantics — there is nothing to invalidate).
+                if let Some(stream_ref) = self.streams.get(&command.stream_id) {
+                    if !stream_ref.value().is_stage1_enabled() {
+                        drop(stream_ref);
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_CFGI_CD: CERROR_ILL — stage 1 is not implemented for this stream (ARM §4.3.3 line 5362)".to_string(),
+                        ));
+                    }
+                }
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
                 // Context Descriptor for the specified (stream, PASID) pair.
                 if let (Ok(stream_id), Ok(pasid)) = (
@@ -6580,6 +6614,18 @@ impl SMMU {
                     return Err(SMMUError::InvalidCommandParameters(
                         "CMD_CFGI_CD_ALL: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
                     ));
+                }
+                // NEW-AUDIT-04 fix: §4.3.4 line 5388 — "This command raises CERROR_ILL
+                // when stage 1 is not implemented."  Same guard as CfgiCd above.
+                if let Some(stream_ref) = self.streams.get(&command.stream_id) {
+                    if !stream_ref.value().is_stage1_enabled() {
+                        drop(stream_ref);
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_CFGI_CD_ALL: CERROR_ILL — stage 1 is not implemented for this stream (ARM §4.3.4 line 5388)".to_string(),
+                        ));
+                    }
                 }
                 // CMD_CFGI_CD_ALL (§4.3.4): invalidate TLB entries cached from
                 // all Context Descriptors of the specified stream.

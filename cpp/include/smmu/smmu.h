@@ -375,6 +375,7 @@ public:
     void injectCdFetchAbort(StreamID streamID, PASID pasid,
                             SecurityState ss = SecurityState::NonSecure);
     void injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova,
+                        bool isStage2 = false, uint8_t eventClass = 1u,
                         SecurityState ss = SecurityState::NonSecure);
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).

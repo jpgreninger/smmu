@@ -267,7 +267,7 @@ fn test_gap_new_a_walk_eabt_event() {
     let sid = make_sid(13);
     let pasid = make_pasid(0);
     let iova = make_iova(0xDEAD_0000);
-    smmu.inject_walk_eabt(sid, pasid, iova);
+    smmu.inject_walk_eabt(sid, pasid, iova, false, 1);
 
     let events = smmu.get_events();
     assert!(!events.is_empty(), "Event queue must be non-empty after walk EABT injection");

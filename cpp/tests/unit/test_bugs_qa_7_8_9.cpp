@@ -129,7 +129,7 @@ TEST(BugQA8WalkEabtClass, FWalkEabtEventClassIsTT) {
     enableSMMU(smmu);
     configureStream(smmu, 0x10u);
 
-    smmu.injectWalkEabt(0x10u, 0u, 0x1000u, SecurityState::NonSecure);
+    smmu.injectWalkEabt(0x10u, 0u, 0x1000u);
 
     std::vector<EventEntry> events = smmu.getEventQueue();
     ASSERT_FALSE(events.empty())
@@ -157,8 +157,8 @@ TEST(BugQA8WalkEabtClass, MultipleWalkEabtEventsAllTT) {
     enableSMMU(smmu);
     configureStream(smmu, 0x20u);
 
-    smmu.injectWalkEabt(0x20u, 0u, 0x2000u, SecurityState::NonSecure);
-    smmu.injectWalkEabt(0x20u, 0u, 0x3000u, SecurityState::NonSecure);
+    smmu.injectWalkEabt(0x20u, 0u, 0x2000u);
+    smmu.injectWalkEabt(0x20u, 0u, 0x3000u);
 
     std::vector<EventEntry> events = smmu.getEventQueue();
 

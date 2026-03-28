@@ -127,7 +127,7 @@ fn bug_new_b_inject_walk_eabt_full_queue_toggles_ovflg() {
     let prod_before = smmu.get_eventq_prod();
     assert_eq!((prod_before >> 31) & 1, 0, "OVFLG must be 0 before inject");
 
-    smmu.inject_walk_eabt(s, pasid(0), iova(0xDEAD_0000));
+    smmu.inject_walk_eabt(s, pasid(0), iova(0xDEAD_0000), false, 1);
 
     let prod_after = smmu.get_eventq_prod();
     assert_eq!(

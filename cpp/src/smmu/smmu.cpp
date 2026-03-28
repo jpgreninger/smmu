@@ -3355,10 +3355,27 @@ void SMMU::injectCdFetchAbort(StreamID streamID, PASID pasid, SecurityState ss) 
 }
 
 // Inject F_WALK_EABT (§7.3.12) into the event queue, gated on CR0.EVENTQEN.
-void SMMU::injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova, SecurityState ss) {
+// NEW-AUDIT-05 fix: isStage2 and eventClass parameters allow the caller to express
+// all three F_WALK_EABT contexts defined by ARM §7.3.12:
+//   1. S1 walk only:           isStage2=false, eventClass=1 (CLASS=TT)
+//   2. S2 TT descriptor walk:  isStage2=true,  eventClass=1 (CLASS=TT)
+//   3. S2 IPA input walk:      isStage2=true,  eventClass=2 (CLASS=IN)
+// generateEvent() hard-codes eventClass=1 for F_WALK_EABT in its switch; override
+// it after the call by mutating the last event in the queue under queueMutex.
+void SMMU::injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova,
+                           bool isStage2, uint8_t eventClass, SecurityState ss) {
     generateEvent(EventType::F_WALK_EABT, streamID, pasid, iova,
                   ss, /*isStall=*/false, /*stag=*/0,
-                  AccessType::Read, /*isStage2=*/false, /*ipaValue=*/0);
+                  AccessType::Read, isStage2, /*ipaValue=*/0);
+    // Override eventClass: generateEvent() always sets CLASS=TT (1) for F_WALK_EABT.
+    // Apply the caller-specified eventClass so two-stage cases (CLASS=IN, eventClass=2)
+    // are correctly expressed.  Mutate the last enqueued event under queueMutex.
+    if (eventClass != 1u) {
+        std::lock_guard<std::recursive_mutex> lock(queueMutex);
+        if (!eventQueue.empty() && eventQueue.back().type == EventType::F_WALK_EABT) {
+            eventQueue.back().eventClass = eventClass;
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4023,17 +4040,57 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             }
             break;
             
-        case CommandType::CFGI_CD:
+        case CommandType::CFGI_CD: {
             // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
+            // NEW-AUDIT-04 fix (§4.3.3 line 5362): "This command raises CERROR_ILL
+            // when stage 1 is not implemented."  Only fires for known streams with
+            // stage1Enabled=false; unknown streams are a silent no-op.
+            bool cfgiCdStreamFound = false;
+            bool cfgiCdStage1Enabled = false;
+            {
+                size_t cfgiStripe = getStreamStripe(command.streamID);
+                std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
+                auto cfgiIt = streamMap.find(command.streamID);
+                if (cfgiIt != streamMap.end() && cfgiIt->second) {
+                    cfgiCdStreamFound = true;
+                    cfgiCdStage1Enabled = cfgiIt->second->getStreamConfiguration().stage1Enabled;
+                }
+            }
+            if (cfgiCdStreamFound && !cfgiCdStage1Enabled) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // Maps to PASID-scoped TLB invalidation in SW model.
             invalidatePASIDCache(command.streamID, command.pasid);
             break;
+        }
 
-        case CommandType::CFGI_CD_ALL:
+        case CommandType::CFGI_CD_ALL: {
             // ARM §4.3.4: Invalidate all cached CDs for StreamID.
+            // NEW-AUDIT-04 fix (§4.3.4 line 5388): "This command raises CERROR_ILL
+            // when stage 1 is not implemented."  Same guard as CFGI_CD.
+            // Unknown streams are a silent no-op.
+            bool cfgiCdAllStreamFound = false;
+            bool cfgiCdAllStage1Enabled = false;
+            {
+                size_t cfgiAllStripe = getStreamStripe(command.streamID);
+                std::lock_guard<std::mutex> cfgiAllLock(streamLockStripes[cfgiAllStripe]);
+                auto cfgiAllIt = streamMap.find(command.streamID);
+                if (cfgiAllIt != streamMap.end() && cfgiAllIt->second) {
+                    cfgiCdAllStreamFound = true;
+                    cfgiCdAllStage1Enabled = cfgiAllIt->second->getStreamConfiguration().stage1Enabled;
+                }
+            }
+            if (cfgiCdAllStreamFound && !cfgiCdAllStage1Enabled) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // Maps to stream-wide TLB invalidation in SW model.
             invalidateStreamCache(command.streamID);
             break;
+        }
 
         case CommandType::TLBI_NH_ALL:
         case CommandType::TLBI_NH_ASID:
@@ -4362,15 +4419,68 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
             }
             break;
 
-        case CommandType::CFGI_CD:
+        case CommandType::CFGI_CD: {
             // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
+            // NEW-AUDIT-04 fix (§4.3.3 line 5362): "This command raises CERROR_ILL
+            // when stage 1 is not implemented."  If the target stream is known and
+            // has stage1Enabled=false (bypass-only or stage-2-only), emit CERROR_ILL.
+            // Unknown streams (not configured) are treated as a silent no-op — there
+            // is nothing cached to invalidate, consistent with CFGI_STE behavior.
+            // Release queueMutex before acquiring the stripe lock to maintain the
+            // lock ordering invariant: stripe_lock must never be acquired while
+            // queueMutex is held.
+            bool cfgiCdStreamFound = false;
+            bool cfgiCdStage1 = false;
+            {
+                size_t cfgiStripe = getStreamStripe(command.streamID);
+                queueLock.unlock();
+                {
+                    std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
+                    auto cfgiIt = streamMap.find(command.streamID);
+                    if (cfgiIt != streamMap.end() && cfgiIt->second) {
+                        cfgiCdStreamFound = true;
+                        cfgiCdStage1 = cfgiIt->second->getStreamConfiguration().stage1Enabled;
+                    }
+                }
+                queueLock.lock();
+            }
+            if (cfgiCdStreamFound && !cfgiCdStage1) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             invalidatePASIDCache(command.streamID, command.pasid);
             break;
+        }
 
-        case CommandType::CFGI_CD_ALL:
+        case CommandType::CFGI_CD_ALL: {
             // ARM §4.3.4: Invalidate all cached CDs for StreamID.
+            // NEW-AUDIT-04 fix (§4.3.4 line 5388): "This command raises CERROR_ILL
+            // when stage 1 is not implemented."  Same guard as CFGI_CD.
+            // Unknown streams are silent no-ops — nothing cached to invalidate.
+            bool cfgiCdAllStreamFound = false;
+            bool cfgiCdAllStage1 = false;
+            {
+                size_t cfgiAllStripe = getStreamStripe(command.streamID);
+                queueLock.unlock();
+                {
+                    std::lock_guard<std::mutex> cfgiAllLock(streamLockStripes[cfgiAllStripe]);
+                    auto cfgiAllIt = streamMap.find(command.streamID);
+                    if (cfgiAllIt != streamMap.end() && cfgiAllIt->second) {
+                        cfgiCdAllStreamFound = true;
+                        cfgiCdAllStage1 = cfgiAllIt->second->getStreamConfiguration().stage1Enabled;
+                    }
+                }
+                queueLock.lock();
+            }
+            if (cfgiCdAllStreamFound && !cfgiCdAllStage1) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             invalidateStreamCache(command.streamID);
             break;
+        }
 
         case CommandType::TLBI_NH_ALL:
         case CommandType::TLBI_NH_ASID:
