@@ -3257,11 +3257,13 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
          | ((hypSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on both Hyp and S2P (BUG-B fix §6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
-         | (ns1atsSupported_.load(std::memory_order_acquire) ? (1u << 11) : 0u) // NS1ATS: configurable (BUG-AUDIT-01 fix §5.2)
+         | ((ns1atsSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 11) : 0u) // NS1ATS: gated on S2P (AUDIT-NEW-02 fix §6.3.1 — RES0 when S2P==0)
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
          | (priSupported_.load(std::memory_order_acquire) ? (1u << 16) : 0u)  // PRI: configurable (BUG-NEW-G fix §4.5.2)
+         // NOTE: AUDIT-NEW-03: ARM §6.3.1 requires PRI to be RES0 when ATS==0. ATS is currently hardcoded to 1;
+         // if ATS is ever made configurable, add '&& ats_enabled' guard here.
          | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 17) : 0u)  // VMW: gated on S2P (BUG-A fix §6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
@@ -3356,10 +3358,11 @@ void SMMU::injectCdFetchAbort(StreamID streamID, PASID pasid, SecurityState ss) 
 
 // Inject F_WALK_EABT (§7.3.12) into the event queue, gated on CR0.EVENTQEN.
 // NEW-AUDIT-05 fix: isStage2 and eventClass parameters allow the caller to express
-// all three F_WALK_EABT contexts defined by ARM §7.3.12:
-//   1. S1 walk only:           isStage2=false, eventClass=1 (CLASS=TT)
-//   2. S2 TT descriptor walk:  isStage2=true,  eventClass=1 (CLASS=TT)
-//   3. S2 IPA input walk:      isStage2=true,  eventClass=2 (CLASS=IN)
+// all four F_WALK_EABT contexts defined by ARM §7.3.12:
+//   1. S1 walk only:              isStage2=false, eventClass=1 (CLASS=TT)
+//   2. S2 TT descriptor walk:     isStage2=true,  eventClass=1 (CLASS=TT)
+//   3. S2 IPA input walk:         isStage2=true,  eventClass=2 (CLASS=IN)
+//   4. Two-stage S2 CD fetch:     isStage2=true,  eventClass=0 (CLASS=CD) — stage-2 abort during CD fetch
 // generateEvent() hard-codes eventClass=1 for F_WALK_EABT in its switch; override
 // it after the call by mutating the last event in the queue under queueMutex.
 void SMMU::injectWalkEabt(StreamID streamID, PASID pasid, IOVA iova,

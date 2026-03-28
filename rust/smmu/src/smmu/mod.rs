@@ -1222,10 +1222,11 @@ impl SMMU {
         | (1u32 << 1)        // S1P
         | (0b10u32 << 2)     // TTF = AArch64 S1+S2
         | (1u32 << 10)       // ATS
+        | if self.ns1ats_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 11 } else { 0 }  // NS1ATS: gated on S2P (AUDIT-NEW-01/02 fix §6.3.1 — RES0 when S2P==0)
         | (1u32 << 12)       // ASID16
         | (1u32 << 14)       // SEV (stall model)
         | (1u32 << 15)       // ATOS (GATOS implemented)
-        | if self.pri_supported.load(Ordering::Acquire) { 1u32 << 16 } else { 0 } // PRI: configurable (BUG-NEW-G fix)
+        | if self.pri_supported.load(Ordering::Acquire) { 1u32 << 16 } else { 0 } // PRI: configurable (BUG-NEW-G fix §4.5.2). AUDIT-NEW-03: ARM §6.3.1 requires PRI RES0 when ATS==0; ATS is hardcoded 1, so this guard is sufficient.
         | (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 17 } else { 0 })  // VMW: gated on S2P (BUG-A fix §6.3.1)
         | (1u32 << 18)       // VMID16
         | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
@@ -1393,6 +1394,9 @@ impl SMMU {
             event_type: EventType::FSteFetch,
             stream_id: stream_id.as_u32(),
             timestamp,
+            // AUDIT-NEW-04 fix: §7.3.4/§7.3.20 — SSV=1 when stream is substream-capable
+            // (s1cd_max > 0), matching the rule used in inject_walk_eabt().
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0,
             ..EventEntry::zeroed()
         };
         self.enqueue_event(event);
@@ -1412,6 +1416,9 @@ impl SMMU {
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             timestamp,
+            // AUDIT-NEW-04 fix: §7.3.10/§7.3.20 — SSV=1 when stream is substream-capable
+            // (s1cd_max > 0) or a non-zero PASID was presented, matching inject_walk_eabt().
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         self.enqueue_event(event);
@@ -1423,9 +1430,10 @@ impl SMMU {
     /// given stream, PASID, and IOVA.  The event is recorded only when
     /// `CR0.EVENTQEN=1`.
     ///
-    /// The `is_stage2` and `event_class` parameters distinguish the three
+    /// The `is_stage2` and `event_class` parameters distinguish the four
     /// F_WALK_EABT contexts defined in ARM §7.3.12:
     /// - Single-stage S1 walk: `is_stage2=false`, `event_class=1` (CLASS=TT).
+    /// - Two-stage S2 CD fetch: `is_stage2=true`, `event_class=0` (CLASS=CD) — stage-2 abort during CD fetch.
     /// - Two-stage S2 TT walk: `is_stage2=true`,  `event_class=1` (CLASS=TT).
     /// - Two-stage S2 IPA input: `is_stage2=true`, `event_class=2` (CLASS=IN).
     ///
