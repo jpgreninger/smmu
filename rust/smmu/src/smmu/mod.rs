@@ -2310,6 +2310,30 @@ impl SMMU {
                 "C_BAD_STE: STALL_MODEL!=0b00 conflicts with S1STALLD=1 (ARM §5.5)".to_string(),
             ));
         }
+        // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
+        // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
+        // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
+        // STALL_MODEL!=0b00 + s1_stalld (→ C_BAD_STE), so the only remaining case
+        // is STALL_MODEL==0b00 with s1_stalld==true AND fault_mode==Stall (CD.S==1).
+        if config.stage1_enabled
+            && config.s1_stalld
+            && config.fault_mode == crate::types::FaultMode::Stall
+        {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadCd,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_CD: S1STALLD==1 AND CD.S==1 is ILLEGAL (ARM §5.5 CdIllegal line 9748)".to_string(),
+            ));
+        }
 
         let stream_value = stream_id.as_u32();
 

@@ -1068,6 +1068,16 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
+    // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
+    // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
+    // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
+    // STALL_MODEL!=0b00 + s1Stalld (→ C_BAD_STE), so the only remaining case that
+    // reaches here is STALL_MODEL==0b00 with s1Stalld==true AND faultMode==Stall (CD.S==1).
+    if (config.stage1Enabled && config.s1Stalld && config.faultMode == FaultMode::Stall) {
+        generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
     size_t stripe = getStreamStripe(streamID);
     std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
 

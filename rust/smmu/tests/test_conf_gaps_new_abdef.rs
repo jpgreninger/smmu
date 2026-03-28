@@ -73,21 +73,24 @@ fn test_gap_new_g_stall_active_when_s1stalld_false() {
     }
 }
 
-/// GAP-NEW-G test 2: s1_stalld=true, CD.S=1 — stall is suppressed, abort semantics apply.
-/// A translation fault must return a non-stall error (e.g., TranslationFault).
+/// GAP-NEW-G test 2 (BUG-NEW-F corrected): s1_stalld=true + CD.S=1 is ILLEGAL per
+/// ARM §5.5 CdIllegal() line 9748 — configure_stream() now emits C_BAD_CD and
+/// rejects that combination.  The legal configuration is fault_mode=Terminate (CD.S=0).
+/// This test verifies the legal config works: translation faults are non-stall errors.
 #[test]
-fn test_gap_new_g_stall_suppressed_when_s1stalld_true() {
+fn test_gap_new_g_s1stalld_with_terminate_produces_translation_error() {
     let smmu = SMMU::new();
     enable_smmu(&smmu);
 
     let sid = make_sid(2);
     let pasid = make_pasid(0);
 
-    // Configure stream with stall mode requested but s1_stalld=true overrides it
+    // s1_stalld=true + fault_mode=Terminate (CD.S=0) is the spec-legal configuration.
+    // s1_stalld=true + fault_mode=Stall (CD.S=1) is ILLEGAL → C_BAD_CD (BUG-NEW-F fix).
     let cfg = StreamConfig::builder()
         .translation_enabled(true)
         .stage1_enabled(true)
-        .fault_mode(FaultMode::Stall)
+        .fault_mode(FaultMode::Terminate)
         .s1_stalld(true)
         .build()
         .unwrap();
@@ -98,13 +101,13 @@ fn test_gap_new_g_stall_suppressed_when_s1stalld_true() {
 
     let result = smmu.translate(sid, pasid, make_iova(0x1000), AccessType::Read, SecurityState::NonSecure);
 
-    // With s1_stalld=true, stall is suppressed — must NOT be Stalled
+    // s1_stalld=true + Terminate: faults must be non-stall errors (F_TRANSLATION).
     match result {
         Err(smmu::types::TranslationError::Stalled { .. }) => {
-            panic!("Got Stalled but s1_stalld=true should suppress stall mode");
+            panic!("Got Stalled but s1_stalld=true + Terminate should not stall");
         }
         Err(_) => {
-            // Any non-stall error is correct
+            // Any non-stall error is correct (F_TRANSLATION expected)
         }
         Ok(_) => panic!("Expected translation fault, got success"),
     }

@@ -84,17 +84,22 @@ TEST_F(GapNewGTest, gap_new_g_stall_mode_without_s1stalld_stalls) {
         << static_cast<int>(result.getError());
 }
 
-// s1Stalld=true + FaultMode::Stall: S1STALLD overrides stall — must abort
-// with an F_TRANSLATION event in the queue (not Stalled).
-TEST_F(GapNewGTest, gap_new_g_s1stalld_forces_abort_not_stall) {
-    setupStage1Stream(*smmu_, SID, PID, FaultMode::Stall, /*s1Stalld=*/true);
+// BUG-NEW-F correction: s1Stalld=true + FaultMode::Stall (CD.S==1) is ILLEGAL per
+// ARM §5.5 CdIllegal() line 9748 — configureStream() now correctly emits C_BAD_CD
+// and rejects this combination.  The legal configuration for an S1STALLD=1 stream
+// is faultMode=Terminate (CD.S=0).  This test verifies that the legal configuration
+// works: translation faults produce F_TRANSLATION (not Stalled).
+TEST_F(GapNewGTest, gap_new_g_s1stalld_with_terminate_produces_f_translation) {
+    // S1STALLD=true + faultMode=Terminate (CD.S=0) is the spec-legal configuration.
+    // S1STALLD=true + faultMode=Stall (CD.S=1) is ILLEGAL → C_BAD_CD (BUG-NEW-F fix).
+    setupStage1Stream(*smmu_, SID, PID, FaultMode::Terminate, /*s1Stalld=*/true);
 
-    // Translate an unmapped address — S1STALLD should force terminate.
+    // Translate an unmapped address — must produce F_TRANSLATION (terminate semantics).
     TranslationResult result = smmu_->translate(SID, PID, BASE_IOVA,
                                                 AccessType::Read);
     EXPECT_TRUE(result.isError());
     EXPECT_NE(result.getError(), SMMUError::Stalled)
-        << "S1STALLD=1 must not produce Stalled result";
+        << "S1STALLD=1 + Terminate: must not produce Stalled result";
 
     // An F_TRANSLATION event must be present in the event queue.
     auto events = smmu_->getEventQueue();
