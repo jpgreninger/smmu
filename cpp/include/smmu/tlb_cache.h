@@ -170,6 +170,17 @@ public:
     /// QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
     /// Evicts only entries where strw==EL1_EL0 AND vmid==vmid; preserves all other entries.
     void invalidateNonHypEntriesByVMID(uint16_t vmid);
+    /// BUG-NEW-D fix: ARM §4.4.2.10 CMD_TLBI_EL2_ASID — evict only EL2_E2H entries matching ASID.
+    /// EL1_EL0 entries with the same ASID value must be preserved.
+    void invalidateEL2E2HByASID(uint16_t asid);
+    /// BUG-NEW-E fix: ARM §4.4.2.8 CMD_TLBI_EL2_VA — evict EL2/EL2_E2H entries by VA+ASID.
+    /// EL1_EL0 entries at the same VA must be preserved.
+    void invalidateEL2ByVAAndASID(IOVA va, uint16_t asid);
+    /// BUG-NEW-E fix: ARM §4.4.2.9 CMD_TLBI_EL2_VAA — evict EL2/EL2_E2H entries by VA (any ASID).
+    /// EL1_EL0 entries at the same VA must be preserved.
+    void invalidateEL2ByVA(IOVA va);
+    /// BUG-NEW-E fix: ARM §4.4.2.8 CMD_TLBI_EL2_VA RIL path — evict EL2/EL2_E2H entries in [start,end] matching ASID.
+    void invalidateEL2ByVARange(IOVA start, IOVA end, uint16_t asid);
     void invalidateStream(StreamID streamID);  // Alias
     void invalidatePASID(StreamID streamID, PASID pasid);  // Alias
     // Deprecated: prefer invalidate(). The securityState parameter defaults to NonSecure

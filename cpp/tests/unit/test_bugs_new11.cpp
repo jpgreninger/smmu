@@ -244,9 +244,11 @@ TEST(BugNew1_TgEncoding, TG3_Is64KB_PageAt4KBOffsetEvicted) {
     ASSERT_TRUE(r1.isOk()) << "precondition: BASE page must translate";
     ASSERT_TRUE(r2.isOk()) << "precondition: BASE+4096 page must translate";
 
-    // Issue RIL TLBI_NH_VA: tg=3 (64KB), num=0, scale=0.
+    // Issue RIL TLBI_NH_VA: tg=3 (64KB), num=0, scale=0, ttl=1.
     // CORRECT range: 1 * 2^0 * 64KB = 64KB = [kBase, kBase+65535].
     // Page at kBase+4096 is inside this range and must be evicted.
+    // NOTE: ttl=1 (L1 hint) is used to avoid the Reserved combination
+    // tg!=0 AND num==0 AND scale==0 AND ttl==0 (ARM §4.4 BUG-NEW-B fix).
     CommandEntry cmd;
     cmd.type         = CommandType::TLBI_NH_VA;
     cmd.streamID     = sid;
@@ -258,6 +260,7 @@ TEST(BugNew1_TgEncoding, TG3_Is64KB_PageAt4KBOffsetEvicted) {
     cmd.tg           = 3u;   // 64KB (spec). Current code treats this as 4KB (BUG: default case).
     cmd.num          = 0u;   // NUM+1 = 1 block
     cmd.scale        = 0u;   // 2^0 = 1 multiplier
+    cmd.ttl          = 1u;   // TTL=1 (L1 hint) — avoids Reserved combination (tg!=0, num=0, scale=0, ttl=0)
 
     ASSERT_TRUE(smmu.submitCommand(cmd).isOk());
     smmu.processCommandQueue();

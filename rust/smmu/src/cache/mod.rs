@@ -931,6 +931,124 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
+    /// ARM §4.4.2.10 `CMD_TLBI_EL2_ASID` — invalidate NS-EL2-E2H entries by ASID.
+    ///
+    /// Evicts only entries tagged with `StreamWorld::El2E2h` **and** the given ASID.
+    /// `El1El0` and `El2` entries with the same ASID are preserved.
+    ///
+    /// Per ARM §4.4.2.10 the command operates only on NS-EL2-E2H translations.
+    pub fn invalidate_el2_e2h_by_asid(&self, target_asid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry in self.entries.iter() {
+            let e = entry.value();
+            if e.strw == StreamWorld::El2E2h && e.asid == target_asid {
+                keys_to_remove.push(*entry.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// ARM §4.4.2.8 `CMD_TLBI_EL2_VA` — invalidate NS-EL2/EL2-E2H entries by VA+ASID.
+    ///
+    /// Evicts entries where `strw` is `El2` or `El2E2h`, `asid` matches, and
+    /// `iova` matches the page-aligned `va`.  `El1El0` entries are preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `va`         - Virtual address (raw u64; lower 12 bits are masked)
+    /// * `target_asid`- ASID to match
+    pub fn invalidate_el2_by_va_and_asid(&self, va: u64, target_asid: u16) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if (e.strw == StreamWorld::El2 || e.strw == StreamWorld::El2E2h)
+                && e.asid == target_asid
+                && (e.iova.as_u64() & PAGE_MASK) == page_va
+            {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// ARM §4.4.2.8 `CMD_TLBI_EL2_VA` (RIL range) — invalidate NS-EL2/EL2-E2H
+    /// entries by VA range and ASID.
+    ///
+    /// Evicts entries where `strw` is `El2` or `El2E2h`, `asid` matches, and
+    /// `start <= iova <= end`.  `El1El0` entries are preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `start`      - Inclusive start of the VA range (raw u64)
+    /// * `end`        - Inclusive end of the VA range (raw u64)
+    /// * `target_asid`- ASID to match
+    pub fn invalidate_el2_by_va_range_and_asid(&self, start: u64, end: u64, target_asid: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            let iova = e.iova.as_u64();
+            if (e.strw == StreamWorld::El2 || e.strw == StreamWorld::El2E2h)
+                && e.asid == target_asid
+                && iova >= start
+                && iova <= end
+            {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
+    /// ARM §4.4.2.9 `CMD_TLBI_EL2_VAA` — invalidate NS-EL2/EL2-E2H entries by VA (any ASID).
+    ///
+    /// Evicts entries where `strw` is `El2` or `El2E2h` and `iova` matches the
+    /// page-aligned `va`, regardless of ASID.  `El1El0` entries are preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `va` - Virtual address (raw u64; lower 12 bits are masked)
+    pub fn invalidate_el2_by_va(&self, va: u64) {
+        const PAGE_MASK: u64 = 0xFFFF_FFFF_FFFF_F000;
+        let page_va = va & PAGE_MASK;
+
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if (e.strw == StreamWorld::El2 || e.strw == StreamWorld::El2E2h)
+                && (e.iova.as_u64() & PAGE_MASK) == page_va
+            {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
     /// Invalidate all entries for a specific StreamID
     ///
     /// Removes all cached translations for the given stream across all PASIDs.

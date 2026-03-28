@@ -193,19 +193,27 @@ fn bug_rust1_tlbi_nh_asid_uses_vmid_and_asid() {
     );
 }
 
-/// BUG-RUST-1 (control): `CMD_TLBI_EL2_ASID` must still use ASID-only matching
-/// (VMID field is RES0 per ARM §4.4.2.10).  Entries with different VMIDs but
-/// the same ASID must both be evicted.
+/// BUG-RUST-1 (control): `CMD_TLBI_EL2_ASID` must use ASID-only matching within the
+/// NS-EL2-E2H scope (VMID field is RES0 per ARM §4.4.2.10).  Two El2E2h streams
+/// with different VMIDs but the same ASID must both be evicted.
 ///
-/// This verifies that splitting the `TlbiNhAsid | TlbiEl2Asid` arm does NOT
-/// inadvertently change the `TlbiEl2Asid` behaviour.
+/// Updated per BUG-NEW-D fix: §4.4.2.10 — TlbiEl2Asid only evicts El2E2h entries.
+/// Both streams are now configured with STRW=El2E2h so they are evicted as expected.
 #[test]
 fn bug_rust1_tlbi_el2_asid_remains_asid_only() {
-    let smmu = make_smmu();
+    // Need Hyp support enabled for TlbiEl2Asid to be accepted (IDR0.Hyp=1).
+    // CR2.E2H=1 is required so El2E2h entries are ASID-tagged (not downgraded to ASID=0).
+    let smmu = SMMU::new();
+    smmu.set_hyp_supported(true);
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
+    smmu.set_cr2(SMMU::CR2_E2H); // enable E2H so El2E2h entries keep their ASID tag
 
-    // Two streams: different VMIDs, same ASID.
+    // Two El2E2h streams: different VMIDs, same ASID.
+    // ARM §4.4.2.10: TlbiEl2Asid evicts NS-EL2-E2H entries by ASID (VMID is RES0).
+    // Both El2E2h entries with asid=7 must be evicted regardless of their VMID tags.
     let sa = sid(0xB1);
     let mut cfg_a = StreamConfig::stage1_only();
+    cfg_a.strw = StreamWorld::El2E2h;
     cfg_a.vmid = 30;
     cfg_a.t0sz = 0;
     cfg_a.security_state = SecurityState::NonSecure;
@@ -224,6 +232,7 @@ fn bug_rust1_tlbi_el2_asid_remains_asid_only() {
 
     let sb = sid(0xB2);
     let mut cfg_b = StreamConfig::stage1_only();
+    cfg_b.strw = StreamWorld::El2E2h;
     cfg_b.vmid = 40;
     cfg_b.t0sz = 0;
     cfg_b.security_state = SecurityState::NonSecure;
@@ -251,14 +260,14 @@ fn bug_rust1_tlbi_el2_asid_remains_asid_only() {
     smmu.translate(sb, pasid(0), iova(0x4000), AccessType::Read, SecurityState::NonSecure)
         .unwrap();
 
-    // Issue CMD_TLBI_EL2_ASID(asid=7): should evict ALL entries with asid=7
-    // regardless of VMID.
+    // Issue CMD_TLBI_EL2_ASID(asid=7): must evict both El2E2h entries with asid=7
+    // regardless of their VMID (VMID is RES0 in CMD_TLBI_EL2_ASID per §4.4.2.10).
     let mut cmd = CommandEntry::new(CommandType::TlbiEl2Asid, 0, 0);
     cmd.asid = 7;
     smmu.submit_command(cmd).unwrap();
     smmu.process_command_queue().unwrap();
 
-    // Both must be misses.
+    // Both must be misses (both are El2E2h entries with asid=7).
     let hits_before = smmu.get_cache_statistics().tlb_hits();
     let misses_before = smmu.get_cache_statistics().tlb_misses();
     smmu.translate(sa, pasid(0), iova(0x4000), AccessType::Read, SecurityState::NonSecure)
@@ -271,12 +280,12 @@ fn bug_rust1_tlbi_el2_asid_remains_asid_only() {
     assert_eq!(
         hits_after,
         hits_before,
-        "CMD_TLBI_EL2_ASID must evict ALL asid=7 entries (ASID-only); \
+        "CMD_TLBI_EL2_ASID must evict all El2E2h asid=7 entries (ASID-only within El2E2h scope); \
          expected 0 hits but got some"
     );
     assert!(
         misses_after >= misses_before + 2,
-        "CMD_TLBI_EL2_ASID must produce at least 2 cache misses (one per stream)"
+        "CMD_TLBI_EL2_ASID must produce at least 2 cache misses (one per El2E2h stream)"
     );
 }
 

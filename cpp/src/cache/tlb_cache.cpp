@@ -796,6 +796,152 @@ void TLBCache::invalidateByVMIDAndVA(uint16_t vmid, IOVA va) {
     }
 }
 
+void TLBCache::invalidateEL2E2HByASID(uint16_t asid) {
+    // BUG-NEW-D fix: ARM §4.4.2.10 CMD_TLBI_EL2_ASID — evict only EL2_E2H entries
+    // matching ASID.  EL1_EL0 entries with the same ASID must be preserved.
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if (it->second.strw == StreamWorld::EL2_E2H && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateEL2ByVAAndASID(IOVA va, uint16_t asid) {
+    // BUG-NEW-E fix: ARM §4.4.2.8 CMD_TLBI_EL2_VA — evict entries where
+    // (strw == EL2 || strw == EL2_E2H) AND iova == va AND asid == asid.
+    // EL1_EL0 entries at the same VA must be preserved.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if ((it->second.strw == StreamWorld::EL2 || it->second.strw == StreamWorld::EL2_E2H) &&
+                it->second.iova == pageAlignedVA && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateEL2ByVA(IOVA va) {
+    // BUG-NEW-E fix: ARM §4.4.2.9 CMD_TLBI_EL2_VAA — evict entries where
+    // (strw == EL2 || strw == EL2_E2H) AND iova == va (any ASID).
+    // EL1_EL0 entries at the same VA must be preserved.
+    IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            if ((it->second.strw == StreamWorld::EL2 || it->second.strw == StreamWorld::EL2_E2H) &&
+                it->second.iova == pageAlignedVA) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void TLBCache::invalidateEL2ByVARange(IOVA start, IOVA end, uint16_t asid) {
+    // BUG-NEW-E fix: ARM §4.4.2.8 CMD_TLBI_EL2_VA RIL path — evict entries where
+    // (strw == EL2 || strw == EL2_E2H) AND iova in [start, end] AND asid matches.
+    // EL1_EL0 entries in the same range must be preserved.
+    IOVA pageAlignedStart = start & ~static_cast<IOVA>(PAGE_SIZE - 1u);
+    AllLocksGuard allLocks(*this);
+
+    for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
+        CacheStripe& stripe = stripes[i];
+        auto it = stripe.list.begin();
+        while (it != stripe.list.end()) {
+            IOVA entryVA = it->second.iova;
+            if ((it->second.strw == StreamWorld::EL2 || it->second.strw == StreamWorld::EL2_E2H) &&
+                entryVA >= pageAlignedStart && entryVA <= end && it->second.asid == asid) {
+                const CacheKey& key = it->first;
+
+                auto& streamSet = stripe.streamIndex[key.streamID];
+                streamSet.erase(key);
+                if (streamSet.empty()) {
+                    stripe.streamIndex.erase(key.streamID);
+                }
+
+                StreamPASIDKey spKey{key.streamID, key.pasid};
+                auto& pasidSet = stripe.pasidIndex[spKey];
+                pasidSet.erase(key);
+                if (pasidSet.empty()) {
+                    stripe.pasidIndex.erase(spKey);
+                }
+
+                stripe.map.erase(it->first);
+                it = stripe.list.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void TLBCache::invalidateStream(StreamID streamID) {
     // Per-stripe iteration: acquire only one stripe lock at a time
     // to allow concurrent operations on other stripes

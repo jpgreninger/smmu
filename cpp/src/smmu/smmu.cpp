@@ -4122,32 +4122,40 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             break;
 
         case CommandType::TLBI_EL2_VA:
-            // CONF-GAP-6: VA+ASID targeted invalidation
+            // BUG-NEW-E fix: ARM §4.4.2.8 CMD_TLBI_EL2_VA — evict only EL2/EL2_E2H
+            // entries by VA+ASID.  Previous calls to invalidateByVARange / invalidateByVAAndASID
+            // over-invalidated by evicting ALL entries at that VA/ASID regardless of StreamWorld,
+            // including EL1_EL0 entries that must be preserved.
             if (ril) {
-                tlbCache->invalidateByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+                tlbCache->invalidateEL2ByVARange(iova, computeRILRangeEnd(iova, tg, num, scale), asid);
             } else {
-                tlbCache->invalidateByVAAndASID(iova, asid);
+                tlbCache->invalidateEL2ByVAAndASID(iova, asid);
             }
             break;
 
         case CommandType::TLBI_EL2_VAA:
-            // CONF-GAP-6: VAA EL2 — VA all-ASID invalidation
+            // BUG-NEW-E fix: ARM §4.4.2.9 CMD_TLBI_EL2_VAA — evict only EL2/EL2_E2H
+            // entries by VA (any ASID).  Previous calls to invalidateByVA over-invalidated
+            // by evicting ALL entries at that VA regardless of StreamWorld.
             if (ril) {
                 IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
                 IOVA cur = iova & ~PAGE_MASK;
                 while (cur <= rangeEnd) {
-                    tlbCache->invalidateByVA(cur);
+                    tlbCache->invalidateEL2ByVA(cur);
                     if (cur > UINT64_MAX - PAGE_SIZE) break;
                     cur += PAGE_SIZE;
                 }
             } else {
-                tlbCache->invalidateByVA(iova);
+                tlbCache->invalidateEL2ByVA(iova);
             }
             break;
 
         case CommandType::TLBI_EL2_ASID:
-            // ARM §4.4: ASID-targeted invalidation (CMD_TLBI_EL2_ASID, opcode 0x21)
-            tlbCache->invalidateByASID(asid);
+            // BUG-NEW-D fix: ARM §4.4.2.10 CMD_TLBI_EL2_ASID — only EL2_E2H entries
+            // with matching ASID should be evicted.  Previous call to invalidateByASID()
+            // over-invalidated by evicting ALL entries with that ASID regardless of
+            // StreamWorld, including EL1_EL0 entries that must be preserved.
+            tlbCache->invalidateEL2E2HByASID(asid);
             break;
 
         case CommandType::TLBI_S12_VMALL:
@@ -4421,11 +4429,11 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::TLBI_NH_VA:
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
-            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination when using the 4KB
-            // (TG=0b01) granule with NUM==0 AND SCALE==0 AND TTL==0b00 → CERROR_ILL.
-            // This degenerate case (single 4KB block, no level hint) is Reserved per §4.4.
-            // TG=0b11 (64KB) single-block invalidation with TTL=0 is valid.
-            if (command.ril && command.tg == 1u && command.num == 0u
+            // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination when TG!=0 AND
+            // NUM==0 AND SCALE==0 AND TTL==0b00 → CERROR_ILL.  Applies to ALL
+            // non-zero TG values (4KB=TG1, 16KB=TG2, 64KB=TG3); was incorrectly
+            // only checking TG==1 (4KB), missing TG=2 (16KB) and TG=3 (64KB).
+            if (command.ril && command.tg != 0u && command.num == 0u
                     && command.scale == 0u && command.ttl == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
@@ -4437,9 +4445,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::TLBI_NH_VAA:
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
-            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination (TG!=0, NUM==0,
             // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
-            if (command.ril && command.tg == 1u && command.num == 0u
+            if (command.ril && command.tg != 0u && command.num == 0u
                     && command.scale == 0u && command.ttl == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
@@ -4500,9 +4508,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
-            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination (TG!=0, NUM==0,
             // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
-            if (command.ril && command.tg == 1u && command.num == 0u
+            if (command.ril && command.tg != 0u && command.num == 0u
                     && command.scale == 0u && command.ttl == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
@@ -4519,9 +4527,9 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
-            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination (TG!=0, NUM==0,
             // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
-            if (command.ril && command.tg == 1u && command.num == 0u
+            if (command.ril && command.tg != 0u && command.num == 0u
                     && command.scale == 0u && command.ttl == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
@@ -4542,6 +4550,15 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::PRI_RESP: {
+            // BUG-NEW-A fix: ARM §4.5.2 — Resp==0b11 is Reserved/ILLEGAL → CERROR_ILL.
+            // The 2-bit Resp field is encoded in bits[1:0] of the flags field.
+            // Any Resp value of 0b11 must raise CERROR_ILL and GERROR_CMDQ_ERR before
+            // any further processing of the PRI response.
+            if ((command.flags & 0x03u) == 0x03u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-NEW-13 fix: §3.5.1/§4.5.2 — CMD_PRI_RESP must only retire the
             // HEAD entry of the PRI queue and must match on streamID, prgIndex, AND
             // PASID.  A linear scan of all queue entries was incorrect: it could

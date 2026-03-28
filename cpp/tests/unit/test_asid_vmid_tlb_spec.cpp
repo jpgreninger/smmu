@@ -66,6 +66,10 @@ protected:
     void SetUp() override {
         smmu_ = std::unique_ptr<SMMU>(new SMMU(SMMUConfiguration::createDefault()));
         smmu_->enable();
+        // BUG-NEW-D fix: Enable CR2.E2H so EL2_E2H streams retain their ASID tag in the TLB.
+        // Without E2H=1, EL2_E2H entries are stored with ASID=0, making ASID-targeted
+        // TLBI_EL2_ASID unable to match them (§6.3.12 / §4.4.2.10).
+        smmu_->setCR2(SMMU::CR2_E2H);
 
         PagePermissions perms(true, true, false);  // RW, no execute
 
@@ -83,11 +87,14 @@ protected:
         smmu_->mapPage(STREAM_VMID1_ASID10, PASID_ZERO, TEST_IOVA, PA_STREAM_10, perms);
 
         // ── Stream 0x20: VMID=2, ASID=20, stage2 enabled ──────────────────
+        // BUG-NEW-D fix: CMD_TLBI_EL2_ASID (§4.4.2.10) only evicts NS-EL2-E2H entries.
+        // Stream 0x20 must use STRW=EL2_E2H so TLBI_EL2_ASID(ASID=20) evicts its entry.
         StreamConfig cfg20;
         cfg20.translationEnabled = true;
         cfg20.stage1Enabled      = true;
-        cfg20.stage2Enabled      = true;
+        cfg20.stage2Enabled      = false;  // EL2_E2H uses stage-1 only
         cfg20.faultMode          = FaultMode::Terminate;
+        cfg20.strw               = StreamWorld::EL2_E2H;  // §4.4.2.10: must be EL2_E2H for TLBI_EL2_ASID
         cfg20.vmid               = VMID_2;   // NEW field — triggers compile error
         cfg20.asid               = ASID_20;  // NEW field — triggers compile error
         smmu_->configureStream(STREAM_VMID2_ASID20, cfg20);

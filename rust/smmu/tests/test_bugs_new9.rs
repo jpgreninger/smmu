@@ -54,7 +54,7 @@
 
 use smmu::types::{
     AccessType, CommandEntry, CommandType, PagePermissions, SecurityState, StreamConfig,
-    StreamID, IOVA, PA, PASID,
+    StreamID, StreamWorld, IOVA, PA, PASID,
 };
 use smmu::SMMU;
 
@@ -292,11 +292,15 @@ fn bug_new42_tlbi_el2_vaa_ril_range_evicts_second_page() {
     // Enable EL2 (IDR0.Hyp=1): required for TlbiEl2Vaa to proceed past the guard.
     smmu.set_hyp_supported(true);
 
-    // Stream 0x40: EL2-scoped stage-1 stream, page at VA=0x1000.
-    // Use stage1_only config; EL2 streams use a per-stream address space.
+    // Stream 0x40: El2E2h-scoped stage-1 stream, page at VA=0x1000.
+    // BUG-NEW-E fix: TlbiEl2Vaa only evicts El2/El2E2h entries; use El2E2h STRW
+    // so this entry is evictable by the range TLBI.  CR2.E2H=1 ensures ASID is
+    // tagged (though VAA does not filter by ASID, E2H=1 is set for correctness).
+    smmu.set_cr2(SMMU::CR2_E2H);
     {
         let s = sid(0x40);
         let mut cfg = StreamConfig::stage1_only();
+        cfg.strw = StreamWorld::El2E2h;
         cfg.t0sz = 0;
         smmu.configure_stream(s, cfg).unwrap();
         smmu.create_pasid(s, pasid(0)).unwrap();
@@ -309,10 +313,11 @@ fn bug_new42_tlbi_el2_vaa_ril_range_evicts_second_page() {
         ).unwrap();
     }
 
-    // Stream 0x41: EL2-scoped stage-1 stream, page at VA=0x2000.
+    // Stream 0x41: El2E2h-scoped stage-1 stream, page at VA=0x2000.
     {
         let s = sid(0x41);
         let mut cfg = StreamConfig::stage1_only();
+        cfg.strw = StreamWorld::El2E2h;
         cfg.t0sz = 0;
         smmu.configure_stream(s, cfg).unwrap();
         smmu.create_pasid(s, pasid(0)).unwrap();

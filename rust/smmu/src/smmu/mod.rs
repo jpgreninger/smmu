@@ -5874,7 +5874,10 @@ impl SMMU {
                             .to_string(),
                     ));
                 }
-                self.tlb_cache.invalidate_by_asid(command.asid);
+                // BUG-NEW-D fix: §4.4.2.10 — only NS-EL2-E2H entries should be evicted.
+                // The previous `invalidate_by_asid()` over-invalidated EL1_EL0 entries
+                // with the same ASID.  Use the EL2-E2H-scoped method instead.
+                self.tlb_cache.invalidate_el2_e2h_by_asid(command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             // ARM §4.4.2.1: CMD_TLBI_NH_ALL — VMID-scoped EL1_EL0 invalidation.
@@ -5942,12 +5945,12 @@ impl SMMU {
                 }
                 if command.ril {
                     // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
-                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for all non-zero TG values.
                     // Per §4.4: "Providing granule information without using TTL or a range
                     // invalidate has no purpose and this command encoding is Reserved."
-                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
-                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
-                    if command.tg != 0 && command.tg != 3
+                    // BUG-NEW-C fix: TG=3 (64KB) is NOT exempt — all non-zero TG values
+                    // with NUM=0, SCALE=0, TTL=0 are Reserved per ARM §4.4.
+                    if command.tg != 0
                         && command.num == 0 && command.scale == 0 && command.ttl == 0
                     {
                         self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -5974,9 +5977,13 @@ impl SMMU {
                     let range_end = command.start_address
                         .saturating_add(blocks.saturating_mul(granule_size))
                         .saturating_sub(1);
-                    self.tlb_cache.invalidate_by_va_range_and_asid(command.start_address, range_end, command.asid);
+                    // BUG-NEW-E fix: §4.4.2.8 — only NS-EL2/EL2-E2H entries should be evicted.
+                    // Previous `invalidate_by_va_range_and_asid()` over-invalidated EL1_EL0 entries.
+                    self.tlb_cache.invalidate_el2_by_va_range_and_asid(command.start_address, range_end, command.asid);
                 } else {
-                    self.tlb_cache.invalidate_by_va_and_asid(command.start_address, command.asid);
+                    // BUG-NEW-E fix: §4.4.2.8 — only NS-EL2/EL2-E2H entries should be evicted.
+                    // Previous `invalidate_by_va_and_asid()` over-invalidated EL1_EL0 entries.
+                    self.tlb_cache.invalidate_el2_by_va_and_asid(command.start_address, command.asid);
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -5992,12 +5999,12 @@ impl SMMU {
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 if command.ril {
                     // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
-                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for all non-zero TG values.
                     // Per §4.4: "Providing granule information without using TTL or a range
                     // invalidate has no purpose and this command encoding is Reserved."
-                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
-                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
-                    if command.tg != 0 && command.tg != 3
+                    // BUG-NEW-C fix: TG=3 (64KB) is NOT exempt — all non-zero TG values
+                    // with NUM=0, SCALE=0, TTL=0 are Reserved per ARM §4.4.
+                    if command.tg != 0
                         && command.num == 0 && command.scale == 0 && command.ttl == 0
                     {
                         self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -6073,11 +6080,11 @@ impl SMMU {
                 }
                 // BUG-NEW-42 fix: ARM §4.4.1.1 — TlbiEl2Vaa must honour RIL range fields.
                 if command.ril {
-                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
-                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
-                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
-                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
-                    if command.tg != 0 && command.tg != 3
+                    // ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for all non-zero TG values.
+                    // BUG-NEW-C fix: TG=3 (64KB) is NOT exempt — all non-zero TG values
+                    // with NUM=0, SCALE=0, TTL=0 are Reserved per ARM §4.4.
+                    if command.tg != 0
                         && command.num == 0 && command.scale == 0 && command.ttl == 0
                     {
                         self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -6104,16 +6111,20 @@ impl SMMU {
                     let range_end = command.start_address
                         .saturating_add(blocks.saturating_mul(granule_size))
                         .saturating_sub(1);
+                    // BUG-NEW-E fix: §4.4.2.9 — only NS-EL2/EL2-E2H entries should be evicted.
+                    // Previous loop called `invalidate_by_va()` which over-invalidated EL1_EL0.
                     let page_size: u64 = 4096;
                     let mut cur = command.start_address & !0xFFF_u64;
                     loop {
-                        self.tlb_cache.invalidate_by_va(cur);
+                        self.tlb_cache.invalidate_el2_by_va(cur);
                         if cur > u64::MAX - page_size { break; }
                         cur += page_size;
                         if cur > range_end { break; }
                     }
                 } else {
-                    self.tlb_cache.invalidate_by_va(command.start_address);
+                    // BUG-NEW-E fix: §4.4.2.9 — only NS-EL2/EL2-E2H entries should be evicted.
+                    // Previous `invalidate_by_va()` over-invalidated EL1_EL0 entries.
+                    self.tlb_cache.invalidate_el2_by_va(command.start_address);
                 }
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
@@ -6131,11 +6142,11 @@ impl SMMU {
                 // Use VMID+VA invalidation (any ASID) to preserve other VMIDs' entries.
                 // BUG-NEW-41 fix: ARM §4.4.1.1 — TlbiNhVaa must honour RIL range fields.
                 if command.ril {
-                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
-                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
-                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
-                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
-                    if command.tg != 0 && command.tg != 3
+                    // ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for all non-zero TG values.
+                    // BUG-NEW-C fix: TG=3 (64KB) is NOT exempt — all non-zero TG values
+                    // with NUM=0, SCALE=0, TTL=0 are Reserved per ARM §4.4.
+                    if command.tg != 0
                         && command.num == 0 && command.scale == 0 && command.ttl == 0
                     {
                         self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -6453,6 +6464,17 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::PriResp => {
+                // BUG-NEW-A fix: ARM §4.5.2 — the 2-bit Resp field encodes the response type.
+                // Resp==0b11 is Reserved/ILLEGAL → raise CERROR_ILL + GERROR_CMDQ_ERR.
+                // The Resp value is carried in bits[1:0] of the `flags` field.
+                let resp = command.flags & 0x03;
+                if resp == 0b11u32 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_PRI_RESP: Resp==0b11 is Reserved/ILLEGAL (ARM §4.5.2)".to_string(),
+                    ));
+                }
                 // ARM §3.5.1 / §6.3.98 / BUG-NEW-14 fix:
                 // The PRI queue is STRICT FIFO per §3.5.1.  CMD_PRI_RESP may only
                 // consume the HEAD entry.  If the head does not match the command's

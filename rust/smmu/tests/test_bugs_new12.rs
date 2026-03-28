@@ -216,9 +216,10 @@ fn new_bug1_tg3_is_64kb_page_at_4kb_offset_evicted() {
     assert!(r1.is_ok(), "precondition: BASE must translate");
     assert!(r2.is_ok(), "precondition: BASE+4096 must translate");
 
-    // Issue RIL TlbiNhVa: tg=3 (64KB per spec), num=0, scale=0.
+    // Issue RIL TlbiNhVa: tg=3 (64KB per spec), num=0, scale=0, ttl=1.
     // CORRECT range = 1 * 2^0 * 64KB = 64KB = [base, base+65535].
     // Page at base+4096 is inside this range → must be EVICTED.
+    // NOTE: ttl=1 avoids the Reserved combination (tg!=0, num=0, scale=0, ttl=0) per §4.4.
     let mut cmd = CommandEntry::new(CommandType::TlbiNhVa, 0, 0);
     cmd.start_address = base;
     cmd.asid          = 0;
@@ -227,6 +228,7 @@ fn new_bug1_tg3_is_64kb_page_at_4kb_offset_evicted() {
     cmd.tg            = 3; // 64KB per spec (current code falls into default=4KB → BUG)
     cmd.num           = 0;
     cmd.scale         = 0;
+    cmd.ttl           = 1; // non-zero TTL avoids Reserved combination (§4.4)
 
     smmu.submit_command(cmd).unwrap();
     smmu.process_command_queue().unwrap();
