@@ -3589,6 +3589,52 @@ impl SMMU {
         if transaction_type == TransactionType::AtsTranslated
             && (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0
         {
+            // NEW-BUG-3 fix: ARM §3.9.1.3 — AtsTranslated + ATSCHK=1 on a bypass stream
+            // must emit F_TRANSL_FORBIDDEN and abort.  The inner self.translate() on a
+            // bypass stream returns Ok (identity PA==IOVA), so recheck.is_err() would never
+            // fire.  Pre-check the stream configuration here and short-circuit to
+            // F_TRANSL_FORBIDDEN before the inner translate() is called.
+            let stream_is_bypass = self.streams
+                .get(&stream_id.as_u32())
+                .map(|ctx| !ctx.value().is_stage1_enabled() && !ctx.value().is_stage2_enabled())
+                .unwrap_or(false);
+            if stream_is_bypass {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::FTranslForbidden,
+                        stream_id: stream_id.as_u32(),
+                        pasid: pasid.as_u32(),
+                        address: iova.as_u64(),
+                        security_state,
+                        timestamp,
+                        // §7.3.8: F_TRANSL_FORBIDDEN CLASS field is RES0.
+                        event_class: 0,
+                        // §7.3.8: RnW (bit 100) IS defined; InD (bit 99) is RES0.
+                        rnw: !access.can_write(),
+                        // §7.3.20: SSV=1 when a SubstreamID was presented.
+                        ssv: pasid.as_u32() != 0,
+                        ..EventEntry::zeroed()
+                    };
+                    if let Ok(mut queue) = self.event_queue.write() {
+                        if queue.len() < self.event_queue_capacity {
+                            queue.push_back(event);
+                            self.event_count.fetch_add(1, Ordering::Relaxed);
+                            let prod = self.eventq_prod.load(Ordering::Relaxed);
+                            self.eventq_prod.store(
+                                Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
+                                Ordering::Release,
+                            );
+                        } else {
+                            drop(queue);
+                            self.toggle_ovflg_once();
+                        }
+                    }
+                }
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                return Err(TranslationError::PermissionViolation { access });
+            }
+
             // Snapshot both the event queue length and eventq_prod before the
             // internal re-check so we can fully undo what the inner translate()
             // does if the recheck fails.
@@ -5895,9 +5941,30 @@ impl SMMU {
                     ));
                 }
                 if command.ril {
+                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // Per §4.4: "Providing granule information without using TTL or a range
+                    // invalidate has no purpose and this command encoding is Reserved."
+                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
+                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
+                    if command.tg != 0 && command.tg != 3
+                        && command.num == 0 && command.scale == 0 && command.ttl == 0
+                    {
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_TLBI_EL2_VA: Reserved RIL parameter combination (TG!=0, NUM=0, SCALE=0, TTL=0) per ARM §4.4"
+                                .to_string(),
+                        ));
+                    }
+                    // NEW-BUG-1 fix: ARM §4.4.1.1 — TG field encoding:
+                    //   TG=0b01 (1) → 4KB granule
+                    //   TG=0b10 (2) → 16KB granule
+                    //   TG=0b11 (3) → 64KB granule
                     let granule_size: u64 = match command.tg {
-                        1 => 65536,
+                        1 => 4096,
                         2 => 16384,
+                        3 => 65536,
                         _ => 4096,
                     };
                     let shift = u32::from(command.scale.min(39));
@@ -5924,6 +5991,22 @@ impl SMMU {
             CommandType::TlbiNhVa => {
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 if command.ril {
+                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // Per §4.4: "Providing granule information without using TTL or a range
+                    // invalidate has no purpose and this command encoding is Reserved."
+                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
+                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
+                    if command.tg != 0 && command.tg != 3
+                        && command.num == 0 && command.scale == 0 && command.ttl == 0
+                    {
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_TLBI_NH_VA: Reserved RIL parameter combination (TG!=0, NUM=0, SCALE=0, TTL=0) per ARM §4.4"
+                                .to_string(),
+                        ));
+                    }
                     // Range invalidation: compute range from tg, num, scale.
                     // BUG-RUST-3 fix: SCALE is a 6-bit field; values that would produce
                     // a shift ≥ 64 on u64 must be handled without overflow.
@@ -5931,9 +6014,14 @@ impl SMMU {
                     // (shift=39 → 2^39 blocks); values above 39 are capped to 39 (BUG-NEW-E).
                     // Use checked_shl and saturating arithmetic throughout so that any
                     // out-of-range SCALE degenerates gracefully instead of panicking.
+                    // NEW-BUG-1 fix: ARM §4.4.1.1 — TG field encoding:
+                    //   TG=0b01 (1) → 4KB granule
+                    //   TG=0b10 (2) → 16KB granule
+                    //   TG=0b11 (3) → 64KB granule
                     let granule_size: u64 = match command.tg {
-                        1 => 65536,
+                        1 => 4096,
                         2 => 16384,
+                        3 => 65536,
                         _ => 4096,
                     };
                     // BUG-AUDIT-1 fix: ARM IHI0070G.b §4.4.1.1 — SMMU RIL range formula is:
@@ -5985,9 +6073,28 @@ impl SMMU {
                 }
                 // BUG-NEW-42 fix: ARM §4.4.1.1 — TlbiEl2Vaa must honour RIL range fields.
                 if command.ril {
+                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
+                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
+                    if command.tg != 0 && command.tg != 3
+                        && command.num == 0 && command.scale == 0 && command.ttl == 0
+                    {
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_TLBI_EL2_VAA: Reserved RIL parameter combination (TG!=0, NUM=0, SCALE=0, TTL=0) per ARM §4.4"
+                                .to_string(),
+                        ));
+                    }
+                    // NEW-BUG-1 fix: ARM §4.4.1.1 — TG field encoding:
+                    //   TG=0b01 (1) → 4KB granule
+                    //   TG=0b10 (2) → 16KB granule
+                    //   TG=0b11 (3) → 64KB granule
                     let granule_size: u64 = match command.tg {
-                        1 => 65536,
+                        1 => 4096,
                         2 => 16384,
+                        3 => 65536,
                         _ => 4096,
                     };
                     let shift = u32::from(command.scale.min(39));
@@ -6024,9 +6131,28 @@ impl SMMU {
                 // Use VMID+VA invalidation (any ASID) to preserve other VMIDs' entries.
                 // BUG-NEW-41 fix: ARM §4.4.1.1 — TlbiNhVaa must honour RIL range fields.
                 if command.ril {
+                    // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
+                    // NUM==0, SCALE==0, TTL==0b00 is Reserved for 4KB and 16KB granules.
+                    // For TG=0b11 (64KB), a single-granule range covers 64KB which is
+                    // architecturally distinct from a non-RIL single-address TLBI (4KB).
+                    if command.tg != 0 && command.tg != 3
+                        && command.num == 0 && command.scale == 0 && command.ttl == 0
+                    {
+                        self.write_cmdq_cons_err(Self::CERROR_ILL);
+                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                        return Err(SMMUError::InvalidCommandParameters(
+                            "CMD_TLBI_NH_VAA: Reserved RIL parameter combination (TG!=0, NUM=0, SCALE=0, TTL=0) per ARM §4.4"
+                                .to_string(),
+                        ));
+                    }
+                    // NEW-BUG-1 fix: ARM §4.4.1.1 — TG field encoding:
+                    //   TG=0b01 (1) → 4KB granule
+                    //   TG=0b10 (2) → 16KB granule
+                    //   TG=0b11 (3) → 64KB granule
                     let granule_size: u64 = match command.tg {
-                        1 => 65536,
+                        1 => 4096,
                         2 => 16384,
+                        3 => 65536,
                         _ => 4096,
                     };
                     let shift = u32::from(command.scale.min(39));

@@ -586,6 +586,15 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     // is emitted.
     if (transactionType == TransactionType::AtsTranslated
         && (cr0_.load(std::memory_order_acquire) & CR0_ATSCHK) != 0u) {
+        // NEW-BUG-3 fix: ARM §3.9.1.3 — bypass streams cannot be re-validated by
+        // ATSCHK because there is no stage-1 or stage-2 table to check against.
+        // For STE.Config==Bypass (bypassEnabled=true), the SMMU must unconditionally
+        // return F_TRANSL_FORBIDDEN regardless of any translation result.
+        if (streamCfgSnapshot.bypassEnabled) {
+            generateEvent(EventType::F_TRANSL_FORBIDDEN, streamID, pasid, iova,
+                          securityState, false, 0, accessType, false, 0);
+            return makeTranslationError(SMMUError::PageNotMapped);
+        }
         // Re-translate as Ordinary to validate the pre-translated address.
         TranslationResult recheck = performTwoStageTranslation(
             streamID, pasid, iova, accessType, securityState,
@@ -4011,18 +4020,24 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
     // MUST NOT be gated by PTM.  PTM only affects the receiveBroadcastTLBI() path.
 
     // CONF-GAP-8: Helper to compute range end for RIL TLBI.
-    // Granule size in bytes: tg=0→4KB, tg=1→64KB, tg=2→16KB
+    // Granule size in bytes per ARM §4.4.1.1 table:
+    //   tg=0b00 (0) → not a range operation (treated as 4KB fallback)
+    //   tg=0b01 (1) → 4KB  (4096 bytes)
+    //   tg=0b10 (2) → 16KB (16384 bytes)
+    //   tg=0b11 (3) → 64KB (65536 bytes)
     // ARM §4.4.1.1: Range covers (NUM+1) * 2^SCALE granules starting at iova.
     // SCALE is used directly as the exponent — NOT multiplied by 5.
     // (The 5*SCALE encoding is a PE TLBI instruction artifact, not SMMU command encoding.)
     // BUG-AUDIT-1 fix: replace '5u * effectiveScale' with effectiveScale directly.
+    // NEW-BUG-1 fix: correct TG encoding per §4.4.1.1 — tg=1→4KB, tg=2→16KB, tg=3→64KB.
     // Max SCALE=39 → max shift=39 bits, safely within uint64_t (no UB).
     auto computeRILRangeEnd = [](IOVA start, uint8_t tg_, uint8_t num_, uint8_t scale_) -> IOVA {
         uint64_t granule;
         switch (tg_) {
-            case 1:  granule = 64u * 1024u; break;
-            case 2:  granule = 16u * 1024u; break;
-            default: granule = 4u  * 1024u; break;
+            case 1:  granule = 4u   * 1024u; break;  // §4.4.1.1: TG=0b01 = 4KB
+            case 2:  granule = 16u  * 1024u; break;  // §4.4.1.1: TG=0b10 = 16KB
+            case 3:  granule = 64u  * 1024u; break;  // §4.4.1.1: TG=0b11 = 64KB
+            default: granule = 4u   * 1024u; break;  // tg=0: treat as 4KB (non-range fallback)
         }
         // ARM §4.4.1.1: effective SCALE range is 0-39; values > 39 treated as 39.
         // Using SCALE directly as the shift: max shift = 39, well within uint64_t.
@@ -4406,12 +4421,30 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
         case CommandType::TLBI_NH_VA:
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
+            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination when using the 4KB
+            // (TG=0b01) granule with NUM==0 AND SCALE==0 AND TTL==0b00 → CERROR_ILL.
+            // This degenerate case (single 4KB block, no level hint) is Reserved per §4.4.
+            // TG=0b11 (64KB) single-block invalidation with TTL=0 is valid.
+            if (command.ril && command.tg == 1u && command.num == 0u
+                    && command.scale == 0u && command.ttl == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_VAA:
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
+            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
+            if (command.ril && command.tg == 1u && command.num == 0u
+                    && command.scale == 0u && command.ttl == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4467,6 +4500,14 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
+            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
+            if (command.ril && command.tg == 1u && command.num == 0u
+                    && command.scale == 0u && command.ttl == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
@@ -4474,6 +4515,14 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-NEW-24 fix: ARM §4.4.2.9 — "If SMMU_IDR0.Hyp==0, CERROR_ILL."
             // Same pattern as TLBI_EL2_ALL (§4.4.2.7): hypervisor extension required.
             if ((getIDR0() & (1u << 9u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // NEW-BUG-2 fix: ARM §4.4 — Reserved RIL combination (TG=0b01, NUM==0,
+            // SCALE==0, TTL==0b00) → CERROR_ILL. See TLBI_NH_VA case for rationale.
+            if (command.ril && command.tg == 1u && command.num == 0u
+                    && command.scale == 0u && command.ttl == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
