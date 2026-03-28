@@ -35,7 +35,8 @@ void setupS1Stream(SMMU& smmu, StreamID sid = SID, PASID pasid = PID,
     StreamConfig cfg;
     cfg.translationEnabled = true;
     cfg.stage1Enabled      = true;
-    cfg.stage2Enabled      = false;
+    // BUG-NEW-J fix: EATS==2 (split-stage ATS) requires two-stage translation per ARM §5.2.
+    cfg.stage2Enabled      = (eats == 2u);
     cfg.bypassEnabled      = false;
     cfg.eats               = eats;
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());

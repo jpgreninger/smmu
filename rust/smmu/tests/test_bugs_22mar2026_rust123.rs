@@ -79,13 +79,13 @@ fn make_atschk_smmu() -> SMMU {
     smmu
 }
 
-/// Configure a stage-1-only ATS stream (eats=2) and map IOVA 0x1000.
+/// Configure a stage-1-only ATS stream (eats=1) and map IOVA 0x1000.
 /// IOVA 0x9000 is intentionally left unmapped so the ATSCHK recheck fails
 /// when the caller uses that address.
 fn setup_ats_stream(smmu: &SMMU, stream_id: StreamID) {
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
-    cfg.eats = 2; // full ATS support required for AtsTranslated
+    cfg.eats = 1; // stage-1-only ATS (eats=2 requires two-stage per §5.2)
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     smmu.map_page(
@@ -255,7 +255,7 @@ fn rust1_atschk0_translated_advances_by_one() {
     let stream_id = sid(0xAC_14);
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0;
-    cfg.eats = 2;
+    cfg.eats = 1; // stage-1-only ATS (eats=2 requires two-stage per §5.2)
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     // IOVA 0x9000 unmapped.
@@ -315,7 +315,7 @@ fn rust3_full_queue_atschk_failure_prod_must_not_advance() {
     let ats_sid = sid(0xAC_40);
     let mut ats_cfg = StreamConfig::stage1_only();
     ats_cfg.t0sz = 0;
-    ats_cfg.eats = 2;
+    ats_cfg.eats = 1; // stage-1-only ATS (eats=2 requires two-stage per §5.2)
     smmu.configure_stream(ats_sid, ats_cfg).unwrap();
     smmu.create_pasid(ats_sid, pasid(0)).unwrap();
     // IOVA 0x9000 unmapped.
@@ -391,7 +391,7 @@ fn rust1_rust3_prod_cons_consistency_after_atschk_failure() {
     let ats_sid = sid(0xAC_50);
     let mut ats_cfg = StreamConfig::stage1_only();
     ats_cfg.t0sz = 0;
-    ats_cfg.eats = 2;
+    ats_cfg.eats = 1; // stage-1-only ATS (eats=2 requires two-stage per §5.2)
     smmu.configure_stream(ats_sid, ats_cfg).unwrap();
     smmu.create_pasid(ats_sid, pasid(0)).unwrap();
     // IOVA 0x9000 unmapped.

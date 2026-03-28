@@ -528,6 +528,10 @@ pub struct SMMU {
     /// When `false`, `get_idr0()` clears bit 0 and those commands must raise
     /// `CERROR_ILL` (ARM §4.4.3.1/§4.4.3.2).
     s2p_supported: AtomicBool,
+
+    /// BUG-NEW-G fix: IDR0.PRI (bit 16) is configurable to test PRI==0 CERROR_ILL behavior.
+    /// When `false`, `get_idr0()` clears bit 16 and CMD_PRI_RESP raises CERROR_ILL.
+    pri_supported: AtomicBool,
 }
 
 impl SMMU {
@@ -868,6 +872,8 @@ impl SMMU {
             hyp_supported: AtomicBool::new(true),
             // BUG-NEW-39: S2P=true by default (stage-2 TLBI commands supported).
             s2p_supported: AtomicBool::new(true),
+            // BUG-NEW-G: PRI=true by default (PRI queue supported).
+            pri_supported: AtomicBool::new(true),
         }
     }
 
@@ -1205,7 +1211,7 @@ impl SMMU {
         | (1u32 << 12)       // ASID16
         | (1u32 << 14)       // SEV (stall model)
         | (1u32 << 15)       // ATOS (GATOS implemented)
-        | (1u32 << 16)       // PRI
+        | if self.pri_supported.load(Ordering::Acquire) { 1u32 << 16 } else { 0 } // PRI: configurable (BUG-NEW-G fix)
         | (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 17 } else { 0 })  // VMW: gated on S2P (BUG-A fix §6.3.1)
         | (1u32 << 18)       // VMID16
         | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
@@ -1794,6 +1800,14 @@ impl SMMU {
         self.s2p_supported.store(enabled, Ordering::Release);
     }
 
+    /// BUG-NEW-G fix: Controls IDR0 bit 16 (PRI) and the CERROR_ILL gate on CMD_PRI_RESP.
+    ///
+    /// - `true` (default): IDR0.PRI=1, CMD_PRI_RESP processed normally.
+    /// - `false`: IDR0.PRI=0, CMD_PRI_RESP raises CERROR_ILL (ARM §4.5.2).
+    pub fn set_pri_supported(&self, enabled: bool) {
+        self.pri_supported.store(enabled, Ordering::Release);
+    }
+
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
     ///
     /// When SMMUEN=0 and this flag is true, all transactions are aborted
@@ -2332,6 +2346,45 @@ impl SMMU {
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_CD: S1STALLD==1 AND CD.S==1 is ILLEGAL (ARM §5.5 CdIllegal line 9748)".to_string(),
+            ));
+        }
+
+        // BUG-NEW-J fix: ARM §5.2 SteIllegal() — EATS field validity checks.
+        // Per ARM IHI0070G.b §5.2 SteIllegal() pseudocode lines 8235–8257:
+        //   EATS==0b10 (split-stage ATS) requires two-stage translation (stage1+stage2 enabled),
+        //   and S2S must be 0.
+        //   EATS==0b01 (stage-2 ATS) AND S2S==1 AND stage2_enabled → C_BAD_STE.
+        let two_stage = config.stage1_enabled && config.stage2_enabled;
+        if config.eats == 2 && (!two_stage || config.s2_stall) {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: EATS==0b10 requires two-stage (stage1+stage2) with S2S=0 (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+        if config.eats == 1 && config.s2_stall && config.stage2_enabled {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: EATS==0b01 with S2S=1 and stage-2 enabled is ILLEGAL (ARM §5.2 SteIllegal)".to_string(),
             ));
         }
 
@@ -6497,6 +6550,14 @@ impl SMMU {
                     self.signal_gerror(Self::GERROR_CMDQ_ERR);
                     return Err(SMMUError::InvalidCommandParameters(
                         "CMD_PRI_RESP: Resp==0b11 is Reserved/ILLEGAL (ARM §4.5.2)".to_string(),
+                    ));
+                }
+                // BUG-NEW-G fix: ARM §4.5.2 — CMD_PRI_RESP is ILLEGAL when IDR0.PRI==0.
+                if (self.get_idr0() & (1 << 16)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_PRI_RESP: ILLEGAL — IDR0.PRI==0 (ARM §4.5.2)".to_string(),
                     ));
                 }
                 // ARM §3.5.1 / §6.3.98 / BUG-NEW-14 fix:

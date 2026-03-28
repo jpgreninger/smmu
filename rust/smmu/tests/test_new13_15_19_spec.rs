@@ -30,7 +30,7 @@ fn make_smmu_s1_ats() -> SMMU {
     let smmu = make_enabled_smmu();
     let sid = StreamID::new(1).unwrap();
     let pasid = PASID::new(0).unwrap();
-    let cfg = StreamConfig { eats: 2, ..StreamConfig::stage1_only() };
+    let cfg = StreamConfig { eats: 2, stage2_enabled: true, ..StreamConfig::stage1_only() };
     smmu.configure_stream(sid, cfg).unwrap();
     smmu.create_pasid(sid, pasid).unwrap();
     let iova = IOVA::new(0x1000).unwrap();

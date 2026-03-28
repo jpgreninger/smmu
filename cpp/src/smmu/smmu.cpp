@@ -121,6 +121,8 @@ SMMU::SMMU()
       hypSupported_(true),
       // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
       s2pSupported_(true),
+      // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
+      priSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -185,6 +187,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       hypSupported_(true),
       // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
       s2pSupported_(true),
+      // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
+      priSupported_(true),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -1075,6 +1079,22 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // reaches here is STALL_MODEL==0b00 with s1Stalld==true AND faultMode==Stall (CD.S==1).
     if (config.stage1Enabled && config.s1Stalld && config.faultMode == FaultMode::Stall) {
         generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-NEW-J fix: ARM §5.2 SteIllegal() — EATS field validity (lines 8235–8257).
+    // EATS==0b10 (split-stage ATS): requires two-stage translation (stage1+stage2),
+    //   and S2S must be 0.  Any other combination with EATS==0b10 → C_BAD_STE.
+    // EATS==0b01 (stage-2 ATS): illegal when S2S==1 and stage2 is enabled → C_BAD_STE.
+    bool twoStage = config.stage1Enabled && config.stage2Enabled;
+    if (config.eats == 2u) {
+        if (!twoStage || config.s2s) {
+            generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+            return makeVoidError(SMMUError::InvalidConfiguration);
+        }
+    }
+    if (config.eats == 1u && config.s2s && config.stage2Enabled) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
@@ -3230,7 +3250,7 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
-         | (1u << 16)       // PRI: page request interface supported
+         | (priSupported_.load(std::memory_order_acquire) ? (1u << 16) : 0u)  // PRI: configurable (BUG-NEW-G fix §4.5.2)
          | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 17) : 0u)  // VMW: gated on S2P (BUG-A fix §6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
@@ -3380,6 +3400,29 @@ void SMMU::setS2PSupported(bool enabled) {
 
 bool SMMU::isS2PSupported() const {
     return s2pSupported_.load(std::memory_order_acquire);
+}
+
+// BUG-NEW-G fix: IDR0.PRI (bit 16) is now configurable so the CERROR_ILL guard
+// for CMD_PRI_RESP (ARM §4.5.2) can be tested with PRI==0.
+void SMMU::setPRISupported(bool enabled) {
+    priSupported_.store(enabled, std::memory_order_release);
+}
+
+// BUG-NEW-H fix: ARM §8.1 — PRIQ_CONS.OVACKFLG (bit 31) is written by software to
+// acknowledge a PRI queue overflow.  Provides C++ API parity with Rust set_priq_cons_ovackflg().
+void SMMU::setPriqConsOvackflg(uint8_t value) {
+    // Atomically set or clear bit 31 (OVACKFLG) while preserving the rest of PRIQ_CONS.
+    uint32_t expected = priqCons.load(std::memory_order_acquire);
+    uint32_t desired;
+    do {
+        if (value != 0u) {
+            desired = expected | (1u << 31u);
+        } else {
+            desired = expected & ~(1u << 31u);
+        }
+    } while (!priqCons.compare_exchange_weak(expected, desired,
+                                              std::memory_order_acq_rel,
+                                              std::memory_order_acquire));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4565,6 +4608,12 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // Any Resp value of 0b11 must raise CERROR_ILL and GERROR_CMDQ_ERR before
             // any further processing of the PRI response.
             if ((command.flags & 0x03u) == 0x03u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // BUG-NEW-G fix: ARM §4.5.2 — CMD_PRI_RESP is ILLEGAL when IDR0.PRI==0.
+            if ((getIDR0() & (1u << 16u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;

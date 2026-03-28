@@ -291,6 +291,13 @@ public:
     /// Returns true when IDR0.S2P=1 (stage-2 translation supported).
     bool isS2PSupported() const;
 
+    /// BUG-NEW-G fix: Controls IDR0.PRI (bit 16) and CERROR_ILL gate on CMD_PRI_RESP (ARM §4.5.2).
+    /// Default true. Set false to test IDR0.PRI==0 behavior.
+    void setPRISupported(bool enabled);
+
+    /// BUG-NEW-H fix: Write PRIQ_CONS.OVACKFLG (bit 31) — software overflow acknowledgment (ARM §8.1).
+    void setPriqConsOvackflg(uint8_t value);
+
     // §6.3.4 SMMU_STRTAB_BASE_CFG: LOG2SIZE field (CT-04)
     /// Set the number of stream table entries as 2^log2size.
     /// StreamIDs >= 2^log2size will generate C_BAD_STREAMID.
@@ -525,6 +532,8 @@ private:
     // When true (default): IDR0 bit 0 = 1; TLBI_S12_VMALL and TLBI_S2_IPA are permitted.
     // When false: IDR0 bit 0 = 0; those commands raise CERROR_ILL.
     std::atomic<bool> s2pSupported_;    ///< IDR0.S2P bit; default true
+
+    std::atomic<bool> priSupported_;   ///< BUG-NEW-G: IDR0.PRI (bit 16) configurable for testing
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).
