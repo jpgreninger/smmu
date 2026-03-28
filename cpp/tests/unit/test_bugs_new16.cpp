@@ -5,26 +5,42 @@
 // regression/baseline test (which passes both before and after).
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// NEW-AUDIT-04 (Both §4.3.3 / §4.3.4): CMD_CFGI_CD / CMD_CFGI_CD_ALL missing
-// stage-1 guard
+// NEW-AUDIT-04 (Both §4.3.3 / §4.3.4): CMD_CFGI_CD / CMD_CFGI_CD_ALL guard
+// condition clarification
 //
-//   ARM IHI0070G.b §4.3.3 line 5362:
-//     "This command raises CERROR_ILL when stage 1 is not implemented."
-//   ARM IHI0070G.b §4.3.4 line 5388:
-//     "This command raises CERROR_ILL when stage 1 is not implemented."
+//   ARM IHI0070G.b §4.3.3 line 5362 / §4.3.4 line 5388:
+//     "This command raises CERROR_ILL when stage 1 is not implemented
+//      (SMMU_IDR0.S1P == 0)."
 //
-//   When a stream is configured without stage-1 (bypass-only or stage-2-only),
-//   issuing CMD_CFGI_CD or CMD_CFGI_CD_ALL for that stream must:
-//     - Return CERROR_ILL in CMDQ_CONS.ERR.
-//     - Toggle GERROR.CMDQ_ERR (bit 0).
+//   The guard is on the SMMU-GLOBAL IDR0.S1P capability bit, NOT on whether
+//   a specific target stream uses stage-1.  When IDR0.S1P==1 (default), ALL
+//   CFGI_CD and CFGI_CD_ALL commands must succeed silently — even those
+//   targeting bypass-only or stage-2-only streams — because the SMMU hardware
+//   as a whole supports stage-1 and may have other streams with CDs cached.
 //
-//   Current behavior (WRONG): both commands execute silently — no CERROR_ILL,
-//   no GERROR.CMDQ_ERR.
+//   When IDR0.S1P==0 (global stage-1 absent), any CFGI_CD or CFGI_CD_ALL
+//   must raise CERROR_ILL regardless of the target stream's configuration.
 //
-//   BEFORE FIX: GERROR.CMDQ_ERR remains 0 → failing tests FAIL.
-//   AFTER FIX:  GERROR.CMDQ_ERR is set + CERROR_ILL in CMDQ_CONS.ERR → PASS.
+//   Tests updated (BUG-AUDIT-NEW-02 correction):
+//     Test 1 (BypassStream_CfgiCd_NoError_WhenS1PEnabled):
+//       IDR0.S1P==1 (default), bypass stream → NO CERROR_ILL.
+//       BEFORE FIX: code checked per-stream stage1Enabled, which is false for
+//       bypass → incorrectly raised CERROR_ILL → TEST FAILED.
+//       AFTER FIX:  guard checks IDR0.S1P (==1) → no error → TEST PASSES.
 //
-//   Baseline/regression tests verify stage-1-enabled streams are NOT affected.
+//     Test 2 (Stage2OnlyStream_CfgiCd_NoError_WhenS1PEnabled):
+//       IDR0.S1P==1 (default), stage-2-only stream → NO CERROR_ILL.
+//       BEFORE FIX: same per-stream bug → incorrectly raised CERROR_ILL → FAILED.
+//       AFTER FIX:  IDR0.S1P==1 → no error → PASSES.
+//
+//     Test 3 (Stage1Stream_CfgiCd_NoError — unchanged):
+//       Regression: stage-1-enabled stream + IDR0.S1P==1 → no error.
+//       Passes both before and after the fix.
+//
+//     Test 4 (BypassStream_CfgiCdAll_NoError_WhenS1PEnabled):
+//       IDR0.S1P==1 (default), bypass stream + CFGI_CD_ALL → NO CERROR_ILL.
+//       BEFORE FIX: per-stream bug → incorrectly raised CERROR_ILL → FAILED.
+//       AFTER FIX:  IDR0.S1P==1 → no error → PASSES.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // NEW-AUDIT-05 (Both §7.3.12 line 27078): injectWalkEabt() missing two-stage
@@ -140,62 +156,78 @@ static void submitCfgiCdAll(SMMU& smmu, StreamID sid) {
 // ============================================================================
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: bypass-only stream + CMD_CFGI_CD → CERROR_ILL + GERROR_CMDQ_ERR
+// Test 1: bypass-only stream + CMD_CFGI_CD + IDR0.S1P==1 → NO error
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// ARM §4.3.3 line 5362: "This command raises CERROR_ILL when stage 1 is not
-// implemented."  A bypass-only stream has stage-1 disabled → CERROR_ILL.
+// ARM §4.3.3 line 5362 / spec line 6605: "This command raises CERROR_ILL when
+// stage 1 is not implemented (SMMU_IDR0.S1P == 0)."  The guard condition is
+// SMMU-global IDR0.S1P, NOT whether the target stream uses stage-1.
 //
-// BEFORE FIX: CMD_CFGI_CD executes silently; GERROR.CMDQ_ERR remains 0 → FAILS.
-// AFTER FIX:  GERROR.CMDQ_ERR toggled + CMDQ_CONS.ERR=CERROR_ILL → PASSES.
-TEST(NewAudit04CfgiCdStage1Guard, BypassStream_CfgiCd_RaisesCerrorIll) {
-    // §4.3.3: CMD_CFGI_CD on a bypass-only stream (no stage-1) must raise CERROR_ILL.
+// When IDR0.S1P==1 (the default), CFGI_CD must succeed silently even for a
+// bypass-only stream, because the SMMU globally supports stage-1.
+//
+// BEFORE FIX (wrong behavior): code checked per-stream stage1Enabled (false for
+//   bypass) → incorrectly raised CERROR_ILL → GERROR.CMDQ_ERR was set → FAILS.
+// AFTER FIX (correct behavior): guard checks IDR0.S1P (==1) → no error → PASSES.
+TEST(NewAudit04CfgiCdStage1Guard, BypassStream_CfgiCd_NoError_WhenS1PEnabled) {
+    // §4.3.3 / spec line 6605: CMD_CFGI_CD on a bypass-only stream with
+    // IDR0.S1P==1 (default) must NOT raise CERROR_ILL.  The guard fires only
+    // when the SMMU globally lacks stage-1 (IDR0.S1P==0), not when a specific
+    // stream happens to use bypass mode.
     SMMU smmu;
     enableSMMU(smmu);
 
     const StreamID sid = 0x40u;
 
-    // Configure a bypass-only stream (stage-1 not implemented for this stream).
+    // Configure a bypass-only stream (stage-1 not used by this particular stream).
     smmu.configureStream(sid, makeBypassConfig());
     smmu.enableStream(sid);
 
     // Clear any setup events before the test assertion.
     smmu.clearEventQueue();
 
+    // IDR0.S1P is 1 by default (bit 1 is always set when S1P is supported).
     // Submit CMD_CFGI_CD targeting the bypass stream.
     submitCfgiCd(smmu, sid, /*pasid=*/0u);
 
-    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
-        << "NEW-AUDIT-04: CMD_CFGI_CD on a bypass-only stream (stage-1 not "
-           "implemented) must toggle GERROR.CMDQ_ERR (bit 0). "
-           "ARM §4.3.3 line 5362: 'This command raises CERROR_ILL when stage 1 "
-           "is not implemented.' "
-           "Current code: no stage-1 guard in CFGI_CD handler → GERROR unchanged. "
+    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD on a bypass-only stream must NOT toggle "
+           "GERROR.CMDQ_ERR when IDR0.S1P==1 (global stage-1 supported). "
+           "ARM §4.3.3 spec line 6605: guard fires on IDR0.S1P==0 (SMMU-global), "
+           "not on per-stream stage1Enabled. "
+           "BEFORE FIX: code checked per-stream stage1Enabled=false → incorrectly "
+           "raised CERROR_ILL. "
+           "AFTER FIX: code checks IDR0.S1P==1 → no error. "
            "GERROR value: 0x" << std::hex << smmu.getGerror();
 
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
-        << "NEW-AUDIT-04: CMD_CFGI_CD on bypass stream must set CMDQ_CONS.ERR to "
-           "CERROR_ILL (=1) per ARM §4.3.3 line 5362. "
+    EXPECT_NE(smmu.getCmdqConsErr(), CERROR_ILL)
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD on bypass stream with IDR0.S1P==1 must "
+           "NOT set CMDQ_CONS.ERR to CERROR_ILL. "
            "Got CMDQ_CONS.ERR=" << smmu.getCmdqConsErr();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2: stage-2-only stream + CMD_CFGI_CD → CERROR_ILL + GERROR_CMDQ_ERR
+// Test 2: stage-2-only stream + CMD_CFGI_CD + IDR0.S1P==1 → NO error
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// ARM §4.3.3: Stage-2-only (stage2Enabled=true, stage1Enabled=false) also has
-// "stage 1 not implemented" for this stream → CERROR_ILL.
+// ARM §4.3.3 spec line 6605: guard condition is IDR0.S1P (SMMU-global), not
+// per-stream stage1Enabled.  A stage-2-only stream with IDR0.S1P==1 must not
+// cause CERROR_ILL when CFGI_CD is issued.
 //
-// BEFORE FIX: CMD_CFGI_CD executes silently → GERROR.CMDQ_ERR remains 0 → FAILS.
-// AFTER FIX:  GERROR.CMDQ_ERR toggled + CMDQ_CONS.ERR=CERROR_ILL → PASSES.
-TEST(NewAudit04CfgiCdStage1Guard, Stage2OnlyStream_CfgiCd_RaisesCerrorIll) {
-    // §4.3.3: CMD_CFGI_CD on a stage-2-only stream (no stage-1 CD) → CERROR_ILL.
+// BEFORE FIX (wrong behavior): code checked per-stream stage1Enabled=false →
+//   incorrectly raised CERROR_ILL → GERROR.CMDQ_ERR was set → FAILS.
+// AFTER FIX (correct behavior): IDR0.S1P==1 → no error → PASSES.
+TEST(NewAudit04CfgiCdStage1Guard, Stage2OnlyStream_CfgiCd_NoError_WhenS1PEnabled) {
+    // §4.3.3 / spec line 6605: CMD_CFGI_CD on a stage-2-only stream with
+    // IDR0.S1P==1 (default) must NOT raise CERROR_ILL.  The spec condition
+    // is the SMMU-global S1P bit; a stage-2-only stream still runs on an SMMU
+    // that supports stage-1 globally, so the guard must not fire.
     SMMU smmu;
     enableSMMU(smmu);
 
     const StreamID sid = 0x41u;
 
-    // Configure a stage-2-only stream.
+    // Configure a stage-2-only stream (stage-1 not used by this stream).
     smmu.configureStream(sid, makeStage2OnlyConfig());
     smmu.enableStream(sid);
 
@@ -203,18 +235,19 @@ TEST(NewAudit04CfgiCdStage1Guard, Stage2OnlyStream_CfgiCd_RaisesCerrorIll) {
 
     submitCfgiCd(smmu, sid, /*pasid=*/0u);
 
-    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
-        << "NEW-AUDIT-04: CMD_CFGI_CD on a stage-2-only stream (stage-1 not "
-           "implemented) must toggle GERROR.CMDQ_ERR (bit 0). "
-           "ARM §4.3.3 line 5362: 'This command raises CERROR_ILL when stage 1 "
-           "is not implemented.' "
-           "A stage-2-only stream has no CD — stage 1 is not implemented. "
-           "Current code: no stage-1 guard → GERROR unchanged. "
+    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD on a stage-2-only stream must NOT toggle "
+           "GERROR.CMDQ_ERR when IDR0.S1P==1. "
+           "ARM §4.3.3 spec line 6605: 'This command raises CERROR_ILL when stage 1 "
+           "is not implemented (SMMU_IDR0.S1P == 0).' "
+           "The guard checks IDR0.S1P, not per-stream stage1Enabled. "
+           "BEFORE FIX: per-stream check raised CERROR_ILL incorrectly. "
+           "AFTER FIX: IDR0.S1P==1 → no error. "
            "GERROR value: 0x" << std::hex << smmu.getGerror();
 
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
-        << "NEW-AUDIT-04: CMD_CFGI_CD on stage-2-only stream must set "
-           "CMDQ_CONS.ERR=CERROR_ILL per ARM §4.3.3. "
+    EXPECT_NE(smmu.getCmdqConsErr(), CERROR_ILL)
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD on stage-2-only stream with IDR0.S1P==1 "
+           "must NOT set CMDQ_CONS.ERR to CERROR_ILL. "
            "Got CMDQ_CONS.ERR=" << smmu.getCmdqConsErr();
 }
 
@@ -257,16 +290,19 @@ TEST(NewAudit04CfgiCdStage1Guard, Stage1Stream_CfgiCd_NoError) {
 // ============================================================================
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 4: bypass-only stream + CMD_CFGI_CD_ALL → CERROR_ILL + GERROR_CMDQ_ERR
+// Test 4: bypass-only stream + CMD_CFGI_CD_ALL + IDR0.S1P==1 → NO error
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// ARM §4.3.4 line 5388: "This command raises CERROR_ILL when stage 1 is not
-// implemented."
+// ARM §4.3.4 line 5388 / spec line 6605: same IDR0.S1P global guard applies to
+// CFGI_CD_ALL.  When IDR0.S1P==1 (default), bypass stream → no CERROR_ILL.
 //
-// BEFORE FIX: CMD_CFGI_CD_ALL executes silently → GERROR.CMDQ_ERR remains 0 → FAILS.
-// AFTER FIX:  GERROR.CMDQ_ERR toggled + CMDQ_CONS.ERR=CERROR_ILL → PASSES.
-TEST(NewAudit04CfgiCdAllStage1Guard, BypassStream_CfgiCdAll_RaisesCerrorIll) {
-    // §4.3.4: CMD_CFGI_CD_ALL on a bypass-only stream → CERROR_ILL.
+// BEFORE FIX (wrong behavior): per-stream check raised CERROR_ILL for bypass →
+//   GERROR.CMDQ_ERR was set → FAILS.
+// AFTER FIX (correct behavior): IDR0.S1P==1 → no error → PASSES.
+TEST(NewAudit04CfgiCdAllStage1Guard, BypassStream_CfgiCdAll_NoError_WhenS1PEnabled) {
+    // §4.3.4 / spec line 6605: CMD_CFGI_CD_ALL on a bypass-only stream with
+    // IDR0.S1P==1 (default) must NOT raise CERROR_ILL.
+    // The guard is SMMU-global (IDR0.S1P), not per-stream.
     SMMU smmu;
     enableSMMU(smmu);
 
@@ -279,17 +315,19 @@ TEST(NewAudit04CfgiCdAllStage1Guard, BypassStream_CfgiCdAll_RaisesCerrorIll) {
 
     submitCfgiCdAll(smmu, sid);
 
-    EXPECT_TRUE(isGerrorCmdqErrActive(smmu))
-        << "NEW-AUDIT-04: CMD_CFGI_CD_ALL on a bypass-only stream (stage-1 not "
-           "implemented) must toggle GERROR.CMDQ_ERR (bit 0). "
-           "ARM §4.3.4 line 5388: 'This command raises CERROR_ILL when stage 1 "
-           "is not implemented.' "
-           "Current code: no stage-1 guard in CFGI_CD_ALL handler → GERROR unchanged. "
+    EXPECT_FALSE(isGerrorCmdqErrActive(smmu))
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD_ALL on a bypass-only stream must NOT "
+           "toggle GERROR.CMDQ_ERR when IDR0.S1P==1. "
+           "ARM §4.3.4 spec line 6605: 'This command raises CERROR_ILL when stage 1 "
+           "is not implemented (SMMU_IDR0.S1P == 0).' "
+           "Guard is SMMU-global, not per-stream stage1Enabled. "
+           "BEFORE FIX: per-stream check raised CERROR_ILL for bypass stream. "
+           "AFTER FIX: IDR0.S1P==1 → no error. "
            "GERROR value: 0x" << std::hex << smmu.getGerror();
 
-    EXPECT_EQ(smmu.getCmdqConsErr(), CERROR_ILL)
-        << "NEW-AUDIT-04: CMD_CFGI_CD_ALL on bypass stream must set "
-           "CMDQ_CONS.ERR=CERROR_ILL per ARM §4.3.4 line 5388. "
+    EXPECT_NE(smmu.getCmdqConsErr(), CERROR_ILL)
+        << "BUG-AUDIT-NEW-02: CMD_CFGI_CD_ALL on bypass stream with IDR0.S1P==1 "
+           "must NOT set CMDQ_CONS.ERR to CERROR_ILL. "
            "Got CMDQ_CONS.ERR=" << smmu.getCmdqConsErr();
 }
 

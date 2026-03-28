@@ -121,6 +121,8 @@ SMMU::SMMU()
       hypSupported_(true),
       // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
       s2pSupported_(true),
+      // BUG-AUDIT-NEW-03: IDR0.S1P defaults to true (stage-1 translation supported).
+      s1pSupported_(true),
       // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
       priSupported_(true),
       // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
@@ -189,6 +191,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       hypSupported_(true),
       // BUG-NEW-39: IDR0.S2P defaults to true (stage-2 translation supported).
       s2pSupported_(true),
+      // BUG-AUDIT-NEW-03: IDR0.S1P defaults to true (stage-1 translation supported).
+      s1pSupported_(true),
       // BUG-NEW-G: IDR0.PRI defaults to true (page request interface supported).
       priSupported_(true),
       // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
@@ -3251,7 +3255,7 @@ uint32_t SMMU::getIDR0() const {
     // BUG-NEW-39: S2P (bit 0) is now conditional on s2pSupported_ so that
     // setS2PSupported(false) can disable stage-2 TLBI commands for testing.
     return (s2pSupported_.load(std::memory_order_acquire) ? (1u << 0) : 0u) // S2P: configurable
-         | (1u << 1)        // S1P: stage-1 translation present
+         | (s1pSupported_.load(std::memory_order_acquire) ? (1u << 1) : 0u) // S1P: configurable (BUG-AUDIT-NEW-03 fix §6.3.1 — stage-1 present)
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
          | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
@@ -3433,6 +3437,16 @@ void SMMU::setS2PSupported(bool enabled) {
 
 bool SMMU::isS2PSupported() const {
     return s2pSupported_.load(std::memory_order_acquire);
+}
+
+// BUG-AUDIT-NEW-03 fix: IDR0.S1P is now configurable so the CERROR_ILL guard for
+// TLBI_NH_ALL/ASID/VA/VAA (§4.4.2.1-4) and CFGI_CD/ALL (§4.3.3/4.3.4) is exercisable.
+void SMMU::setS1PSupported(bool enabled) {
+    s1pSupported_.store(enabled, std::memory_order_release);
+}
+
+bool SMMU::isS1PSupported() const {
+    return s1pSupported_.load(std::memory_order_acquire);
 }
 
 // BUG-NEW-G fix: IDR0.PRI (bit 16) is now configurable so the CERROR_ILL guard
@@ -4044,22 +4058,13 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
             break;
             
         case CommandType::CFGI_CD: {
-            // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
-            // NEW-AUDIT-04 fix (§4.3.3 line 5362): "This command raises CERROR_ILL
-            // when stage 1 is not implemented."  Only fires for known streams with
-            // stage1Enabled=false; unknown streams are a silent no-op.
-            bool cfgiCdStreamFound = false;
-            bool cfgiCdStage1Enabled = false;
-            {
-                size_t cfgiStripe = getStreamStripe(command.streamID);
-                std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
-                auto cfgiIt = streamMap.find(command.streamID);
-                if (cfgiIt != streamMap.end() && cfgiIt->second) {
-                    cfgiCdStreamFound = true;
-                    cfgiCdStage1Enabled = cfgiIt->second->getStreamConfiguration().stage1Enabled;
-                }
-            }
-            if (cfgiCdStreamFound && !cfgiCdStage1Enabled) {
+            // ARM §4.3.3: "This command raises CERROR_ILL when stage 1 is not implemented."
+            // BUG-AUDIT-NEW-02 fix: §4.3.3 line 5362 clarified at spec line 6605:
+            // "If stage 1 is not implemented (SMMU_IDR0.S1P == 0)."
+            // The guard is the SMMU-global IDR0.S1P capability, not per-stream config.
+            // A stream that uses bypass/stage-2 but the SMMU supports stage-1 globally
+            // → silent no-op (the stream has no CD; invalidation is a no-op).
+            if ((getIDR0() & (1u << 1u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
@@ -4070,22 +4075,9 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
         }
 
         case CommandType::CFGI_CD_ALL: {
-            // ARM §4.3.4: Invalidate all cached CDs for StreamID.
-            // NEW-AUDIT-04 fix (§4.3.4 line 5388): "This command raises CERROR_ILL
-            // when stage 1 is not implemented."  Same guard as CFGI_CD.
-            // Unknown streams are a silent no-op.
-            bool cfgiCdAllStreamFound = false;
-            bool cfgiCdAllStage1Enabled = false;
-            {
-                size_t cfgiAllStripe = getStreamStripe(command.streamID);
-                std::lock_guard<std::mutex> cfgiAllLock(streamLockStripes[cfgiAllStripe]);
-                auto cfgiAllIt = streamMap.find(command.streamID);
-                if (cfgiAllIt != streamMap.end() && cfgiAllIt->second) {
-                    cfgiCdAllStreamFound = true;
-                    cfgiCdAllStage1Enabled = cfgiAllIt->second->getStreamConfiguration().stage1Enabled;
-                }
-            }
-            if (cfgiCdAllStreamFound && !cfgiCdAllStage1Enabled) {
+            // ARM §4.3.4: "This command raises CERROR_ILL when stage 1 is not implemented."
+            // BUG-AUDIT-NEW-02 fix: same global IDR0.S1P guard as CFGI_CD.
+            if ((getIDR0() & (1u << 1u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
@@ -4423,64 +4415,31 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
             break;
 
         case CommandType::CFGI_CD: {
-            // ARM §4.3.3: Invalidate cached CD for (StreamID, SSID/PASID).
-            // NEW-AUDIT-04 fix (§4.3.3 line 5362): "This command raises CERROR_ILL
-            // when stage 1 is not implemented."  If the target stream is known and
-            // has stage1Enabled=false (bypass-only or stage-2-only), emit CERROR_ILL.
-            // Unknown streams (not configured) are treated as a silent no-op — there
-            // is nothing cached to invalidate, consistent with CFGI_STE behavior.
-            // Release queueMutex before acquiring the stripe lock to maintain the
-            // lock ordering invariant: stripe_lock must never be acquired while
-            // queueMutex is held.
-            bool cfgiCdStreamFound = false;
-            bool cfgiCdStage1 = false;
-            {
-                size_t cfgiStripe = getStreamStripe(command.streamID);
-                queueLock.unlock();
-                {
-                    std::lock_guard<std::mutex> cfgiLock(streamLockStripes[cfgiStripe]);
-                    auto cfgiIt = streamMap.find(command.streamID);
-                    if (cfgiIt != streamMap.end() && cfgiIt->second) {
-                        cfgiCdStreamFound = true;
-                        cfgiCdStage1 = cfgiIt->second->getStreamConfiguration().stage1Enabled;
-                    }
-                }
-                queueLock.lock();
-            }
-            if (cfgiCdStreamFound && !cfgiCdStage1) {
+            // ARM §4.3.3: "This command raises CERROR_ILL when stage 1 is not implemented."
+            // BUG-AUDIT-NEW-02 fix: §4.3.3 line 5362 clarified at spec line 6605:
+            // "If stage 1 is not implemented (SMMU_IDR0.S1P == 0)."
+            // The guard is the SMMU-global IDR0.S1P capability, not per-stream config.
+            // A stream that uses bypass/stage-2 but the SMMU supports stage-1 globally
+            // → silent no-op (the stream has no CD; invalidation is a no-op).
+            if ((getIDR0() & (1u << 1u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
+            // Maps to PASID-scoped TLB invalidation in SW model.
             invalidatePASIDCache(command.streamID, command.pasid);
             break;
         }
 
         case CommandType::CFGI_CD_ALL: {
-            // ARM §4.3.4: Invalidate all cached CDs for StreamID.
-            // NEW-AUDIT-04 fix (§4.3.4 line 5388): "This command raises CERROR_ILL
-            // when stage 1 is not implemented."  Same guard as CFGI_CD.
-            // Unknown streams are silent no-ops — nothing cached to invalidate.
-            bool cfgiCdAllStreamFound = false;
-            bool cfgiCdAllStage1 = false;
-            {
-                size_t cfgiAllStripe = getStreamStripe(command.streamID);
-                queueLock.unlock();
-                {
-                    std::lock_guard<std::mutex> cfgiAllLock(streamLockStripes[cfgiAllStripe]);
-                    auto cfgiAllIt = streamMap.find(command.streamID);
-                    if (cfgiAllIt != streamMap.end() && cfgiAllIt->second) {
-                        cfgiCdAllStreamFound = true;
-                        cfgiCdAllStage1 = cfgiAllIt->second->getStreamConfiguration().stage1Enabled;
-                    }
-                }
-                queueLock.lock();
-            }
-            if (cfgiCdAllStreamFound && !cfgiCdAllStage1) {
+            // ARM §4.3.4: "This command raises CERROR_ILL when stage 1 is not implemented."
+            // BUG-AUDIT-NEW-02 fix: same global IDR0.S1P guard as CFGI_CD.
+            if ((getIDR0() & (1u << 1u)) == 0u) {
                 writeCmdqConsErr(CERROR_ILL);
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
+            // Maps to stream-wide TLB invalidation in SW model.
             invalidateStreamCache(command.streamID);
             break;
         }
@@ -4600,18 +4559,39 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::TLBI_NH_ALL:
+            // BUG-AUDIT-NEW-03 fix: ARM §4.4.2.1 — NH_ALL raises CERROR_ILL on a
+            // stage-1-absent SMMU (IDR0.S1P==0); no stage-1 entries to invalidate.
+            if ((getIDR0() & (1u << 1u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_ASID:
+            // BUG-AUDIT-NEW-03 fix: ARM §4.4.2.2 — NH_ASID raises CERROR_ILL on a
+            // stage-1-absent SMMU (IDR0.S1P==0).
+            if ((getIDR0() & (1u << 1u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 
         case CommandType::TLBI_NH_VA:
+            // BUG-AUDIT-NEW-03 fix: ARM §4.4.2.3 — NH_VA raises CERROR_ILL on a
+            // stage-1-absent SMMU (IDR0.S1P==0).
+            if ((getIDR0() & (1u << 1u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination when TG!=0 AND
@@ -4628,6 +4608,13 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             break;
 
         case CommandType::TLBI_NH_VAA:
+            // BUG-AUDIT-NEW-03 fix: ARM §4.4.2.4 — NH_VAA raises CERROR_ILL on a
+            // stage-1-absent SMMU (IDR0.S1P==0).
+            if ((getIDR0() & (1u << 1u)) == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
             // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
             // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
             // BUG-NEW-B fix: ARM §4.4 — Reserved RIL combination (TG!=0, NUM==0,
@@ -4662,8 +4649,16 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
                 signalGerror(GERROR_CMDQ_ERR);
                 break;
             }
-            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding;
-            // setting RES0 bits is CONSTRAINED UNPREDICTABLE, not CERROR_ILL.
+            // BUG-AUDIT-NEW-01 fix: ARM §4.4.1.1 — Reserved RIL combination (TG!=0,
+            // NUM==0, SCALE==0, TTL==0) → CERROR_ILL. Applies to all address-based
+            // invalidation commands including S2_IPA (§4.4.1.1 "for VA and IPA").
+            if (command.ril && command.tg != 0u && command.num == 0u
+                    && command.scale == 0u && command.ttl == 0u) {
+                writeCmdqConsErr(CERROR_ILL);
+                signalGerror(GERROR_CMDQ_ERR);
+                break;
+            }
+            // BUG-D fix: ARM §4.1.6 — SSec is RES0 in this command's encoding.
             executeInvalidationCommandLocked(command, queueLock);
             break;
 

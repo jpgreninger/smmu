@@ -291,6 +291,14 @@ public:
     /// Returns true when IDR0.S2P=1 (stage-2 translation supported).
     bool isS2PSupported() const;
 
+    // BUG-AUDIT-NEW-03: IDR0.S1P configurable (§4.4.2.1-4/§4.3.3/§4.3.4/§6.3.1 bit 1).
+    // When true (default): IDR0 bit 1 (S1P) is set; TLBI_NH_ALL/ASID/VA/VAA and CFGI_CD/ALL
+    // are permitted.
+    // When false: IDR0 bit 1 is cleared; those commands raise CERROR_ILL.
+    void setS1PSupported(bool enabled);
+    /// Returns true when IDR0.S1P=1 (stage-1 translation supported).
+    bool isS1PSupported() const;
+
     // BUG-AUDIT-01: IDR0.NS1ATS configurable (§5.2 SteIllegal() / §6.3.1 bit 11).
     // When true: IDR0 bit 11 (NS1ATS) is set; EATS==0b10 in configureStream()
     // raises C_BAD_STE (ARM §5.2 SteIllegal: EATS==0b10 AND NS1ATS==1 is illegal).
@@ -539,6 +547,11 @@ private:
     // When true (default): IDR0 bit 0 = 1; TLBI_S12_VMALL and TLBI_S2_IPA are permitted.
     // When false: IDR0 bit 0 = 0; those commands raise CERROR_ILL.
     std::atomic<bool> s2pSupported_;    ///< IDR0.S2P bit; default true
+
+    // BUG-AUDIT-NEW-03: IDR0.S1P — configurable stage-1 translation support (§4.4.2.1-4/§6.3.1).
+    // When true (default): IDR0 bit 1 = 1; TLBI_NH_ALL/ASID/VA/VAA and CFGI_CD/CD_ALL permitted.
+    // When false: IDR0 bit 1 = 0; those commands raise CERROR_ILL.
+    std::atomic<bool> s1pSupported_;    ///< IDR0.S1P bit; default true. BUG-AUDIT-NEW-03: stage-1 present; NH_* CERROR_ILL when false.
 
     std::atomic<bool> priSupported_;   ///< BUG-NEW-G: IDR0.PRI (bit 16) configurable for testing
 

@@ -529,6 +529,9 @@ pub struct SMMU {
     /// `CERROR_ILL` (ARM §4.4.3.1/§4.4.3.2).
     s2p_supported: AtomicBool,
 
+    /// IDR0.S1P bit — stage-1 present. BUG-AUDIT-NEW-03: configurable so NH_* CERROR_ILL guard is testable.
+    s1p_supported: AtomicBool,
+
     /// BUG-NEW-G fix: IDR0.PRI (bit 16) is configurable to test PRI==0 CERROR_ILL behavior.
     /// When `false`, `get_idr0()` clears bit 16 and CMD_PRI_RESP raises CERROR_ILL.
     pri_supported: AtomicBool,
@@ -884,6 +887,8 @@ impl SMMU {
             hyp_supported: AtomicBool::new(true),
             // BUG-NEW-39: S2P=true by default (stage-2 TLBI commands supported).
             s2p_supported: AtomicBool::new(true),
+            // BUG-AUDIT-NEW-03: S1P=true by default (stage-1 translation present).
+            s1p_supported: AtomicBool::new(true),
             // BUG-NEW-G: PRI=true by default (PRI queue supported).
             pri_supported: AtomicBool::new(true),
             // BUG-AUDIT-01: NS1ATS=false by default (EATS+NS1ATS guard inactive).
@@ -1219,7 +1224,7 @@ impl SMMU {
         // Default=true to preserve existing behaviour; set_s2p_supported(false) enables
         // the CMD_TLBI_S12_VMALL / CMD_TLBI_S2_IPA CERROR_ILL guard.
           (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 0 } else { 0 })
-        | (1u32 << 1)        // S1P
+        | if self.s1p_supported.load(Ordering::Acquire) { 1u32 << 1 } else { 0 }  // S1P: configurable (BUG-AUDIT-NEW-03 fix §6.3.1)
         | (0b10u32 << 2)     // TTF = AArch64 S1+S2
         | (1u32 << 10)       // ATS
         | if self.ns1ats_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 11 } else { 0 }  // NS1ATS: gated on S2P (AUDIT-NEW-01/02 fix §6.3.1 — RES0 when S2P==0)
@@ -1841,6 +1846,18 @@ impl SMMU {
     ///   (ARM §4.4.3.1/§4.4.3.2: illegal when stage-2 not supported).
     pub fn set_s2p_supported(&self, enabled: bool) {
         self.s2p_supported.store(enabled, Ordering::Release);
+    }
+
+    /// BUG-AUDIT-NEW-03 fix: IDR0.S1P is now configurable so the CERROR_ILL guard for
+    /// `TLBI_NH_ALL/ASID/VA/VAA` (§4.4.2) and `CFGI_CD/ALL` (§4.3.3/§4.3.4) is exercisable.
+    pub fn set_s1p_supported(&self, enabled: bool) {
+        self.s1p_supported.store(enabled, Ordering::Release);
+    }
+
+    /// Returns whether IDR0.S1P (stage-1 translation present) is enabled.
+    #[must_use]
+    pub fn is_s1p_supported(&self) -> bool {
+        self.s1p_supported.load(Ordering::Acquire)
     }
 
     /// BUG-NEW-G fix: Controls IDR0 bit 16 (PRI) and the CERROR_ILL gate on CMD_PRI_RESP.
@@ -6011,6 +6028,16 @@ impl SMMU {
             // by ASID AND VMID jointly; entries with a different VMID must NOT be evicted.
             // CMD_TLBI_EL2_ASID (§4.4.2.10) uses ASID-only (VMID field is RES0 in encoding).
             CommandType::TlbiNhAsid => {
+                // BUG-AUDIT-NEW-03 fix: ARM §4.4.2 — NH_* commands raise CERROR_ILL on a
+                // stage-2-only SMMU (IDR0.S1P==0). "Available on a stage 1-only and a
+                // stage 1 and stage 2 SMMU. On a stage 2-only SMMU, they result in CERROR_ILL."
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_ASID: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.4.2)".to_string(),
+                    ));
+                }
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_by_vmid_and_asid(command.vmid, command.asid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
@@ -6037,6 +6064,16 @@ impl SMMU {
             // EL2 / El2E2h entries and entries for other VMIDs are preserved.
             // BUG-NEW-C fix: PTM must not gate command-queue TLBI.
             CommandType::TlbiNhAll => {
+                // BUG-AUDIT-NEW-03 fix: ARM §4.4.2 — NH_* commands raise CERROR_ILL on a
+                // stage-2-only SMMU (IDR0.S1P==0). "Available on a stage 1-only and a
+                // stage 1 and stage 2 SMMU. On a stage 2-only SMMU, they result in CERROR_ILL."
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_ALL: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.4.2)".to_string(),
+                    ));
+                }
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_nh_by_vmid(command.vmid);
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
@@ -6148,6 +6185,16 @@ impl SMMU {
                 ));
             },
             CommandType::TlbiNhVa => {
+                // BUG-AUDIT-NEW-03 fix: ARM §4.4.2 — NH_* commands raise CERROR_ILL on a
+                // stage-2-only SMMU (IDR0.S1P==0). "Available on a stage 1-only and a
+                // stage 1 and stage 2 SMMU. On a stage 2-only SMMU, they result in CERROR_ILL."
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_VA: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.4.2)".to_string(),
+                    ));
+                }
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 if command.ril {
                     // NEW-BUG-2 fix: ARM §4.4 — when TG != 0b00 (RIL mode), the combination
@@ -6289,6 +6336,16 @@ impl SMMU {
                 ));
             },
             CommandType::TlbiNhVaa => {
+                // BUG-AUDIT-NEW-03 fix: ARM §4.4.2 — NH_* commands raise CERROR_ILL on a
+                // stage-2-only SMMU (IDR0.S1P==0). "Available on a stage 1-only and a
+                // stage 1 and stage 2 SMMU. On a stage 2-only SMMU, they result in CERROR_ILL."
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_NH_VAA: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.4.2)".to_string(),
+                    ));
+                }
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 // BUG-NEW-37 fix: ARM §4.4.2.4 — TLBI_NH_VAA is VMID-scoped.
                 // Use VMID+VA invalidation (any ASID) to preserve other VMIDs' entries.
@@ -6384,6 +6441,16 @@ impl SMMU {
                     self.signal_gerror(Self::GERROR_CMDQ_ERR);
                     return Err(SMMUError::InvalidCommandParameters(
                         "CMD_TLBI_S2_IPA: IDR0.S2P=0 — stage-2 not supported (ARM §4.4.3.2)".to_string(),
+                    ));
+                }
+                // BUG-AUDIT-NEW-01 fix: ARM §4.4.1.1 — Reserved RIL combination
+                // (TG!=0, NUM==0, SCALE==0, TTL==0) → CERROR_ILL. Applies to all
+                // address-based invalidation commands including S2_IPA ("for VA and IPA").
+                if command.ril && command.tg != 0 && command.num == 0 && command.scale == 0 && command.ttl == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_TLBI_S2_IPA: Reserved RIL parameter combination (TG!=0, NUM=0, SCALE=0, TTL=0) per ARM §4.4.1.1".to_string(),
                     ));
                 }
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
@@ -6589,20 +6656,17 @@ impl SMMU {
                         "CMD_CFGI_CD: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
                     ));
                 }
-                // NEW-AUDIT-04 fix: §4.3.3 line 5362 — "This command raises CERROR_ILL
-                // when stage 1 is not implemented."  Check the stream config; if stage-1
-                // is absent (bypass-only or stage-2-only), raise CERROR_ILL.  An unknown
-                // StreamID is treated as a silent no-op (consistent with invalidation
-                // semantics — there is nothing to invalidate).
-                if let Some(stream_ref) = self.streams.get(&command.stream_id) {
-                    if !stream_ref.value().is_stage1_enabled() {
-                        drop(stream_ref);
-                        self.write_cmdq_cons_err(Self::CERROR_ILL);
-                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                        return Err(SMMUError::InvalidCommandParameters(
-                            "CMD_CFGI_CD: CERROR_ILL — stage 1 is not implemented for this stream (ARM §4.3.3 line 5362)".to_string(),
-                        ));
-                    }
+                // ARM §4.3.3: "CERROR_ILL when stage 1 is not implemented."
+                // BUG-AUDIT-NEW-02 fix: §4.3.3 line 5362 / spec line 6605:
+                // "If stage 1 is not implemented (SMMU_IDR0.S1P == 0)."
+                // Guard is SMMU-global IDR0.S1P, not per-stream config.
+                // Bypass/stage-2-only streams are a silent no-op when S1P==1.
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_CD: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.3.3)".to_string(),
+                    ));
                 }
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
                 // Context Descriptor for the specified (stream, PASID) pair.
@@ -6623,17 +6687,14 @@ impl SMMU {
                         "CMD_CFGI_CD_ALL: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
                     ));
                 }
-                // NEW-AUDIT-04 fix: §4.3.4 line 5388 — "This command raises CERROR_ILL
-                // when stage 1 is not implemented."  Same guard as CfgiCd above.
-                if let Some(stream_ref) = self.streams.get(&command.stream_id) {
-                    if !stream_ref.value().is_stage1_enabled() {
-                        drop(stream_ref);
-                        self.write_cmdq_cons_err(Self::CERROR_ILL);
-                        self.signal_gerror(Self::GERROR_CMDQ_ERR);
-                        return Err(SMMUError::InvalidCommandParameters(
-                            "CMD_CFGI_CD_ALL: CERROR_ILL — stage 1 is not implemented for this stream (ARM §4.3.4 line 5388)".to_string(),
-                        ));
-                    }
+                // ARM §4.3.4: "CERROR_ILL when stage 1 is not implemented."
+                // BUG-AUDIT-NEW-02 fix: same global IDR0.S1P guard as CfgiCd.
+                if (self.get_idr0() & (1 << 1)) == 0 {
+                    self.write_cmdq_cons_err(Self::CERROR_ILL);
+                    self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                    return Err(SMMUError::InvalidCommandParameters(
+                        "CMD_CFGI_CD_ALL: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.3.4)".to_string(),
+                    ));
                 }
                 // CMD_CFGI_CD_ALL (§4.3.4): invalidate TLB entries cached from
                 // all Context Descriptors of the specified stream.
