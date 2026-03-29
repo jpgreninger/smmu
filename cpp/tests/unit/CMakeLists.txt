@@ -165,6 +165,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_new17.cpp
     test_bugs_new18.cpp
     test_bugs_new20.cpp
+    test_bugs_new21.cpp
     ../test_thread_safety.cpp
 )
 

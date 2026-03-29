@@ -1298,7 +1298,9 @@ impl SMMU {
     pub fn get_idr3(&self) -> u32 {
         // BUG-AUDIT-02 fix: IDR3.XNX (bit 4) is RES0 when IDR0.S2P==0 (ARM §6.3.4).
         let xnx = if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 4 } else { 0 };
-        (1u32 << 2)   // HAD: hierarchical attribute disable
+        // BUG-AUDIT-37 fix: IDR3.HAD (bit 2) is RES0 when IDR0.S1P==0 (ARM §6.3.4 line 11425).
+        let had = if self.s1p_supported.load(Ordering::Acquire) { 1u32 << 2 } else { 0 };
+        had             // HAD: hierarchical attribute disable; RES0 when S1P=0 (§6.3.4)
         | xnx           // XNX: stage-2 execute-never control; RES0 when S2P=0 (§6.3.4, §2.3)
         | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
@@ -1536,6 +1538,12 @@ impl SMMU {
         access: AccessType,
         security_state: SecurityState,
     ) -> u64 {
+        // BUG-AUDIT-39 fix: §6.3.37/§9.1 — GATOS requires SMMU_CR0.SMMUEN==1.
+        // When SMMUEN=0 the GATOS request is invalid; return FAULT=1, FAULTCODE=0xFD.
+        if !self.enabled.load(Ordering::Acquire) {
+            // FAULT=1, FAULTCODE=0xFD (INTERNAL_ERR) in bits[11:4]
+            return 0x1u64 | (0xFDu64 << 4);
+        }
         // GAP-2 fix: ARM §9.1.4/§6.3.40 — snapshot event queue length BEFORE
         // calling translate() so we can identify any new event appended by this
         // call and derive the correct FAULTCODE from it.  The read guard is
@@ -1594,13 +1602,16 @@ impl SMMU {
     /// Maps an [`EventType`] to the FAULTCODE byte for GATOS_PAR per ARM IHI0070G.b §9.1.5.
     fn event_type_to_gatos_faultcode(t: EventType) -> u64 {
         match t {
-            EventType::FUut             => 0x01,
+            // BUG-AUDIT-38 fix: §9.1.5 — FUut (0x01), FBadAtsTreq (0x05), and
+            // FTranslForbidden (0x07) are RESERVED in the GATOS faultcode table.
+            // Map them to 0xFD (INTERNAL_ERR) per ARM §9.1.5.
+            EventType::FUut             => 0xFD, // Reserved in GATOS context (§9.1.5)
             EventType::CBadStreamid     => 0x02,
             EventType::FSteFetch        => 0x03,
             EventType::CBadSte          => 0x04,
-            EventType::FBadAtsTreq      => 0x05,
+            EventType::FBadAtsTreq      => 0xFD, // Reserved in GATOS context (§9.1.5)
             EventType::FStreamDisabled  => 0x06,
-            EventType::FTranslForbidden => 0x07,
+            EventType::FTranslForbidden => 0xFD, // Reserved in GATOS context (§9.1.5)
             EventType::CBadSubstreamid  => 0x08,
             EventType::FCdFetch         => 0x09,
             EventType::CBadCd           => 0x0A,
@@ -2478,6 +2489,48 @@ impl SMMU {
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: EATS==0b10 AND NS1ATS==1 is ILLEGAL (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-36 fix: §5.2 SteIllegal() line 8354 — STE.S2HD=='1' AND HTTU=='01' → C_BAD_STE.
+        // HTTU is fixed at 0b01 (access flag update only; dirty state update NOT supported).
+        // S2HD (hardware dirty state) is therefore always illegal when stage-2 is active.
+        if config.stage2_enabled && config.s2hd {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STE.S2HD==1 requires HTTU>=0b10 (dirty state update) which this \
+                 SMMU does not support (HTTU==0b01, ARM §5.2 SteIllegal line 8354)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-40 fix: §5.5 CdIllegal() line 9797 — CD.HD=='1' AND HTTU=='01' → C_BAD_CD.
+        // HTTU is fixed at 0b01 (access flag update only; dirty state update NOT supported).
+        // CD.HD (hardware dirty state) is therefore always illegal when stage-1 is active.
+        if config.stage1_enabled && config.hd {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadCd,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_CD: CD.HD==1 requires HTTU>=0b10 (dirty state update) which this \
+                 SMMU does not support (HTTU==0b01, ARM §5.5 CdIllegal line 9797)".to_string(),
             ));
         }
 

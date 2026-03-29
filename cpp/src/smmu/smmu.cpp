@@ -1080,6 +1080,26 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
+    // BUG-AUDIT-36 fix: ARM IHI0070G.b §5.2 SteIllegal() line 8354 —
+    // "if STE.S2HD == '1' && SMMU_IDR0.HTTU == '01' then return TRUE"
+    // HTTU is hardcoded to 0b01 (access flag only, dirty state NOT supported).
+    // S2HD requests hardware dirty-state management which this SMMU does not implement.
+    // S2HD is only meaningful when stage-2 is enabled (ignored otherwise).
+    if (config.stage2Enabled && config.s2hd) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-AUDIT-40 fix: ARM IHI0070G.b §5.5 CdIllegal() line 9797 —
+    // "CD.HD == '1' && SMMU_IDR0.HTTU == '01' → return TRUE (CdIllegal)"
+    // HTTU is hardcoded to 0b01 (access flag only, dirty state NOT supported).
+    // CD.HD requests hardware dirty-state management which this SMMU does not implement.
+    // CD.HD is only meaningful when stage-1 is enabled (CD is irrelevant otherwise).
+    if (config.stage1Enabled && config.hd) {
+        generateEvent(EventType::C_BAD_CD, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
     // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
     // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
     // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
@@ -3309,7 +3329,9 @@ uint32_t SMMU::getIDR2() const {
 uint32_t SMMU::getIDR3() const {
     // BUG-AUDIT-02 fix: IDR3.XNX (bit 4) is RES0 when IDR0.S2P==0 (ARM §6.3.4).
     // Gate bit 4 on s2pSupported_ so that setS2PSupported(false) correctly clears XNX.
-    return (1u << 2)   // HAD: hierarchical attribute disable supported
+    // BUG-AUDIT-37 fix: IDR3.HAD (bit 2) is RES0 when IDR0.S1P==0 (ARM §6.3.4 line 11425).
+    // "When SMMU_IDR0.S1P == 0, SMMU_IDR3.HAD == 0"
+    return (s1pSupported_.load(std::memory_order_acquire) ? (1u << 2) : 0u) // HAD: gated on S1P (BUG-AUDIT-37 fix §6.3.4)
          | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 4) : 0u) // XNX: gated on S2P (BUG-AUDIT-02 fix §6.3.4)
          | (1u << 8)   // FWB: stage-2 force write-back attribute control supported
          | (1u << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
@@ -3496,13 +3518,20 @@ void SMMU::setPriqConsOvackflg(uint8_t value) {
 uint64_t SMMU::mapEventTypeToGatosFaultCode(EventType t) {
     // ARM IHI0070G.b §9.1.5 Table: ATOS_PAR.FAULTCODE encodings
     switch (t) {
-        case EventType::F_UUT:               return 0x01u;
+        // BUG-AUDIT-38 fix: three event types are Reserved in the GATOS/ATOS context
+        // per ARM IHI0070G.b §9.1.5 Table — they cannot be generated through the
+        // GATOS path and must map to 0xFD (INTERNAL_ERR) to signal an unexpected
+        // fault code rather than a misleading spec-defined one:
+        //   F_UUT (0x01): cannot arise from GATOS — device-tree sourced fault.
+        //   F_BAD_ATS_TREQ (0x05): cannot arise — GATOS is not an ATS TLB request.
+        //   F_TRANSL_FORBIDDEN (0x07): cannot arise — GATOS is not an ATS translated txn.
+        case EventType::F_UUT:               return 0xFDu; // Reserved in GATOS context (BUG-AUDIT-38)
         case EventType::C_BAD_STREAMID:      return 0x02u;
         case EventType::F_STE_FETCH:         return 0x03u;
         case EventType::C_BAD_STE:           return 0x04u;
-        case EventType::F_BAD_ATS_TREQ:      return 0x05u;
+        case EventType::F_BAD_ATS_TREQ:      return 0xFDu; // Reserved in GATOS context (BUG-AUDIT-38)
         case EventType::F_STREAM_DISABLED:   return 0x06u;
-        case EventType::F_TRANSL_FORBIDDEN:  return 0x07u;
+        case EventType::F_TRANSL_FORBIDDEN:  return 0xFDu; // Reserved in GATOS context (BUG-AUDIT-38)
         case EventType::C_BAD_SUBSTREAMID:   return 0x08u;
         case EventType::F_CD_FETCH:          return 0x09u;
         case EventType::C_BAD_CD:            return 0x0Au;
@@ -3520,6 +3549,15 @@ uint64_t SMMU::mapEventTypeToGatosFaultCode(EventType t) {
 
 uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
                                AccessType accessType, SecurityState securityState) {
+    // BUG-AUDIT-39 fix: ARM IHI0070G.b §9.1 — GATOS requires SMMU_CR0.SMMUEN==1.
+    // When SMMUEN==0 the SMMU is globally disabled; return a fault PAR immediately
+    // with FAULT=1 and FAULTCODE=0xFD (INTERNAL_ERR) rather than attempting
+    // translation through a disabled SMMU.
+    if (!smmuen_.load(std::memory_order_acquire)) {
+        // GATOS fault PAR: FAULT=1, REASON=0b00, FAULTCODE=0xFD, FADDR=0.
+        return 0x1ULL | (static_cast<uint64_t>(0xFDu) << 4);
+    }
+
     // Snapshot the event queue size before translation so we can identify
     // any new event appended by the translation (GAP-L fix).
     size_t evtSizeBefore = 0u;
