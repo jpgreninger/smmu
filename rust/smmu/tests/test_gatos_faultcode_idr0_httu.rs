@@ -147,17 +147,19 @@ fn test_gap2_gatos_f_translation_faultcode_is_0x10() {
 }
 
 // ============================================================================
-// GAP-3 Test: IDR0.HTTU[7:6] must be 0b10
+// GAP-3 Test: IDR0.HTTU[7:6] must be 0b01 (BUG-AUDIT-35 fix)
 // ============================================================================
 
 #[test]
-fn test_gap3_idr0_httu_bits_are_0b10() {
+fn test_gap3_idr0_httu_bits_are_0b01() {
+    // BUG-AUDIT-35 fix (§6.3.1): HTTU=0b10 overclaimed dirty state update support
+    // which is not implemented. Corrected to 0b01 (access flag only).
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
     let httu = (idr0 >> 6) & 0x3;
     assert_eq!(
         httu,
-        0b10,
-        "IDR0.HTTU[7:6] must be 0b10 (access flag + dirty state update, §6.3.1); got {httu:#b}"
+        0b01,
+        "IDR0.HTTU[7:6] must be 0b01 (access flag only, §6.3.1); got {httu:#b}"
     );
 }

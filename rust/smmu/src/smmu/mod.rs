@@ -1227,14 +1227,15 @@ impl SMMU {
         | if self.s1p_supported.load(Ordering::Acquire) { 1u32 << 1 } else { 0 }  // S1P: configurable (BUG-AUDIT-NEW-03 fix §6.3.1)
         | (0b10u32 << 2)     // TTF = AArch64 S1+S2
         | (1u32 << 10)       // ATS
-        | if self.ns1ats_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 11 } else { 0 }  // NS1ATS: gated on S2P (AUDIT-NEW-01/02 fix §6.3.1 — RES0 when S2P==0)
+        | if self.ns1ats_supported.load(Ordering::Acquire) && self.s1p_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 11 } else { 0 }  // NS1ATS: gated on S1P+S2P (BUG-AUDIT-20 fix §6.3.1 — RES0 when ATS==0 OR S1P==0 OR S2P==0)
         | (1u32 << 12)       // ASID16
         | (1u32 << 14)       // SEV (stall model)
         | (1u32 << 15)       // ATOS (GATOS implemented)
         | if self.pri_supported.load(Ordering::Acquire) { 1u32 << 16 } else { 0 } // PRI: configurable (BUG-NEW-G fix §4.5.2). AUDIT-NEW-03: ARM §6.3.1 requires PRI RES0 when ATS==0; ATS is hardcoded 1, so this guard is sufficient.
         | (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 17 } else { 0 })  // VMW: gated on S2P (BUG-A fix §6.3.1)
         | (1u32 << 18)       // VMID16
-        | (0b10u32 << 6)     // HTTU[7:6] = 0b10: access flag + dirty state update (§6.3.1)
+        | (1u32 << 19)       // CD2L (BUG-AUDIT-32 fix §5.2): flat PASID map supports any s1cdMax → two-level CD table supported
+        | (0b01u32 << 6)     // HTTU[7:6] = 0b01: access flag only (BUG-AUDIT-35 fix §6.3.1 — 0b10 overclaimed dirty state update)
         | (1u32 << 5)        // BTM: Broadcast TLB Maintenance (§6.3.1, §2.5; receiveBroadcastTLBI implemented)
         // BUG-NEW-16 fix: IDR0.Hyp (bit 9) is now configurable via set_hyp_supported().
         // Default=true to preserve existing behaviour; set_hyp_supported(false) enables
@@ -6312,12 +6313,13 @@ impl SMMU {
                         .saturating_sub(1);
                     // BUG-NEW-E fix: §4.4.2.9 — only NS-EL2/EL2-E2H entries should be evicted.
                     // Previous loop called `invalidate_by_va()` which over-invalidated EL1_EL0.
-                    let page_size: u64 = 4096;
-                    let mut cur = command.start_address & !0xFFF_u64;
+                    // BUG-AUDIT-34 fix: §4.4.1.1 — step must use granule_size, not hardcoded 4096.
+                    let align_mask = granule_size - 1;
+                    let mut cur = command.start_address & !align_mask;
                     loop {
                         self.tlb_cache.invalidate_el2_by_va(cur);
-                        if cur > u64::MAX - page_size { break; }
-                        cur += page_size;
+                        if cur > u64::MAX - granule_size { break; }
+                        cur += granule_size;
                         if cur > range_end { break; }
                     }
                 } else {
@@ -6382,12 +6384,13 @@ impl SMMU {
                     let range_end = command.start_address
                         .saturating_add(blocks.saturating_mul(granule_size))
                         .saturating_sub(1);
-                    let page_size: u64 = 4096;
-                    let mut cur = command.start_address & !0xFFF_u64;
+                    // BUG-AUDIT-34 fix: §4.4.1.1 — step must use granule_size, not hardcoded 4096.
+                    let align_mask = granule_size - 1;
+                    let mut cur = command.start_address & !align_mask;
                     loop {
                         self.tlb_cache.invalidate_by_vmid_and_va(command.vmid, cur);
-                        if cur > u64::MAX - page_size { break; }
-                        cur += page_size;
+                        if cur > u64::MAX - granule_size { break; }
+                        cur += granule_size;
                         if cur > range_end { break; }
                     }
                 } else {

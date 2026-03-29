@@ -49,11 +49,12 @@
 //! `set_s1p_supported(bool)` API.
 //!
 //! BEFORE FIX:
-//! - `set_s1p_supported(false)` does not compile (method does not exist) → tests FAIL.
-//! - NH_* handlers always execute without S1P guard → tests FAIL.
+//!   - `set_s1p_supported(false)` does not compile (method does not exist) → tests FAIL.
+//!   - NH_* handlers always execute without S1P guard → tests FAIL.
+//!
 //! AFTER FIX:
-//! - `set_s1p_supported(false)` lowers bit 1 of `get_idr0()`.
-//! - NH_* handlers check `IDR0.S1P == 0` → CERROR_ILL → PASSES.
+//!   - `set_s1p_supported(false)` lowers bit 1 of `get_idr0()`.
+//!   - NH_* handlers check `IDR0.S1P == 0` → CERROR_ILL → PASSES.
 //!
 //! # BUG-AUDIT-NEW-02 (§4.3.3): `CfgiCd` / `CfgiCdAll` global IDR0.S1P guard
 //!

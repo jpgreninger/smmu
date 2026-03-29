@@ -112,14 +112,18 @@ TEST(GatosFaultCodeTest, gap1_c_bad_streamid_faultcode_is_0x02) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GAP-3 Test: IDR0.HTTU[7:6] must be 0b10 (access flag + dirty state support)
+// GAP-3 Test: IDR0.HTTU[7:6] must be 0b01 (access flag only — dirty state not
+// implemented).
+// BUG-AUDIT-35 fix: changed expected value from 0b10 to 0b01.  The model only
+// implements access-flag hardware update (AF), not dirty state (HD).  §6.3.1:
+//   0b00 = no h/w update; 0b01 = access flag only; 0b10 = access flag + dirty.
 // ─────────────────────────────────────────────────────────────────────────────
-TEST(Idr0HttuTest, gap3_idr0_httu_bits_are_0b10) {
+TEST(Idr0HttuTest, gap3_idr0_httu_bits_are_0b01) {
     SMMU smmu;
     uint32_t idr0 = smmu.getIDR0();
     uint32_t httu = (idr0 >> 6) & 0x3u;
-    EXPECT_EQ(httu, 2u)
-        << "IDR0.HTTU[7:6] must be 0b10 (=2, access flag + dirty state update supported, §6.3.1); "
+    EXPECT_EQ(httu, 1u)
+        << "IDR0.HTTU[7:6] must be 0b01 (=1, access flag only, dirty state not implemented, §6.3.1); "
         << "got " << httu;
 }
 

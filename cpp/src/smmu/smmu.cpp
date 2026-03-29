@@ -3257,11 +3257,11 @@ uint32_t SMMU::getIDR0() const {
     return (s2pSupported_.load(std::memory_order_acquire) ? (1u << 0) : 0u) // S2P: configurable
          | (s1pSupported_.load(std::memory_order_acquire) ? (1u << 1) : 0u) // S1P: configurable (BUG-AUDIT-NEW-03 fix §6.3.1 — stage-1 present)
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
-         | (2u << 6)         // HTTU[7:6] = 0b10 (=2): access flag + dirty state update (§6.3.1)
+         | (1u << 6)         // HTTU[7:6] = 0b01 (=1): access flag only (BUG-AUDIT-35 fix §6.3.1 — dirty state not implemented)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
          | ((hypSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on both Hyp and S2P (BUG-B fix §6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
-         | ((ns1atsSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 11) : 0u) // NS1ATS: gated on S2P (AUDIT-NEW-02 fix §6.3.1 — RES0 when S2P==0)
+         | ((ns1atsSupported_.load(std::memory_order_acquire) && s1pSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 11) : 0u) // NS1ATS: gated on S1P+S2P (BUG-AUDIT-20 fix §6.3.1 — RES0 when ATS==0 OR S1P==0 OR S2P==0)
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
          | (1u << 14)       // SEV: stall model (WFE/SEV) supported
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
@@ -3270,6 +3270,7 @@ uint32_t SMMU::getIDR0() const {
          // if ATS is ever made configurable, add '&& ats_enabled' guard here.
          | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 17) : 0u)  // VMW: gated on S2P (BUG-A fix §6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
+         | (1u << 19)       // CD2L: 2-level CD table supported (BUG-AUDIT-32 fix §6.3.1 — model uses flat PASID map, no s1cdMax limit)
          | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
          // BUG-2 fix: TERM_MODEL (bit 26) cleared — model implements both stall and
          // terminate behaviors and does NOT validate CD.A=1.  ARM IHI0070G.b §6.3.1:
@@ -4217,12 +4218,19 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // The previous calls to invalidateByVA (in both RIL and non-RIL paths)
             // ignored VMID and could evict entries from other VMIDs sharing the same VA.
             if (ril) {
+                // BUG-AUDIT-34 fix: use TG-derived granule size per ARM §4.4.1.1
+                uint64_t granuleSize;
+                switch (tg) {
+                    case 2:  granuleSize = 16384u; break;
+                    case 3:  granuleSize = 65536u; break;
+                    default: granuleSize =  4096u; break;
+                }
                 IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
-                IOVA cur = iova & ~PAGE_MASK;
+                IOVA cur = iova & ~(granuleSize - 1u);
                 while (cur <= rangeEnd) {
                     tlbCache->invalidateByVMIDAndVA(vmid, cur);
-                    if (cur > UINT64_MAX - PAGE_SIZE) break;
-                    cur += PAGE_SIZE;
+                    if (cur > UINT64_MAX - granuleSize) break;
+                    cur += granuleSize;
                 }
             } else {
                 tlbCache->invalidateByVMIDAndVA(vmid, iova);
@@ -4262,12 +4270,19 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // entries by VA (any ASID).  Previous calls to invalidateByVA over-invalidated
             // by evicting ALL entries at that VA regardless of StreamWorld.
             if (ril) {
+                // BUG-AUDIT-34 fix: use TG-derived granule size per ARM §4.4.1.1
+                uint64_t granuleSize;
+                switch (tg) {
+                    case 2:  granuleSize = 16384u; break;
+                    case 3:  granuleSize = 65536u; break;
+                    default: granuleSize =  4096u; break;
+                }
                 IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
-                IOVA cur = iova & ~PAGE_MASK;
+                IOVA cur = iova & ~(granuleSize - 1u);
                 while (cur <= rangeEnd) {
                     tlbCache->invalidateEL2ByVA(cur);
-                    if (cur > UINT64_MAX - PAGE_SIZE) break;
-                    cur += PAGE_SIZE;
+                    if (cur > UINT64_MAX - granuleSize) break;
+                    cur += granuleSize;
                 }
             } else {
                 tlbCache->invalidateEL2ByVA(iova);
