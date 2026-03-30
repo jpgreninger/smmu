@@ -1240,8 +1240,8 @@ impl SMMU {
         // BUG-NEW-16 fix: IDR0.Hyp (bit 9) is now configurable via set_hyp_supported().
         // Default=true to preserve existing behaviour; set_hyp_supported(false) enables
         // the CMD_TLBI_EL2_ALL CERROR_ILL guard that was previously dead code.
-        | if self.hyp_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 9 } else { 0 }
-        // Hyp: BUG-B fix §6.3.1 — gated on both hyp_supported AND s2p_supported
+        | if self.hyp_supported.load(Ordering::Acquire) && self.s1p_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 9 } else { 0 }
+        // Hyp: BUG-AUDIT-41 fix §6.3.1 — gated on hyp_supported AND s1p_supported AND s2p_supported
         // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
         // stored by set_stall_model() rather than being hardcoded to 0b00.
         | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
@@ -2531,6 +2531,62 @@ impl SMMU {
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_CD: CD.HD==1 requires HTTU>=0b10 (dirty state update) which this \
                  SMMU does not support (HTTU==0b01, ARM §5.5 CdIllegal line 9797)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-42 fix: ARM §5.2 SteIllegal() — using_vmsa32 (S2AA64=='0') AND TTF[0]=='0' → SteIllegal.
+        // TTF is hardcoded 0b10 (AArch64-only) so TTF[0]=0 always. Any stage-2 stream with
+        // s2_aa64=false is therefore SteIllegal → C_BAD_STE.
+        if config.stage2_enabled && !config.s2_aa64 {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STE.S2AA64==0 (VMSAv8-32) is unsupported when TTF==0b10 (AArch64-only, ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-43 fix: ARM §5.2 SteIllegal() — Config requires S1P/S2P capability.
+        // Line ~8220: if STE.Config=='1x1' && SMMU_IDR0.S1P=='0' → SteIllegal → C_BAD_STE.
+        // Lines ~8224-8227: if STE.Config=='11x' && SMMU_IDR0.S2P=='0' → SteIllegal → C_BAD_STE.
+        if config.stage1_enabled && !self.s1p_supported.load(Ordering::Acquire) {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STE.Config requires stage-1 but IDR0.S1P==0 (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+        if config.stage2_enabled && !self.s2p_supported.load(Ordering::Acquire) {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: STE.Config requires stage-2 but IDR0.S2P==0 (ARM §5.2 SteIllegal)".to_string(),
             ));
         }
 

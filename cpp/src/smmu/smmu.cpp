@@ -1100,6 +1100,26 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
+    // BUG-AUDIT-42 fix: ARM §5.2 SteIllegal() — using_vmsa32 (S2AA64==0) AND TTF[0]==0 → SteIllegal.
+    // TTF is hardcoded 0b10 (AArch64-only) so TTF[0]=0 always. Any stage-2 stream with
+    // s2aa64==false is therefore SteIllegal → C_BAD_STE.
+    if (config.stage2Enabled && !config.s2aa64) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-AUDIT-43 fix: ARM §5.2 SteIllegal() — Config requires S1P/S2P capability.
+    // Line ~8220: if STE.Config=='1x1' && SMMU_IDR0.S1P=='0' → SteIllegal → C_BAD_STE.
+    // Lines ~8224-8227: if STE.Config=='11x' && SMMU_IDR0.S2P=='0' → SteIllegal → C_BAD_STE.
+    if (config.stage1Enabled && !s1pSupported_.load(std::memory_order_acquire)) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+    if (config.stage2Enabled && !s2pSupported_.load(std::memory_order_acquire)) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
     // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
     // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
     // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
@@ -3279,7 +3299,7 @@ uint32_t SMMU::getIDR0() const {
          | (2u << 2)        // TTF[3:2] = 0b10 (=2): AArch64 stage-1 and stage-2
          | (1u << 6)         // HTTU[7:6] = 0b01 (=1): access flag only (BUG-AUDIT-35 fix §6.3.1 — dirty state not implemented)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
-         | ((hypSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on both Hyp and S2P (BUG-B fix §6.3.1)
+         | ((hypSupported_.load(std::memory_order_acquire) && s1pSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on Hyp+S1P+S2P (BUG-AUDIT-41 fix §6.3.1)
          | (1u << 10)       // ATS: PCIe ATS supported
          | ((ns1atsSupported_.load(std::memory_order_acquire) && s1pSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 11) : 0u) // NS1ATS: gated on S1P+S2P (BUG-AUDIT-20 fix §6.3.1 — RES0 when ATS==0 OR S1P==0 OR S2P==0)
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
