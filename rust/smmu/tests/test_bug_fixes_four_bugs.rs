@@ -53,7 +53,7 @@ fn bug_rust1_integration_bad_ste_event_from_missing_stage2() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(0)
+        .s2_t0sz(16)
         .s2_ps(5)
         .build()
         .unwrap();
@@ -203,7 +203,7 @@ fn bug_rust2_s2affd_true_suppresses_af_fault_on_stage2_only() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(0)
+        .s2_t0sz(16)
         .s2_ps(5)
         .build()
         .unwrap();
@@ -254,7 +254,7 @@ fn bug_rust2_s2affd_false_generates_af_fault_on_stage2_only() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(0)
+        .s2_t0sz(16)
         .s2_ps(5)
         .build()
         .unwrap();
@@ -306,7 +306,7 @@ fn bug_rust2_s2affd_true_suppresses_af_fault_on_two_stage() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(0)
+        .s2_t0sz(16)
         .s2_ps(5)
         .build()
         .unwrap();

@@ -55,7 +55,7 @@ fn setup_two_stage_stream(smmu: &SMMU, stream_id: StreamID) {
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
         .t0sz(0)      // no VA range restriction
-        .s2_t0sz(0)   // no IPA range restriction
+        .s2_t0sz(16)  // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
         .s2_ps(5)     // 48-bit S2PS
         .build()
         .unwrap();

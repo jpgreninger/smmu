@@ -175,7 +175,7 @@ fn bugaudit3_stage2_is_stream_scoped_not_pasid_scoped() {
     let stream = sid(10);
     let mut config = StreamConfig::two_stage();
     config.t0sz = 0;
-    config.s2_t0sz = 0;
+    config.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     smmu.configure_stream(stream, config).unwrap();
 
     // Create stream-level stage-2 AS.
@@ -219,7 +219,7 @@ fn bugaudit3_pasid0_not_special_for_stage2_miss() {
     let stream = sid(11);
     let mut config = StreamConfig::two_stage();
     config.t0sz = 0;
-    config.s2_t0sz = 0;
+    config.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     smmu.configure_stream(stream, config).unwrap();
 
     smmu.create_stage2_address_space(stream).unwrap();

@@ -65,7 +65,7 @@ fn setup_stage1_stream_with_strw(smmu: &SMMU, stream_id: StreamID, strw: StreamW
 fn setup_two_stage_stream(smmu: &SMMU, stream_id: StreamID, security_state: SecurityState) {
     let mut cfg = StreamConfig::two_stage();
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 0;
+    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     cfg.security_state = security_state;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();

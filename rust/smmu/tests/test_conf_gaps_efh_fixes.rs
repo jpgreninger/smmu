@@ -320,7 +320,7 @@ fn gap_f_ips_52bit_no_restriction() {
         .pasid_enabled(true)
         .fault_mode(FaultMode::Terminate)
         .ips(6)     // 52-bit IPS — no additional IPA bound below 2^52
-        .s2_t0sz(0) // no S2T0SZ restriction either
+        .s2_t0sz(16) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
         .s2_ps(6)   // S2PS=6 (52-bit) so stage-2 PA check also passes
         .build()
         .unwrap();

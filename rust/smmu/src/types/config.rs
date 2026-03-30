@@ -676,13 +676,15 @@ impl StreamConfig {
             });
         }
 
-        // BUG-NEW-RUST-4 fix: ARM §5.2 — S2T0SZ > 48 is out-of-range → C_BAD_STE.
-        // Values > 64 additionally cause underflow panic in the IPA range check
-        // (1u64 << (64 - s2_t0sz)). Reject at config time.
-        if self.s2_t0sz > 48 {
+        // BUG-NEW-RUST-4 / BUG-AUDIT-45 fix: ARM §5.2 — S2T0SZ must be in [16, 39] for STT=0,
+        // 4KB granule, IAS=48. Old threshold (> 48) was too loose; tightened to > 39.
+        // Stage-2-specific range check is done in configure_stream() before this validate()
+        // (guarded by stage2_enabled). This catch-all ensures values > 39 are always
+        // rejected at the type level even when called directly (e.g., unit tests on validate()).
+        if self.s2_t0sz > 39 {
             return Err(ValidationError::InvalidConfiguration {
                 reason: format!(
-                    "s2_t0sz={} exceeds maximum of 48 (ARM §5.2 S2T0SZ, C_BAD_STE)",
+                    "s2_t0sz={} exceeds maximum of 39 (ARM §5.2 S2T0SZ valid range [16,39], C_BAD_STE)",
                     self.s2_t0sz
                 ),
             });

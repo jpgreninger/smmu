@@ -1826,6 +1826,12 @@ impl SMMU {
     /// smmu.set_stall_model(0x00); // restore default
     /// ```
     pub fn set_stall_model(&self, model: u8) {
+        // BUG-AUDIT-46 fix: ARM §6.3.1 IDR0 bits[25:24] STALL_MODEL — 0b11 is Reserved.
+        // Silently ignore any attempt to store the reserved value to prevent IDR0
+        // from exposing a reserved encoding. Valid values are 0b00, 0b01, 0b10.
+        if model > 0x02 {
+            return; // 0b11 is Reserved per ARM §6.3.1
+        }
         self.stall_model.store(model, Ordering::Release);
     }
 
@@ -2214,6 +2220,47 @@ impl SMMU {
                 "C_BAD_STE: reserved STE.Config — translation_enabled=true requires at least \
                  one of stage1_enabled or stage2_enabled (ARM §5.2 Table STE.Config)"
                     .to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-44 fix: ARM §5.2 SteIllegal() — STE.S1CDMax > SMMU_IDR1.SSIDSIZE (SSIDSIZE=20) → C_BAD_STE.
+        // The validate() check below catches this but returns a plain Err without emitting the event.
+        // Must emit C_BAD_STE before returning Err.
+        if config.stage1_enabled && config.s1cd_max > 20 {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: S1CDMax exceeds SSIDSIZE (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-45 fix: ARM §5.2 SteIllegal() — S2T0SZ out of valid range [16, 39]
+        // for STT=0, 4KB granule default, IAS=48 → C_BAD_STE.
+        // The old validate() threshold (> 48) was too loose; tighten to > 39 here
+        // and emit the event before returning Err.
+        if config.stage2_enabled && (config.s2_t0sz < 16 || config.s2_t0sz > 39) {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: S2T0SZ out of range [16,39] (ARM §5.2 SteIllegal)".to_string(),
             ));
         }
 

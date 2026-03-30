@@ -1120,6 +1120,28 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
+    // BUG-AUDIT-44 fix: ARM IHI0070G.b §5.2 SteIllegal() —
+    // "if UInt(STE.S1CDMax) > UInt(SMMU_IDR1.SSIDSIZE) then return TRUE"
+    // SSIDSIZE is hardcoded to 20 (IDR1[10:6]=20 per getIDR1()).
+    // When stage-1 is enabled and s1cdMax exceeds 20, the STE is illegal → C_BAD_STE.
+    if (config.stage1Enabled && config.s1cdMax > 20u) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
+    // BUG-AUDIT-45 fix: ARM IHI0070G.b §5.2 STES2T0SZInvalid() —
+    // For STT=0 (4-level), 4KB granule (s2tg=0), IAS=48, the valid S2T0SZ range
+    // is [16, 39].  Values outside this range → SteIllegal → C_BAD_STE.
+    // Guard is applied only when stage-2 is enabled; s2t0sz is irrelevant otherwise.
+    // Model sentinel: s2t0sz==0 means "no IPA range restriction" (legacy convention
+    // used throughout the model via `if (s2t0sz > 0u)` guards in translation paths).
+    // Only non-zero values outside [16, 39] are architecturally invalid.
+    if (config.stage2Enabled && config.s2t0sz != 0u &&
+            (config.s2t0sz < 16u || config.s2t0sz > 39u)) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
     // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
     // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
     // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
@@ -3454,7 +3476,13 @@ uint32_t SMMU::getIrqCtrlAck() const {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Set IDR0.STALL_MODEL.  0b00 = stall+terminate; 0b01 = terminate-only.
+// BUG-AUDIT-46 fix: ARM IHI0070G.b §6.3.1 IDR0[25:24] — 0b11 is Reserved.
+// Silently ignore any value > 0b10 to prevent a reserved encoding from being
+// stored in stallModel_ and subsequently exposed through IDR0 or STALL_MAX.
 void SMMU::setStallModel(uint8_t model) {
+    if (model > 0x02u) {
+        return;  // 0b11 is Reserved per ARM §6.3.1 IDR0 STALL_MODEL[25:24]
+    }
     stallModel_.store(model, std::memory_order_release);
 }
 

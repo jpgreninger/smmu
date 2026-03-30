@@ -80,7 +80,7 @@ fn bug1_stage2_only_ftranslation_s2_true_ipa_nonzero() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(0)
+        .s2_t0sz(16)
         .s2_ps(5)
         .build()
         .unwrap();
@@ -372,7 +372,7 @@ fn bug3_twostage_privcfg3_plain_read_pnu_true() {
 
     let mut cfg = StreamConfig::two_stage();
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 0;
+    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     cfg.priv_cfg = 3; // Force Privileged
     cfg.security_state = SecurityState::NonSecure;
     smmu.configure_stream(stream_id, cfg).unwrap();
