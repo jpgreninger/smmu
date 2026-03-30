@@ -87,8 +87,9 @@ protected:
         smmu_ = std::unique_ptr<SMMU>(new SMMU(SMMUConfiguration::createDefault()));
         // Enable the SMMU so translations go through the full path.
         smmu_->enable();
-        // Enable PTM so broadcast TLBIs are not silently dropped.
-        smmu_->setCR2(SMMU::CR2_PTM);
+        // BUG-AUDIT-54 fix: PTM=0 means SMMU PARTICIPATES in broadcast TLB maintenance
+        // (ARM §6.3.12 — PTM=0: participate; PTM=1: private/skip).
+        smmu_->setCR2(0u);  // PTM=0: SMMU participates in broadcast TLBI
     }
 
     // Configure a stage-1-only stream with a single PASID-0 address space,
@@ -384,15 +385,17 @@ TEST_F(BroadcastTLBIScopeTest, VMIDScopedBroadcastInvalidatesAllStreamsWithThatV
 //         must be silently dropped — the TLB entries for non-zero streams must
 //         remain valid (no eviction).
 //
-// ARM IHI0070G.b §6.3.12 CR2.PTM: when PTM=0 the SMMU does not participate
-// in OS broadcast TLB maintenance.
+// ARM IHI0070G.b §6.3.12 CR2.PTM: PTM=1 → Private TLB Maintenance — the SMMU
+// does NOT participate in OS broadcast TLB maintenance (BUG-AUDIT-54 fix).
+// PTM=0 → SMMU participates (executes the TLBI).
 //
 // This test verifies the CR2.PTM gate specifically for the case of non-zero
 // StreamIDs, confirming the gate is global (not stream-0-scoped).
 // ─────────────────────────────────────────────────────────────────────────────
 TEST_F(BroadcastTLBIScopeTest, PTMZeroDropsBroadcastForNonZeroStreams) {
-    // Disable PTM so NS-EL1 broadcasts are silently dropped.
-    smmu_->setCR2(0u);  // CR2.PTM=0
+    // BUG-AUDIT-54 fix: PTM=1 means Private TLB Maintenance — NS-EL1 broadcasts
+    // are silently dropped (ARM §6.3.12 — PTM=1: private/skip).
+    smmu_->setCR2(SMMU::CR2_PTM);  // CR2.PTM=1: private — drop broadcast
 
     setupStreamAndWarmTLB(STREAM_A, IOVA_A, PA_A, ASID_SHARED, 0u);
     setupStreamAndWarmTLB(STREAM_B, IOVA_B, PA_B, ASID_SHARED, 0u);
@@ -407,7 +410,7 @@ TEST_F(BroadcastTLBIScopeTest, PTMZeroDropsBroadcastForNonZeroStreams) {
 
     uint64_t hitsAfterWarm = smmu_->getCacheHitCount();
 
-    // Issue ASID-scoped broadcast with PTM=0 — must be silently dropped.
+    // Issue ASID-scoped broadcast with PTM=1 — must be silently dropped (private).
     smmu_->receiveBroadcastTLBI(CommandType::TLBI_NH_ASID, ASID_SHARED, 0u, 0u);
 
     // Re-translate — must still be TLB hits (entries NOT evicted).
@@ -421,12 +424,13 @@ TEST_F(BroadcastTLBIScopeTest, PTMZeroDropsBroadcastForNonZeroStreams) {
     ASSERT_TRUE(r_b.isOk());
     EXPECT_EQ(r_b.getValue().physicalAddress, PA_B);
 
-    // With PTM=0, the broadcast was dropped; re-translation should hit cache.
-    // Hit count must have increased (both translations are hits).
+    // With PTM=1 (private), the broadcast was dropped; re-translation should hit cache.
+    // Hit count must have increased (both translations are cache hits, not misses).
+    // BUG-AUDIT-54 fix: PTM=1 → private → broadcast silently ignored (ARM §6.3.12).
     EXPECT_GT(hitsAfterRetrans, hitsAfterWarm)
-        << "Expected TLB cache hits after a dropped broadcast (PTM=0), "
+        << "Expected TLB cache hits after a dropped broadcast (PTM=1=private), "
            "indicating the entries for streams " << STREAM_A << " and "
-        << STREAM_B << " were NOT evicted.";
+        << STREAM_B << " were NOT evicted (ARM §6.3.12).";
 }
 
 } // namespace test

@@ -445,3 +445,140 @@ TEST(BugAudit55, Idr0_Sev_FalseAfterClear) {
         << "BUG-AUDIT-55: after setSevSupported(false), IDR0.SEV must be 0. "
            "idr0=0x" << std::hex << idr0;
 }
+
+// ─── BUG-AUDIT-54 C++ tests — receiveBroadcastTLBI() PTM polarity ────────────
+//
+// ARM §6.3.12 CR2.PTM:
+//   PTM=0 → SMMU participates in broadcast TLB maintenance (MUST execute TLBI)
+//   PTM=1 → Private TLB Maintenance (SMMU may skip TLBI)
+//
+// BEFORE FIX: guard uses == 0u (inverted): skips when PTM=0, executes when PTM=1
+// AFTER FIX:  guard uses != 0u (correct): executes when PTM=0, skips when PTM=1
+//
+// Test strategy: use TLB cache hit/miss counters to observe whether the TLBI ran.
+//   1. Enable caching and set up a stage-1 stream with one mapped page.
+//   2. First translate → cache miss (populates TLB).
+//   3. receiveBroadcastTLBI(TLBI_NH_ALL).
+//   4. Second translate:
+//      PTM=0 (participate): TLB was flushed → second translate is a cache miss.
+//      PTM=1 (private/skip): TLB NOT flushed → second translate is a cache hit.
+
+// Helper: build a minimal stage-1 stream config for PTM tests.
+static StreamConfig ptmTestStreamCfg(uint16_t vmid) {
+    StreamConfig cfg;
+    cfg.translationEnabled = true;
+    cfg.stage1Enabled      = true;
+    cfg.stage2Enabled      = false;
+    cfg.faultMode          = FaultMode::Terminate;
+    cfg.securityState      = SecurityState::NonSecure;
+    cfg.t0sz               = 0u;
+    cfg.aa64               = true;
+    cfg.vmid               = vmid;
+    return cfg;
+}
+
+// BUG-AUDIT-54 test 1: With PTM=1 (private), receiveBroadcastTLBI() must NOT
+// flush the TLB — the broadcast is silently ignored.  A second translate after
+// the broadcast must be a cache HIT (TLB entry still present).
+//
+// BEFORE FIX: PTM=1 → executes TLBI → TLB flushed → second translate is a miss → FAILS
+// AFTER FIX:  PTM=1 → skips TLBI  → TLB intact  → second translate is a hit  → PASSES
+// Uses TLBI_NSNH_ALL (VMID-agnostic) to ensure the entry is targeted.
+TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm1_Private_SkipsTlbi) {
+    SMMU smmu;
+    enableSMMU(smmu);
+    smmu.enableCaching(true);
+
+    const StreamID sid  = 400u;
+    const IOVA     iova = 0x1000u;
+    const PA       pa   = 0xA000u;
+
+    StreamConfig cfg = ptmTestStreamCfg(10u);
+    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
+    ASSERT_TRUE(smmu.enableStream(sid).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(sid, 0u).isOk());
+
+    PagePermissions ro(true, false, false);
+    ASSERT_TRUE(smmu.mapPage(sid, 0u, iova, pa, ro, SecurityState::NonSecure).isOk());
+
+    // First translate: cache miss — populates TLB entry.
+    TranslationResult r1 = smmu.translate(sid, 0u, iova, AccessType::Read);
+    ASSERT_TRUE(r1.isOk())
+        << "BUG-AUDIT-54 setup: first translate must succeed; result=" << (int)r1.getError();
+
+    uint64_t hits_before  = smmu.getCacheHitCount();
+    uint64_t misses_before = smmu.getCacheMissCount();
+
+    // CR2.PTM=1 → Private TLB Maintenance: SMMU must NOT participate in broadcast.
+    // Use TLBI_NSNH_ALL (VMID-agnostic) so the entry for vmid=10 is targeted.
+    smmu.setCR2(SMMU::CR2_PTM);
+    smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
+
+    // Second translate: TLB should still be populated → cache HIT.
+    TranslationResult r2 = smmu.translate(sid, 0u, iova, AccessType::Read);
+    ASSERT_TRUE(r2.isOk())
+        << "BUG-AUDIT-54: second translate with PTM=1 must succeed; result=" << (int)r2.getError();
+
+    uint64_t hits_after  = smmu.getCacheHitCount();
+    uint64_t misses_after = smmu.getCacheMissCount();
+
+    EXPECT_GT(hits_after, hits_before)
+        << "BUG-AUDIT-54: receiveBroadcastTLBI() with CR2.PTM=1 (Private) must NOT "
+           "execute the TLBI — second translate must be a cache HIT (ARM §6.3.12). "
+           "hits_before=" << hits_before << " hits_after=" << hits_after
+           << " misses_before=" << misses_before << " misses_after=" << misses_after;
+
+    EXPECT_EQ(misses_after, misses_before)
+        << "BUG-AUDIT-54: with CR2.PTM=1 the TLB must not be flushed — no new cache miss "
+           "expected on second translate (ARM §6.3.12).";
+}
+
+// BUG-AUDIT-54 test 2: With PTM=0 (participate), receiveBroadcastTLBI() MUST
+// flush the TLB.  A second translate after the broadcast must be a cache MISS
+// (TLB entry was evicted by the invalidation).
+//
+// BEFORE FIX: PTM=0 → skips TLBI → TLB intact → second translate is a hit → FAILS
+// AFTER FIX:  PTM=0 → executes TLBI → TLB flushed → second translate is a miss → PASSES
+// Uses TLBI_NSNH_ALL (VMID-agnostic) to ensure the entry is targeted.
+TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm0_Participates_ExecutesTlbi) {
+    SMMU smmu;
+    enableSMMU(smmu);
+    smmu.enableCaching(true);
+
+    const StreamID sid  = 401u;
+    const IOVA     iova = 0x2000u;
+    const PA       pa   = 0xB000u;
+
+    StreamConfig cfg = ptmTestStreamCfg(11u);
+    ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
+    ASSERT_TRUE(smmu.enableStream(sid).isOk());
+    ASSERT_TRUE(smmu.createStreamPASID(sid, 0u).isOk());
+
+    PagePermissions ro(true, false, false);
+    ASSERT_TRUE(smmu.mapPage(sid, 0u, iova, pa, ro, SecurityState::NonSecure).isOk());
+
+    // First translate: cache miss — populates TLB entry.
+    TranslationResult r1 = smmu.translate(sid, 0u, iova, AccessType::Read);
+    ASSERT_TRUE(r1.isOk())
+        << "BUG-AUDIT-54 setup: first translate must succeed; result=" << (int)r1.getError();
+
+    uint64_t misses_before = smmu.getCacheMissCount();
+
+    // CR2.PTM=0 → SMMU participates in broadcast TLB maintenance.
+    // Use TLBI_NSNH_ALL (VMID-agnostic) so the entry for vmid=11 is targeted.
+    smmu.setCR2(0u);
+    smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
+
+    // Second translate: TLB was flushed → cache MISS (re-walk required).
+    TranslationResult r2 = smmu.translate(sid, 0u, iova, AccessType::Read);
+    ASSERT_TRUE(r2.isOk())
+        << "BUG-AUDIT-54: second translate with PTM=0 must succeed (page still mapped); "
+           "result=" << (int)r2.getError();
+
+    uint64_t misses_after = smmu.getCacheMissCount();
+
+    EXPECT_GT(misses_after, misses_before)
+        << "BUG-AUDIT-54: receiveBroadcastTLBI() with CR2.PTM=0 (participate) MUST "
+           "execute the TLBI — second translate must be a cache MISS (ARM §6.3.12). "
+           "misses_before=" << misses_before << " misses_after=" << misses_after;
+}

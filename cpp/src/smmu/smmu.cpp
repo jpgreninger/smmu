@@ -5481,8 +5481,8 @@ void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, 
                         type == CommandType::TLBI_EL2_VA  ||
                         type == CommandType::TLBI_EL2_VAA ||
                         type == CommandType::TLBI_EL2_ASID);
-    if (isNsEL1Tlbi && (cr2_.load(std::memory_order_acquire) & CR2_PTM) == 0u) {
-        return; // PTM=0: SMMU does not participate in this broadcast
+    if (isNsEL1Tlbi && (cr2_.load(std::memory_order_acquire) & CR2_PTM) != 0u) {
+        return; // BUG-AUDIT-54 fix: CR2.PTM=1 → Private TLB Maintenance, SMMU does not participate (ARM §6.3.12)
     }
     executeTLBInvalidationCommand(type, asid, vmid, va);
 }

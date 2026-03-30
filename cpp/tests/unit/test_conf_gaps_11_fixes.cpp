@@ -176,13 +176,13 @@ TEST(ConfGap11PTM, ConstantExists) {
     EXPECT_EQ(SMMU::CR2_PTM, 1u << 2);
 }
 
-TEST(ConfGap11PTM, PTMZeroSkipsBroadcastTLBI) {
-    // PTM=0: SMMU does NOT participate in broadcast TLB maintenance.
-    // The broadcast path (receiveBroadcastTLBI) must be a no-op when PTM=0.
+TEST(ConfGap11PTM, PTMZeroFiresBroadcastTLBI) {
+    // BUG-AUDIT-54 fix: PTM=0 means SMMU PARTICIPATES in broadcast TLB maintenance
+    // (ARM §6.3.12). The broadcast must execute and evict the TLB entry.
     // Verify by: warm TLB → unmap page → broadcast TLBI with PTM=0 →
-    // TLB remains warm → translate still succeeds despite unmapped page.
+    // TLB evicted → page walk fails → translate faults.
     SMMU smmu;
-    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);  // PTM=0 (default)
+    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);  // PTM=0: participate
     smmu.enable();
     smmu.enableCaching(true);
 
@@ -204,24 +204,25 @@ TEST(ConfGap11PTM, PTMZeroSkipsBroadcastTLBI) {
     // Unmap the page so a page-table walk would fail
     smmu.unmapPage(5u, 0u, 0x1000u);
 
-    // Broadcast TLBI with PTM=0 — must be a no-op (TLB stays warm)
+    // Broadcast TLBI with PTM=0 — SMMU participates, TLB entry must be evicted.
     ASSERT_EQ(smmu.getCR2() & SMMU::CR2_PTM, 0u) << "PTM must be 0";
-    smmu.receiveBroadcastTLBI(CommandType::TLBI_NH_ALL);
+    // Use TLBI_NSNH_ALL (VMID-agnostic) to ensure the entry is evicted.
+    smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
 
-    // TLB entry was NOT evicted → translate still hits the warm TLB entry
+    // TLB evicted + page unmapped → translate must fault (BUG-AUDIT-54: ARM §6.3.12)
     auto r2 = smmu.translate(5u, 0u, 0x1000u, AccessType::Read);
-    EXPECT_TRUE(r2.isOk()) << "PTM=0: broadcast TLBI must be a no-op; TLB remains warm";
+    EXPECT_FALSE(r2.isOk()) << "PTM=0: broadcast TLBI must evict TLB; walk faults on unmapped page (ARM §6.3.12)";
 }
 
-TEST(ConfGap11PTM, PTMOneFiresBroadcastTLBI) {
-    // PTM=1: SMMU participates in broadcast TLB maintenance.
-    // The broadcast path must execute the invalidation when PTM=1.
+TEST(ConfGap11PTM, PTMOneSkipsBroadcastTLBI) {
+    // BUG-AUDIT-54 fix: PTM=1 means Private TLB Maintenance — SMMU does NOT
+    // participate in broadcast TLB maintenance (ARM §6.3.12).
     // Verify by: warm TLB → unmap page → broadcast TLBI with PTM=1 →
-    // TLB evicted → page walk fails → translate faults.
+    // TLB remains warm → translate still succeeds despite unmapped page.
     SMMU smmu;
     smmu.enable();
     smmu.enableCaching(true);
-    smmu.setCR2(smmu.getCR2() | SMMU::CR2_PTM);  // PTM=1
+    smmu.setCR2(smmu.getCR2() | SMMU::CR2_PTM);  // PTM=1: Private — skip broadcast
 
     StreamConfig cfg;
     cfg.translationEnabled = true;
@@ -241,12 +242,12 @@ TEST(ConfGap11PTM, PTMOneFiresBroadcastTLBI) {
     // Unmap the page so a page-table walk would fail
     smmu.unmapPage(6u, 0u, 0x1000u);
 
-    // Broadcast TLBI with PTM=1 — must evict TLB entry
-    smmu.receiveBroadcastTLBI(CommandType::TLBI_NH_ALL);
+    // Broadcast TLBI with PTM=1 — must be a no-op; TLB entry remains (BUG-AUDIT-54: ARM §6.3.12)
+    smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
 
-    // TLB evicted + page unmapped → translate must fault
+    // TLB entry was NOT evicted → translate still hits the warm TLB entry
     auto r2 = smmu.translate(6u, 0u, 0x1000u, AccessType::Read);
-    EXPECT_FALSE(r2.isOk()) << "PTM=1: broadcast TLBI must evict TLB; walk faults on unmapped page";
+    EXPECT_TRUE(r2.isOk()) << "PTM=1: broadcast TLBI must be a no-op; TLB remains warm (ARM §6.3.12)";
 }
 
 // ============================================================================
@@ -540,8 +541,9 @@ TEST(ConfGap6TLBIVA, TLBINHVATargetsSpecificEntry) {
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
-    // PTM=1 to allow TLBI commands
-    smmu.setCR2(smmu.getCR2() | SMMU::CR2_PTM);
+    // Note: CR2.PTM does not affect command-queue TLBI commands (only receiveBroadcastTLBI path).
+    // Set PTM=0 (participate) as default; value is irrelevant for command-queue operations.
+    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);
 
     PagePermissions rw; rw.read = true; rw.write = true;
 
@@ -643,7 +645,8 @@ TEST(ConfGap8RIL, RILCommandInvalidatesRange) {
     SMMU smmu;
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
-    smmu.setCR2(smmu.getCR2() | SMMU::CR2_PTM);
+    // Note: CR2.PTM does not affect command-queue TLBI; PTM=0 (participate) is correct default.
+    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);
 
     StreamConfig cfg;
     cfg.translationEnabled = true;

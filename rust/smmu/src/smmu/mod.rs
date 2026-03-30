@@ -1931,11 +1931,10 @@ impl SMMU {
     /// ARM §6.3.9 / §6.3.12 CR2.PTM — Broadcast TLB maintenance participation.
     ///
     /// Models the hardware path where a PE broadcast TLB invalidation propagates
-    /// to attached SMMUs. When CR2.PTM=0 the SMMU does NOT participate (silent ignore).
-    /// When CR2.PTM=1 the SMMU executes the invalidation.
+    /// to attached SMMUs. When CR2.PTM=0 the SMMU participates (executes the invalidation).
+    /// When CR2.PTM=1 (Private TLB Maintenance) the SMMU does NOT participate (silent ignore).
     ///
-    /// BUG-AUDIT-54 fix: PTM guard added — software can disable broadcast TLB maintenance
-    /// by clearing CR2.PTM (setting it to 0).
+    /// BUG-AUDIT-54 fix: CR2.PTM polarity corrected — PTM=1 is Private (skip), PTM=0 is participate.
     pub fn receive_broadcast_tlbi(&self, cmd_type: CommandType, asid: u16, vmid: u16, va: IOVA) {
         // NS-scoped TLBI commands are gated by CR2.PTM per ARM §6.3.12.
         // Secure / EL3 commands are NOT broadcast maintenance — always execute.
@@ -1951,8 +1950,8 @@ impl SMMU {
                 | CommandType::TlbiEl2Vaa
                 | CommandType::TlbiEl2Asid
         );
-        if is_ns_tlbi && (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) == 0 {
-            // CR2.PTM=0: SMMU does not participate in this broadcast
+        if is_ns_tlbi && (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) != 0 {
+            // BUG-AUDIT-54 fix: CR2.PTM=1 → Private TLB Maintenance, SMMU does not participate (ARM §6.3.12)
             return;
         }
         // Execute the invalidation
