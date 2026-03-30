@@ -127,6 +127,8 @@ SMMU::SMMU()
       priSupported_(true),
       // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
       ns1atsSupported_(false),
+      // BUG-AUDIT-55: IDR0.SEV defaults to false (WFE/SEV mechanism not implemented).
+      sevSupported_(false),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -197,6 +199,8 @@ SMMU::SMMU(const SMMUConfiguration& config)
       priSupported_(true),
       // BUG-AUDIT-01: IDR0.NS1ATS defaults to false (NS1ATS not advertised by default).
       ns1atsSupported_(false),
+      // BUG-AUDIT-55: IDR0.SEV defaults to false (WFE/SEV mechanism not implemented).
+      sevSupported_(false),
       // GAP-NEW-E: STATUSR/IRQ_CTRL/CTRLACK registers initialize to 0.
       statusr_(0),
       irqCtrl_(0),
@@ -1133,8 +1137,9 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // For STT=0 (4-level), 4KB granule (s2tg=0), IAS=48, the valid S2T0SZ range
     // is [16, 39].  Values outside this range → SteIllegal → C_BAD_STE.
     // Guard is applied only when stage-2 is enabled; s2t0sz is irrelevant otherwise.
-    // Model sentinel: s2t0sz==0 means "no IPA range restriction" (legacy convention
-    // used throughout the model via `if (s2t0sz > 0u)` guards in translation paths).
+    // BUG-AUDIT-57: s2t0sz==0 is architecturally the maximum IPA range (2^64 per §5.4
+    // S2T0SZ encoding), used here as a model sentinel meaning "no IPA range restriction."
+    // All `if (s2t0sz > 0u)` guards in translation paths preserve this convention.
     // Only non-zero values outside [16, 39] are architecturally invalid.
     if (config.stage2Enabled && config.s2t0sz != 0u &&
             (config.s2t0sz < 16u || config.s2t0sz > 39u)) {
@@ -2656,8 +2661,11 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // Create successful final translation result.
     // CONF-GAP-7: tag the result with the IPA (stage-1 output) so it can be
     // stored in the TLBEntry.ipa field for selective TLBI_S2_IPA invalidation.
+    // BUG-AUDIT-49 fix: propagate the stage-2 page's memory-type attribute so
+    // gatosTranslate() can report the correct GATOS_PAR ATTR/SH (§9.1.4 / §6.3.40).
     TranslationData twoStageResult(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
-    twoStageResult.ipa = intermediatePA;
+    twoStageResult.ipa      = intermediatePA;
+    twoStageResult.pageAttr = stage2Data.pageAttr;
     return makeSuccess<TranslationData>(twoStageResult);
 }
 
@@ -3324,10 +3332,11 @@ uint32_t SMMU::getIDR0() const {
          | (1u << 6)         // HTTU[7:6] = 0b01 (=1): access flag only (BUG-AUDIT-35 fix §6.3.1 — dirty state not implemented)
          | (1u << 5)        // BTM: broadcast TLB maintenance (receiveBroadcastTLBI() with CR2.PTM gating) — GAP-R07 §6.3.1
          | ((hypSupported_.load(std::memory_order_acquire) && s1pSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 9) : 0u) // Hyp: gated on Hyp+S1P+S2P (BUG-AUDIT-41 fix §6.3.1)
+         | (1u << 8)         // DORMHINT: dormancy signaling supported (BUG-AUDIT-53 fix §6.3.1 — shutdown()/STATUSR.DORMANT implemented; bit must be 1 so software knows DORMANT is meaningful)
          | (1u << 10)       // ATS: PCIe ATS supported
          | ((ns1atsSupported_.load(std::memory_order_acquire) && s1pSupported_.load(std::memory_order_acquire) && s2pSupported_.load(std::memory_order_acquire)) ? (1u << 11) : 0u) // NS1ATS: gated on S1P+S2P (BUG-AUDIT-20 fix §6.3.1 — RES0 when ATS==0 OR S1P==0 OR S2P==0)
          | (1u << 12)       // ASID16: 16-bit ASIDs supported
-         | (1u << 14)       // SEV: stall model (WFE/SEV) supported
+         | (sevSupported_.load(std::memory_order_acquire) ? (1u << 14) : 0u)  // SEV: gated (BUG-AUDIT-55 fix §6.3.1 — WFE/SEV not implemented; default false)
          | (1u << 15)       // ATOS: address translation operations (GATOS) supported
          | (priSupported_.load(std::memory_order_acquire) ? (1u << 16) : 0u)  // PRI: configurable (BUG-NEW-G fix §4.5.2)
          // NOTE: AUDIT-NEW-03: ARM §6.3.1 requires PRI to be RES0 when ATS==0. ATS is currently hardcoded to 1;
@@ -3335,7 +3344,7 @@ uint32_t SMMU::getIDR0() const {
          | (s2pSupported_.load(std::memory_order_acquire) ? (1u << 17) : 0u)  // VMW: gated on S2P (BUG-A fix §6.3.1)
          | (1u << 18)       // VMID16: 16-bit VMIDs supported
          | (1u << 19)       // CD2L: 2-level CD table supported (BUG-AUDIT-32 fix §6.3.1 — model uses flat PASID map, no s1cdMax limit)
-         | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5
+         | (1u << 23)       // ATSRECERR: extended ATS error recording (CR2.REC_CFG_ATS gating) — GAP-R04 §6.3.1/§2.5 (BUG-AUDIT-56: latent guard — RES0 when ATS==0; ATS currently hardcoded 1 so bit is always set; add && ats_enabled if ATS ever made configurable)
          // BUG-2 fix: TERM_MODEL (bit 26) cleared — model implements both stall and
          // terminate behaviors and does NOT validate CD.A=1.  ARM IHI0070G.b §6.3.1:
          // when TERM_MODEL=1, C_BAD_CD must fire if CD.A=0.  Setting TERM_MODEL=0
@@ -3395,10 +3404,12 @@ uint32_t SMMU::getIDR5() const {
     // bits[31:16]: STALL_MAX — RES0 when IDR0.STALL_MODEL==0b01 (terminate-only) per §6.3.6.
     // BUG-QA-2: was hardcoded to 64; now conditional on stallModel_.
     uint32_t stall_max = (stallModel_.load(std::memory_order_acquire) == 0x01u) ? 0u : 64u;
+    // BUG-AUDIT-52 fix: ARM §6.3.6 — only the 4KB granule is implemented.
+    // GRAN16K (bit[5]) and GRAN64K (bit[6]) must NOT be set unless the corresponding
+    // granule size is actually supported.  Claiming them without support would allow
+    // software to configure unsupported granule sizes.
     return 5u           // OAS = 5 (48-bit) in bits[2:0]
-         | (1u << 4)    // GRAN4K
-         | (1u << 5)    // GRAN16K
-         | (1u << 6)    // GRAN64K
+         | (1u << 4)    // GRAN4K — only 4KB granule is implemented
          | (stall_max << 16); // STALL_MAX[31:16]
 }
 
@@ -3534,6 +3545,13 @@ void SMMU::setNS1ATSSupported(bool supported) {
     ns1atsSupported_.store(supported, std::memory_order_release);
 }
 
+// BUG-AUDIT-55 fix: IDR0.SEV (bit 14) is now gated on sevSupported_ (§4.7.3 / §6.3.1).
+// CMD_SYNC CS=0b10 (SIG_SEV) WFE-wake is not implemented; default false prevents
+// software from relying on SEV=1 for WFE-based synchronization.
+void SMMU::setSevSupported(bool enabled) {
+    sevSupported_.store(enabled, std::memory_order_release);
+}
+
 // BUG-NEW-H fix: ARM §8.1 — PRIQ_CONS.OVACKFLG (bit 31) is written by software to
 // acknowledge a PRI queue overflow.  Provides C++ API parity with Rust set_priq_cons_ovackflg().
 void SMMU::setPriqConsOvackflg(uint8_t value) {
@@ -3651,8 +3669,12 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
     }
     uint64_t pa         = result.getValue().physicalAddress;
     uint64_t addr_field = pa & 0x00FFFFFFFFFFF000ULL;              // PA bits[55:12]
-    uint64_t sh         = static_cast<uint64_t>(3u) << 8;         // ISH (0b11=3) in bits[9:8]
-    uint64_t attr       = static_cast<uint64_t>(0xFFu) << 56;     // Normal WB/WA in bits[63:56]
+    // BUG-AUDIT-49 fix: ARM §9.1.4 / §6.3.40 — use per-page memory-type attribute.
+    // pageAttr=0x00 → Device-nGnRnE: SH must be OSH (0b10) per §9.1.4.
+    // pageAttr=0xFF → Normal WB/WA:  SH is ISH (0b11).
+    uint8_t  pageAttr   = result.getValue().pageAttr;
+    uint64_t sh         = static_cast<uint64_t>(pageAttr == 0x00u ? 2u : 3u) << 8;
+    uint64_t attr       = static_cast<uint64_t>(pageAttr) << 56;
     return attr | sh | addr_field;
     // SIZE (bit 11) = 0 (4KB page — implicit)
 }

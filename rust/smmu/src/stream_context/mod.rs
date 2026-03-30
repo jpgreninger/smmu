@@ -2279,7 +2279,11 @@ impl StreamContext {
             return (Err(TranslationError::PermissionViolation { access: access_type }), Some(ipa_raw));
         }
 
-        let result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        // BUG-AUDIT-49 fix: carry page_attr from the stage-2 result so that
+        // gatos_translate() can return the correct ATTR/SH for device-memory pages.
+        // TranslationData::new() defaults page_attr=0xFF; transfer the stage-2 value.
+        let mut result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        result_data.page_attr = s2_data.page_attr;
         // Return Some(ipa_raw) even on success so the SMMU can tag the TLB entry
         // with the correct IPA for CMD_TLBI_S2_IPA selective invalidation (§4.4.3.1 / §3.17).
         (Ok(self.apply_output_attrs(result_data)), Some(ipa_raw))

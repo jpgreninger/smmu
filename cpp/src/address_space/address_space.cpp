@@ -270,9 +270,13 @@ TranslationResult AddressSpace::translatePage(IOVA iova, AccessType accessType,
     // Successful translation - combine page PA with offset
     uint64_t pageOffset = iova & PAGE_MASK;
     PA translatedPA = entry.physicalAddress + pageOffset;
-    
-    // Create successful translation result
-    return makeTranslationSuccess(translatedPA, entry.permissions, entry.securityState);
+
+    // BUG-AUDIT-49 fix: ARM §9.1.4 / §6.3.40 — propagate per-page memory type.
+    // pageAttr=0x00 → Device-nGnRnE; pageAttr=0xFF → Normal WB/WA (default).
+    // gatosTranslate() uses this to set GATOS_PAR ATTR[63:56] and SH[9:8].
+    TranslationData td(translatedPA, entry.permissions, entry.securityState);
+    td.pageAttr = entry.deviceMemory ? 0x00u : 0xFFu;
+    return makeSuccess<TranslationData>(td);
 }
 
 // Query if a specific page is mapped

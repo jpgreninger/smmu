@@ -828,13 +828,19 @@ struct TranslationData {
     /// Zero for single-stage translations (no IPA).
     uint64_t ipa;
 
+    /// @brief BUG-AUDIT-49: Per-page MAIR attribute byte from translation tables.
+    /// 0x00 = Device-nGnRnE; 0xFF = Normal WB/WA (default).
+    /// This is the raw page-level attribute, NOT the STE output override (memType).
+    /// Used by gatosTranslate() to populate GATOS_PAR ATTR and SH fields per §9.1.4.
+    uint8_t pageAttr;
+
     /**
      * @brief Default constructor
      * @details Physical address = 0, NonSecure state, no permissions.
      */
     TranslationData() : physicalAddress(0), securityState(SecurityState::NonSecure),
                         memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0),
-                        ipa(0) {
+                        ipa(0), pageAttr(0xFFu) {
     }
 
     /**
@@ -844,7 +850,7 @@ struct TranslationData {
      */
     TranslationData(PA pa) : physicalAddress(pa), securityState(SecurityState::NonSecure),
                              memType(0), shareability(0), allocHint(0), instCfg(0), privCfg(0), nsCfgOut(0),
-                             ipa(0) {
+                             ipa(0), pageAttr(0xFFu) {
     }
 
     /**
@@ -856,7 +862,8 @@ struct TranslationData {
     TranslationData(PA pa, PagePermissions perms) : physicalAddress(pa), permissions(perms),
                                                     securityState(SecurityState::NonSecure),
                                                     memType(0), shareability(0), allocHint(0),
-                                                    instCfg(0), privCfg(0), nsCfgOut(0), ipa(0) {
+                                                    instCfg(0), privCfg(0), nsCfgOut(0),
+                                                    ipa(0), pageAttr(0xFFu) {
     }
 
     /**
@@ -871,7 +878,7 @@ struct TranslationData {
                                                                             memType(0), shareability(0),
                                                                             allocHint(0), instCfg(0),
                                                                             privCfg(0), nsCfgOut(0),
-                                                                            ipa(0) {
+                                                                            ipa(0), pageAttr(0xFFu) {
     }
 };
 
@@ -1272,6 +1279,16 @@ struct StreamConfig {
     /// page → F_PERMISSION (prevents TTW from hitting device MMIO regions).
     bool s2ptw;  ///< STE.S2PTW; defaults to false
 
+    /// BUG-AUDIT-50: ARM §5.4 CD.ENDI — endianness for stage-1 table walks.
+    /// 0=little-endian, 1=big-endian.
+    /// Per §6.3.1 TTENDIAN=0b00 (mixed), both values are valid; no C_BAD_CD raised.
+    bool endi;   ///< CD.ENDI; defaults to false (little-endian)
+
+    /// BUG-AUDIT-50: ARM §5.2 STE.S2ENDI — endianness for stage-2 table walks.
+    /// 0=little-endian, 1=big-endian.
+    /// Per §6.3.1 TTENDIAN=0b00 (mixed), both values are valid; no C_BAD_STE raised.
+    bool s2endi; ///< STE.S2ENDI; defaults to false (little-endian)
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1286,7 +1303,8 @@ struct StreamConfig {
                     s1Stalld(false),
                     affd(false), s2affd(false), s2ha(false), s2hd(false),
                     wxn(false), uwxn(false),
-                    s2ptw(false) {
+                    s2ptw(false),
+                    endi(false), s2endi(false) {
     }
 };
 

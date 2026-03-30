@@ -164,8 +164,9 @@ fn test_gap_new_d_idr5_granules() {
     //   bit  6    = GRAN64K
     assert_eq!(idr5 & 0b111, 5, "IDR5 OAS (bits[2:0]) must be 5 (48-bit)");
     assert_ne!(idr5 & (1 << 4), 0, "IDR5 GRAN4K (bit 4) must be set");
-    assert_ne!(idr5 & (1 << 5), 0, "IDR5 GRAN16K (bit 5) must be set");
-    assert_ne!(idr5 & (1 << 6), 0, "IDR5 GRAN64K (bit 6) must be set");
+    // BUG-AUDIT-52 fix: GRAN16K and GRAN64K must be 0 — only 4KB granule is implemented.
+    assert_eq!(idr5 & (1 << 5), 0, "IDR5 GRAN16K (bit 5) must be 0 — not implemented (BUG-AUDIT-52)");
+    assert_eq!(idr5 & (1 << 6), 0, "IDR5 GRAN64K (bit 6) must be 0 — not implemented (BUG-AUDIT-52)");
 }
 
 /// GAP-NEW-D test 5: get_aidr() and get_iidr() return expected values.
@@ -399,7 +400,9 @@ fn test_gap_new_f_gatos_fault_on_unmapped() {
 fn test_gap_p9_idr0_stall_model_consistent_with_sev() {
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
-    assert_ne!(idr0 & (1 << 14), 0, "IDR0 bit 14 (SEV) must be set");
+    // BUG-AUDIT-55 fix: IDR0.SEV (bit 14) is now 0 by default — WFE-wake not implemented.
+    // Software must call set_sev_supported(true) to enable it.
+    assert_eq!(idr0 & (1 << 14), 0, "IDR0.SEV (bit 14) must be 0 by default (BUG-AUDIT-55)");
     // STALL_MODEL=0b00: both stall and terminate models supported.
     assert_eq!((idr0 >> 24) & 0x3, 0, "IDR0 STALL_MODEL[25:24] must be 0b00");
 }
@@ -414,7 +417,8 @@ fn test_gap_r01_idr0_stall_model_zero() {
     let smmu = SMMU::new();
     let idr0 = smmu.get_idr0();
     assert_eq!((idr0 >> 24) & 0x3, 0, "IDR0.STALL_MODEL[25:24] must be 0b00");
-    assert_ne!(idr0 & (1 << 14), 0, "IDR0.SEV (bit 14) must remain set");
+    // BUG-AUDIT-55 fix: IDR0.SEV (bit 14) is now 0 by default — WFE-wake not implemented.
+    assert_eq!(idr0 & (1 << 14), 0, "IDR0.SEV (bit 14) must be 0 by default (BUG-AUDIT-55)");
 }
 
 // ============================================================================

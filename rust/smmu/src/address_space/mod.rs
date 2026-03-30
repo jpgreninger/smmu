@@ -593,8 +593,14 @@ impl AddressSpace {
         let page_offset = iova.as_u64() & PAGE_MASK;
         let translated_pa = PA::new(entry.physical_address().as_u64() + page_offset).unwrap();
 
+        // BUG-AUDIT-49 fix: §9.1.4 / §6.3.40 — carry per-page ATTR from translation tables.
+        // Device-nGnRnE pages return ATTR=0x00; Normal WB/WA pages return ATTR=0xFF.
+        let mut data = TranslationData::new(translated_pa, entry.permissions(), entry.security_state());
+        if entry.is_device_memory() {
+            data.page_attr = 0x00; // Device-nGnRnE
+        }
         // Return successful translation
-        Ok(TranslationData::new(translated_pa, entry.permissions(), entry.security_state()))
+        Ok(data)
     }
 
     /// Checks if a page is mapped

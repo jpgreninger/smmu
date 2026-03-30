@@ -547,6 +547,15 @@ pub struct SMMU {
     /// ```
     /// When `false` (default), bit 11 is 0 and the EATS+NS1ATS guard is inactive.
     ns1ats_supported: AtomicBool,
+
+    // ---- BUG-AUDIT-55: IDR0.SEV configurable field (ARM §6.3.1, §4.7.3) ----
+
+    /// IDR0.SEV (bit 14) — whether CMD_SYNC CS=0b10 (SIG_SEV) WFE-wake is supported.
+    ///
+    /// Per ARM §4.7.3, when IDR0.SEV=0 the SIG_SEV completion type is not implemented;
+    /// CS=0b10 in CMD_SYNC should be treated as a no-op or use IRQ completion.
+    /// Default: `false` (SEV not implemented). Set to `true` only if WFE-wake is added.
+    sev_supported: AtomicBool,
 }
 
 impl SMMU {
@@ -893,6 +902,8 @@ impl SMMU {
             pri_supported: AtomicBool::new(true),
             // BUG-AUDIT-01: NS1ATS=false by default (EATS+NS1ATS guard inactive).
             ns1ats_supported: AtomicBool::new(false),
+            // BUG-AUDIT-55: SEV=false by default (CMD_SYNC SIG_SEV WFE-wake not implemented).
+            sev_supported: AtomicBool::new(false),
         }
     }
 
@@ -1228,8 +1239,9 @@ impl SMMU {
         | (0b10u32 << 2)     // TTF = AArch64 S1+S2
         | (1u32 << 10)       // ATS
         | if self.ns1ats_supported.load(Ordering::Acquire) && self.s1p_supported.load(Ordering::Acquire) && self.s2p_supported.load(Ordering::Acquire) { 1u32 << 11 } else { 0 }  // NS1ATS: gated on S1P+S2P (BUG-AUDIT-20 fix §6.3.1 — RES0 when ATS==0 OR S1P==0 OR S2P==0)
+        | (1u32 << 8)        // BUG-AUDIT-53 fix: DORMHINT — dormancy (shutdown/STATUSR.DORMANT) is implemented (ARM §6.3.1)
         | (1u32 << 12)       // ASID16
-        | (1u32 << 14)       // SEV (stall model)
+        | (if self.sev_supported.load(Ordering::Acquire) { 1u32 << 14 } else { 0 })  // SEV: BUG-AUDIT-55 fix — gated on sev_supported (default false)
         | (1u32 << 15)       // ATOS (GATOS implemented)
         | if self.pri_supported.load(Ordering::Acquire) { 1u32 << 16 } else { 0 } // PRI: configurable (BUG-NEW-G fix §4.5.2). AUDIT-NEW-03: ARM §6.3.1 requires PRI RES0 when ATS==0; ATS is hardcoded 1, so this guard is sufficient.
         | (if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 17 } else { 0 })  // VMW: gated on S2P (BUG-A fix §6.3.1)
@@ -1245,7 +1257,7 @@ impl SMMU {
         // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
         // stored by set_stall_model() rather than being hardcoded to 0b00.
         | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
-        | (1u32 << 23)       // ATSRECERR: ATS error recovery (CR2.REC_CFG_ATS) implemented (§6.3.1, §2.5)
+        | (1u32 << 23)       // ATSRECERR: extended ATS error recording (§6.3.1). NOTE: ARM §6.3.1 requires ATSRECERR RES0 when ATS==0; ATS is currently hardcoded 1. If ATS is ever made configurable, add && ats_enabled guard here.
         // TERM_MODEL (bit 26) = 0: RAZ/WI termination IS supported (§6.3.1).
         // Bug 2 fix: the model does not validate CD.A=1 before permitting termination,
         // so claiming TERM_MODEL=1 ("CD.A must be 1") would be a spec violation.
@@ -1317,9 +1329,9 @@ impl SMMU {
     ///
     /// Bit layout per ARM IHI0070G.b §6.3.6:
     /// - bits[2:0]:   OAS       — Output Address Size (5 = 48-bit)
-    /// - bit  4:      GRAN4K    — 4KB translation granule supported
-    /// - bit  5:      GRAN16K   — 16KB translation granule supported
-    /// - bit  6:      GRAN64K   — 64KB translation granule supported
+    /// - bit  4:      GRAN4K    — 4KB translation granule supported (only implemented granule)
+    /// - bit  5:      GRAN16K   — 0; 16KB granule not implemented (BUG-AUDIT-52 fix §6.3.6)
+    /// - bit  6:      GRAN64K   — 0; 64KB granule not implemented (BUG-AUDIT-52 fix §6.3.6)
     /// - bits[31:16]: STALL_MAX — Maximum stall queue depth (64); must be non-zero when STALL_MODEL=0b00
     #[must_use]
     pub fn get_idr5(&self) -> u32 {
@@ -1327,9 +1339,10 @@ impl SMMU {
         // (terminate-only model).  When STALL_MODEL==0b00 (default) STALL_MAX=64.
         let stall_max = if self.stall_model.load(Ordering::Relaxed) == 0x01 { 0u32 } else { 64u32 };
         5u32            // OAS = 5 (48-bit) in bits[2:0]
-        | (1u32 << 4)   // GRAN4K
-        | (1u32 << 5)   // GRAN16K
-        | (1u32 << 6)   // GRAN64K
+        // BUG-AUDIT-52 fix: ARM §6.3.6 — only the 4KB granule is implemented.
+        // GRAN16K (bit[5]) and GRAN64K (bit[6]) must NOT be set unless the corresponding
+        // granule size is actually supported.
+        | (1u32 << 4)   // GRAN4K — only 4KB granule is implemented
         | (stall_max << 16) // STALL_MAX: 0 when terminate-only, 64 otherwise (§6.3.6)
     }
 
@@ -1556,14 +1569,20 @@ impl SMMU {
             Ok(result) => {
                 // Success path: build GATOS_PAR per ARM IHI0070G.b §6.3.40.
                 // bit  0:     FAULT = 0
-                // bits[9:8]:  SH    = 0b11 (Inner Shareable)
+                // bits[9:8]:  SH    = from page_attr (ISH for Normal, OSH for Device)
                 // bit  11:    SIZE  = 0 (4KB page)
                 // bits[55:12]: ADDR = PA[55:12]
-                // bits[63:56]: ATTR = 0xFF (Normal, WB/WA cacheable)
+                // bits[63:56]: ATTR = from page_attr (0xFF Normal WB/WA or 0x00 Device-nGnRnE)
                 let pa = result.physical_address().as_u64();
                 let addr_field: u64 = pa & 0x00FF_FFFF_FFFF_F000_u64; // bits[55:12]
-                let sh:         u64 = 0b11_u64 << 8;                   // bits[9:8] = ISH
-                let attr:       u64 = 0xFF_u64 << 56;                  // bits[63:56]
+                // BUG-AUDIT-49 fix: §9.1.4 / §6.3.40 — use per-page translation-table
+                // attributes rather than hardcoded Normal/ISH.
+                // Device-nGnRnE (page_attr=0x00) → SH=OSH (0b10) per ARM §9.1.4:
+                //   "Shareability is returned as Outer Shareable when ATTR selects any Device type."
+                // Normal WB/WA  (page_attr=0xFF) → SH=ISH (0b11).
+                let page_attr = result.page_attr;
+                let sh:   u64 = (if page_attr == 0x00 { 0b10_u64 } else { 0b11_u64 }) << 8;
+                let attr: u64 = u64::from(page_attr) << 56;
                 // SIZE (bit 11) = 0 (4KB page) — left at zero
                 attr | sh | addr_field
             }
@@ -1895,6 +1914,70 @@ impl SMMU {
     ///   `if STE.EATS == '10' && NS1ATS == '1' then return TRUE`).
     pub fn set_ns1ats_supported(&self, enabled: bool) {
         self.ns1ats_supported.store(enabled, Ordering::Release);
+    }
+
+    /// BUG-AUDIT-55 fix: Controls IDR0 bit 14 (SEV) — CMD_SYNC CS=0b10 (SIG_SEV) WFE-wake.
+    ///
+    /// ARM §4.7.3 / §6.3.1: SEV=1 means the SMMU supports signalling a PE wake event
+    /// (WFE/SEV) on CMD_SYNC CS=0b10 completion. This model does not implement the
+    /// WFE-wake mechanism, so the default is `false`.
+    ///
+    /// - `false` (default): IDR0.SEV=0; CS=0b10 in CMD_SYNC is not supported.
+    /// - `true`:            IDR0.SEV=1; CS=0b10 is supported (set only if WFE-wake implemented).
+    pub fn set_sev_supported(&self, enabled: bool) {
+        self.sev_supported.store(enabled, Ordering::Release);
+    }
+
+    /// ARM §6.3.9 / §6.3.12 CR2.PTM — Broadcast TLB maintenance participation.
+    ///
+    /// Models the hardware path where a PE broadcast TLB invalidation propagates
+    /// to attached SMMUs. When CR2.PTM=0 the SMMU does NOT participate (silent ignore).
+    /// When CR2.PTM=1 the SMMU executes the invalidation.
+    ///
+    /// BUG-AUDIT-54 fix: PTM guard added — software can disable broadcast TLB maintenance
+    /// by clearing CR2.PTM (setting it to 0).
+    pub fn receive_broadcast_tlbi(&self, cmd_type: CommandType, asid: u16, vmid: u16, va: IOVA) {
+        // NS-scoped TLBI commands are gated by CR2.PTM per ARM §6.3.12.
+        // Secure / EL3 commands are NOT broadcast maintenance — always execute.
+        let is_ns_tlbi = matches!(
+            cmd_type,
+            CommandType::TlbiNhAll
+                | CommandType::TlbiNhVa
+                | CommandType::TlbiNhVaa
+                | CommandType::TlbiNhAsid
+                | CommandType::TlbiNsnhAll
+                | CommandType::TlbiEl2All
+                | CommandType::TlbiEl2Va
+                | CommandType::TlbiEl2Vaa
+                | CommandType::TlbiEl2Asid
+        );
+        if is_ns_tlbi && (self.cr2.load(Ordering::Acquire) & Self::CR2_PTM) == 0 {
+            // CR2.PTM=0: SMMU does not participate in this broadcast
+            return;
+        }
+        // Execute the invalidation
+        let va_raw = va.as_u64();
+        match cmd_type {
+            CommandType::TlbiNhAll => self.tlb_cache.invalidate_nh_by_vmid(vmid),
+            CommandType::TlbiNhAsid => self.tlb_cache.invalidate_by_vmid_and_asid(vmid, asid),
+            CommandType::TlbiNhVa => {
+                self.tlb_cache.invalidate_by_vmid_and_va_and_asid(vmid, va_raw, asid);
+            },
+            CommandType::TlbiNhVaa => {
+                // Broadcast: no range info — invalidate by VMID+VA (any ASID)
+                self.tlb_cache.invalidate_by_vmid_and_va(vmid, va_raw);
+            },
+            CommandType::TlbiNsnhAll => self.tlb_cache.invalidate_nsnh_all(),
+            CommandType::TlbiEl2All => self.tlb_cache.invalidate_el2_all(),
+            CommandType::TlbiEl2Va => {
+                self.tlb_cache.invalidate_el2_by_va_and_asid(va_raw, asid);
+            },
+            CommandType::TlbiEl2Vaa => {
+                self.tlb_cache.invalidate_el2_by_va(va_raw);
+            },
+            CommandType::TlbiEl2Asid => self.tlb_cache.invalidate_el2_e2h_by_asid(asid),
+            _ => {}, // Secure/EL3 commands: execute without PTM gating (not broadcast)
+        }
     }
 
     /// Returns true when SMMU_GBPA.ABORT is set (§3.11, §13.2).
@@ -2247,8 +2330,9 @@ impl SMMU {
         // for STT=0, 4KB granule default, IAS=48 → C_BAD_STE.
         // The old validate() threshold (> 48) was too loose; tighten to > 39 here
         // and emit the event before returning Err.
-        // BUG-AUDIT-48 fix: s2_t0sz=0 is the "no IPA range restriction" sentinel — must
-        // NOT be rejected as below minimum. The `!= 0` guard preserves this invariant.
+        // BUG-AUDIT-48 fix: s2_t0sz=0 is the "2^64 IPA range per §5.4 encoding" sentinel
+        // (no IPA range restriction) — must NOT be rejected as below minimum.
+        // The `!= 0` guard preserves this invariant.
         if config.stage2_enabled && config.s2_t0sz != 0 && (config.s2_t0sz < 16 || config.s2_t0sz > 39) {
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);

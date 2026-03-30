@@ -224,6 +224,12 @@ pub struct TranslationData {
     priv_cfg: u8,
     /// §5.2 STE.NSCFG: resolved NS output attribute
     ns_cfg_out: u8,
+    /// BUG-AUDIT-49 fix: §9.1.4 / §6.3.40 — per-page ATTR byte from translation tables.
+    /// `0xFF` = Normal WB/WA cacheable (default for non-device pages).
+    /// `0x00` = Device-nGnRnE (set when the page entry has `device_memory=true`).
+    /// Used by `gatos_translate()` to populate GATOS_PAR ATTR and SH fields
+    /// according to ARM §9.1.4 rather than hardcoding Normal/ISH.
+    pub page_attr: u8,
 }
 
 impl TranslationData {
@@ -260,6 +266,7 @@ impl TranslationData {
             inst_cfg: 0,
             priv_cfg: 0,
             ns_cfg_out: 0,
+            page_attr: 0xFF, // BUG-AUDIT-49: default Normal WB/WA; overridden for device pages
         }
     }
 
@@ -284,6 +291,7 @@ impl TranslationData {
             inst_cfg: 0,
             priv_cfg: 0,
             ns_cfg_out: 0,
+            page_attr: 0xFF, // BUG-AUDIT-49: default Normal WB/WA
         }
     }
 
@@ -481,6 +489,7 @@ impl Default for TranslationData {
             inst_cfg: 0,
             priv_cfg: 0,
             ns_cfg_out: 0,
+            page_attr: 0xFF, // BUG-AUDIT-49: default Normal WB/WA
         }
     }
 }
@@ -512,6 +521,7 @@ pub struct TranslationDataBuilder {
     inst_cfg: u8,
     priv_cfg: u8,
     ns_cfg_out: u8,
+    page_attr: u8,
 }
 
 impl TranslationDataBuilder {
@@ -528,6 +538,7 @@ impl TranslationDataBuilder {
             inst_cfg: 0,
             priv_cfg: 0,
             ns_cfg_out: 0,
+            page_attr: 0xFF, // BUG-AUDIT-49: default Normal WB/WA
         }
     }
 
@@ -589,6 +600,7 @@ impl TranslationDataBuilder {
             inst_cfg: self.inst_cfg,
             priv_cfg: self.priv_cfg,
             ns_cfg_out: self.ns_cfg_out,
+            page_attr: self.page_attr,
         }
     }
 }

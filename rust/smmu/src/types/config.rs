@@ -393,6 +393,14 @@ pub struct StreamConfig {
     ///
     /// Default: `true` (record events, normal behavior).
     pub s2_record: bool,
+
+    // ---- BUG-AUDIT-50: CD.ENDI / STE.S2ENDI endianness fields (§5.4 / §5.2) ----
+
+    /// BUG-AUDIT-50: ARM §5.4 CD.ENDI — endianness for stage-1 table walks. 0=little-endian, 1=big-endian. Per §6.3.1 TTENDIAN=0b00 (mixed), both values are valid.
+    pub endi: bool,
+
+    /// BUG-AUDIT-50: ARM §5.2 STE.S2ENDI — endianness for stage-2 table walks. 0=little-endian, 1=big-endian.
+    pub s2endi: bool,
 }
 
 impl StreamConfig {
@@ -462,6 +470,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            endi: false,
+            s2endi: false,
         }
     }
 
@@ -516,6 +526,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            endi: false,
+            s2endi: false,
         }
     }
 
@@ -570,6 +582,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            endi: false,
+            s2endi: false,
         }
     }
 
@@ -624,6 +638,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            endi: false,
+            s2endi: false,
         }
     }
 
@@ -841,6 +857,9 @@ pub struct StreamConfigBuilder {
     s2_stall: bool,
     // BUG-QA-13
     s2_record: bool,
+    // BUG-AUDIT-50
+    endi: bool,
+    s2endi: bool,
 }
 
 impl StreamConfigBuilder {
@@ -895,6 +914,8 @@ impl StreamConfigBuilder {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            endi: false,
+            s2endi: false,
         }
     }
 
@@ -1316,6 +1337,8 @@ impl StreamConfigBuilder {
             s2ptw: self.s2ptw,
             s2_stall: self.s2_stall,
             s2_record: self.s2_record,
+            endi: self.endi,
+            s2endi: self.s2endi,
         };
 
         config.validate()?;

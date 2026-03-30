@@ -153,8 +153,9 @@ TEST_F(GapNewDTest, gap_new_d_idr5_oas_and_granule_bits) {
     uint32_t idr5 = smmu_->getIDR5();
     EXPECT_EQ(idr5 & 0x7u, 5u)               << "IDR5 OAS (bits[2:0]) must be 5 (48-bit)";
     EXPECT_TRUE((idr5 & (1u << 4)) != 0u)    << "IDR5 GRAN4K (bit 4) must be set";
-    EXPECT_TRUE((idr5 & (1u << 5)) != 0u)    << "IDR5 GRAN16K (bit 5) must be set";
-    EXPECT_TRUE((idr5 & (1u << 6)) != 0u)    << "IDR5 GRAN64K (bit 6) must be set";
+    // BUG-AUDIT-52 fix: only 4KB granule is implemented — GRAN16K/GRAN64K must be 0.
+    EXPECT_TRUE((idr5 & (1u << 5)) == 0u)    << "IDR5 GRAN16K (bit 5) must be clear (not implemented)";
+    EXPECT_TRUE((idr5 & (1u << 6)) == 0u)    << "IDR5 GRAN64K (bit 6) must be clear (not implemented)";
 }
 
 // AIDR and IIDR are defined and callable (may return 0 for this model).
@@ -322,7 +323,9 @@ TEST_F(GapNewFTest, gap_new_f_gatos_translate_unconfigured_stream_fault) {
 
 TEST_F(GapNewDTest, gap_new_d_idr0_stall_model_consistent_with_sev) {
     uint32_t idr0 = smmu_->getIDR0();
-    EXPECT_TRUE((idr0 & (1u << 14)) != 0u) << "IDR0 bit 14 (SEV) must be set";
+    // BUG-AUDIT-55 fix: SEV (bit 14) defaults to 0 — WFE/SEV not implemented.
+    // Use setSevSupported(true) to advertise it when the mechanism is in place.
+    EXPECT_TRUE((idr0 & (1u << 14)) == 0u) << "IDR0 bit 14 (SEV) must be 0 by default (BUG-AUDIT-55)";
     // STALL_MODEL=0b00 means both stall and terminate are supported (correct for this model).
     EXPECT_EQ((idr0 >> 24) & 0x3u, 0u) << "IDR0 STALL_MODEL[25:24] must be 0b00";
 }
@@ -332,8 +335,8 @@ TEST_F(GapNewDTest, gap_new_r01_idr0_stall_model_zero) {
     uint32_t idr0 = smmu_->getIDR0();
     EXPECT_EQ((idr0 >> 24) & 0x3u, 0u)
         << "IDR0.STALL_MODEL[25:24] must be 0b00 (both models supported)";
-    // SEV (bit 14) must still be set.
-    EXPECT_TRUE((idr0 & (1u << 14)) != 0u) << "IDR0.SEV (bit 14) must remain set";
+    // BUG-AUDIT-55 fix: SEV (bit 14) defaults to 0 — WFE/SEV not implemented.
+    EXPECT_TRUE((idr0 & (1u << 14)) == 0u) << "IDR0.SEV (bit 14) must be 0 by default (BUG-AUDIT-55)";
 }
 
 // GAP-R06: IDR5.STALL_MAX must be non-zero when STALL_MODEL==0b00.

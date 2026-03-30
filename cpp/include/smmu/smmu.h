@@ -305,6 +305,15 @@ public:
     // When false (default): IDR0 bit 11 is cleared; the NS1ATS+EATS check does not fire.
     void setNS1ATSSupported(bool supported);
 
+    // BUG-AUDIT-55: IDR0.SEV configurable (§4.7.3 / §6.3.1 bit 14).
+    // When true: IDR0 bit 14 (SEV) is set; advertises CMD_SYNC CS=0b10 (SIG_SEV)
+    // WFE-wake support.  The WFE/SEV mechanism is NOT implemented in this model so
+    // the default is false — software must not rely on SEV=1 for synchronization.
+    // When false (default): IDR0 bit 14 is cleared; CS=0b10 CMD_SYNC does not
+    // signal a hardware SEV but CERROR_ILL is not raised (CS=0b10 is a valid encoding;
+    // the hardware simply does nothing special for WFE wakeup).
+    void setSevSupported(bool enabled);
+
     /// BUG-NEW-G fix: Controls IDR0.PRI (bit 16) and CERROR_ILL gate on CMD_PRI_RESP (ARM §4.5.2).
     /// Default true. Set false to test IDR0.PRI==0 behavior.
     void setPRISupported(bool enabled);
@@ -559,6 +568,11 @@ private:
     // When true: IDR0 bit 11 = 1; EATS==0b10 in configureStream() raises C_BAD_STE.
     // When false (default): IDR0 bit 11 = 0; the NS1ATS+EATS guard does not fire.
     std::atomic<bool> ns1atsSupported_;  ///< IDR0.NS1ATS bit; default false
+
+    // BUG-AUDIT-55: IDR0.SEV — configurable WFE/SEV support (§4.7.3 / §6.3.1 bit 14).
+    // When true: IDR0 bit 14 = 1; advertises CMD_SYNC CS=0b10 (SIG_SEV) WFE-wake support.
+    // When false (default): IDR0 bit 14 = 0; WFE/SEV mechanism not implemented.
+    std::atomic<bool> sevSupported_;  ///< IDR0.SEV bit; default false (BUG-AUDIT-55 fix §6.3.1)
 
     // GAP-NEW-E: SMMU_STATUSR / SMMU_IRQ_CTRL / SMMU_IRQ_CTRLACK registers (§6.3.45–6.3.47).
     // STATUSR bit 0 = DORMANT; always 0 in this SW model (no true dormant state).
