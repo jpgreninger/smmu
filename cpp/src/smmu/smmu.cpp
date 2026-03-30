@@ -2074,15 +2074,17 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     }
 
     // §5.4 / CT-14: CD.AA64 validation — AArch32 LPAE mode is unsupported.
-    // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range 0-39 for SMMUv3.0.
+    // §5.4 / CT-13: CD.T0SZ/T1SZ validation — valid range [16,39] for SMMUv3.2; 0=sentinel (no restriction).
     if (config.stage1Enabled) {
         if (!config.aa64) {
             // AA64=0 (VMSAv8-32 LPAE) is unsupported — C_BAD_CD (event 0x0A).
             generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }
-        if (config.t0sz > 39u || config.t1sz > 39u) {
-            // T0SZ or T1SZ out of range — C_BAD_CD (event 0x0A).
+        if ((config.t0sz != 0u && config.t0sz < 16u) || config.t0sz > 39u ||
+                (config.t1sz != 0u && config.t1sz < 16u) || config.t1sz > 39u) {
+            // T0SZ or T1SZ out of valid range [16,39] (0=sentinel, no restriction) — C_BAD_CD.
+            // §5.4 CDTxSZInvalid(): txsz_min=16, txsz_max=39 for STT=0, VAX=0, IAS=48 (SMMUv3.2).
             generateEvent(EventType::C_BAD_CD, streamID, pasid, iova, securityState);
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }

@@ -2247,7 +2247,9 @@ impl SMMU {
         // for STT=0, 4KB granule default, IAS=48 → C_BAD_STE.
         // The old validate() threshold (> 48) was too loose; tighten to > 39 here
         // and emit the event before returning Err.
-        if config.stage2_enabled && (config.s2_t0sz < 16 || config.s2_t0sz > 39) {
+        // BUG-AUDIT-48 fix: s2_t0sz=0 is the "no IPA range restriction" sentinel — must
+        // NOT be rejected as below minimum. The `!= 0` guard preserves this invariant.
+        if config.stage2_enabled && config.s2_t0sz != 0 && (config.s2_t0sz < 16 || config.s2_t0sz > 39) {
             if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                 let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                 let event = EventEntry {
@@ -4230,14 +4232,14 @@ impl SMMU {
                 let s2_record_val = stream_ref.value().get_s2_record();
                 let strw_val = stream_ref.value().get_strw();
 
-                // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range 0-39).
+                // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range [16,39]; 0=sentinel for no restriction).
                 // §5.4 / CT-14: CD.AA64=false (AArch32 LPAE) is unsupported — C_BAD_CD.
                 // Only applies when Stage-1 is enabled.
                 if stream_ref.value().is_stage1_enabled() {
                     let t0sz = stream_ref.value().get_t0sz();
                     let t1sz = stream_ref.value().get_t1sz();
                     let aa64 = stream_ref.value().get_aa64();
-                    if !aa64 || t0sz > 39 || t1sz > 39 {
+                    if !aa64 || (t0sz != 0 && t0sz < 16) || t0sz > 39 || (t1sz != 0 && t1sz < 16) || t1sz > 39 {
                         // BUG-RUST-2 fix: §5.2/§7.3.1 — snapshot MEV before dropping
                         // stream_ref so the MEV deduplication guard can be applied to
                         // the C_BAD_CD inline push block (same pattern as
