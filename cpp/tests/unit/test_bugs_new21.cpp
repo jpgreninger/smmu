@@ -195,23 +195,24 @@ static bool gatosFaultBit(uint64_t par) {
     return (par & 0x1u) != 0u;
 }
 
-// Verify that a well-known non-reserved GATOS fault code (C_BAD_STE=0x04) is
-// returned correctly when targeting a stream that was never configured.
-// An unconfigured (but in-range) StreamID is equivalent to STE.V=0 per §7.3.5,
-// which generates C_BAD_STE (0x04) — NOT C_BAD_STREAMID (0x02).
-// This confirms gatosTranslate() consults mapEventTypeToGatosFaultCode() at all.
+// Verify that GATOS returns INV_STAGE (0xFE) for an in-range, unconfigured stream.
+// BUG-AUDIT-64: ARM §9.1.3 line 27699 — GATOS for a stream with no active translation
+// (absent from streamMap) must return INV_STAGE: FAULT=1, FAULTCODE=0xFE.
+// Pre-BUG-AUDIT-64 behavior was to call translate() which returned C_BAD_STE (0x04);
+// post-fix the pre-check in gatosTranslate() returns 0xFE before translate() is called.
 TEST(BugAudit38, UnconfiguredStreamReturnsFaultcode04) {
     SMMU s;
     s.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN);
 
-    // Stream 99 was never configured → C_BAD_STE (0x04) per §7.3.5 STE.V=0 rule.
+    // Stream 99 was never configured. With BUG-AUDIT-64 fix, gatosTranslate() pre-checks
+    // the streamMap and returns INV_STAGE (0xFE) — consistent with §9.1.3 line 27699.
     uint64_t par = s.gatosTranslate(99u, 0u, 0x1000u, AccessType::Read,
                                      SecurityState::NonSecure);
     EXPECT_TRUE(gatosFaultBit(par))
-        << "BUG-AUDIT-38: GATOS PAR must have FAULT=1 for unconfigured stream";
-    EXPECT_EQ(gatosFaultCode(par), 0x04u)
-        << "BUG-AUDIT-38: GATOS FAULTCODE must be 0x04 (C_BAD_STE) for unconfigured "
-           "(STE.V=0) stream per §7.3.5; this non-reserved code must NOT be remapped";
+        << "BUG-AUDIT-38/BUG-AUDIT-64: GATOS PAR must have FAULT=1 for absent stream";
+    EXPECT_EQ(gatosFaultCode(par), 0xFEu)
+        << "BUG-AUDIT-64: GATOS FAULTCODE must be 0xFE (INV_STAGE) for absent/unconfigured "
+           "stream per §9.1.3 line 27699. Pre-fix value was 0x04 (C_BAD_STE).";
 }
 
 // Verify F_TRANSLATION (0x10) is still returned correctly — this is a

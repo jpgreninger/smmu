@@ -1569,6 +1569,23 @@ impl SMMU {
             // FAULT=1, FAULTCODE=0xFD (INTERNAL_ERR) in bits[11:4]
             return 0x1u64 | (0xFDu64 << 4);
         }
+        // BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — GATOS must return INV_STAGE
+        // (FAULT=1, FAULTCODE=0xFE) for bypass (Config=0b100) and disabled/abort
+        // (Config=0b0xx) streams, and for absent streams (no STE configured).
+        // The DashMap guard is dropped immediately inside the block so translate()
+        // can acquire DashMap shards without risk of deadlock.
+        {
+            let is_bypass_or_disabled = self
+                .streams
+                .get(&stream_id.as_u32())
+                .map_or(true, |ctx| {
+                    !ctx.is_stage1_enabled() && !ctx.is_stage2_enabled()
+                });
+            if is_bypass_or_disabled {
+                // FAULT=1, FAULTCODE=0xFE (INV_STAGE) in bits[11:4]
+                return 0x1u64 | (0xFEu64 << 4);
+            }
+        }
         // GAP-2 fix: ARM §9.1.4/§6.3.40 — snapshot event queue length BEFORE
         // calling translate() so we can identify any new event appended by this
         // call and derive the correct FAULTCODE from it.  The read guard is
@@ -1754,6 +1771,11 @@ impl SMMU {
     /// After changing the format, translate() will apply the appropriate
     /// StreamID range validation.
     pub fn set_strtab_format(&self, fmt: StreamTableFormat) {
+        // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO when SMMUEN=1.
+        // Writes while SMMUEN=1 must be silently ignored.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+            return;
+        }
         self.strtab_fmt.store(fmt as u32, Ordering::Release);
     }
 
@@ -1776,6 +1798,11 @@ impl SMMU {
     /// (the spec default for reserved encodings) to prevent a shift-by-≥32
     /// panic in `validate_stream_id_2level()` (BUG-RUST-4 fix).
     pub fn set_strtab_split(&self, split: u8) {
+        // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO when SMMUEN=1.
+        // Writes while SMMUEN=1 must be silently ignored.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+            return;
+        }
         // BUG-RUST-4 fix: clamp reserved SPLIT values to 6 (spec default).
         // Allowed values per ARM §6.3.25: 6, 8, 10.  Any other value is
         // reserved and must not produce a shift-by-≥32 (which would panic
@@ -1824,6 +1851,11 @@ impl SMMU {
     ///
     /// Valid hardware range per ARM §6.3.4: 1–20 (model accepts 0–31; 32 = disabled).
     pub fn set_strtab_log2size(&self, v: u8) {
+        // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE is RO when SMMUEN=1.
+        // Writes while SMMUEN=1 must be silently ignored.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+            return;
+        }
         self.strtab_log2size.store(v, Ordering::Release);
     }
 

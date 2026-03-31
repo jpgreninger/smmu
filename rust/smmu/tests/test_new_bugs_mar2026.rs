@@ -49,11 +49,12 @@ fn iova(addr: u64) -> IOVA {
 /// rejected with an error before reaching the DashMap lookup.
 #[test]
 fn rust1_out_of_range_streamid_rejected() {
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     let smmu = SMMU::new();
-    smmu.enable().unwrap();
-    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
     // log2size=4 → valid StreamIDs: 0..15 only.
     smmu.set_strtab_log2size(4);
+    smmu.enable().unwrap();
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
     // StreamID 16 is out of range.
     let r = smmu.translate(
         sid(16),
@@ -70,10 +71,11 @@ fn rust1_out_of_range_streamid_rejected() {
 /// fails with stream-not-found, but NOT an out-of-range fault).
 #[test]
 fn rust1_in_range_streamid_not_range_faulted() {
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     let smmu = SMMU::new();
+    smmu.set_strtab_log2size(4); // valid: 0–15
     smmu.enable().unwrap();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
-    smmu.set_strtab_log2size(4); // valid: 0–15
     // StreamID 15 is within range — must NOT hit the range check.
     // It will still error (stream not configured), but not due to range.
     let r = smmu.translate(

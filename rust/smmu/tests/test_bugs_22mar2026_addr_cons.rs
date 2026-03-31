@@ -83,14 +83,16 @@ fn pasid(id: u32) -> PASID {
 fn rust1a_c_bad_streamid_address_and_pasid_are_res0() {
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12), so CR2 must be
     // configured before enable(). Construct SMMU manually instead of make_smmu().
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24/§6.3.25),
+    // so log2size must also be configured before enable().
     let smmu = SMMU::new();
     // Enable RECINVSID so C_BAD_STREAMID is written to the event queue.
     // Must be set BEFORE enable() since CR2 is RO once SMMUEN=1.
     smmu.set_cr2(SMMU::CR2_RECINVSID);
-    smmu.enable().unwrap();
-
     // Restrict table to 4 entries (log2size=2 → valid StreamIDs 0..3).
+    // Must be set BEFORE enable() since STRTAB_BASE is RO once SMMUEN=1.
     smmu.set_strtab_log2size(2);
+    smmu.enable().unwrap();
 
     // StreamID=8 is out-of-range (>= 2^2 = 4) → C_BAD_STREAMID.
     let out_of_range = sid(8);

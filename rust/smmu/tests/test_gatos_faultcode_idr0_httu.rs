@@ -72,11 +72,12 @@ fn test_gap2_gatos_c_bad_substreamid_faultcode_is_0x08() {
 }
 
 // ============================================================================
-// GAP-2 Test 2: C_BAD_STREAMID → FAULTCODE must be 0x02
+// GAP-2 Test 2: absent/out-of-range StreamID in GATOS → FAULTCODE must be 0xFE
 //
-// SPEC-20 correction: C_BAD_STREAMID (0x02) fires for an OUT-OF-RANGE StreamID
-// (StreamID >= 2^LOG2SIZE), not for an in-range unconfigured stream (which
-// produces C_BAD_STE per ARM §7.3.5).
+// BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — a GATOS request for an absent stream
+// (not in the stream table / out-of-range StreamID) must return INV_STAGE:
+// FAULT=1, FAULTCODE=0xFE. Previously C_BAD_STREAMID (0x02) was returned; the
+// pre-check now intercepts absent streams before translate() is called.
 //
 // Setup: LOG2SIZE=8 (valid range 0..=255), RECINVSID=1, StreamID=0x9999 (> 255).
 // ============================================================================
@@ -85,13 +86,15 @@ fn test_gap2_gatos_c_bad_substreamid_faultcode_is_0x08() {
 fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     let smmu = SMMU::new();
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enabling.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enabling.
     // Enable RECINVSID so C_BAD_STREAMID event is written to queue.
     smmu.set_cr2(smmu.get_cr2() | SMMU::CR2_RECINVSID);
-    enable_smmu(&smmu);
     // LOG2SIZE=8: valid StreamIDs are 0..=255; StreamID=0x9999 (39321) is out-of-range.
     smmu.set_strtab_log2size(8);
+    enable_smmu(&smmu);
 
-    // StreamID=0x9999 is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).
+    // StreamID=0x9999 is absent from the stream table. Per ARM §9.1.3 line 27699,
+    // GATOS must return INV_STAGE (FAULT=1, FAULTCODE=0xFE) for absent streams.
     let par = smmu.gatos_translate(
         make_sid(0x9999),
         make_pasid(0),
@@ -104,8 +107,8 @@ fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     let fc = extract_faultcode(par);
     assert_eq!(
         fc,
-        0x02,
-        "FAULTCODE must be 0x02 (C_BAD_STREAMID) per ARM §9.1.5; got 0x{fc:02x}"
+        0xFE,
+        "BUG-AUDIT-64: FAULTCODE must be 0xFE (INV_STAGE) for absent stream per ARM §9.1.3; got 0x{fc:02x}"
     );
 }
 

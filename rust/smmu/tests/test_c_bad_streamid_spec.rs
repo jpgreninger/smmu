@@ -23,10 +23,11 @@ fn make_smmu_out_of_range() -> SMMU {
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enable().
     // §6.3.12 / BUG-NEW-RUST-2: RECINVSID=1 is required for C_BAD_STREAMID events
     // to be written to the event queue on out-of-range StreamID translate() calls.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     smmu.set_cr2(SMMU::CR2_RECINVSID);
-    smmu.enable().unwrap();
     // LOG2SIZE=8: StreamIDs 0..=255 are in-range; >= 256 are out-of-range.
     smmu.set_strtab_log2size(8);
+    smmu.enable().unwrap();
     smmu
 }
 

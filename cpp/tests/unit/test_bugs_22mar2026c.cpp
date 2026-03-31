@@ -28,8 +28,9 @@ namespace {
 static std::unique_ptr<SMMU> makeSmmu() {
     SMMUConfiguration cfg;
     auto smmu = std::make_unique<SMMU>(cfg);
-    smmu->enable();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     smmu->setStrtabLog2Size(8u);
+    smmu->enable();
     return smmu;
 }
 

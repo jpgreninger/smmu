@@ -251,11 +251,12 @@ fn test_new15_ats_tr_unknown_sid_both_bits_set_emits_bad_sid() {
 #[test]
 fn test_new15_ordinary_unknown_sid_recinvsid_still_fires() {
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enabling.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enabling.
     let smmu = SMMU::new();
     smmu.set_cr2(SMMU::CR2_RECINVSID); // no REC_CFG_ATS needed for ordinary traffic
-    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     // LOG2SIZE=8: valid range 0..=255; StreamID=0xDEAD (57005) is out-of-range.
     smmu.set_strtab_log2size(8);
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     smmu.clear_event_queue();
 
     // StreamID=0xDEAD is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).

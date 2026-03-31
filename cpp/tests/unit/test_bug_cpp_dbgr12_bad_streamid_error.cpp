@@ -21,9 +21,9 @@ namespace test {
 // -----------------------------------------------------------------------
 TEST(BadStreamIdSpec, UnconfiguredStream_ReturnsStreamNotConfigured) {
     SMMU smmu;
-    smmu.enable();
-    // Set a large enough stream table to avoid the strtab range check
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     smmu.setStrtabLog2Size(16); // supports streams 0..65535; 0x1234 is in-range
+    smmu.enable();
 
     // Stream 0x1234 is within range but NOT configured (STE.V=0 equivalent)
     TranslationResult result = smmu.translate(0x1234, 0, 0x1000ULL,
@@ -40,8 +40,9 @@ TEST(BadStreamIdSpec, UnconfiguredStream_ReturnsStreamNotConfigured) {
 // -----------------------------------------------------------------------
 TEST(BadStreamIdSpec, UnconfiguredStream_GeneratesCBadSteEvent) {
     SMMU smmu;
-    smmu.enable();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     smmu.setStrtabLog2Size(16);
+    smmu.enable();
     // RECINVSID=0 intentionally — C_BAD_STE must still be recorded (§6.3.12)
 
     smmu.translate(0x5678, 0, 0x2000ULL, AccessType::Read, SecurityState::NonSecure);
@@ -64,8 +65,9 @@ TEST(BadStreamIdSpec, UnconfiguredStream_GeneratesCBadSteEvent) {
 // -----------------------------------------------------------------------
 TEST(BadStreamIdSpec, OutOfRangeStream_ReturnsInvalidStreamID) {
     SMMU smmu;
-    smmu.enable();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     smmu.setStrtabLog2Size(4); // only streams 0..15 valid
+    smmu.enable();
 
     // Stream 0x20 is out of range
     TranslationResult result = smmu.translate(0x20, 0, 0x1000ULL,
@@ -80,8 +82,9 @@ TEST(BadStreamIdSpec, OutOfRangeStream_ReturnsInvalidStreamID) {
 // -----------------------------------------------------------------------
 TEST(BadStreamIdSpec, ConfiguredStream_TranslatesCorrectly) {
     SMMU smmu;
-    smmu.enable();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     smmu.setStrtabLog2Size(16);
+    smmu.enable();
 
     StreamConfig cfg;
     cfg.translationEnabled = true;

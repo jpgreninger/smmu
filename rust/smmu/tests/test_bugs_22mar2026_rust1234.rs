@@ -448,11 +448,11 @@ fn rust3_c_bad_streamid_read_access_rnw_is_false() {
     let smmu = SMMU::new();
     // Enable CR2.RECINVSID so C_BAD_STREAMID events are recorded (§7.3.3).
     // Must be set BEFORE enable() since CR2 is RO once SMMUEN=1.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     smmu.set_cr2(SMMU::CR2_RECINVSID);
-    smmu.enable().unwrap();
-
     // Restrict stream-table to 2^4=16 entries; StreamID=20 is out-of-range.
     smmu.set_strtab_log2size(4);
+    smmu.enable().unwrap();
 
     // StreamID 20 >= 16 = 2^4 → out-of-range → C_BAD_STREAMID.
     let out_of_range_sid = sid(20);
@@ -571,10 +571,11 @@ fn rust3_c_bad_streamid_execute_access_ind_is_false() {
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enable().
     let smmu = SMMU::new();
     // Enable CR2.RECINVSID before enable() since CR2 is RO once SMMUEN=1.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     smmu.set_cr2(SMMU::CR2_RECINVSID);
-    smmu.enable().unwrap();
     // Restrict stream-table to 2^4=16 entries; StreamID=21 is out-of-range.
     smmu.set_strtab_log2size(4);
+    smmu.enable().unwrap();
 
     // StreamID 21 >= 16 = 2^4 → out-of-range → C_BAD_STREAMID.
     let out_of_range_sid = sid(21);

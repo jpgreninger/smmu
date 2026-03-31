@@ -34,9 +34,10 @@ fn iova_1000() -> IOVA {
 /// RECINVSID is intentionally NOT set, to verify C_BAD_STE is never gated by it.
 fn make_smmu_with_log2size_8() -> SMMU {
     let smmu = SMMU::new();
-    smmu.enable().unwrap();
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     // LOG2SIZE=8: valid StreamIDs are 0..=255; StreamID >= 256 is out-of-range.
     smmu.set_strtab_log2size(8);
+    smmu.enable().unwrap();
     // RECINVSID deliberately left at 0 to prove C_BAD_STE is NOT gated by it.
     smmu
 }
@@ -93,10 +94,11 @@ fn spec20_a_in_range_unconfigured_stream_emits_c_bad_ste() {
 fn spec20_b_out_of_range_stream_emits_c_bad_streamid() {
     let smmu = SMMU::new();
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enable().
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     // Set RECINVSID so out-of-range C_BAD_STREAMID events are recorded.
     smmu.set_cr2(SMMU::CR2_RECINVSID);
-    smmu.enable().unwrap();
     smmu.set_strtab_log2size(8);
+    smmu.enable().unwrap();
 
     // StreamID=300 is out of range for LOG2SIZE=8 (limit is 256).
     let result = smmu.translate(
@@ -192,9 +194,10 @@ fn spec20_c_c_bad_ste_not_gated_by_recinvsid() {
 #[test]
 fn spec20_d_c_bad_streamid_still_gated_by_recinvsid() {
     // With RECINVSID=0: out-of-range stream must NOT produce event.
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     let smmu_no_rec = SMMU::new();
-    smmu_no_rec.enable().unwrap();
     smmu_no_rec.set_strtab_log2size(8);
+    smmu_no_rec.enable().unwrap();
     // RECINVSID stays 0
     let _ = smmu_no_rec.translate(
         sid(300),
@@ -213,10 +216,11 @@ fn spec20_d_c_bad_streamid_still_gated_by_recinvsid() {
 
     // With RECINVSID=1: out-of-range stream must produce C_BAD_STREAMID event.
     // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1; set CR2 before enable().
+    // BUG-AUDIT-63 fix: STRTAB_BASE (log2size) is RO when SMMUEN=1 (ARM §6.3.24); set before enable().
     let smmu_with_rec = SMMU::new();
     smmu_with_rec.set_cr2(SMMU::CR2_RECINVSID);
-    smmu_with_rec.enable().unwrap();
     smmu_with_rec.set_strtab_log2size(8);
+    smmu_with_rec.enable().unwrap();
     let _ = smmu_with_rec.translate(
         sid(300),
         pasid_zero(),

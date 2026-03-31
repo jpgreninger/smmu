@@ -3638,6 +3638,34 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
         return 0x1ULL | (static_cast<uint64_t>(0xFDu) << 4);
     }
 
+    // BUG-AUDIT-64 fix: ARM IHI0070G.b §9.1.3 line 27699 — GATOS for a stream with
+    // bypass (Config=0b100) or disabled/abort (Config=0b0xx) must return INV_STAGE:
+    // FAULT=1, FAULTCODE=0xFE. Absent (in-range) streams are also INV_STAGE.
+    // Out-of-range StreamIDs (strtab range check) must fall through to translate()
+    // so they produce C_BAD_STREAMID (FAULTCODE=0x02) per §7.3.3/§9.1.5.
+    // The pre-check block is scoped so the stripe lock is released before translate().
+    {
+        // Only apply the INV_STAGE pre-check when the StreamID is within range.
+        // Out-of-range StreamIDs are handled by translate() which emits C_BAD_STREAMID.
+        uint8_t log2sz = strtabLog2Size_.load(std::memory_order_acquire);
+        bool inRange = (log2sz >= 32u) ||
+                       (static_cast<uint64_t>(streamID) < ((uint64_t)1u << log2sz));
+        if (inRange) {
+            size_t stripe = getStreamStripe(streamID);
+            std::lock_guard<std::mutex> streamLk(streamLockStripes[stripe]);
+            auto streamIt = streamMap.find(streamID);
+            if (streamIt == streamMap.end()) {
+                // In-range absent stream: no STE — INV_STAGE per §9.1.3.
+                return 0x1ULL | (static_cast<uint64_t>(0xFEu) << 4);
+            }
+            StreamConfig cfg = streamIt->second->getStreamConfiguration();
+            if (!cfg.stage1Enabled && !cfg.stage2Enabled) {
+                // Bypass (bypassEnabled=true) or disabled/abort: INV_STAGE per §9.1.3.
+                return 0x1ULL | (static_cast<uint64_t>(0xFEu) << 4);
+            }
+        }
+    }
+
     // Snapshot the event queue size before translation so we can identify
     // any new event appended by the translation (GAP-L fix).
     size_t evtSizeBefore = 0u;
@@ -5264,6 +5292,11 @@ GbpaConfig SMMU::getGbpaConfig() const {
 
 // CONF-GAP-3: 2-level stream table format (§3.3.1.2).
 void SMMU::setStrtabFormat(StreamTableFormat fmt) {
+    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE_CFG
+    // is RO when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+        return;
+    }
     strtabFmt_.store(static_cast<uint8_t>(fmt), std::memory_order_release);
 }
 
@@ -5272,6 +5305,12 @@ StreamTableFormat SMMU::getStrtabFormat() const {
 }
 
 void SMMU::setStrtabSplit(uint8_t split) {
+    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
+    // when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
+    // Guard placed BEFORE lock acquisition to avoid acquiring queueMutex unnecessarily.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+        return;
+    }
     // Bug-1 fix: acquire queueMutex to serialise against validateStreamID2Level()
     // which also holds queueMutex when reading strtabLog2Size_ and strtabSplit_.
     // Without this lock a concurrent reconfiguration racing with stream-ID validation
@@ -5371,6 +5410,12 @@ CmdSyncSignalType SMMU::getCmdSyncLastSignalType() const {
 
 // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
 void SMMU::setStrtabLog2Size(uint8_t log2size) {
+    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
+    // when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
+    // Guard placed BEFORE lock acquisition to avoid acquiring queueMutex unnecessarily.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+        return;
+    }
     // Bug-1 fix: acquire queueMutex to serialise against validateStreamID2Level()
     // which also holds queueMutex when reading strtabLog2Size_ and strtabSplit_.
     // Without this lock a concurrent stream-ID validation racing with a LOG2SIZE

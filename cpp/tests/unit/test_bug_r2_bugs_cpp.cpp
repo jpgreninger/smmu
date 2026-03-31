@@ -59,9 +59,10 @@ TEST(BugR2Cpp1, ResetRestoresCR2) {
 
 TEST(BugR2Cpp1, AfterResetHighStreamIDAccepted) {
     SMMU smmu;
-    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enabling.
     smmu.setCR2(SMMU::CR2_RECINVSID);
     smmu.setStrtabLog2Size(4);
+    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
 
     // Confirm range check works before reset: StreamID 16 must be rejected.
     auto r1 = smmu.translate(16, 0, 0x1000, AccessType::Read);

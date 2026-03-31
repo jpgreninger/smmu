@@ -229,18 +229,19 @@ fn idr3_had_set_by_default() {
 // BUG-AUDIT-38: GATOS faultcodes — verify known-good codes still work
 // ============================================================================
 
-/// BUG-AUDIT-38 test 1: GATOS on a non-existent stream → FAULT=1 + FAULTCODE == 0x04 (C_BAD_STE).
+/// BUG-AUDIT-38 test 1 (updated by BUG-AUDIT-64): GATOS on a non-existent stream →
+/// FAULT=1 + FAULTCODE == 0xFE (INV_STAGE).
 ///
-/// A GATOS request for a StreamID that has never been configured generates a
-/// `C_BAD_STE` event in the queue (stream table entry is absent / invalid) and
-/// the PAR FAULTCODE bits[11:4] must equal 0x04.
-///
-/// This verifies that the C_BAD_STE → 0x04 mapping is unchanged.
+/// BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — a GATOS request for a stream that is
+/// absent from the stream table (no STE configured) must return INV_STAGE: FAULT=1,
+/// FAULTCODE=0xFE. The previous behavior returned C_BAD_STE (0x04) by letting
+/// translate() run and reporting the event; the pre-check now intercepts absent
+/// streams before translate() is called.
 #[test]
 fn gatos_unknown_stream_returns_c_bad_ste_faultcode() {
     let smmu = make_smmu();
 
-    // StreamID 99 does not exist — translate will generate C_BAD_STE.
+    // StreamID 99 does not exist — absent stream must return INV_STAGE per §9.1.3.
     let par = smmu.gatos_translate(
         sid(99),
         PASID::new(0).unwrap(),
@@ -250,14 +251,14 @@ fn gatos_unknown_stream_returns_c_bad_ste_faultcode() {
     );
 
     // bit 0 must be 1 (FAULT)
-    assert_eq!(par & 1, 1, "BUG-AUDIT-38: PAR.FAULT (bit 0) must be 1 for unknown stream");
+    assert_eq!(par & 1, 1, "BUG-AUDIT-64: PAR.FAULT (bit 0) must be 1 for absent stream");
 
-    // FAULTCODE in bits[11:4] must be 0x04 (C_BAD_STE)
+    // BUG-AUDIT-64 fix: FAULTCODE in bits[11:4] must be 0xFE (INV_STAGE) per ARM §9.1.3.
     let faultcode = (par >> 4) & 0xFF;
     assert_eq!(
         faultcode,
-        0x04,
-        "BUG-AUDIT-38: PAR FAULTCODE must be 0x04 (C_BAD_STE) for unknown stream; got 0x{faultcode:02X}"
+        0xFE,
+        "BUG-AUDIT-64: PAR FAULTCODE must be 0xFE (INV_STAGE) for absent stream per ARM §9.1.3; got 0x{faultcode:02X}"
     );
 }
 

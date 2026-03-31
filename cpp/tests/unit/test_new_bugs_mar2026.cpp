@@ -58,9 +58,10 @@ TEST(BugNewCpp1, StrtabLog2SizeAtomicReadWrite) {
 // the atomic-read value of strtabLog2Size_).
 TEST(BugNewCpp1, RangeCheckUsesAtomicLog2Size) {
     SMMU smmu;
-    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enabling.
     smmu.setCR2(SMMU::CR2_RECINVSID);
     smmu.setStrtabLog2Size(4); // IDs 0-15 valid; 16+ rejected
+    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
     auto result = smmu.translate(16, 0, 0x1000, AccessType::Read);
     EXPECT_TRUE(result.isError())
         << "BUG-NEW-CPP-1: StreamID 16 must be rejected when log2size=4";
@@ -73,9 +74,10 @@ TEST(BugNewCpp1, RangeCheckUsesAtomicLog2Size) {
 // not configured) but must not produce InvalidStreamID.
 TEST(BugNewCpp1, BoundaryStreamIdAcceptedWithLog2Size4) {
     SMMU smmu;
-    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enabling.
     smmu.setCR2(SMMU::CR2_RECINVSID);
     smmu.setStrtabLog2Size(4); // IDs 0-15 valid
+    smmu.setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
     // StreamID 15 must NOT be rejected by the strtabLog2Size_ range check.
     // It will fail with stream-not-configured, but not InvalidStreamID due to range.
     auto result = smmu.translate(15, 0, 0x1000, AccessType::Read);

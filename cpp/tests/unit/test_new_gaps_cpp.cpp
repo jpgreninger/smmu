@@ -39,8 +39,10 @@ static std::unique_ptr<SMMU> makeSMMU(uint32_t cr2 = 0u) {
 
 // RECINVSID=0 (default) — C_BAD_STREAMID must NOT be recorded for out-of-range StreamID.
 TEST(NewGapsCpp, RECINVSID_Default_NoEventForOutOfRange) {
-    auto s = makeSMMU();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; configure before makeSMMU().
+    auto s = std::unique_ptr<SMMU>(new SMMU());
     s->setStrtabLog2Size(4); // StreamIDs 0-15 valid; 16+ are out-of-range
+    s->setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     // CR2.RECINVSID == 0 at reset — event must NOT be recorded
     s->translate(16, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
@@ -56,8 +58,11 @@ TEST(NewGapsCpp, RECINVSID_Default_NoEventForOutOfRange) {
 // RECINVSID=1 — C_BAD_STREAMID IS recorded for out-of-range StreamID.
 TEST(NewGapsCpp, RECINVSID_Set_EventRecordedForOutOfRange) {
     // CR2.RECINVSID must be set before enable() per §6.3.12.
-    auto s = makeSMMU(SMMU::CR2_RECINVSID);
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; configure before enable.
+    auto s = std::unique_ptr<SMMU>(new SMMU());
+    s->setCR2(SMMU::CR2_RECINVSID);
     s->setStrtabLog2Size(4); // StreamIDs 0-15 valid; 16+ are out-of-range
+    s->setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     s->translate(16, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
     bool found = false;
@@ -71,8 +76,10 @@ TEST(NewGapsCpp, RECINVSID_Set_EventRecordedForOutOfRange) {
 
 // Translate still returns an error regardless of RECINVSID.
 TEST(NewGapsCpp, RECINVSID_Default_TranslateStillErrors) {
-    auto s = makeSMMU();
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; configure before enable.
+    auto s = std::unique_ptr<SMMU>(new SMMU());
     s->setStrtabLog2Size(4);
+    s->setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     // RECINVSID=0 — no event, but translation must still fail
     auto result = s->translate(16, 0, 0x1000, AccessType::Read);
     EXPECT_TRUE(result.isError()) << "Translation must still fail even when RECINVSID=0";

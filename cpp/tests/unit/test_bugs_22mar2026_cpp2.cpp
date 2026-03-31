@@ -76,10 +76,10 @@ TEST(BugCpp22Mar2026Cpp2, CBadStreamIdAddressIsZero) {
     // CR2 must be set before enable() — setCR2() is ignored when SMMUEN=1.
     // Enable RECINVSID so C_BAD_STREAMID events are written to the event queue.
     smmu.setCR2(SMMU::CR2_RECINVSID);
-    enableSMMU(smmu);
-
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     // Configure SMMU with LOG2SIZE=2 (table covers StreamIDs 0..3).
     smmu.setStrtabLog2Size(2u);
+    enableSMMU(smmu);
 
     // StreamID 0x10 is outside the 4-entry table — produces C_BAD_STREAMID.
     const StreamID sid = 0x10u;

@@ -98,9 +98,10 @@ TEST(GatosFaultCodeTest, gap1_c_bad_streamid_faultcode_is_0x02) {
     SMMU smmu;
     // RECINVSID must be set before enable() — setCR2() is ignored when SMMUEN=1.
     smmu.setCR2(SMMU::CR2_RECINVSID);
-    enableSmmuWithEvents(smmu);
+    // BUG-AUDIT-63: STRTAB_BASE_CFG is RO when SMMUEN=1; set log2size before enable().
     // LOG2SIZE=8 → valid range 0-255; SID=0x200 (512) is out of range → C_BAD_STREAMID
     smmu.setStrtabLog2Size(8u);
+    enableSmmuWithEvents(smmu);
 
     static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, outside [0,255]
     uint64_t par = smmu.gatosTranslate(OUT_OF_RANGE_SID, PID, 0x1000, AccessType::Read);
