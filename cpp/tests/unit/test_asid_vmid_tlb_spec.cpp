@@ -65,11 +65,12 @@ class ASIDVMIDTLBSpecTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmu_ = std::unique_ptr<SMMU>(new SMMU(SMMUConfiguration::createDefault()));
-        smmu_->enable();
         // BUG-NEW-D fix: Enable CR2.E2H so EL2_E2H streams retain their ASID tag in the TLB.
         // Without E2H=1, EL2_E2H entries are stored with ASID=0, making ASID-targeted
         // TLBI_EL2_ASID unable to match them (§6.3.12 / §4.4.2.10).
+        // Must be set before enable() per §6.3.12 (CR2 writes ignored when SMMUEN=1).
         smmu_->setCR2(SMMU::CR2_E2H);
+        smmu_->enable();
 
         PagePermissions perms(true, true, false);  // RW, no execute
 

@@ -23,8 +23,12 @@ namespace test {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static std::unique_ptr<SMMU> makeSMMU() {
+static std::unique_ptr<SMMU> makeSMMU(uint32_t cr2 = 0u) {
     auto s = std::make_unique<SMMU>();
+    // CR2 must be set before SMMUEN=1 per §6.3.12 (CR2 writes ignored when SMMUEN=1).
+    if (cr2 != 0u) {
+        s->setCR2(cr2);
+    }
     s->setCR0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     return s;
 }
@@ -51,9 +55,9 @@ TEST(NewGapsCpp, RECINVSID_Default_NoEventForOutOfRange) {
 
 // RECINVSID=1 — C_BAD_STREAMID IS recorded for out-of-range StreamID.
 TEST(NewGapsCpp, RECINVSID_Set_EventRecordedForOutOfRange) {
-    auto s = makeSMMU();
+    // CR2.RECINVSID must be set before enable() per §6.3.12.
+    auto s = makeSMMU(SMMU::CR2_RECINVSID);
     s->setStrtabLog2Size(4); // StreamIDs 0-15 valid; 16+ are out-of-range
-    s->setCR2(SMMU::CR2_RECINVSID);
     s->translate(16, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
     bool found = false;
@@ -95,8 +99,7 @@ TEST(NewGapsCpp, RECINVSID_Default_InBoundsUnconfiguredStream_EmitsCBadSte) {
 
 // C_BAD_STE is always recorded regardless of RECINVSID (§6.3.12).
 TEST(NewGapsCpp, RECINVSID_Set_InBoundsUnconfiguredStream_StillEmitsCBadSte) {
-    auto s = makeSMMU();
-    s->setCR2(SMMU::CR2_RECINVSID);
+    auto s = makeSMMU(SMMU::CR2_RECINVSID);
     s->translate(42, 0, 0x1000, AccessType::Read);
     auto events = s->getEventQueue();
     bool foundCBadSte = false;
@@ -107,8 +110,9 @@ TEST(NewGapsCpp, RECINVSID_Set_InBoundsUnconfiguredStream_StillEmitsCBadSte) {
 }
 
 // setCR2 / getCR2 round-trip.
+// CR2 writes are accepted only when SMMUEN=0 per §6.3.12; test uses a fresh SMMU.
 TEST(NewGapsCpp, CR2_GetSet_RoundTrip) {
-    auto s = makeSMMU();
+    auto s = std::make_unique<SMMU>();
     EXPECT_EQ(s->getCR2(), 0u) << "CR2 must reset to 0";
     s->setCR2(SMMU::CR2_RECINVSID);
     EXPECT_EQ(s->getCR2(), SMMU::CR2_RECINVSID) << "getCR2() must reflect set value";

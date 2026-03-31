@@ -84,11 +84,12 @@ fn test_gap2_gatos_c_bad_substreamid_faultcode_is_0x08() {
 #[test]
 fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     let smmu = SMMU::new();
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enabling.
+    // Enable RECINVSID so C_BAD_STREAMID event is written to queue.
+    smmu.set_cr2(smmu.get_cr2() | SMMU::CR2_RECINVSID);
     enable_smmu(&smmu);
     // LOG2SIZE=8: valid StreamIDs are 0..=255; StreamID=0x9999 (39321) is out-of-range.
     smmu.set_strtab_log2size(8);
-    // Enable RECINVSID so C_BAD_STREAMID event is written to queue.
-    smmu.set_cr2(smmu.get_cr2() | SMMU::CR2_RECINVSID);
 
     // StreamID=0x9999 is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).
     let par = smmu.gatos_translate(

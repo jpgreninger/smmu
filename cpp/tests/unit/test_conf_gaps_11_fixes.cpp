@@ -220,9 +220,9 @@ TEST(ConfGap11PTM, PTMOneSkipsBroadcastTLBI) {
     // Verify by: warm TLB → unmap page → broadcast TLBI with PTM=1 →
     // TLB remains warm → translate still succeeds despite unmapped page.
     SMMU smmu;
+    smmu.setCR2(SMMU::CR2_PTM);  // PTM=1: Private — skip broadcast
     smmu.enable();
     smmu.enableCaching(true);
-    smmu.setCR2(smmu.getCR2() | SMMU::CR2_PTM);  // PTM=1: Private — skip broadcast
 
     StreamConfig cfg;
     cfg.translationEnabled = true;
@@ -539,11 +539,11 @@ TEST(ConfGap6TLBIVA, InvalidateByVAExists) {
 
 TEST(ConfGap6TLBIVA, TLBINHVATargetsSpecificEntry) {
     SMMU smmu;
-    smmu.enable();
-    smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     // Note: CR2.PTM does not affect command-queue TLBI commands (only receiveBroadcastTLBI path).
     // Set PTM=0 (participate) as default; value is irrelevant for command-queue operations.
-    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);
+    smmu.setCR2(0u);
+    smmu.enable();
+    smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
     PagePermissions rw; rw.read = true; rw.write = true;
 
@@ -643,10 +643,10 @@ TEST(ConfGap8RIL, InvalidateByVARangeExists) {
 
 TEST(ConfGap8RIL, RILCommandInvalidatesRange) {
     SMMU smmu;
+    // Note: CR2.PTM does not affect command-queue TLBI; PTM=0 (participate) is correct default.
+    smmu.setCR2(0u);
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
-    // Note: CR2.PTM does not affect command-queue TLBI; PTM=0 (participate) is correct default.
-    smmu.setCR2(smmu.getCR2() & ~SMMU::CR2_PTM);
 
     StreamConfig cfg;
     cfg.translationEnabled = true;

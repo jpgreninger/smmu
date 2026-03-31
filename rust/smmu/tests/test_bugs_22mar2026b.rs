@@ -236,16 +236,21 @@ fn rust2_site3101_f_transl_forbidden_smmuen0_ovflg_not_toggled() {
 #[test]
 fn rust2_site3148_c_bad_streamid_ats_tr_ovflg_not_toggled() {
     let q = QueueConfig::MIN_QUEUE_SIZE;
-    let smmu = make_small_smmu();
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12). Set CR2 before enabling.
+    let smmu = SMMU::with_config(SMMUConfig::from(QueueConfig {
+        event_queue_size: QueueConfig::MIN_QUEUE_SIZE,
+        ..Default::default()
+    }));
+    // Enable both CR2 gates so the C_BAD_STREAMID event is attempted.
+    // Must be set BEFORE SMMUEN=1 since CR2 is RO once SMMUEN=1.
+    smmu.set_cr2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
     // Fill source stream.
     setup_fault_stream(&smmu, sid(3));
     fill_event_queue(&smmu, sid(3), q);
 
     assert_eq!(ovflg(&smmu), 0, "precondition: OVFLG must be 0 before overflow test");
-
-    // Enable both CR2 gates so the C_BAD_STREAMID event is attempted.
-    smmu.set_cr2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
 
     // Issue an ATS TR for a StreamID that is not configured — hits site ~3148.
     // sid(0xFF) was never configured.

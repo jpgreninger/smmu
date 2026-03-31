@@ -1141,6 +1141,11 @@ impl SMMU {
     /// assert_eq!(smmu.get_cr2() & SMMU::CR2_RECINVSID, SMMU::CR2_RECINVSID);
     /// ```
     pub fn set_cr2(&self, value: u32) {
+        // BUG-AUDIT-60 fix: ARM IHI0070G.b §6.3.12 — CR2 is RO when SMMUEN=1.
+        // SMMUv3.2 mandates that writes to CR2 while SMMUEN=1 are silently ignored.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+            return;
+        }
         self.cr2.store(value, Ordering::Release);
     }
 
@@ -1191,6 +1196,13 @@ impl SMMU {
     /// Controls shareability and cacheability of SMMU table walks and queue
     /// accesses.  See `CR1_TABLE_SH`, `CR1_TABLE_OC`, etc. for bit definitions.
     pub fn set_cr1(&self, value: u32) {
+        // BUG-AUDIT-61 fix: ARM IHI0070G.b §6.3.11 — CR1 is RO when SMMUEN=1 or any queue is enabled.
+        // TABLE_* fields: RO when SMMUEN=1. QUEUE_* fields: RO when CMDQEN=1, EVENTQEN=1, or PRIQEN=1.
+        // Guard the entire write on SMMUEN=1 OR any queue-enable bit set. SMMUv3.2: silently ignored.
+        let guard_bits = Self::CR0_SMMUEN | Self::CR0_CMDQEN | Self::CR0_EVENTQEN | Self::CR0_PRIQEN;
+        if (self.cr0.load(Ordering::Acquire) & guard_bits) != 0 {
+            return;
+        }
         self.cr1.store(value, Ordering::Release);
     }
 
@@ -1256,7 +1268,7 @@ impl SMMU {
         // Hyp: BUG-AUDIT-41 fix §6.3.1 — gated on hyp_supported AND s1p_supported AND s2p_supported
         // BUG-QA-1 fix: §6.3.1 — STALL_MODEL[25:24] must reflect the runtime value
         // stored by set_stall_model() rather than being hardcoded to 0b00.
-        | ((self.stall_model.load(Ordering::Relaxed) as u32 & 0x3) << 24)
+        | ((self.stall_model.load(Ordering::Acquire) as u32 & 0x3) << 24)
         | (1u32 << 23)       // ATSRECERR: extended ATS error recording (§6.3.1). NOTE: ARM §6.3.1 requires ATSRECERR RES0 when ATS==0; ATS is currently hardcoded 1. If ATS is ever made configurable, add && ats_enabled guard here.
         // TERM_MODEL (bit 26) = 0: RAZ/WI termination IS supported (§6.3.1).
         // Bug 2 fix: the model does not validate CD.A=1 before permitting termination,
@@ -1337,7 +1349,7 @@ impl SMMU {
     pub fn get_idr5(&self) -> u32 {
         // BUG-QA-2 fix: §6.3.6 — STALL_MAX is RES0 when IDR0.STALL_MODEL==0b01
         // (terminate-only model).  When STALL_MODEL==0b00 (default) STALL_MAX=64.
-        let stall_max = if self.stall_model.load(Ordering::Relaxed) == 0x01 { 0u32 } else { 64u32 };
+        let stall_max = if self.stall_model.load(Ordering::Acquire) == 0x01 { 0u32 } else { 64u32 };
         5u32            // OAS = 5 (48-bit) in bits[2:0]
         // BUG-AUDIT-52 fix: ARM §6.3.6 — only the 4KB granule is implemented.
         // GRAN16K (bit[5]) and GRAN64K (bit[6]) must NOT be set unless the corresponding
@@ -2346,6 +2358,28 @@ impl SMMU {
             }
             return Err(SMMUError::invalid_configuration(
                 "C_BAD_STE: S2T0SZ out of range [16,39] (ARM §5.2 SteIllegal)".to_string(),
+            ));
+        }
+
+        // BUG-AUDIT-58 fix: ARM IHI0070G.b §5.2 SteIllegal() —
+        // "if !using_vmsa32 && !GranuleSupported(s2tg) then return TRUE"
+        // IDR5 advertises GRAN4K=1, GRAN16K=0, GRAN64K=0.
+        // S2TG encoding: 0b00=4KB (valid), 0b01=64KB (invalid), 0b10=16KB (invalid), 0b11=Reserved.
+        // Any non-zero s2_tg when stage-2 is enabled → C_BAD_STE.
+        if config.stage2_enabled && config.s2_tg != 0 {
+            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                let event = EventEntry {
+                    event_type: EventType::CBadSte,
+                    stream_id: stream_id.as_u32(),
+                    security_state: config.security_state,
+                    timestamp,
+                    ..EventEntry::zeroed()
+                };
+                self.enqueue_event(event);
+            }
+            return Err(SMMUError::invalid_configuration(
+                "C_BAD_STE: S2TG granule not supported by IDR5 (ARM §5.2 SteIllegal)".to_string(),
             ));
         }
 

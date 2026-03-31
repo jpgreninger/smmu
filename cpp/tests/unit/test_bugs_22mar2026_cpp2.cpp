@@ -73,10 +73,10 @@ static const EventEntry* findEvent(const std::vector<EventEntry>& events, EventT
 // ============================================================================
 TEST(BugCpp22Mar2026Cpp2, CBadStreamIdAddressIsZero) {
     SMMU smmu;
-    enableSMMU(smmu);
-
+    // CR2 must be set before enable() — setCR2() is ignored when SMMUEN=1.
     // Enable RECINVSID so C_BAD_STREAMID events are written to the event queue.
     smmu.setCR2(SMMU::CR2_RECINVSID);
+    enableSMMU(smmu);
 
     // Configure SMMU with LOG2SIZE=2 (table covers StreamIDs 0..3).
     smmu.setStrtabLog2Size(2u);

@@ -53,21 +53,35 @@ fn make_smmu_s1_ats() -> SMMU {
 /// NEW-13: `SMMUEN=0` + ATS TR + `CR2.REC_CFG_ATS=1` → `F_BAD_ATS_TREQ` emitted.
 #[test]
 fn test_new13_smmuen_zero_ats_tr_rec_cfg_ats_emits_event() {
-    let smmu = make_smmu_s1_ats();
-    // Set REC_CFG_ATS bit (bit 3 of CR2)
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12).
+    // Build SMMU manually so CR2 can be set before SMMUEN=1.
+    let smmu = SMMU::new();
+    // Set REC_CFG_ATS bit (bit 3 of CR2) BEFORE enabling.
     smmu.set_cr2(SMMU::CR2_REC_CFG_ATS);
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
+    let sid = StreamID::new(1).unwrap();
+    let pasid = PASID::new(0).unwrap();
+    let cfg = StreamConfig { eats: 2, stage2_enabled: true, ..StreamConfig::stage1_only() };
+    smmu.configure_stream(sid, cfg).unwrap();
+    smmu.create_pasid(sid, pasid).unwrap();
+    let iova_mapped = IOVA::new(0x1000).unwrap();
+    smmu.map_page(
+        sid,
+        pasid,
+        iova_mapped,
+        PA::new(0x8000_1000).unwrap(),
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
     // Disable SMMU (SMMUEN=0)
     smmu.set_cr0(SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN); // clears SMMUEN
     smmu.clear_event_queue();
 
-    let sid = StreamID::new(1).unwrap();
-    let pasid = PASID::new(0).unwrap();
-    let iova = IOVA::new(0x1000).unwrap();
-
     let result = smmu.translate_with_type(
         sid,
         pasid,
-        iova,
+        iova_mapped,
         AccessType::Read,
         SecurityState::NonSecure,
         TransactionType::AtsTranslationRequest,
@@ -200,8 +214,10 @@ fn test_new15_ats_tr_unknown_sid_no_rec_cfg_ats_suppressed() {
 /// NEW-15: ATS TR + unknown SID + `RECINVSID=1` + `REC_CFG_ATS=1` → `C_BAD_STREAMID` emitted.
 #[test]
 fn test_new15_ats_tr_unknown_sid_both_bits_set_emits_bad_sid() {
-    let smmu = make_enabled_smmu();
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enabling.
+    let smmu = SMMU::new();
     smmu.set_cr2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     smmu.clear_event_queue();
 
     let unknown_sid = StreamID::new(0xDEAD).unwrap();
@@ -234,10 +250,12 @@ fn test_new15_ats_tr_unknown_sid_both_bits_set_emits_bad_sid() {
 /// An in-range unconfigured stream produces `C_BAD_STE` instead (ARM §7.3.5).
 #[test]
 fn test_new15_ordinary_unknown_sid_recinvsid_still_fires() {
-    let smmu = make_enabled_smmu();
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enabling.
+    let smmu = SMMU::new();
+    smmu.set_cr2(SMMU::CR2_RECINVSID); // no REC_CFG_ATS needed for ordinary traffic
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     // LOG2SIZE=8: valid range 0..=255; StreamID=0xDEAD (57005) is out-of-range.
     smmu.set_strtab_log2size(8);
-    smmu.set_cr2(SMMU::CR2_RECINVSID); // no REC_CFG_ATS needed for ordinary traffic
     smmu.clear_event_queue();
 
     // StreamID=0xDEAD is out-of-range for LOG2SIZE=8 → C_BAD_STREAMID (§7.3.3).

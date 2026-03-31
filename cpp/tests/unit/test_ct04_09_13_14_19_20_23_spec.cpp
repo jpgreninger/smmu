@@ -63,11 +63,12 @@ TEST(Ct09SteConfig, BypassStreamWithNonZeroPasidGeneratesEvent) {
 
 TEST(Ct04Strtab, StreamIdOutOfRangeGeneratesCBadStreamID) {
     SMMU smmu;
+    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
+    // Must be set before enable() per §6.3.12 (CR2 writes ignored when SMMUEN=1).
+    smmu.setCR2(SMMU::CR2_RECINVSID);
     smmu.enable();
     // Set stream table to only 4 entries (2^4 = 16)
     smmu.setStrtabLog2Size(4);
-    // §6.3.12 CR2.RECINVSID=1: enable C_BAD_STREAMID event recording.
-    smmu.setCR2(SMMU::CR2_RECINVSID);
 
     // StreamID 16 is out of range (>= 2^4 = 16)
     auto result = smmu.translate(16, 0, 0x1000, AccessType::Read, SecurityState::NonSecure);
@@ -389,7 +390,7 @@ TEST(Ct23Stage2Params, Stage2ParamsStoredCorrectly) {
     config.stage1Enabled = false;
     config.stage2Enabled = true;
     config.s2t0sz = 32u;
-    config.s2tg   = 1u;  // 64KB
+    config.s2tg   = 0u;  // 4KB (64KB granule no longer advertised per BUG-AUDIT-52)
     config.s2sl0  = 0u;  // L2
     config.s2aa64 = true;
     config.s2ps   = 5u;  // 48-bit

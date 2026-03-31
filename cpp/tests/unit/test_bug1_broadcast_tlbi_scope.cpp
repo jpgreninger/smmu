@@ -85,11 +85,12 @@ class BroadcastTLBIScopeTest : public ::testing::Test {
 protected:
     void SetUp() override {
         smmu_ = std::unique_ptr<SMMU>(new SMMU(SMMUConfiguration::createDefault()));
-        // Enable the SMMU so translations go through the full path.
-        smmu_->enable();
         // BUG-AUDIT-54 fix: PTM=0 means SMMU PARTICIPATES in broadcast TLB maintenance
         // (ARM §6.3.12 — PTM=0: participate; PTM=1: private/skip).
+        // CR2 must be set BEFORE enable() because setCR2() is ignored when SMMUEN=1.
         smmu_->setCR2(0u);  // PTM=0: SMMU participates in broadcast TLBI
+        // Enable the SMMU so translations go through the full path.
+        smmu_->enable();
     }
 
     // Configure a stage-1-only stream with a single PASID-0 address space,
@@ -395,7 +396,10 @@ TEST_F(BroadcastTLBIScopeTest, VMIDScopedBroadcastInvalidatesAllStreamsWithThatV
 TEST_F(BroadcastTLBIScopeTest, PTMZeroDropsBroadcastForNonZeroStreams) {
     // BUG-AUDIT-54 fix: PTM=1 means Private TLB Maintenance — NS-EL1 broadcasts
     // are silently dropped (ARM §6.3.12 — PTM=1: private/skip).
+    // CR2 must be set while SMMUEN=0. Disable, set PTM=1, then re-enable.
+    smmu_->disable();
     smmu_->setCR2(SMMU::CR2_PTM);  // CR2.PTM=1: private — drop broadcast
+    smmu_->enable();
 
     setupStreamAndWarmTLB(STREAM_A, IOVA_A, PA_A, ASID_SHARED, 0u);
     setupStreamAndWarmTLB(STREAM_B, IOVA_B, PA_B, ASID_SHARED, 0u);

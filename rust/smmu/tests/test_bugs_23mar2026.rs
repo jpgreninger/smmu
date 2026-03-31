@@ -203,10 +203,11 @@ fn bug_rust1_tlbi_nh_asid_uses_vmid_and_asid() {
 fn bug_rust1_tlbi_el2_asid_remains_asid_only() {
     // Need Hyp support enabled for TlbiEl2Asid to be accepted (IDR0.Hyp=1).
     // CR2.E2H=1 is required so El2E2h entries are ASID-tagged (not downgraded to ASID=0).
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before SMMUEN=1.
     let smmu = SMMU::new();
     smmu.set_hyp_supported(true);
-    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     smmu.set_cr2(SMMU::CR2_E2H); // enable E2H so El2E2h entries keep their ASID tag
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
     // Two El2E2h streams: different VMIDs, same ASID.
     // ARM §4.4.2.10: TlbiEl2Asid evicts NS-EL2-E2H entries by ASID (VMID is RES0).

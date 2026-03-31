@@ -177,10 +177,10 @@ TEST(BugCpp1ConstructorSplitBrain, ValidConfigSizingIsConsistent) {
 // translate — this hits C_BAD_STREAMID when RECINVSID=1 (CR2 bit 1).
 TEST(BugCpp5ConfigEventRnWIsRES0, CBadStreamIDHasRnWIndPnuZero) {
     SMMU smmu;
+    // CR2 must be set before enable() — setCR2() is ignored when SMMUEN=1.
+    // Enable RECINVSID (bit 1) so C_BAD_STREAMID events are recorded (§6.3.12 CR2 bit 1).
+    smmu.setCR2(1u << 1);
     enableSMMU(smmu);
-
-    // Enable RECINVSID so C_BAD_STREAMID events are recorded (§6.3.12 CR2 bit 1).
-    smmu.setCR2(smmu.getCR2() | (1u << 1));
 
     // Reduce stream table size so StreamID 0xFF00 is out-of-range (2^8=256 entries).
     smmu.setStrtabLog2Size(8);

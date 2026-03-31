@@ -76,10 +76,12 @@ fn pasid(id: u32) -> PASID {
 /// AFTER FIX:  address == 0, pasid == 0     → PASSES.
 #[test]
 fn rust1_ats_bad_streamid_address_must_be_zero() {
-    let smmu = make_smmu();
-
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enable().
+    let smmu = SMMU::new();
     // Enable ATS recording: CR2.RECINVSID=1 AND CR2.REC_CFG_ATS=1.
+    // Must be set BEFORE enable() since CR2 is RO once SMMUEN=1.
     smmu.set_cr2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
+    smmu.enable().unwrap();
     smmu.clear_event_queue();
 
     // Use a StreamID that is NOT configured → None arm → C_BAD_STREAMID.

@@ -541,13 +541,22 @@ TEST_F(CR2E2HTest, gap_new_s3_cr2_e2h_default_zero) {
 }
 
 // CR2.E2H must read back the value written via setCR2.
+// Per ARM §6.3.12, setCR2() is only effective when SMMUEN=0. We must
+// disable the SMMU, set CR2, re-enable, and verify the value persists.
 TEST_F(CR2E2HTest, gap_new_s3_cr2_e2h_set_and_read_back) {
-    smmu_->setCR2(smmu_->getCR2() | SMMU::CR2_E2H);
+    // Set E2H=1: disable, write, re-enable, then verify.
+    smmu_->disable();
+    smmu_->setCR2(SMMU::CR2_E2H);
+    smmu_->enable();
     EXPECT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, SMMU::CR2_E2H)
-        << "CR2.E2H must read back 1 after setCR2 sets bit 0";
-    smmu_->setCR2(smmu_->getCR2() & ~SMMU::CR2_E2H);
+        << "CR2.E2H must read back 1 after setCR2 sets bit 0 (SMMUEN=0)";
+
+    // Clear E2H=0: disable, write, re-enable, then verify.
+    smmu_->disable();
+    smmu_->setCR2(0u);
+    smmu_->enable();
     EXPECT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, 0u)
-        << "CR2.E2H must read back 0 after setCR2 clears bit 0";
+        << "CR2.E2H must read back 0 after setCR2 clears bit 0 (SMMUEN=0)";
 }
 
 // GAP-NEW-S3 core: with CR2.E2H=0, STRW=EL2_E2H stream must install TLB entries
@@ -623,7 +632,10 @@ TEST_F(CR2E2HTest, gap_new_s3_strw_el2e2h_with_e2h_zero_uses_asid_zero) {
 // cache MISS (page-walk re-execution), not a hit.
 TEST_F(CR2E2HTest, gap_new_s3_strw_el2e2h_with_e2h_one_uses_stream_asid) {
     // Enable E2H before configuring the stream.
-    smmu_->setCR2(smmu_->getCR2() | SMMU::CR2_E2H);
+    // CR2 must be set while SMMUEN=0 — disable, set, re-enable.
+    smmu_->disable();
+    smmu_->setCR2(SMMU::CR2_E2H);
+    smmu_->enable();
     ASSERT_EQ(smmu_->getCR2() & SMMU::CR2_E2H, SMMU::CR2_E2H);
 
     configureEl2E2hStream();

@@ -1147,6 +1147,16 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
         return makeVoidError(SMMUError::InvalidConfiguration);
     }
 
+    // BUG-AUDIT-58 fix: ARM IHI0070G.b §5.2 SteIllegal() —
+    // "if !using_vmsa32 && !GranuleSupported(s2tg) then return TRUE"
+    // IDR5 advertises GRAN4K=1, GRAN16K=0, GRAN64K=0.
+    // S2TG encoding: 0b00=4KB (valid), 0b01=64KB (invalid), 0b10=16KB (invalid), 0b11=Reserved.
+    // Any non-zero s2tg when stage2 is enabled → C_BAD_STE.
+    if (config.stage2Enabled && config.s2tg != 0u) {
+        generateEvent(EventType::C_BAD_STE, streamID, 0, 0, config.securityState);
+        return makeVoidError(SMMUError::InvalidConfiguration);
+    }
+
     // BUG-NEW-F fix: §5.5 CdIllegal() line 9748 — S1STALLD==1 AND CD.S==1 → C_BAD_CD.
     // The spec pseudocode declares a CD ILLEGAL when STE.S1STALLD==1 AND CD.S==1,
     // regardless of STALL_MODEL value.  The BUG-C3 check above already rejects
@@ -3621,7 +3631,9 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
     // When SMMUEN==0 the SMMU is globally disabled; return a fault PAR immediately
     // with FAULT=1 and FAULTCODE=0xFD (INTERNAL_ERR) rather than attempting
     // translation through a disabled SMMU.
-    if (!smmuen_.load(std::memory_order_acquire)) {
+    // BUG-AUDIT-62 fix: use authoritative cr0_ register instead of shadow smmuen_
+    // (consistent with BUG-CPP-3 fix rationale — eliminate split-brain hazard).
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) == 0u) {
         // GATOS fault PAR: FAULT=1, REASON=0b00, FAULTCODE=0xFD, FADDR=0.
         return 0x1ULL | (static_cast<uint64_t>(0xFDu) << 4);
     }
@@ -5197,6 +5209,11 @@ uint32_t SMMU::getCR0() const {
 // RECINVSID (bit 1): gates C_BAD_STREAMID event recording in the event queue.
 // Reset value is 0 (events suppressed) per ARM IHI0070G.b §6.3.12.
 void SMMU::setCR2(uint32_t value) {
+    // BUG-AUDIT-60 fix: ARM IHI0070G.b §6.3.12 — CR2 is RO when SMMUEN=1.
+    // SMMUv3.2 mandates that writes to CR2 while SMMUEN=1 are silently ignored.
+    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+        return;
+    }
     cr2_.store(value, std::memory_order_release);
 }
 
@@ -5215,6 +5232,14 @@ void SMMU::setCR0ACK(uint32_t v) {
 
 // CONF-GAP-10: SMMU_CR1 register (§6.3.11) — table/queue memory attributes.
 void SMMU::setCR1(uint32_t value) {
+    // BUG-AUDIT-61 fix: ARM IHI0070G.b §6.3.11 — CR1 is RO when SMMUEN=1 or any queue is enabled.
+    // TABLE_* fields: RO when SMMUEN=1. QUEUE_* fields: RO when CMDQEN=1, EVENTQEN=1, or PRIQEN=1.
+    // Simplification: guard the entire write on SMMUEN=1 OR any queue-enable bit set.
+    // SMMUv3.2 mandates that writes in these states are silently ignored.
+    const uint32_t guardBits = CR0_SMMUEN | CR0_CMDQEN | CR0_EVENTQEN | CR0_PRIQEN;
+    if ((cr0_.load(std::memory_order_acquire) & guardBits) != 0u) {
+        return;
+    }
     cr1_.store(value, std::memory_order_release);
 }
 

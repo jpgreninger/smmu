@@ -92,10 +92,11 @@ fn spec20_a_in_range_unconfigured_stream_emits_c_bad_ste() {
 #[test]
 fn spec20_b_out_of_range_stream_emits_c_bad_streamid() {
     let smmu = SMMU::new();
-    smmu.enable().unwrap();
-    smmu.set_strtab_log2size(8);
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1 (ARM §6.3.12); set CR2 before enable().
     // Set RECINVSID so out-of-range C_BAD_STREAMID events are recorded.
     smmu.set_cr2(SMMU::CR2_RECINVSID);
+    smmu.enable().unwrap();
+    smmu.set_strtab_log2size(8);
 
     // StreamID=300 is out of range for LOG2SIZE=8 (limit is 256).
     let result = smmu.translate(
@@ -211,10 +212,11 @@ fn spec20_d_c_bad_streamid_still_gated_by_recinvsid() {
     );
 
     // With RECINVSID=1: out-of-range stream must produce C_BAD_STREAMID event.
+    // BUG-AUDIT-60 fix: CR2 is RO when SMMUEN=1; set CR2 before enable().
     let smmu_with_rec = SMMU::new();
+    smmu_with_rec.set_cr2(SMMU::CR2_RECINVSID);
     smmu_with_rec.enable().unwrap();
     smmu_with_rec.set_strtab_log2size(8);
-    smmu_with_rec.set_cr2(SMMU::CR2_RECINVSID);
     let _ = smmu_with_rec.translate(
         sid(300),
         pasid_zero(),

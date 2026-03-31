@@ -27,8 +27,19 @@ static constexpr StreamID SID  = 0x20;
 static constexpr PASID    PID  = 0;
 
 // Minimal SMMU with SMMUEN=1 + EVENTQEN=1 + CR0_CMDQEN=1
+// CR2 is left at reset value (0); callers that need specific CR2 bits must set
+// them BEFORE calling enable() — setCR2() is ignored when SMMUEN=1.
 std::unique_ptr<SMMU> makeEnabledSMMU() {
     auto s = std::make_unique<SMMU>();
+    s->enable();
+    s->setCR0(s->getCR0() | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
+    return s;
+}
+
+// Minimal SMMU pre-configured with the given CR2 value, then enabled.
+std::unique_ptr<SMMU> makeEnabledSMMUWithCR2(uint32_t cr2) {
+    auto s = std::make_unique<SMMU>();
+    s->setCR2(cr2);
     s->enable();
     s->setCR0(s->getCR0() | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
     return s;
@@ -81,7 +92,10 @@ protected:
 
 // Test 1: SMMUEN=0 + ATS TR + REC_CFG_ATS=1 → F_BAD_ATS_TREQ emitted
 TEST_F(New13SmmUenZeroAts, SmmUenZero_AtsTr_RecCfgAts1_EmitsEvent) {
+    // CR2 must be set while SMMUEN=0. Disable, set CR2, then disable again for the test.
+    smmu_->disable();
     smmu_->setCR2(SMMU::CR2_REC_CFG_ATS);
+    smmu_->enable();
     smmu_->disable();
     smmu_->clearEventQueue();
 
@@ -151,9 +165,9 @@ TEST_F(New13SmmUenZeroAts, SmmUenZero_Ordinary_Bypass) {
 class New15RecCfgAts : public ::testing::Test {
 protected:
     void SetUp() override {
-        smmu_ = makeEnabledSMMU();
-        // Set RECINVSID=1 so C_BAD_STREAMID would fire for normal traffic
-        smmu_->setCR2(SMMU::CR2_RECINVSID);
+        // CR2 must be set before enable() — use the pre-CR2 factory.
+        // Set RECINVSID=1 so C_BAD_STREAMID would fire for normal traffic.
+        smmu_ = makeEnabledSMMUWithCR2(SMMU::CR2_RECINVSID);
     }
 
     void TearDown() override { smmu_.reset(); }
@@ -188,7 +202,10 @@ TEST_F(New15RecCfgAts, AtsTr_OutOfRangeSid_RecCfgAts0_NoEvent) {
 // Use LOG2SIZE=8 so SID=0x200 (512) is out of range [0,255].
 TEST_F(New15RecCfgAts, AtsTr_OutOfRangeSid_BothBitsSet_EmitsEvent) {
     smmu_->setStrtabLog2Size(8u); // range 0-255
+    // Add REC_CFG_ATS to the existing RECINVSID. CR2 must be set while SMMUEN=0.
+    smmu_->disable();
     smmu_->setCR2(SMMU::CR2_RECINVSID | SMMU::CR2_REC_CFG_ATS);
+    smmu_->enable();
     smmu_->clearEventQueue();
     static constexpr StreamID OUT_OF_RANGE_SID = 0x200u; // 512, out of range
 

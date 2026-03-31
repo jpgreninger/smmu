@@ -511,7 +511,10 @@ TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm1_Private_SkipsTlbi) {
 
     // CR2.PTM=1 → Private TLB Maintenance: SMMU must NOT participate in broadcast.
     // Use TLBI_NSNH_ALL (VMID-agnostic) so the entry for vmid=10 is targeted.
+    // CR2 must be set while SMMUEN=0 — disable, set PTM=1, re-enable.
+    smmu.disable();
     smmu.setCR2(SMMU::CR2_PTM);
+    smmu.enable();
     smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
 
     // Second translate: TLB should still be populated → cache HIT.
@@ -566,7 +569,10 @@ TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm0_Participates_ExecutesTlbi) {
 
     // CR2.PTM=0 → SMMU participates in broadcast TLB maintenance.
     // Use TLBI_NSNH_ALL (VMID-agnostic) so the entry for vmid=11 is targeted.
+    // CR2 must be set while SMMUEN=0 — disable, set PTM=0, re-enable.
+    smmu.disable();
     smmu.setCR2(0u);
+    smmu.enable();
     smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
 
     // Second translate: TLB was flushed → cache MISS (re-walk required).

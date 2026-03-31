@@ -25,9 +25,10 @@ namespace {
 static std::unique_ptr<SMMU> makeTestSMMU() {
     SMMUConfiguration cfg;
     auto smmu = std::make_unique<SMMU>(cfg);
-    smmu->enable();
-    // Enable RECINVSID so C_BAD_STREAMID events are recorded when triggered
+    // CR2 must be set before enable() — setCR2() is ignored when SMMUEN=1.
+    // Enable RECINVSID so C_BAD_STREAMID events are recorded when triggered.
     smmu->setCR2(SMMU::CR2_RECINVSID);
+    smmu->enable();
     // LOG2SIZE=8 → valid range is StreamIDs 0-255
     smmu->setStrtabLog2Size(8u);
     return smmu;
@@ -92,9 +93,10 @@ TEST(Spec20BadSteVsBadStreamid, OutOfBoundsStreamEmitsCBadStreamid) {
 TEST(Spec20BadSteVsBadStreamid, CBadSteRecordedEvenWithRecinvsidZero) {
     SMMUConfiguration cfg;
     auto smmu = std::make_unique<SMMU>(cfg);
-    smmu->enable();
-    // RECINVSID=0: C_BAD_STREAMID recording is suppressed
+    // CR2 must be set before enable() — setCR2() is ignored when SMMUEN=1.
+    // RECINVSID=0: C_BAD_STREAMID recording is suppressed.
     smmu->setCR2(0u);
+    smmu->enable();
     smmu->setStrtabLog2Size(8u);
 
     // StreamID 50 is in-range but not configured → should emit C_BAD_STE
