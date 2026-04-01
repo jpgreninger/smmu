@@ -636,7 +636,8 @@ fn test_command_queue_process_multiple_commands() {
 #[test]
 fn test_command_queue_process_atc_inv_generates_event() {
     let smmu = SMMU::new();
-    smmu.set_cr0(SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN); // BUG-04 fix: CR0 resets to 0
+    // BUG-AUDIT-81: CMD_ATC_INV requires SMMUEN=1. BUG-04: CR0 resets to 0.
+    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 
     let command = CommandEntry {
         cmd_type: CommandType::AtcInv,
@@ -812,6 +813,7 @@ fn test_command_queue_is_full() {
 #[test]
 fn test_event_queue_submit_translation_fault() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     let event = EventEntry {
         event_type: EventType::FTranslation,
@@ -833,6 +835,7 @@ fn test_event_queue_submit_translation_fault() {
 #[test]
 fn test_event_queue_submit_permission_fault() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     let event = EventEntry {
         event_type: EventType::FPermission,
@@ -854,6 +857,7 @@ fn test_event_queue_submit_permission_fault() {
 #[test]
 fn test_event_queue_submit_access_fault() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     let event = EventEntry {
         event_type: EventType::CBadSte,
@@ -878,6 +882,7 @@ fn test_event_queue_overflow_with_small_queue() {
     let mut config = SMMUConfig::default();
     config.queue_config.event_queue_size = 16;
     let smmu = SMMU::with_config(config);
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Fill the queue to capacity
     for i in 0..16 {
@@ -924,6 +929,7 @@ fn test_event_queue_overflow_with_small_queue() {
 fn test_event_queue_large_queue_no_overflow() {
     // Default config has large queue (512 entries)
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit many events (less than capacity)
     for i in 0..100 {
@@ -948,6 +954,7 @@ fn test_event_queue_large_queue_no_overflow() {
 #[test]
 fn test_event_queue_get_all_events() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit multiple events
     for i in 0..5 {
@@ -973,6 +980,7 @@ fn test_event_queue_get_all_events() {
 #[test]
 fn test_event_queue_filter_by_type() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit mixed event types
     smmu.submit_event(EventEntry {
@@ -1027,6 +1035,7 @@ fn test_event_queue_filter_by_type() {
 #[test]
 fn test_event_queue_filter_by_stream() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit events for different streams
     for i in 0..3 {
@@ -1069,6 +1078,7 @@ fn test_event_queue_filter_by_stream() {
 #[test]
 fn test_event_queue_clear() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit events
     for i in 0..5 {
@@ -1984,6 +1994,7 @@ fn test_clear_faults() {
 #[test]
 fn test_multiple_event_types() {
     let smmu = SMMU::new();
+    smmu.set_cr0(SMMU::CR0_EVENTQEN); // BUG-AUDIT-75: submit_event requires EVENTQEN=1
 
     // Submit different event types
     smmu.submit_event(EventEntry {

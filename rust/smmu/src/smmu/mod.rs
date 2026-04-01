@@ -1099,10 +1099,18 @@ impl SMMU {
     /// assert_eq!(smmu.get_cr0() & SMMU::CR0_CMDQEN, SMMU::CR0_CMDQEN);
     /// ```
     pub fn set_cr0(&self, value: u32) {
-        self.cr0.store(value, Ordering::Release);
-        self.enabled.store((value & Self::CR0_SMMUEN) != 0, Ordering::Release);
+        // BUG-AUDIT-73 fix: ARM §6.3.9 — PRIQEN is RES0 when IDR0.PRI==0.
+        // Silently clear PRIQEN from the caller-supplied value when PRI is not
+        // supported, mirroring the guard already present in enable().
+        let effective = if !self.pri_supported.load(Ordering::Acquire) {
+            value & !Self::CR0_PRIQEN
+        } else {
+            value
+        };
+        self.cr0.store(effective, Ordering::Release);
+        self.enabled.store((effective & Self::CR0_SMMUEN) != 0, Ordering::Release);
         // CONF-GAP-9: CR0ACK mirrors CR0 synchronously in this software model (§6.3.10).
-        self.cr0ack.store(value, Ordering::Release);
+        self.cr0ack.store(effective, Ordering::Release);
     }
 
     /// Read SMMU_CR0 (§6.3.9).
@@ -2061,7 +2069,10 @@ impl SMMU {
     ///
     /// Has no effect when SMMUEN=1.
     pub fn set_gbpa_abort(&self, abort: bool) {
+        // BUG-AUDIT-76 fix: keep the atomic and the RwLock-protected struct in sync.
         self.gbpa_abort.store(abort, Ordering::Release);
+        let mut guard = self.gbpa_config.write().unwrap();
+        guard.abort = abort;
     }
 
     // ========================================================================
@@ -2302,45 +2313,18 @@ impl SMMU {
         }
     }
 
-    /// Configure a stream with specified configuration
+    /// Perform all STE/CD illegality checks (ARM §5.2 SteIllegal + §5.5 CdIllegal).
     ///
-    /// Creates a new stream context if it doesn't exist. Returns error if
-    /// stream already exists or stream limit exceeded.
+    /// Called from both `configure_stream()` and `reconfigure_stream()` to ensure
+    /// consistent validation regardless of whether a stream is being created or
+    /// updated.  On failure, emits a C_BAD_STE or C_BAD_CD event (when EVENTQEN=1)
+    /// and returns an `Err(InvalidConfiguration)`.
     ///
-    /// # Arguments
-    ///
-    /// * `stream_id` - Stream identifier (device ID)
-    /// * `config` - Stream configuration (translation stages, PASID, etc.)
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// - SMMU is shutdown (`ShutdownInProgress`)
-    /// - Stream already exists (`StreamAlreadyExists`)
-    /// - Stream limit exceeded (`StreamLimitExceeded`)
-    /// - Configuration is invalid (`InvalidConfiguration`)
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use smmu::SMMU;
-    /// use smmu::types::{StreamID, StreamConfig};
-    ///
-    /// let smmu = SMMU::new();
-    /// let stream_id = StreamID::new(1).unwrap();
-    ///
-    /// // Configure Stage-1 only translation
-    /// let config = StreamConfig::stage1_only();
-    /// assert!(smmu.configure_stream(stream_id, config).is_ok());
-    ///
-    /// // Duplicate configuration fails
-    /// let config2 = StreamConfig::stage2_only();
-    /// assert!(smmu.configure_stream(stream_id, config2).is_err());
-    /// ```
+    /// BUG-AUDIT-74 fix: `reconfigure_stream()` previously skipped these checks by
+    /// calling only `config.validate()`, which does not cover STRW validity, S2TG
+    /// granule, STALL_MODEL compatibility, EATS/NS1ATS, S2HD, S2AA64, or S1P/S2P.
     #[allow(clippy::too_many_lines)]
-    pub fn configure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
-        self.check_shutdown()?;
-
+    fn check_ste_illegal(&self, stream_id: StreamID, config: &StreamConfig) -> Result<(), SMMUError> {
         // (3) Reserved STE.Config combinations (ARM §5.2 Table STE.Config).
         // Must run BEFORE config.validate() because validate() also rejects this
         // combination, which would bypass the BUG-11 C_BAD_STE event emission.
@@ -2809,6 +2793,51 @@ impl SMMU {
             ));
         }
 
+        Ok(())
+    }
+
+    /// Configure a stream with specified configuration
+    ///
+    /// Creates a new stream context if it doesn't exist. Returns error if
+    /// stream already exists or stream limit exceeded.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Stream identifier (device ID)
+    /// * `config` - Stream configuration (translation stages, PASID, etc.)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SMMU is shutdown (`ShutdownInProgress`)
+    /// - Stream already exists (`StreamAlreadyExists`)
+    /// - Stream limit exceeded (`StreamLimitExceeded`)
+    /// - Configuration is invalid (`InvalidConfiguration`)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::types::{StreamID, StreamConfig};
+    ///
+    /// let smmu = SMMU::new();
+    /// let stream_id = StreamID::new(1).unwrap();
+    ///
+    /// // Configure Stage-1 only translation
+    /// let config = StreamConfig::stage1_only();
+    /// assert!(smmu.configure_stream(stream_id, config).is_ok());
+    ///
+    /// // Duplicate configuration fails
+    /// let config2 = StreamConfig::stage2_only();
+    /// assert!(smmu.configure_stream(stream_id, config2).is_err());
+    /// ```
+    #[allow(clippy::too_many_lines)]
+    pub fn configure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
+        self.check_shutdown()?;
+
+        // Run all SteIllegal() / CdIllegal() checks (BUG-AUDIT-74: shared with reconfigure_stream).
+        self.check_ste_illegal(stream_id, &config)?;
+
         let stream_value = stream_id.as_u32();
 
         // BUG-6 fix: atomically reserve a slot BEFORE the DashMap insert.
@@ -2945,9 +2974,11 @@ impl SMMU {
     pub fn reconfigure_stream(&self, stream_id: StreamID, config: StreamConfig) -> Result<(), SMMUError> {
         self.check_shutdown()?;
 
-        config
-            .validate()
-            .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
+        // BUG-AUDIT-74 fix: apply the same full SteIllegal() / CdIllegal() checks
+        // that configure_stream() runs.  Previously only config.validate() was called,
+        // which skipped STRW validity, S2TG granule, STALL_MODEL compatibility,
+        // EATS/NS1ATS, S2HD, S2AA64, and S1P/S2P capability gates.
+        self.check_ste_illegal(stream_id, &config)?;
 
         let ctx = self.get_stream_context(stream_id)?;
         ctx.update_configuration(config);
@@ -3920,6 +3951,9 @@ impl SMMU {
                             }
                         }
                     }
+                    // BUG-AUDIT-77 fix: also increment total_translations so that
+                    // total == successful + failed invariant holds.
+                    self.total_translations.0.fetch_add(1, Ordering::Relaxed);
                     self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                     return Err(TranslationError::PermissionViolation { access });
                 }
@@ -3959,6 +3993,9 @@ impl SMMU {
                             }
                         }
                     }
+                    // BUG-AUDIT-77 fix: also increment total_translations so that
+                    // total == successful + failed invariant holds.
+                    self.total_translations.0.fetch_add(1, Ordering::Relaxed);
                     self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                     return Err(TranslationError::PermissionViolation { access });
                 }
@@ -5718,6 +5755,12 @@ impl SMMU {
     ///
     /// Implements event queue management per Section 6.3.
     pub fn submit_event(&self, event: EventEntry) -> Result<(), SMMUError> {
+        // BUG-AUDIT-75 fix: ARM §7.2.1 — events must not be posted when
+        // CR0.EVENTQEN=0.  inject_ste_fetch_abort() and inject_cd_fetch_abort()
+        // already carry this guard; mirror it here for the public path.
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return Err(SMMUError::EventQueueDisabled);
+        }
         let mut queue = self.event_queue.write().unwrap();
         if queue.len() >= self.event_queue_capacity {
             // BUG-NEW-RUST-4 fix: ARM §7.4 — when the event queue is full and a
@@ -6797,6 +6840,11 @@ impl SMMU {
                 self.invalidation_count.fetch_add(1, Ordering::Relaxed);
             },
             CommandType::AtcInv => {
+                // BUG-AUDIT-81 fix: ARM IHI0070G.b §6.3.9.6 — "CMD_ATC_INV and
+                // CMD_PRI_RESP commands are ignored" when SMMUEN=0.
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) == 0 {
+                    return Ok(());
+                }
                 // BUG-NEW-38 fix: ARM §4.1.6 — SSec=1 on NS queue → CERROR_ILL.
                 if command.ssec {
                     self.write_cmdq_cons_err(Self::CERROR_ILL);
@@ -7476,6 +7524,15 @@ impl SMMU {
     /// gone — an unrecoverable silent loss.  This fix moves the pop to *after*
     /// a successful submission.
     pub fn process_pri_queue(&self) -> Result<usize, SMMUError> {
+        // BUG-AUDIT-78 fix: ARM §6.3.9.5 + §8.2 — effective PRIQEN = PRIQEN AND SMMUEN.
+        // When SMMUEN=0 or PRIQEN=0 the PRI queue is inactive; no E_PAGE_REQUEST
+        // events shall be emitted.
+        let cr0 = self.cr0.load(Ordering::Acquire);
+        let effective_priqen = (cr0 & Self::CR0_PRIQEN) != 0 && (cr0 & Self::CR0_SMMUEN) != 0;
+        if !effective_priqen {
+            return Ok(0);
+        }
+
         // BUG-NEW-14 fix: §8.1/§3.5.1 — PRIQ_CONS must NOT be advanced by
         // process_pri_queue().  Only CMD_PRI_RESP may advance PRIQ_CONS.
         //
@@ -8345,6 +8402,8 @@ mod tests {
     #[test]
     fn test_eventq_prod_advances_on_submit() {
         let smmu = SMMU::new();
+        // BUG-AUDIT-75: submit_event() requires CR0.EVENTQEN=1.
+        smmu.set_cr0(SMMU::CR0_EVENTQEN);
         let event = EventEntry::new(EventType::FTranslation, 0, 0, 0);
         smmu.submit_event(event).unwrap();
 
@@ -8370,6 +8429,8 @@ mod tests {
     #[test]
     fn test_eventq_prod_cons_index_after_clear() {
         let smmu = SMMU::new();
+        // BUG-AUDIT-75: submit_event() requires CR0.EVENTQEN=1.
+        smmu.set_cr0(SMMU::CR0_EVENTQEN);
         let event = EventEntry::new(EventType::FTranslation, 0, 0, 0);
         smmu.submit_event(event).unwrap();
 
@@ -8887,6 +8948,8 @@ mod tests {
             pri_queue_size: 32,
         });
         let smmu = SMMU::with_config(config);
+        // BUG-AUDIT-75: submit_event() requires CR0.EVENTQEN=1.
+        smmu.set_cr0(SMMU::CR0_EVENTQEN);
 
         let make_event = |i: u32| EventEntry {
             event_type: EventType::FTranslation,

@@ -1846,13 +1846,16 @@ impl StreamContext {
             return Err(TranslationError::BadSubstreamId);
         }
 
-        // BUG-RUST-4 STRW fix / BUG-RUST-7: §5.2 STE.STRW=El2/El3 promotes
-        // unprivileged access types to their privileged equivalents when stage-2
-        // is disabled.  This must happen BEFORE INSTCFG so that the promotion
-        // is reflected in the access type that INSTCFG sees.
+        // BUG-RUST-4 STRW fix / BUG-RUST-7 / BUG-AUDIT-79:
+        // §5.2 STE.STRW=El2/El3 promotes unprivileged access types to their
+        // privileged equivalents.  This must happen BEFORE INSTCFG so that the
+        // promotion is reflected in the access type that INSTCFG sees.
         // BUG-RUST-7: WriteExecute → WriteExecutePrivileged must be included.
-        let access_type = if !stage2_enabled
-            && matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
+        // BUG-AUDIT-79 fix: the previous guard (`!stage2_enabled`) incorrectly
+        // skipped STRW-based promotion for two-stage streams.  Spec §5.2 does
+        // not restrict STRW promotion to single-stage configurations; remove the
+        // stage-2 guard so that promotion applies in all translation modes.
+        let access_type = if matches!(self.get_strw(), StreamWorld::El2 | StreamWorld::El3)
         {
             match access_type {
                 AccessType::Read             => AccessType::ReadPrivileged,

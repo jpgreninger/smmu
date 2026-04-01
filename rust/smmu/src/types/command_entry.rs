@@ -204,7 +204,7 @@ pub struct CommandEntry {
     /// barrier completes:
     /// - `0b00` (`SIG_NONE`): no completion signal (ignored by SMMU)
     /// - `0b01` (`SIG_IRQ`): MSI write / IRQ completion signal
-    /// - `0b10` (`SIG_MSI`): MSI write at `SMMU_GERROR_IRQ_CFG0`
+    /// - `0b10` (`SIG_SEV`): SEV instruction / system event (§4.7.3)
     ///
     /// Ignored by all command types other than `Sync`.
     /// Defaults to 0 (SIG_NONE — no completion signal).

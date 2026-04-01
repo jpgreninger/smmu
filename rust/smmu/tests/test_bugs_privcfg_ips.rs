@@ -342,6 +342,9 @@ fn bug_rust_2b_privcfg2_el2_tlb_hit_should_deny_privileged_only_page() {
     // remains cached.  The next TLB-hit translate will use the stale fast-path check.
     let mut cfg_priv2 = StreamConfig::stage1_only();
     cfg_priv2.strw = StreamWorld::El2;
+    // STRW=El2 (bit[0]=1) is only valid for Secure streams (ARM §5.2).
+    // The initial configure_stream used Secure; reconfigure must match.
+    cfg_priv2.security_state = SecurityState::Secure;
     cfg_priv2.priv_cfg = 2; // Force Unprivileged
     cfg_priv2.t0sz = 0;
     smmu.reconfigure_stream(stream_id, cfg_priv2).unwrap();

@@ -59,6 +59,10 @@ pub enum SMMUError {
     #[error("Event queue is full")]
     EventQueueFull,
 
+    /// Event queue is disabled (CR0.EVENTQEN=0)
+    #[error("Event queue is disabled (CR0.EVENTQEN=0)")]
+    EventQueueDisabled,
+
     /// Command queue is full
     #[error("Command queue is full")]
     CommandQueueFull,
