@@ -445,6 +445,7 @@ TEST(BugNew23CmdSyncConsolidation, Cs3RaisesCerrorIll) {
 // Test 4: CMD_SYNC CS=2 (SEV) emits COMMAND_SYNC_COMPLETION.
 TEST(BugNew23CmdSyncConsolidation, Cs2EmitsCompletionEvent) {
     SMMU smmu;
+    smmu.setSevSupported(true);
     enableSMMU(smmu);
 
     CommandEntry cmd = makeCmd(CommandType::SYNC);

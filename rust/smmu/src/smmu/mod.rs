@@ -1142,8 +1142,9 @@ impl SMMU {
     /// ```
     pub fn set_cr2(&self, value: u32) {
         // BUG-AUDIT-60 fix: ARM IHI0070G.b §6.3.12 — CR2 is RO when SMMUEN=1.
-        // SMMUv3.2 mandates that writes to CR2 while SMMUEN=1 are silently ignored.
-        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+        // BUG-AUDIT-67 fix: §6.3.12 requires checking both CR0.SMMUEN and CR0ACK.SMMUEN.
+        // SMMUv3.2 mandates that writes to CR2 while SMMUEN=1 (in either register) are silently ignored.
+        if ((self.cr0.load(Ordering::Acquire) | self.cr0ack.load(Ordering::Acquire)) & Self::CR0_SMMUEN) != 0 {
             return;
         }
         self.cr2.store(value, Ordering::Release);
@@ -1196,14 +1197,25 @@ impl SMMU {
     /// Controls shareability and cacheability of SMMU table walks and queue
     /// accesses.  See `CR1_TABLE_SH`, `CR1_TABLE_OC`, etc. for bit definitions.
     pub fn set_cr1(&self, value: u32) {
-        // BUG-AUDIT-61 fix: ARM IHI0070G.b §6.3.11 — CR1 is RO when SMMUEN=1 or any queue is enabled.
-        // TABLE_* fields: RO when SMMUEN=1. QUEUE_* fields: RO when CMDQEN=1, EVENTQEN=1, or PRIQEN=1.
-        // Guard the entire write on SMMUEN=1 OR any queue-enable bit set. SMMUv3.2: silently ignored.
-        let guard_bits = Self::CR0_SMMUEN | Self::CR0_CMDQEN | Self::CR0_EVENTQEN | Self::CR0_PRIQEN;
-        if (self.cr0.load(Ordering::Acquire) & guard_bits) != 0 {
-            return;
+        // BUG-AUDIT-66 fix: ARM IHI0070G.b §6.3.11 — TABLE_* and QUEUE_* have independent write guards.
+        // TABLE_* (bits[11:6]): RO when CR0.SMMUEN==1 OR CR0ACK.SMMUEN==1.
+        // QUEUE_* (bits[5:0]):  RO when CMDQEN==1 OR EVENTQEN==1 OR PRIQEN==1 (SMMUEN alone does NOT gate these).
+        let cr0 = self.cr0.load(Ordering::Acquire);
+        let ack = self.cr0ack.load(Ordering::Acquire);
+        let queue_guard = Self::CR0_CMDQEN | Self::CR0_EVENTQEN | Self::CR0_PRIQEN;
+        let table_mask: u32 = 0xFC0; // CR1 bits[11:6]: TABLE_SH/OC/IC
+        let queue_mask: u32 = 0x03F; // CR1 bits[5:0]:  QUEUE_SH/OC/IC
+        let current = self.cr1.load(Ordering::Acquire);
+        let mut new_val = current;
+        // TABLE_* writable only when both CR0.SMMUEN==0 AND CR0ACK.SMMUEN==0.
+        if ((cr0 | ack) & Self::CR0_SMMUEN) == 0 {
+            new_val = (new_val & !table_mask) | (value & table_mask);
         }
-        self.cr1.store(value, Ordering::Release);
+        // QUEUE_* writable only when no queue-enable is set in CR0 or CR0ACK.
+        if ((cr0 | ack) & queue_guard) == 0 {
+            new_val = (new_val & !queue_mask) | (value & queue_mask);
+        }
+        self.cr1.store(new_val, Ordering::Release);
     }
 
     /// Read SMMU_CR1 (§6.3.11).
@@ -1772,8 +1784,9 @@ impl SMMU {
     /// StreamID range validation.
     pub fn set_strtab_format(&self, fmt: StreamTableFormat) {
         // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO when SMMUEN=1.
-        // Writes while SMMUEN=1 must be silently ignored.
-        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+        // BUG-AUDIT-67 fix: §6.3.24/§6.3.25 requires checking both CR0.SMMUEN and CR0ACK.SMMUEN.
+        // Writes while SMMUEN=1 (in either CR0 or CR0ACK) must be silently ignored.
+        if ((self.cr0.load(Ordering::Acquire) | self.cr0ack.load(Ordering::Acquire)) & Self::CR0_SMMUEN) != 0 {
             return;
         }
         self.strtab_fmt.store(fmt as u32, Ordering::Release);
@@ -6862,10 +6875,17 @@ impl SMMU {
                     ));
                 }
                 // §4.8 / FINDING-NEW-27: CS=0b00 (SIG_NONE) → no completion signal.
-                if command.cs != 0 {
+                // BUG-AUDIT-65 fix: §4.7.3 — CS=2 (SIG_SEV) only active when IDR0.SEV=1.
+                // When sev_supported=false, SIG_SEV is equivalent to SIG_NONE (no event, no store).
+                let effective_cs = if command.cs == 2 && !self.sev_supported.load(Ordering::Acquire) {
+                    0 // treat SIG_SEV as SIG_NONE when IDR0.SEV=0
+                } else {
+                    command.cs
+                };
+                if effective_cs != 0 {
                     // CONF-GAP-18: track last CMD_SYNC completion signal type (§4.7.3).
                     // CS=1 = SIG_IRQ, CS=2 = SIG_SEV.
-                    self.cmd_sync_last_signal_type.store(command.cs as u32, Ordering::Release);
+                    self.cmd_sync_last_signal_type.store(effective_cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     // BUG-NEW-26 fix: §4.8 — CMD_SYNC has no StreamID operand; the
                     // completion event security state must always be NonSecure.

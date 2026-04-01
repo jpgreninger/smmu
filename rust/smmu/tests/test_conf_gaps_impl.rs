@@ -331,16 +331,18 @@ fn test_cmd_sync_sig_msi_records_signal_type_2() {
     smmu.enable().unwrap();
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
     smmu.set_cr2(SMMU::CR2_PTM);
+    // BUG-AUDIT-65: CS=2 (SIG_SEV) only stores signal type 2 when IDR0.SEV=1 (ARM §4.7.3).
+    smmu.set_sev_supported(true);
 
     let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
-    cmd.cs = 2; // SIG_MSI
+    cmd.cs = 2; // SIG_SEV
     smmu.submit_command(cmd).unwrap();
     let _ = smmu.process_command_queue();
 
     assert_eq!(
         smmu.get_cmd_sync_last_signal_type(),
         2,
-        "CS=2 (SIG_MSI) must record signal_type=2"
+        "CS=2 (SIG_SEV) must record signal_type=2"
     );
 }
 

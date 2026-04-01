@@ -88,9 +88,14 @@ fn make_smmu() -> SMMU {
 /// correctly.  The test passes before and after.  The fix is the label rename.
 ///
 /// AFTER FIX: same runtime behavior; comment now says "2=SEV".
+/// Note: BUG-AUDIT-65 fix gates CS=2 on IDR0.SEV=1, so set_sev_supported(true)
+/// is required for the SIG_SEV path to store signal type 2 (ARM §4.7.3).
 #[test]
 fn bug_qa7_cmd_sync_cs2_stored_as_sev() {
     let smmu = make_smmu();
+
+    // BUG-AUDIT-65: CS=2 (SIG_SEV) only stores signal type 2 when IDR0.SEV=1.
+    smmu.set_sev_supported(true);
 
     let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
     cmd.cs = 0x02; // SIG_SEV

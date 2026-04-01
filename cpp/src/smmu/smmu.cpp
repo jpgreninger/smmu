@@ -5048,16 +5048,20 @@ void SMMU::processCommand(const CommandEntry& command, std::unique_lock<std::rec
             // BUG-QA-7 fix: CS=2 is SIG_SEV (PE-level wakeup), NOT SIG_MSI.
             if (command.cs == 1u) {
                 cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Irq), std::memory_order_release);
-            } else if (command.cs == 2u) {
-                cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
-            }
-            if (command.cs != 0) {
                 // BUG-NEW-2 fix: completion event streamID=0 (RES0 operand in CMD_SYNC).
                 // BUG-NEW-26 fix: CMD_SYNC has no architectural StreamID operand (§4.7.3/§4.8).
                 // The completion event security state must always be NonSecure — the command
                 // queue operates in the NS domain and the stream_id field is meaningless here.
                 generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
                               command.startAddress, SecurityState::NonSecure);
+            } else if (command.cs == 2u) {
+                // BUG-AUDIT-65 fix: §4.7.3 — CS=2 (SIG_SEV) only active when IDR0.SEV=1.
+                // When sevSupported_=false, treat SIG_SEV as SIG_NONE (no signal, no event).
+                if (sevSupported_.load(std::memory_order_acquire)) {
+                    cmdSyncLastSig_.store(static_cast<uint8_t>(CmdSyncSignalType::Sev), std::memory_order_release);
+                    generateEvent(EventType::COMMAND_SYNC_COMPLETION, 0u, command.pasid,
+                                  command.startAddress, SecurityState::NonSecure);
+                }
             }
             // BUG-CPP-05 fix: ARM §4.8 CMD_SYNC is a barrier, not a stop.
             // Fall through (no break) so processCommandQueue() advances CONS.RD.
@@ -5237,9 +5241,9 @@ uint32_t SMMU::getCR0() const {
 // RECINVSID (bit 1): gates C_BAD_STREAMID event recording in the event queue.
 // Reset value is 0 (events suppressed) per ARM IHI0070G.b §6.3.12.
 void SMMU::setCR2(uint32_t value) {
-    // BUG-AUDIT-60 fix: ARM IHI0070G.b §6.3.12 — CR2 is RO when SMMUEN=1.
+    // BUG-AUDIT-60/67 fix: ARM IHI0070G.b §6.3.12 — CR2 is RO when SMMUEN=1 in CR0 or CR0ACK.
     // SMMUv3.2 mandates that writes to CR2 while SMMUEN=1 are silently ignored.
-    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+    if (((cr0_.load(std::memory_order_acquire) | cr0ack_.load(std::memory_order_acquire)) & CR0_SMMUEN) != 0u) {
         return;
     }
     cr2_.store(value, std::memory_order_release);
@@ -5260,15 +5264,23 @@ void SMMU::setCR0ACK(uint32_t v) {
 
 // CONF-GAP-10: SMMU_CR1 register (§6.3.11) — table/queue memory attributes.
 void SMMU::setCR1(uint32_t value) {
-    // BUG-AUDIT-61 fix: ARM IHI0070G.b §6.3.11 — CR1 is RO when SMMUEN=1 or any queue is enabled.
-    // TABLE_* fields: RO when SMMUEN=1. QUEUE_* fields: RO when CMDQEN=1, EVENTQEN=1, or PRIQEN=1.
-    // Simplification: guard the entire write on SMMUEN=1 OR any queue-enable bit set.
-    // SMMUv3.2 mandates that writes in these states are silently ignored.
-    const uint32_t guardBits = CR0_SMMUEN | CR0_CMDQEN | CR0_EVENTQEN | CR0_PRIQEN;
-    if ((cr0_.load(std::memory_order_acquire) & guardBits) != 0u) {
-        return;
+    // BUG-AUDIT-66/68 fix: ARM IHI0070G.b §6.3.11 — TABLE_* and QUEUE_* have independent guards.
+    // TABLE_* fields (bits[11:6]): RO when SMMUEN=1 in CR0 or CR0ACK.
+    // QUEUE_* fields (bits[5:0]):  RO when any queue-enable is 1 in CR0 or CR0ACK.
+    const uint32_t cr0  = cr0_.load(std::memory_order_acquire);
+    const uint32_t ack  = cr0ack_.load(std::memory_order_acquire);
+    const uint32_t queueGuard = CR0_CMDQEN | CR0_EVENTQEN | CR0_PRIQEN;
+    const uint32_t tableMask  = 0xFC0u;  // CR1 bits[11:6]: TABLE_SH/OC/IC
+    const uint32_t queueMask  = 0x03Fu;  // CR1 bits[5:0]:  QUEUE_SH/OC/IC
+    uint32_t current = cr1_.load(std::memory_order_acquire);
+    uint32_t newVal  = current;
+    if (((cr0 | ack) & CR0_SMMUEN) == 0u) {
+        newVal = (newVal & ~tableMask) | (value & tableMask);
     }
-    cr1_.store(value, std::memory_order_release);
+    if (((cr0 | ack) & queueGuard) == 0u) {
+        newVal = (newVal & ~queueMask) | (value & queueMask);
+    }
+    cr1_.store(newVal, std::memory_order_release);
 }
 
 uint32_t SMMU::getCR1() const {
@@ -5292,9 +5304,9 @@ GbpaConfig SMMU::getGbpaConfig() const {
 
 // CONF-GAP-3: 2-level stream table format (§3.3.1.2).
 void SMMU::setStrtabFormat(StreamTableFormat fmt) {
-    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE_CFG
-    // is RO when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
-    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+    // BUG-AUDIT-63/67 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE_CFG
+    // is RO when SMMUEN=1 in CR0 or CR0ACK. Writes while SMMUEN=1 must be silently ignored.
+    if (((cr0_.load(std::memory_order_acquire) | cr0ack_.load(std::memory_order_acquire)) & CR0_SMMUEN) != 0u) {
         return;
     }
     strtabFmt_.store(static_cast<uint8_t>(fmt), std::memory_order_release);
@@ -5305,10 +5317,10 @@ StreamTableFormat SMMU::getStrtabFormat() const {
 }
 
 void SMMU::setStrtabSplit(uint8_t split) {
-    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
-    // when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
+    // BUG-AUDIT-63/67 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
+    // when SMMUEN=1 in CR0 or CR0ACK. Writes while SMMUEN=1 must be silently ignored.
     // Guard placed BEFORE lock acquisition to avoid acquiring queueMutex unnecessarily.
-    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+    if (((cr0_.load(std::memory_order_acquire) | cr0ack_.load(std::memory_order_acquire)) & CR0_SMMUEN) != 0u) {
         return;
     }
     // Bug-1 fix: acquire queueMutex to serialise against validateStreamID2Level()
@@ -5410,10 +5422,10 @@ CmdSyncSignalType SMMU::getCmdSyncLastSignalType() const {
 
 // §6.3.4 SMMU_STRTAB_BASE_CFG.LOG2SIZE (CT-04)
 void SMMU::setStrtabLog2Size(uint8_t log2size) {
-    // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
-    // when SMMUEN=1. Writes while SMMUEN=1 must be silently ignored.
+    // BUG-AUDIT-63/67 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO
+    // when SMMUEN=1 in CR0 or CR0ACK. Writes while SMMUEN=1 must be silently ignored.
     // Guard placed BEFORE lock acquisition to avoid acquiring queueMutex unnecessarily.
-    if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) != 0u) {
+    if (((cr0_.load(std::memory_order_acquire) | cr0ack_.load(std::memory_order_acquire)) & CR0_SMMUEN) != 0u) {
         return;
     }
     // Bug-1 fix: acquire queueMutex to serialise against validateStreamID2Level()

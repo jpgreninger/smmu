@@ -156,20 +156,22 @@ fn sync_cs_sig_irq_produces_one_completion_event() {
     );
 }
 
-/// CMD_SYNC with CS=2 (SIG_MSI) must also generate a completion event.
+/// CMD_SYNC with CS=2 (SIG_SEV) must also generate a completion event when IDR0.SEV=1.
 #[test]
 fn sync_cs_sig_msi_produces_one_completion_event() {
     let smmu = make_smmu();
+    // BUG-AUDIT-65: CS=2 (SIG_SEV) only generates a completion event when IDR0.SEV=1 (ARM §4.7.3).
+    smmu.set_sev_supported(true);
 
     let mut cmd = CommandEntry::new(CommandType::Sync, 0, 0);
-    cmd.cs = 0x02; // SIG_MSI
+    cmd.cs = 0x02; // SIG_SEV
     smmu.submit_command(cmd).expect("submit_command must succeed");
     smmu.process_command_queue().expect("process_command_queue must succeed");
 
     assert_eq!(
         count_sync_completion_events(&smmu),
         1,
-        "§4.8: CMD_SYNC with CS=SIG_MSI must generate exactly one COMMAND_SYNC_COMPLETION"
+        "§4.8: CMD_SYNC with CS=SIG_SEV must generate exactly one COMMAND_SYNC_COMPLETION"
     );
 }
 

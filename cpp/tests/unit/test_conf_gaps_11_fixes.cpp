@@ -437,6 +437,7 @@ TEST(ConfGap18CmdSync, CS1SetsIrqSignalType) {
 
 TEST(ConfGap18CmdSync, CS2SetsSevSignalType) {
     SMMU smmu;
+    smmu.setSevSupported(true);
     smmu.enable();
     smmu.setCR0(smmu.getCR0() | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN);
 

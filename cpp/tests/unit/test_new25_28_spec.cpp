@@ -229,6 +229,7 @@ TEST(New27Spec, SYNC_CS_SIG_IRQ_GeneratesCompletionEvent) {
 // CMD_SYNC with CS=0b10 (SIG_MSI) must also generate a completion event.
 TEST(New27Spec, SYNC_CS_SIG_MSI_GeneratesCompletionEvent) {
     auto smmu = std::make_unique<SMMU>();
+    smmu->setSevSupported(true);
     smmu->enable();
 
     CommandEntry sync;

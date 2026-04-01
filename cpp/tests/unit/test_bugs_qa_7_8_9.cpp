@@ -79,6 +79,7 @@ TEST(BugQA7CmdSyncSev, SevEnumMemberExists) {
 // AFTER FIX:  returns CmdSyncSignalType::Sev.
 TEST(BugQA7CmdSyncSev, CS2ReturnsSevSignalType) {
     SMMU smmu;
+    smmu.setSevSupported(true);
     enableSMMU(smmu);
 
     CommandEntry sync;
