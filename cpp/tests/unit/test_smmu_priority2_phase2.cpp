@@ -685,6 +685,8 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_ClearPRIQueue) {
 }
 
 // Target line 1476-1478: executeInvalidationCommand with invalid command type
+// BUG-AUDIT-72 fix: unrecognized invalidation commands must signal CERROR_ILL
+// via the command queue error channel (ARM §4.1.7/§7.1), NOT a C_BAD_STE event.
 TEST_F(SMMUPriority2Phase2Test, CommandProcessing_InvalidInvalidationCommand) {
     CommandEntry cmd;
     cmd.type = CommandType::PREFETCH_CONFIG; // Not an invalidation command
@@ -693,11 +695,16 @@ TEST_F(SMMUPriority2Phase2Test, CommandProcessing_InvalidInvalidationCommand) {
     cmd.startAddress = 0;
     cmd.endAddress = 0;
 
-    // Should hit default case (line 1476-1478)
+    // Should hit default case and signal CERROR_ILL via command queue error channel
     smmuController->executeInvalidationCommand(cmd);
 
-    // Check for configuration error event
-    EXPECT_GT(smmuController->getEventQueueSize(), 0);
+    // BUG-AUDIT-72: must use CMDQ_CONS.ERR + GERROR.CMDQ_ERR, not C_BAD_STE event
+    EXPECT_EQ(smmuController->getCmdqConsErr(), CERROR_ILL)
+        << "BUG-AUDIT-72: unrecognized invalidation command must set CMDQ_CONS.ERR=CERROR_ILL";
+    EXPECT_NE(smmuController->getGerror() & GERROR_CMDQ_ERR, 0u)
+        << "BUG-AUDIT-72: unrecognized invalidation command must set GERROR.CMDQ_ERR";
+    EXPECT_EQ(smmuController->getEventQueueSize(), 0u)
+        << "BUG-AUDIT-72: unrecognized invalidation command must NOT generate a C_BAD_STE event";
 }
 
 // Target line 1489-1492: TLBI_NH_ALL command

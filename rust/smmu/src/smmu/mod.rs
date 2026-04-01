@@ -1043,8 +1043,10 @@ impl SMMU {
         // queues enabled before SMMUEN=1.  When `enabled` becomes visible to other threads,
         // CR0_EVENTQEN is already set, so no fault event can be generated in a window
         // where the event queue is not yet active.
+        // BUG-AUDIT-71 fix: CR0_PRIQEN must only be set when PRI is supported (§6.3.9).
+        let priqen_bit = if self.pri_supported.load(Ordering::Acquire) { Self::CR0_PRIQEN } else { 0 };
         self.cr0.fetch_or(
-            Self::CR0_SMMUEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN | Self::CR0_PRIQEN,
+            Self::CR0_SMMUEN | Self::CR0_EVENTQEN | Self::CR0_CMDQEN | priqen_bit,
             Ordering::AcqRel,
         );
         self.enabled.store(true, Ordering::Release);
@@ -1813,7 +1815,10 @@ impl SMMU {
     pub fn set_strtab_split(&self, split: u8) {
         // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.25 line 13807 — STRTAB_BASE_CFG is RO when SMMUEN=1.
         // Writes while SMMUEN=1 must be silently ignored.
-        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+        // BUG-AUDIT-69 fix: also gate on CR0ACK.SMMUEN, matching the write-guard pattern
+        // used in set_strtab_format() — the SMMU is considered enabled once either CR0 or
+        // CR0ACK has SMMUEN=1.
+        if ((self.cr0.load(Ordering::Acquire) | self.cr0ack.load(Ordering::Acquire)) & Self::CR0_SMMUEN) != 0 {
             return;
         }
         // BUG-RUST-4 fix: clamp reserved SPLIT values to 6 (spec default).
@@ -1866,7 +1871,10 @@ impl SMMU {
     pub fn set_strtab_log2size(&self, v: u8) {
         // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE is RO when SMMUEN=1.
         // Writes while SMMUEN=1 must be silently ignored.
-        if (self.cr0.load(Ordering::Acquire) & Self::CR0_SMMUEN) != 0 {
+        // BUG-AUDIT-70 fix: also gate on CR0ACK.SMMUEN, matching the write-guard pattern
+        // used in set_strtab_format() — the SMMU is considered enabled once either CR0 or
+        // CR0ACK has SMMUEN=1.
+        if ((self.cr0.load(Ordering::Acquire) | self.cr0ack.load(Ordering::Acquire)) & Self::CR0_SMMUEN) != 0 {
             return;
         }
         self.strtab_log2size.store(v, Ordering::Release);

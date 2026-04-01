@@ -4276,8 +4276,10 @@ void SMMU::executeInvalidationCommand(const CommandEntry& command) {
         }
 
         default:
-            // Invalid invalidation command
-            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            // BUG-AUDIT-72 fix: §4.1.7/§7.1 — unrecognized invalidation command must signal
+            // CERROR_ILL + GERROR.CMDQ_ERR, not a stream-level C_BAD_STE event.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
             break;
     }
 }
@@ -4653,8 +4655,10 @@ void SMMU::executeInvalidationCommandLocked(const CommandEntry& command, std::un
         }
 
         default:
-            // Invalid invalidation command
-            generateEvent(EventType::C_BAD_STE, command.streamID, command.pasid, command.startAddress, SecurityState::NonSecure);
+            // BUG-AUDIT-72 fix: §4.1.7/§7.1 — unrecognized invalidation command must signal
+            // CERROR_ILL + GERROR.CMDQ_ERR, not a stream-level C_BAD_STE event.
+            writeCmdqConsErr(CERROR_ILL);
+            signalGerror(GERROR_CMDQ_ERR);
             break;
     }
 }
@@ -5457,8 +5461,18 @@ void SMMU::enable() {
     // CONF-GAP-23: ARM IHI0070G.b §6.3.9 requires PRIQEN (bit 1) to be set
     // alongside SMMUEN|EVENTQEN|CMDQEN when the SMMU is globally enabled.
     // acquire/release ordering ensures visibility to concurrent translate() readers.
-    uint32_t newVal = cr0_.fetch_or(CR0_SMMUEN | CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel)
-                      | CR0_SMMUEN | CR0_PRIQEN | CR0_EVENTQEN | CR0_CMDQEN;
+    // BUG-AUDIT-71 fix: PRIQEN is RES0 when PRI is not supported; only set it
+    // when priSupported_ is true (ARM IHI0070G.b §6.3.9, §3.16).  When PRI is
+    // not supported we must also clear any pre-existing PRIQEN bit that may
+    // have been left in cr0_ by a prior enable() call before PRI was disabled,
+    // since fetch_or alone can never clear a bit already set in cr0_.
+    const bool priSup = priSupported_.load(std::memory_order_acquire);
+    const uint32_t priqenBit = priSup ? CR0_PRIQEN : 0u;
+    cr0_.fetch_or(CR0_SMMUEN | priqenBit | CR0_EVENTQEN | CR0_CMDQEN, std::memory_order_acq_rel);
+    if (!priSup) {
+        cr0_.fetch_and(~static_cast<uint32_t>(CR0_PRIQEN), std::memory_order_acq_rel);
+    }
+    uint32_t newVal = cr0_.load(std::memory_order_acquire);
     smmuen_.store(true, std::memory_order_release);
     // CONF-GAP-9: sync CR0ACK to match updated CR0
     cr0ack_.store(newVal, std::memory_order_release);
