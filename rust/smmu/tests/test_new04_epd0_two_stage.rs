@@ -53,7 +53,7 @@ fn two_stage_epd0_config() -> StreamConfig {
         .translation_enabled(true)
         .epd0(true)
         .t0sz(0)
-        .s2_t0sz(16)
+        .s2_t0sz(25)
         .build()
         .unwrap()
 }
@@ -66,7 +66,7 @@ fn two_stage_no_epd0_config() -> StreamConfig {
         .translation_enabled(true)
         .epd0(false)
         .t0sz(0)
-        .s2_t0sz(16)
+        .s2_t0sz(25)
         .build()
         .unwrap()
 }

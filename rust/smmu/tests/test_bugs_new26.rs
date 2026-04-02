@@ -79,7 +79,7 @@ fn has_event(smmu: &SMMU, event_type: EventType) -> bool {
 fn stage2_config(s2_tg: u8) -> StreamConfig {
     let mut cfg = StreamConfig::stage2_only();
     cfg.s2_tg = s2_tg;
-    cfg.s2_t0sz = 16; // legal minimum per BUG-AUDIT-45 fix
+    cfg.s2_t0sz = 25; // legal minimum per BUG-AUDIT-45 fix
     cfg
 }
 

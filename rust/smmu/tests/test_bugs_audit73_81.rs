@@ -549,7 +549,7 @@ fn audit_79_strw_el2_promotes_access_in_two_stage_stream() {
         .strw(StreamWorld::El2)
         .s2_aa64(true)
         .security_state(SecurityState::Secure)
-        .s2_t0sz(16)
+        .s2_t0sz(25)
         .build()
         .unwrap();
     smmu.configure_stream(stream, cfg).unwrap();

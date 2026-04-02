@@ -183,10 +183,11 @@ fn s2_t0sz_below_range_emits_event() {
     );
 }
 
-/// BUG-AUDIT-45 test 2: stage2_enabled=true, s2_t0sz=40 (>39) → C_BAD_STE event emitted.
+/// BUG-AUDIT-45/88 test 2: stage2_enabled=true, s2_t0sz=45 (>44) → C_BAD_STE event emitted.
 ///
-/// ARM §5.2 SteIllegal(): valid S2T0SZ range is [16, 39].
-/// Values 40–48 pass the old `> 48` validate() check silently; they must be rejected.
+/// ARM §5.2 SteIllegal(): valid S2T0SZ range for 4KB granule, SL0=1 is [22, 44]
+/// (BUG-AUDIT-88 updated the range from the old hardcoded [16,39]).
+/// Values above 44 must be rejected.
 ///
 /// BEFORE FIX: configure_stream() returns Ok (old threshold was > 48) → FAILS.
 /// AFTER FIX:  CBadSte event emitted AND Err returned → PASSES.
@@ -197,24 +198,25 @@ fn s2_t0sz_above_range_emits_event() {
 
     let mut cfg = StreamConfig::stage2_only();
     cfg.security_state = SecurityState::NonSecure;
-    cfg.s2_t0sz = 40; // above maximum of 39
+    cfg.s2_t0sz = 45; // above maximum of 44 (for s2_tg=0, s2_sl0=1)
 
     let result = smmu.configure_stream(sid(111), cfg);
     assert!(
         result.is_err(),
-        "BUG-AUDIT-45: configure_stream() must return Err when stage2_enabled=true AND \
-         s2_t0sz=40 > 39 (ARM §5.2 SteIllegal — out of range [16,39])"
+        "BUG-AUDIT-45/88: configure_stream() must return Err when stage2_enabled=true AND \
+         s2_t0sz=45 > 44 (ARM §5.2 SteIllegal — out of range [22,44] for s2_tg=0, s2_sl0=1)"
     );
     assert!(
         has_event(&smmu, EventType::CBadSte),
-        "BUG-AUDIT-45: C_BAD_STE event must be emitted when s2_t0sz > 39 \
-         (ARM §5.2 SteIllegal — values 40-48 were silently accepted before fix)"
+        "BUG-AUDIT-45/88: C_BAD_STE event must be emitted when s2_t0sz > 44 \
+         (ARM §5.2 SteIllegal — values above 44 must be rejected for s2_tg=0, s2_sl0=1)"
     );
 }
 
-/// BUG-AUDIT-45 test 3: stage2_enabled=true, s2_t0sz=10 → returns Err (regression guard).
+/// BUG-AUDIT-45/88 test 3: stage2_enabled=true, s2_t0sz=10 → returns Err (regression guard).
 ///
 /// Confirms the configure_stream() rejection for below-range values.
+/// With BUG-AUDIT-88, the minimum for s2_tg=0, s2_sl0=1 is 22, so 10 is still below range.
 ///
 /// BEFORE / AFTER FIX: This must always pass (regression guard).
 #[test]
@@ -229,15 +231,16 @@ fn s2_t0sz_below_range_rejected() {
     let result = smmu.configure_stream(sid(112), cfg);
     assert!(
         result.is_err(),
-        "BUG-AUDIT-45: configure_stream() must return Err for s2_t0sz=10 < 16 \
-         (regression guard)"
+        "BUG-AUDIT-45/88: configure_stream() must return Err for s2_t0sz=10 < 22 \
+         (regression guard — below min for s2_tg=0, s2_sl0=1)"
     );
 }
 
-/// BUG-AUDIT-45 test 4: stage2_enabled=true, s2_t0sz=40 → returns Err.
+/// BUG-AUDIT-45/88 test 4: stage2_enabled=true, s2_t0sz=45 → returns Err.
 ///
 /// Old threshold was `> 48`; s2_t0sz=40 passed silently.
-/// After the fix (threshold tightened to `> 39`), this must return Err.
+/// After BUG-AUDIT-88 (range depends on (S2TG, S2SL0)), the valid range for
+/// s2_tg=0, s2_sl0=1 is [22, 44], so s2_t0sz=45 must return Err.
 ///
 /// BEFORE FIX: returns Ok (old validate() allowed 40–48) → FAILS.
 /// AFTER FIX:  returns Err → PASSES.
@@ -248,55 +251,56 @@ fn s2_t0sz_above_range_rejected() {
 
     let mut cfg = StreamConfig::stage2_only();
     cfg.security_state = SecurityState::NonSecure;
-    cfg.s2_t0sz = 40;
+    cfg.s2_t0sz = 45; // above max of 44 for (s2_tg=0, s2_sl0=1)
 
     let result = smmu.configure_stream(sid(113), cfg);
     assert!(
         result.is_err(),
-        "BUG-AUDIT-45: configure_stream() must return Err for s2_t0sz=40 > 39 \
-         (ARM §5.2 SteIllegal — old threshold was > 48, new threshold is > 39)"
+        "BUG-AUDIT-45/88: configure_stream() must return Err for s2_t0sz=45 > 44 \
+         (ARM §5.2 SteIllegal — valid range for s2_tg=0, s2_sl0=1 is [22, 44])"
     );
 }
 
-/// BUG-AUDIT-45 test 5: stage2_enabled=true, s2_t0sz=16 and s2_t0sz=39 → both accepted.
+/// BUG-AUDIT-45/88 test 5: stage2_enabled=true, s2_t0sz=22 and s2_t0sz=44 → both accepted.
 ///
+/// BUG-AUDIT-88 updated the valid range for s2_tg=0, s2_sl0=1 to [22, 44].
 /// Boundary values at the legal limits must not be rejected.
 ///
 /// BEFORE / AFTER FIX: This must always pass (boundary test).
 #[test]
 fn s2_t0sz_at_boundaries_accepted() {
-    // Test lower boundary: s2_t0sz = 16 (minimum legal value)
+    // Test lower boundary: s2_t0sz = 22 (minimum legal value for s2_tg=0, s2_sl0=1)
     let smmu_low = make_smmu();
     smmu_low.set_s2p_supported(true);
     let mut cfg_low = StreamConfig::stage2_only();
     cfg_low.security_state = SecurityState::NonSecure;
-    cfg_low.s2_t0sz = 16; // lower bound — legal
+    cfg_low.s2_t0sz = 22; // lower bound — legal for (s2_tg=0, s2_sl0=1)
 
     let result_low = smmu_low.configure_stream(sid(114), cfg_low);
     assert!(
         result_low.is_ok(),
-        "BUG-AUDIT-45: configure_stream() must accept s2_t0sz=16 (lower boundary, ARM §5.2)"
+        "BUG-AUDIT-45/88: configure_stream() must accept s2_t0sz=22 (lower boundary for s2_tg=0, s2_sl0=1, ARM §5.2)"
     );
     assert!(
         !has_event(&smmu_low, EventType::CBadSte),
-        "BUG-AUDIT-45: no C_BAD_STE must be emitted for s2_t0sz=16 (lower boundary)"
+        "BUG-AUDIT-45/88: no C_BAD_STE must be emitted for s2_t0sz=22 (lower boundary for s2_tg=0, s2_sl0=1)"
     );
 
-    // Test upper boundary: s2_t0sz = 39 (maximum legal value)
+    // Test upper boundary: s2_t0sz = 44 (maximum legal value for s2_tg=0, s2_sl0=1)
     let smmu_high = make_smmu();
     smmu_high.set_s2p_supported(true);
     let mut cfg_high = StreamConfig::stage2_only();
     cfg_high.security_state = SecurityState::NonSecure;
-    cfg_high.s2_t0sz = 39; // upper bound — legal
+    cfg_high.s2_t0sz = 44; // upper bound — legal for (s2_tg=0, s2_sl0=1)
 
     let result_high = smmu_high.configure_stream(sid(115), cfg_high);
     assert!(
         result_high.is_ok(),
-        "BUG-AUDIT-45: configure_stream() must accept s2_t0sz=39 (upper boundary, ARM §5.2)"
+        "BUG-AUDIT-45/88: configure_stream() must accept s2_t0sz=44 (upper boundary for s2_tg=0, s2_sl0=1, ARM §5.2)"
     );
     assert!(
         !has_event(&smmu_high, EventType::CBadSte),
-        "BUG-AUDIT-45: no C_BAD_STE must be emitted for s2_t0sz=39 (upper boundary)"
+        "BUG-AUDIT-45/88: no C_BAD_STE must be emitted for s2_t0sz=44 (upper boundary for s2_tg=0, s2_sl0=1)"
     );
 }
 

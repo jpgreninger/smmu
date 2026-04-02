@@ -250,7 +250,7 @@ fn test_stage2_ste_parameters_present_in_stream_config() {
 fn test_stage2_ste_parameters_default_values() {
     let config = StreamConfig::builder().build().unwrap();
 
-    assert_eq!(config.s2_t0sz, 16);
+    assert_eq!(config.s2_t0sz, 25); // BUG-AUDIT-88: default updated from 16 to 25 (valid for s2_tg=0, s2_sl0=1)
     assert_eq!(config.s2_tg, 0);
     assert_eq!(config.s2_sl0, 1);
     assert!(config.s2_aa64);

@@ -79,7 +79,7 @@ fn bug_rust_a_s1dss01_stage2_fault_nssec_stream_nsipa_is_true() {
     // takes the S1DSS=0b01 arm → bypasses stage-1, forwards IOVA as IPA to stage-2.
     let mut cfg = StreamConfig::two_stage();
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // valid S2T0SZ for 4KB/SL0=1 per §5.2 (BUG-AUDIT-88: min=22 for SL0=1)
     cfg.s1dss = 1;           // S1DSS=0b01: bypass stage-1 for PASID=0
     cfg.s1cd_max = 1;        // Substream-capable → S1DSS block is reached for PASID=0
     cfg.security_state = SecurityState::NonSecure;
@@ -139,7 +139,7 @@ fn bug_rust_a_s1dss01_stage2_fault_secure_stream_nsipa_is_false() {
     // Secure two-stage stream with S1DSS=0b01.
     let mut cfg = StreamConfig::two_stage();
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // valid S2T0SZ for 4KB/SL0=1 per §5.2 (BUG-AUDIT-88: min=22 for SL0=1)
     cfg.s1dss = 1;
     cfg.s1cd_max = 1;
     cfg.security_state = SecurityState::Secure;
@@ -189,7 +189,7 @@ fn bug_rust_a_s1dss01_stage2_fault_event_type_is_f_translation() {
 
     let mut cfg = StreamConfig::two_stage();
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // valid S2T0SZ for 4KB/SL0=1 per §5.2 (BUG-AUDIT-88: min=22 for SL0=1)
     cfg.s1dss = 1;
     cfg.s1cd_max = 1;
     cfg.security_state = SecurityState::NonSecure;

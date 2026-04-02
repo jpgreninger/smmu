@@ -93,8 +93,8 @@ fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     smmu.set_strtab_log2size(8);
     enable_smmu(&smmu);
 
-    // StreamID=0x9999 is absent from the stream table. Per ARM §9.1.3 line 27699,
-    // GATOS must return INV_STAGE (FAULT=1, FAULTCODE=0xFE) for absent streams.
+    // StreamID=0x9999 is out-of-range (log2size=8 → valid 0..=255).
+    // BUG-AUDIT-82: out-of-range StreamIDs return C_BAD_STREAMID (0x02), not INV_STAGE (0xFE).
     let par = smmu.gatos_translate(
         make_sid(0x9999),
         make_pasid(0),
@@ -107,8 +107,8 @@ fn test_gap2_gatos_c_bad_streamid_faultcode_is_0x02() {
     let fc = extract_faultcode(par);
     assert_eq!(
         fc,
-        0xFE,
-        "BUG-AUDIT-64: FAULTCODE must be 0xFE (INV_STAGE) for absent stream per ARM §9.1.3; got 0x{fc:02x}"
+        0x02,
+        "BUG-AUDIT-64/82: FAULTCODE must be 0x02 (C_BAD_STREAMID) for out-of-range StreamID; got 0x{fc:02x}"
     );
 }
 

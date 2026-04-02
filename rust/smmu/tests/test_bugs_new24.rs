@@ -368,9 +368,10 @@ fn configure_stream_s2_t0sz_zero_no_bad_ste_event() {
     );
 }
 
-/// BUG-AUDIT-48 test 3 (regression): configure_stream() with s2_t0sz=16 must still be accepted.
+/// BUG-AUDIT-48/88 test 3 (regression): configure_stream() with s2_t0sz=22 must still be accepted.
 ///
-/// Valid value at the minimum boundary; must remain accepted both before and after the fix.
+/// BUG-AUDIT-88 updated the valid range for (s2_tg=0, s2_sl0=1) to [22, 44].
+/// Value 22 is the minimum boundary; must be accepted.
 ///
 /// BEFORE / AFTER FIX: This must always pass (regression guard).
 #[test]
@@ -380,16 +381,16 @@ fn configure_stream_s2_t0sz_valid_regression() {
 
     let mut cfg = StreamConfig::stage2_only();
     cfg.security_state = SecurityState::NonSecure;
-    cfg.s2_t0sz = 16; // valid minimum boundary
+    cfg.s2_t0sz = 22; // valid minimum boundary for (s2_tg=0, s2_sl0=1) per BUG-AUDIT-88
 
     let result = smmu.configure_stream(sid(212), cfg);
     assert!(
         result.is_ok(),
-        "BUG-AUDIT-48: configure_stream() must accept s2_t0sz=16 (valid minimum boundary, \
-         ARM §5.2 — regression guard)"
+        "BUG-AUDIT-48/88: configure_stream() must accept s2_t0sz=22 (valid minimum boundary \
+         for s2_tg=0, s2_sl0=1, ARM §5.2 — regression guard)"
     );
     assert!(
         !has_event(&smmu, EventType::CBadSte),
-        "BUG-AUDIT-48: no C_BAD_STE must be emitted for valid s2_t0sz=16 (regression guard)"
+        "BUG-AUDIT-48/88: no C_BAD_STE must be emitted for valid s2_t0sz=22 (regression guard)"
     );
 }

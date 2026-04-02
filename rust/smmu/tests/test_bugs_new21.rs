@@ -229,19 +229,20 @@ fn idr3_had_set_by_default() {
 // BUG-AUDIT-38: GATOS faultcodes — verify known-good codes still work
 // ============================================================================
 
-/// BUG-AUDIT-38 test 1 (updated by BUG-AUDIT-64): GATOS on a non-existent stream →
-/// FAULT=1 + FAULTCODE == 0xFE (INV_STAGE).
+/// BUG-AUDIT-38 test 1 (updated by BUG-AUDIT-64, corrected by BUG-AUDIT-82):
+/// GATOS on a non-existent stream → FAULT=1 + FAULTCODE != 0xFE (not INV_STAGE).
 ///
-/// BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — a GATOS request for a stream that is
-/// absent from the stream table (no STE configured) must return INV_STAGE: FAULT=1,
-/// FAULTCODE=0xFE. The previous behavior returned C_BAD_STE (0x04) by letting
-/// translate() run and reporting the event; the pre-check now intercepts absent
-/// streams before translate() is called.
+/// BUG-AUDIT-64 fix: ARM §9.1.3 — a GATOS request for an absent stream must fault.
+/// BUG-AUDIT-82 refinement: an absent StreamID must NOT return INV_STAGE (0xFE);
+/// INV_STAGE is reserved for present bypass/disabled streams (STE.Config=0b100 or 0b0xx).
+/// For a stream within table bounds but with no valid STE (STE.V=0), the fault is
+/// C_BAD_STE (FAULTCODE=0x04) per ARM §7.3.5. The old code used the same INV_STAGE
+/// (0xFE) path for both absent and bypass streams.
 #[test]
 fn gatos_unknown_stream_returns_c_bad_ste_faultcode() {
     let smmu = make_smmu();
 
-    // StreamID 99 does not exist — absent stream must return INV_STAGE per §9.1.3.
+    // StreamID 99 does not exist — absent stream must fault (not INV_STAGE) per §9.1.3.
     let par = smmu.gatos_translate(
         sid(99),
         PASID::new(0).unwrap(),
@@ -251,14 +252,22 @@ fn gatos_unknown_stream_returns_c_bad_ste_faultcode() {
     );
 
     // bit 0 must be 1 (FAULT)
-    assert_eq!(par & 1, 1, "BUG-AUDIT-64: PAR.FAULT (bit 0) must be 1 for absent stream");
+    assert_eq!(par & 1, 1, "BUG-AUDIT-82: PAR.FAULT (bit 0) must be 1 for absent stream");
 
-    // BUG-AUDIT-64 fix: FAULTCODE in bits[11:4] must be 0xFE (INV_STAGE) per ARM §9.1.3.
+    // BUG-AUDIT-82 fix: FAULTCODE for absent stream must NOT be INV_STAGE (0xFE).
+    // The model treats an unconfigured-but-in-range StreamID as STE.V=0 → C_BAD_STE (0x04).
     let faultcode = (par >> 4) & 0xFF;
-    assert_eq!(
+    assert_ne!(
         faultcode,
         0xFE,
-        "BUG-AUDIT-64: PAR FAULTCODE must be 0xFE (INV_STAGE) for absent stream per ARM §9.1.3; got 0x{faultcode:02X}"
+        "BUG-AUDIT-82: PAR FAULTCODE must NOT be INV_STAGE (0xFE) for absent stream. \
+         Absent StreamID within table bounds → C_BAD_STE (0x04) per ARM §7.3.5. \
+         INV_STAGE is only for present bypass/disabled streams. Got 0x{faultcode:02X}"
+    );
+    assert_eq!(
+        faultcode,
+        0x04,
+        "BUG-AUDIT-82: PAR FAULTCODE must be C_BAD_STE (0x04) for absent-but-in-range stream. Got 0x{faultcode:02X}"
     );
 }
 

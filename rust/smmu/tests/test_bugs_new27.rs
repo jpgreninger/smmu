@@ -258,12 +258,13 @@ fn bug_audit_64_gatos_abort_stream_returns_inv_stage() {
     );
 }
 
-/// BUG-AUDIT-64 test 3: gatos_translate() for an unconfigured StreamID must return INV_STAGE.
+/// BUG-AUDIT-64/82 test 3: gatos_translate() for an unconfigured StreamID returns C_BAD_STE.
 ///
-/// ARM §9.1.3 line 27699: absent stream (no STE) → INV_STAGE: FAULT=1, FAULTCODE=0xFE.
+/// BUG-AUDIT-82 updated the absent stream behavior: an unconfigured stream has STE.V=0,
+/// which causes C_BAD_STE (0x04) rather than INV_STAGE (0xFE). INV_STAGE is returned only
+/// for bypass/disabled streams that have a valid STE but no translation stage enabled.
 ///
-/// BEFORE FIX: absent stream returns C_BAD_STREAMID fault → FAULTCODE != 0xFE → FAILS.
-/// AFTER FIX:  gatos_translate returns FAULT=1 + FAULTCODE=0xFE → PASSES.
+/// AFTER BUG-AUDIT-82 FIX: gatos_translate returns FAULT=1 + FAULTCODE=0x04 (C_BAD_STE) → PASSES.
 #[test]
 fn bug_audit_64_gatos_absent_stream_returns_inv_stage() {
     let smmu = make_enabled_smmu();
@@ -282,16 +283,21 @@ fn bug_audit_64_gatos_absent_stream_returns_inv_stage() {
 
     assert_eq!(
         fault, 1,
-        "BUG-AUDIT-64: gatos_translate() for absent/unconfigured stream must set FAULT=1. \
-         ARM §9.1.3 line 27699: absent stream → INV_STAGE. \
+        "BUG-AUDIT-64/82: gatos_translate() for absent/unconfigured stream must set FAULT=1. \
          par=0x{:016X}",
         par
     );
 
-    assert_eq!(
+    assert_ne!(
         faultcode, 0xFE,
-        "BUG-AUDIT-64: gatos_translate() for absent/unconfigured stream must return \
-         FAULTCODE=0xFE (INV_STAGE). ARM §9.1.3 line 27699. \
+        "BUG-AUDIT-64/82: gatos_translate() for absent stream must NOT return INV_STAGE (0xFE); \
+         unconfigured stream has STE.V=0 → C_BAD_STE. par=0x{:016X}",
+        par
+    );
+    assert_eq!(
+        faultcode, 0x04,
+        "BUG-AUDIT-64/82: gatos_translate() for absent/unconfigured stream must return \
+         FAULTCODE=0x04 (C_BAD_STE, STE.V=0). ARM §9.1.3. \
          Current code returns FAULTCODE=0x{:02X}. par=0x{:016X}",
         faultcode, par
     );

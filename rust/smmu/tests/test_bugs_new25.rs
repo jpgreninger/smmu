@@ -96,7 +96,7 @@ fn gatos_translate_device_page_attr_not_normal() {
     cfg.security_state = SecurityState::NonSecure;
     cfg.s2ptw   = false;
     cfg.t0sz    = 0;    // sentinel — no VA range restriction
-    cfg.s2_t0sz = 16;   // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix)
+    cfg.s2_t0sz = 25;   // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix)
     cfg.s2_ps   = 5;    // 48-bit PA
     smmu.configure_stream(sid(300), cfg).unwrap();
     smmu.create_pasid(sid(300), pasid0()).unwrap();
@@ -167,7 +167,7 @@ fn gatos_translate_device_page_sh_not_ish() {
     cfg.security_state = SecurityState::NonSecure;
     cfg.s2ptw   = false;
     cfg.t0sz    = 0;
-    cfg.s2_t0sz = 16;
+    cfg.s2_t0sz = 25;
     cfg.s2_ps   = 5;
     smmu.configure_stream(sid(301), cfg).unwrap();
     smmu.create_pasid(sid(301), pasid0()).unwrap();
@@ -231,7 +231,7 @@ fn gatos_translate_normal_page_attr_and_sh_unchanged() {
     cfg.security_state = SecurityState::NonSecure;
     cfg.s2ptw   = false;
     cfg.t0sz    = 0;
-    cfg.s2_t0sz = 16;
+    cfg.s2_t0sz = 25;
     cfg.s2_ps   = 5;
     smmu.configure_stream(sid(302), cfg).unwrap();
     smmu.create_pasid(sid(302), pasid0()).unwrap();

@@ -453,7 +453,7 @@ fn bug_rust_6b_smmu_translate_ips_check_present_on_slow_path_regression_guard() 
     let mut cfg = StreamConfig::two_stage();
     cfg.strw = StreamWorld::El1El0;
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     cfg.ips = 5; // 48-bit IPS
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();

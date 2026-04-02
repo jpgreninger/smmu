@@ -172,7 +172,7 @@ fn gap_l_s2ptw_blocks_translation_through_device_page() {
     let mut cfg = StreamConfig::two_stage();
     cfg.s2ptw = true;
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     smmu.create_stage2_address_space(stream_id).unwrap();
@@ -200,7 +200,7 @@ fn gap_l_s2ptw_allows_translation_through_normal_page() {
     let mut cfg = StreamConfig::two_stage();
     cfg.s2ptw = true;
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     smmu.create_stage2_address_space(stream_id).unwrap();
@@ -222,7 +222,7 @@ fn gap_l_no_fault_when_s2ptw_false() {
     let mut cfg = StreamConfig::two_stage();
     cfg.s2ptw = false;
     cfg.t0sz = 0;
-    cfg.s2_t0sz = 16; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+    cfg.s2_t0sz = 25; // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
     smmu.create_stage2_address_space(stream_id).unwrap();

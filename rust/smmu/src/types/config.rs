@@ -445,7 +445,7 @@ impl StreamConfig {
             inst_cfg: 0,
             priv_cfg: 0,
             mt_cfg: false,
-            s2_t0sz: 16,
+            s2_t0sz: 25,
             s2_tg: 0,
             s2_sl0: 1,
             s2_aa64: true,
@@ -501,7 +501,7 @@ impl StreamConfig {
             inst_cfg: 0,
             priv_cfg: 0,
             mt_cfg: false,
-            s2_t0sz: 16,
+            s2_t0sz: 25,
             s2_tg: 0,
             s2_sl0: 1,
             s2_aa64: true,
@@ -557,7 +557,7 @@ impl StreamConfig {
             inst_cfg: 0,
             priv_cfg: 0,
             mt_cfg: false,
-            s2_t0sz: 16,
+            s2_t0sz: 25,
             s2_tg: 0,
             s2_sl0: 1,
             s2_aa64: true,
@@ -613,7 +613,7 @@ impl StreamConfig {
             inst_cfg: 0,
             priv_cfg: 0,
             mt_cfg: false,
-            s2_t0sz: 16,
+            s2_t0sz: 25,
             s2_tg: 0,
             s2_sl0: 1,
             s2_aa64: true,
@@ -692,15 +692,17 @@ impl StreamConfig {
             });
         }
 
-        // BUG-NEW-RUST-4 / BUG-AUDIT-45 fix: ARM §5.2 — S2T0SZ must be in [16, 39] for STT=0,
-        // 4KB granule, IAS=48. Old threshold (> 48) was too loose; tightened to > 39.
-        // Stage-2-specific range check is done in configure_stream() before this validate()
-        // (guarded by stage2_enabled). This catch-all ensures values > 39 are always
-        // rejected at the type level even when called directly (e.g., unit tests on validate()).
-        if self.s2_t0sz > 39 {
+        // BUG-NEW-RUST-4 / BUG-AUDIT-45 fix / BUG-AUDIT-88 fix: ARM §5.2 — S2T0SZ range.
+        // The correct valid range for S2T0SZ depends on (S2TG, S2SL0) — see configure_stream()
+        // for the per-combination check (BUG-AUDIT-88 fix).  At the type-validation level,
+        // without knowledge of the TG/SL0 combination, the absolute upper bound is 48 (the
+        // maximum T0SZ across all valid TG+SL0 combinations per ARM §5.2).
+        // Values > 48 are always invalid regardless of combination; values in (39, 48] may
+        // be valid for certain SL0 values (e.g. T0SZ=42 with 4KB/SL0=1 is valid).
+        if self.s2_t0sz > 48 {
             return Err(ValidationError::InvalidConfiguration {
                 reason: format!(
-                    "s2_t0sz={} exceeds maximum of 39 (ARM §5.2 S2T0SZ valid range [16,39], C_BAD_STE)",
+                    "s2_t0sz={} exceeds absolute maximum of 48 (ARM §5.2 S2T0SZ)",
                     self.s2_t0sz
                 ),
             });
@@ -889,7 +891,7 @@ impl StreamConfigBuilder {
             inst_cfg: 0,
             priv_cfg: 0,
             mt_cfg: false,
-            s2_t0sz: 16,
+            s2_t0sz: 25,
             s2_tg: 0,
             s2_sl0: 1,
             s2_aa64: true,

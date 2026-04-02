@@ -131,7 +131,7 @@ fn new3_s2t0sz_0_no_restriction() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(16) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+        .s2_t0sz(25) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
         .s2_ps(5)   // 48-bit PA
         .build()
         .unwrap();
@@ -486,7 +486,7 @@ fn new8_stage2_pa_exceeds_s2ps() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(16) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+        .s2_t0sz(25) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
         .s2_ps(0)   // 32-bit PA range
         .build()
         .unwrap();
@@ -544,7 +544,7 @@ fn new8_stage2_pa_within_s2ps() {
         .stage2_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .s2_t0sz(16) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
+        .s2_t0sz(25) // minimum legal S2T0SZ per §5.2 (BUG-AUDIT-45 fix: 0 is out of range [16,39])
         .s2_ps(5) // 48-bit PA range
         .build()
         .unwrap();

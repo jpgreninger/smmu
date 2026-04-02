@@ -1593,19 +1593,29 @@ impl SMMU {
         }
         // BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — GATOS must return INV_STAGE
         // (FAULT=1, FAULTCODE=0xFE) for bypass (Config=0b100) and disabled/abort
-        // (Config=0b0xx) streams, and for absent streams (no STE configured).
+        // (Config=0b0xx) streams.
+        // BUG-AUDIT-82 fix: ARM §9.1.3 — an ABSENT StreamID (no STE configured) is NOT
+        // the same as a bypass/disabled stream; it must fault with C_BAD_STREAMID
+        // (FAULTCODE=0x02), not INV_STAGE (FAULTCODE=0xFE).  The old map_or(true, ...)
+        // treated absent and bypass streams identically and always returned INV_STAGE.
+        // Fix: check stream existence first; absent → fall through to translate() which
+        // will generate C_BAD_STREAMID.  Only present bypass/disabled streams return
+        // INV_STAGE.
         // The DashMap guard is dropped immediately inside the block so translate()
         // can acquire DashMap shards without risk of deadlock.
         {
-            let is_bypass_or_disabled = self
-                .streams
-                .get(&stream_id.as_u32())
-                .map_or(true, |ctx| {
-                    !ctx.is_stage1_enabled() && !ctx.is_stage2_enabled()
-                });
-            if is_bypass_or_disabled {
-                // FAULT=1, FAULTCODE=0xFE (INV_STAGE) in bits[11:4]
-                return 0x1u64 | (0xFEu64 << 4);
+            match self.streams.get(&stream_id.as_u32()) {
+                None => {
+                    // Absent stream: fall through to translate() so C_BAD_STREAMID is generated.
+                }
+                Some(ctx) => {
+                    if !ctx.is_stage1_enabled() && !ctx.is_stage2_enabled() {
+                        // Present bypass/disabled stream: INV_STAGE per §9.1.3.
+                        // FAULT=1, FAULTCODE=0xFE (INV_STAGE) in bits[11:4]
+                        return 0x1u64 | (0xFEu64 << 4);
+                    }
+                    // Present translation stream: fall through to translate().
+                }
             }
         }
         // GAP-2 fix: ARM §9.1.4/§6.3.40 — snapshot event queue length BEFORE
@@ -2374,28 +2384,64 @@ impl SMMU {
             ));
         }
 
-        // BUG-AUDIT-45 fix: ARM §5.2 SteIllegal() — S2T0SZ out of valid range [16, 39]
-        // for STT=0, 4KB granule default, IAS=48 → C_BAD_STE.
-        // The old validate() threshold (> 48) was too loose; tighten to > 39 here
-        // and emit the event before returning Err.
+        // BUG-AUDIT-45 fix / BUG-AUDIT-88 fix: ARM §5.2 SteIllegal() — S2T0SZ validation.
+        //
         // BUG-AUDIT-48 fix: s2_t0sz=0 is the "2^64 IPA range per §5.4 encoding" sentinel
         // (no IPA range restriction) — must NOT be rejected as below minimum.
         // The `!= 0` guard preserves this invariant.
-        if config.stage2_enabled && config.s2_t0sz != 0 && (config.s2_t0sz < 16 || config.s2_t0sz > 39) {
-            if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
-                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
-                let event = EventEntry {
-                    event_type: EventType::CBadSte,
-                    stream_id: stream_id.as_u32(),
-                    security_state: config.security_state,
-                    timestamp,
-                    ..EventEntry::zeroed()
-                };
-                self.enqueue_event(event);
+        //
+        // BUG-AUDIT-88 fix: the valid S2T0SZ range depends on S2TG (granule) and S2SL0
+        // (starting level). ARM §5.2 SteIllegal() / §5.4 specifies:
+        //
+        //   4KB granule (S2TG=0b00):
+        //     SL0=0b00 (L0 start): T0SZ ∈ [25, 48]
+        //     SL0=0b01 (L1 start): T0SZ ∈ [22, 44]
+        //     SL0=0b10 (L2 start): T0SZ ∈ [25, 33]
+        //     SL0=0b11          : ILLEGAL (reserved)
+        //
+        //   Non-zero S2TG (16KB / 64KB) is already rejected by the BUG-AUDIT-58 check
+        //   below (only 4KB granule is supported by IDR5).  We check for the s2_tg=0
+        //   case only here; non-zero s2_tg values never reach this branch.
+        //
+        // The old hardcoded [16, 39] was both too loose (accepted values invalid for
+        // certain SL0 combinations, e.g. T0SZ=20 for SL0=2) and too tight (rejected
+        // valid values like T0SZ=42 for SL0=1).
+        if config.stage2_enabled && config.s2_t0sz != 0 {
+            // Compute the valid (min, max) T0SZ range for the configured (S2TG, S2SL0).
+            // Returns None if the combination is architecturally ILLEGAL.
+            let t0sz_range: Option<(u8, u8)> = match (config.s2_tg, config.s2_sl0) {
+                // 4KB granule (s2_tg=0):
+                (0, 0) => Some((25, 48)),
+                (0, 1) => Some((22, 44)),
+                (0, 2) => Some((25, 33)),
+                (0, 3) => None, // SL0=0b11 is Reserved for 4KB (ILLEGAL)
+                // Non-zero s2_tg: rejected by the BUG-AUDIT-58 granule guard below;
+                // provide a fallback range so that code paths that somehow bypass the
+                // earlier check are still guarded.
+                _ => Some((16, 39)),
+            };
+            let is_t0sz_illegal = match t0sz_range {
+                None => true, // Reserved SL0 combination
+                Some((min_t0sz, max_t0sz)) => {
+                    config.s2_t0sz < min_t0sz || config.s2_t0sz > max_t0sz
+                }
+            };
+            if is_t0sz_illegal {
+                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                    let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                    let event = EventEntry {
+                        event_type: EventType::CBadSte,
+                        stream_id: stream_id.as_u32(),
+                        security_state: config.security_state,
+                        timestamp,
+                        ..EventEntry::zeroed()
+                    };
+                    self.enqueue_event(event);
+                }
+                return Err(SMMUError::invalid_configuration(
+                    "C_BAD_STE: S2T0SZ out of valid range for (S2TG, S2SL0) combination (ARM §5.2 SteIllegal)".to_string(),
+                ));
             }
-            return Err(SMMUError::invalid_configuration(
-                "C_BAD_STE: S2T0SZ out of range [16,39] (ARM §5.2 SteIllegal)".to_string(),
-            ));
         }
 
         // BUG-AUDIT-58 fix: ARM IHI0070G.b §5.2 SteIllegal() —
@@ -2912,6 +2958,11 @@ impl SMMU {
         self.check_shutdown()?;
         let ctx = self.get_stream_context(stream_id)?;
         ctx.disable();
+        // BUG-AUDIT-83 fix: ARM IHI0070G §3.4.2 — when a stream is disabled any
+        // cached TLB entries for it must be invalidated so that a subsequent
+        // translate() cannot return a stale result via the TLB fast-path.
+        // remove_stream() already does this correctly; mirror the same call here.
+        self.tlb_cache.invalidate_by_stream(stream_id);
         Ok(())
     }
 
@@ -4699,31 +4750,29 @@ impl SMMU {
             }
         }
 
-        // GAP NEW-5 / ARM IHI0070G.b §3.4: Stage-2-bypass OAS check.
+        // GAP NEW-5 / ARM IHI0070G.b §3.4 / §7.3.14: Stage-1-only OAS check.
         // When Stage-1 is active and Stage-2 is bypassed (STE.Config=0b10x), the Stage-1
-        // output PA must be silently truncated to OAS width if it exceeds the OAS limit.
-        // This is distinct from the STE.Config=0b100 bypass case above:
-        //   - STE.Config=0b100 (both stages disabled): F_ADDR_SIZE abort.
-        //   - STE.Config=0b10x (Stage-1 active, Stage-2 bypassed): silent truncation, no event.
-        //
-        // NOTE: This MUST run BEFORE TLB insertion (below) so the truncated PA is what gets
-        // cached. We mutate the result in-place by constructing a new Ok with the truncated PA.
+        // output PA must be checked against the OAS limit.
+        // BUG-AUDIT-84 fix: ARM §7.3.14 CheckS1OutputAddrSize() — a stage-1-only translation
+        // that produces a PA >= 2^OAS must raise F_ADDR_SIZE (0x11), NOT silently truncate.
+        // The old code masked the PA (silent truncation), which is incorrect.
+        // NOTE: This MUST run BEFORE TLB insertion so the error is not cached.
         let result = if stream_stage1_enabled && !stream_stage2_enabled && !is_bypass {
             if let Ok(ref data) = result {
                 let out_pa = data.physical_address().as_u64();
                 if oas_bits < 64 && out_pa >= (1u64 << oas_bits) {
-                    // §3.4: silently truncate — mask to OAS width, no event, no error.
-                    let truncated = out_pa & ((1u64 << oas_bits) - 1);
-                    let trunc_pa = crate::types::PA::new(truncated)
-                        .unwrap_or_else(|_| crate::types::PA::new(0).expect("zero PA valid"));
-                    Ok(crate::types::TranslationData::new(
-                        trunc_pa,
-                        data.permissions(),
-                        data.security_state(),
-                    ))
-                } else {
-                    result
+                    // §7.3.14: F_ADDR_SIZE — stage-1 output PA exceeds OAS.
+                    let oas_error = TranslationError::AddressSizeError;
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    let pnu = self.streams.get(&stream_id.as_u32())
+                        .map_or(false, |ctx| ctx.is_access_privileged(access));
+                    self.record_translation_fault(
+                        stream_id, pasid, iova, access, security_state,
+                        &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
+                    );
+                    return Err(oas_error);
                 }
+                result
             } else {
                 result
             }
@@ -5273,13 +5322,15 @@ impl SMMU {
             // NOT a translation fault (0x10).  FaultType::BadSTE must map to CBadSte.
             // Previously this fell through to the catch-all arm → FTranslation (wrong).
             FaultType::BadSTE => EventType::CBadSte,
+            // §7.3.12: F_WALK_EABT (0x0B) — external abort during translation table walk.
+            // Must be mapped to FWalkEabt, not FTranslation.
+            FaultType::WalkEABT => EventType::FWalkEabt,
             FaultType::TranslationFault
             | FaultType::AlignmentFault
             | FaultType::ExternalAbort
             | FaultType::TLBConflictAbort
             | FaultType::CDFetchFault
             | FaultType::STEFetchFault
-            | FaultType::WalkEABT
             | FaultType::OutputAddressRangeFault
             | FaultType::UnsupportedAtomicUpdate => EventType::FTranslation,
             FaultType::PermissionFault | FaultType::SecurityFault => EventType::FPermission,
@@ -5429,6 +5480,10 @@ impl SMMU {
         //
         // Encoding: 0b00=CD, 0b01=TTD, 0b10=IN (fault on input address), 0b11=reserved.
         let event_class: u8 = match event_type {
+            // §7.3.12 / ARM §7.3 Table 7-4: F_WALK_EABT is a walk-time fault —
+            // CLASS=1 (TTD — translation table descriptor fetch fault).
+            // CDFetchFault also maps to a CD-fetch walk fault, CLASS=1.
+            EventType::FWalkEabt => 1,
             // Translation-class F_* events: CLASS==2 (IN — fault on input address)
             EventType::FTranslation
             | EventType::FAddrSize
@@ -6174,7 +6229,7 @@ impl SMMU {
                     // returning Err.  Reading after the call always sees
                     // CERROR_ILL and the "first occurrence" guard never fires.
                     let prior_err = self.cmdq_cons_err.load(Ordering::Acquire);
-                    if let Err(_e) = self.process_single_command(cmd) {
+                    if let Err(e) = self.process_single_command(cmd) {
                         // BUG-03 fix: use signal_gerror (XOR-toggle, only-if-inactive)
                         // instead of fetch_or (unconditional set).
                         // RUST-1 fix: do NOT pop or advance cmdq_cons on error —
@@ -6190,7 +6245,7 @@ impl SMMU {
                         // has no internal side effects.
                         // The previous `if prior_err == CERROR_NONE { ... }` block that
                         // stored cons_at_err into cmdq_prod has been removed entirely.
-                        let _ = prior_err; // suppress unused-variable warning
+                        let _ = (prior_err, e); // suppress unused-variable warnings
                         self.signal_gerror(Self::GERROR_CMDQ_ERR);
                         // BUG-NEW-10 fix: §7.1/§6.3.28 — do NOT return Err here.
                         // CERROR_ILL and GERROR.CMDQ_ERR are already set inside
@@ -6470,6 +6525,8 @@ impl SMMU {
             },
             // BUG-QA-14 fix: §4.4.4.1 — NSNH_ALL invalidates EL1_EL0 entries only
             // (excludes EL2 / El2E2h entries per ARM §4.4.4.1).
+            // ARM §4.4.4.1 (p.194): "CMD_TLBI_NSNH_ALL is valid whether the SMMU supports
+            // only stage 1, only stage 2, or both stages." — no S1P guard applies here.
             CommandType::TlbiNsnhAll => {
                 // BUG-D fix: SSec is RES0 in this command's encoding — no CERROR_ILL for ssec=1.
                 self.tlb_cache.invalidate_nsnh_all();
@@ -6832,7 +6889,26 @@ impl SMMU {
                 let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
                 let ipa_start = command.start_address;
                 let ipa_end = if command.ril {
-                    command.end_address
+                    // BUG-AUDIT-86 fix: ARM §4.4.1.1 — RIL range formula:
+                    //   range = (NUM+1) * 2^SCALE * granule_size
+                    // The old code used `command.end_address` (the raw field) which
+                    // is incorrect; the SMMU architecture computes the range from
+                    // TG/NUM/SCALE, ignoring the end_address field for RIL commands.
+                    // TG encoding for S2_IPA (same as NH_VA per §4.4.1.1):
+                    //   TG=0b01 (1) → 4KB, TG=0b10 (2) → 16KB, TG=0b11 (3) → 64KB, 0 → 4KB default
+                    let granule_size: u64 = match command.tg {
+                        1 => 4096,
+                        2 => 16384,
+                        3 => 65536,
+                        _ => 4096,
+                    };
+                    let shift = u32::from(command.scale.min(39));
+                    let blocks = (command.num as u64 + 1)
+                        .checked_shl(shift)
+                        .unwrap_or(u64::MAX);
+                    ipa_start
+                        .saturating_add(blocks.saturating_mul(granule_size))
+                        .saturating_sub(1)
                 } else {
                     ipa_start | 0xFFF
                 };
@@ -6956,7 +7032,10 @@ impl SMMU {
                         // BUG-RUST-5 fix: §4.7.3 — CMD_SYNC has no StreamID operand;
                         // using command.stream_id is architecturally undefined.  Use 0.
                         stream_id: 0,
-                        pasid: command.pasid,
+                        // BUG-AUDIT-87 fix: ARM §4.8 Table 4-17 — SubstreamID is RES0
+                        // in the CMD_SYNC completion event; must always be 0 regardless
+                        // of what command.pasid contains.
+                        pasid: 0,
                         address: 0,
                         security_state: stream_sec_state,
                         error_code: 0,
