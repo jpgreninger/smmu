@@ -1336,18 +1336,18 @@ impl SMMU {
     /// Read SMMU_IDR3 (§6.3.4) — capability bits for SMMUv3.2 features.
     ///
     /// - bit 2 (HAD): hierarchical attribute disable supported
-    /// - bit 4 (XNX): stage-2 execute-never control supported; mandatory for SMMUv3.1+ with S2P
+    /// - bit 4 (XNX): 0 — FEAT_XNX (S2UXN enforcement) not implemented (BUG-AUDIT-S2-XNX)
     /// - bit 8 (FWB): stage-2 force write-back attribute control supported
     /// - bit 10 (RIL): range-based invalidation supported
     /// - bits \[12:11\] (BBML) = 0b01: BBML level 1 (bit 11 set, bit 12 clear)
     #[must_use]
     pub fn get_idr3(&self) -> u32 {
-        // BUG-AUDIT-02 fix: IDR3.XNX (bit 4) is RES0 when IDR0.S2P==0 (ARM §6.3.4).
-        let xnx = if self.s2p_supported.load(Ordering::Acquire) { 1u32 << 4 } else { 0 };
         // BUG-AUDIT-37 fix: IDR3.HAD (bit 2) is RES0 when IDR0.S1P==0 (ARM §6.3.4 line 11425).
         let had = if self.s1p_supported.load(Ordering::Acquire) { 1u32 << 2 } else { 0 };
+        // BUG-AUDIT-S2-XNX fix: IDR3.XNX (bit 4) must be 0. FEAT_XNX (separate S2UXN
+        // enforcement in PagePermissions) is not implemented in this model; advertising
+        // XNX=1 without the corresponding enforcement would be spec-non-compliant (ARM §6.3.4).
         had             // HAD: hierarchical attribute disable; RES0 when S1P=0 (§6.3.4)
-        | xnx           // XNX: stage-2 execute-never control; RES0 when S2P=0 (§6.3.4, §2.3)
         | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
@@ -1362,17 +1362,34 @@ impl SMMU {
     /// Read SMMU_IDR5 (§6.3.6) — output address size and granule support.
     ///
     /// Bit layout per ARM IHI0070G.b §6.3.6:
-    /// - bits[2:0]:   OAS       — Output Address Size (5 = 48-bit)
+    /// - bits[2:0]:   OAS       — Output Address Size (derived from max_pa_bits config)
     /// - bit  4:      GRAN4K    — 4KB translation granule supported (only implemented granule)
     /// - bit  5:      GRAN16K   — 0; 16KB granule not implemented (BUG-AUDIT-52 fix §6.3.6)
     /// - bit  6:      GRAN64K   — 0; 64KB granule not implemented (BUG-AUDIT-52 fix §6.3.6)
     /// - bits[31:16]: STALL_MAX — Maximum stall queue depth (64); must be non-zero when STALL_MODEL=0b00
+    ///
+    /// ARM OAS encoding (§6.3.6 Table 6-6):
+    ///   0=32-bit, 1=36-bit, 2=40-bit, 3=42-bit, 4=44-bit, 5=48-bit, 6=52-bit
     #[must_use]
     pub fn get_idr5(&self) -> u32 {
         // BUG-QA-2 fix: §6.3.6 — STALL_MAX is RES0 when IDR0.STALL_MODEL==0b01
         // (terminate-only model).  When STALL_MODEL==0b00 (default) STALL_MAX=64.
         let stall_max = if self.stall_model.load(Ordering::Acquire) == 0x01 { 0u32 } else { 64u32 };
-        5u32            // OAS = 5 (48-bit) in bits[2:0]
+        // BUG-AUDIT-S2-OAS fix: derive OAS from the actual max_pa_bits configuration rather
+        // than hardcoding 5 (48-bit).  Default is 52-bit which encodes as OAS=6 (ARM §6.3.6).
+        // Extract max_pa_bits before the match to drop the RwLock guard immediately and
+        // avoid holding it across match arms (clippy::significant_drop_in_scrutinee).
+        let max_pa_bits = self.config.read().unwrap().address_config.max_pa_bits;
+        let oas = match max_pa_bits {
+            32 => 0u32,
+            36 => 1u32,
+            40 => 2u32,
+            42 => 3u32,
+            44 => 4u32,
+            48 => 5u32,
+            _  => 6u32, // 52-bit (default) and any unrecognised value → 6
+        };
+        oas             // OAS in bits[2:0] — derived from address_config.max_pa_bits
         // BUG-AUDIT-52 fix: ARM §6.3.6 — only the 4KB granule is implemented.
         // GRAN16K (bit[5]) and GRAN64K (bit[6]) must NOT be set unless the corresponding
         // granule size is actually supported.

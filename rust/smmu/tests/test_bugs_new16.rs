@@ -271,35 +271,40 @@ fn bug_audit_02_s2p_disabled_idr3_xnx_is_zero() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2 (regression): S2P enabled (default) → IDR3 bit 4 (XNX) must be 1
+// Test 2 (regression guard updated by BUG-AUDIT-S2-XNX):
+// S2P enabled → IDR3 bit 4 (XNX) must be 0 (FEAT_XNX not implemented)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// When S2P=1 (default), IDR3.XNX must still be 1.
+// BUG-AUDIT-S2-XNX supersedes the original BUG-AUDIT-02 regression guard.
+// FEAT_XNX (separate S2UXN enforcement in PagePermissions) is not implemented,
+// so IDR3.XNX must be 0 regardless of S2P (ARM §6.3.4, §2.3).
 //
-// BEFORE FIX: (already passes — bit 4 is always 1 today).
-// AFTER FIX:  must still pass — regression guard.
+// BEFORE FIX: get_idr3() sets bit 4 when S2P=1 — incorrect, FEAT_XNX not implemented.
+// AFTER FIX:  bit 4 == 0 regardless of S2P setting → PASSES.
 
-/// BUG-AUDIT-02 regression: S2P enabled → `get_idr3()` bit 4 (XNX) must be 1.
+/// BUG-AUDIT-02 / BUG-AUDIT-S2-XNX: S2P enabled → `get_idr3()` bit 4 (XNX) must be 0.
 ///
-/// ARM §6.3.4: XNX is mandatory for SMMUv3.1+ when S2P=1.
+/// BUG-AUDIT-S2-XNX (ARM §6.3.4, §2.3): IDR3.XNX must be 0 because FEAT_XNX
+/// (separate stage-2 unprivileged execute-never enforcement) is not implemented
+/// in the PagePermissions model.  Advertising XNX=1 without enforcing S2UXN
+/// would be spec-non-compliant.  XNX=0 is correct for all S2P states.
 ///
-/// BEFORE FIX: (passes already). AFTER FIX: must still pass (regression guard).
+/// Regression guard updated to reflect the corrected spec interpretation.
 #[test]
 fn bug_audit_02_s2p_enabled_idr3_xnx_is_one() {
-    // Regression: S2P enabled (default) → IDR3.XNX (bit 4) must be 1.
+    // BUG-AUDIT-S2-XNX: even with S2P=1, XNX must be 0 (FEAT_XNX not implemented).
     let smmu = make_smmu();
 
-    // Enable stage-2 translation (S2P=1, the default).
+    // Enable stage-2 translation (S2P=1).
     smmu.set_s2p_supported(true);
 
     let idr3 = smmu.get_idr3();
 
-    assert_ne!(
+    assert_eq!(
         idr3 & (1u32 << 4),
         0u32,
-        "BUG-AUDIT-02 regression: get_idr3() bit 4 (XNX) must be 1 when S2P==1 \
-         (ARM §6.3.4: XNX is mandatory for SMMUv3.1+ when S2P=1). \
-         The fix must not clear XNX when S2P is enabled. \
+        "BUG-AUDIT-S2-XNX: get_idr3() bit 4 (XNX) must be 0 even when S2P==1 \
+         because FEAT_XNX (S2UXN enforcement) is not implemented (ARM §6.3.4, §2.3). \
          Actual IDR3 = 0x{:08X}",
         idr3
     );

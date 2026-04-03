@@ -158,11 +158,11 @@ fn test_gap_new_d_idr5_granules() {
     let idr5 = smmu.get_idr5();
 
     // ARM IHI0070G.b §6.3.6:
-    //   bits[2:0] = OAS = 5 (48-bit)
+    //   bits[2:0] = OAS — BUG-AUDIT-S2-OAS fix: derived from max_pa_bits (default 52-bit = OAS 6)
     //   bit  4    = GRAN4K
     //   bit  5    = GRAN16K
     //   bit  6    = GRAN64K
-    assert_eq!(idr5 & 0b111, 5, "IDR5 OAS (bits[2:0]) must be 5 (48-bit)");
+    assert_eq!(idr5 & 0b111, 6, "IDR5 OAS (bits[2:0]) must be 6 (52-bit, default max_pa_bits=52) — BUG-AUDIT-S2-OAS fix");
     assert_ne!(idr5 & (1 << 4), 0, "IDR5 GRAN4K (bit 4) must be set");
     // BUG-AUDIT-52 fix: GRAN16K and GRAN64K must be 0 — only 4KB granule is implemented.
     assert_eq!(idr5 & (1 << 5), 0, "IDR5 GRAN16K (bit 5) must be 0 — not implemented (BUG-AUDIT-52)");
@@ -450,12 +450,17 @@ fn test_gap_r02_idr0_hyp_set() {
 // GAP-R03: IDR3.XNX (bit 4)
 // ============================================================================
 
-/// GAP-R03: IDR3.XNX (bit 4) must be set — mandatory for SMMUv3.1+ when S2P==1.
+/// GAP-R03 / BUG-AUDIT-S2-XNX: IDR3.XNX (bit 4) must be 0 — FEAT_XNX not implemented.
+///
+/// BUG-AUDIT-S2-XNX (ARM §6.3.4, §2.3): advertising XNX=1 without enforcing
+/// S2UXN in the PagePermissions model is spec-non-compliant.  IDR3.XNX must
+/// remain 0 until FEAT_XNX (separate stage-2 unprivileged execute-never) is
+/// actually implemented.
 #[test]
 fn test_gap_r03_idr3_xnx_set() {
     let smmu = SMMU::new();
     let idr3 = smmu.get_idr3();
-    assert_ne!(idr3 & (1 << 4), 0, "IDR3.XNX (bit 4) must be set for SMMUv3.1+ with S2P");
+    assert_eq!(idr3 & (1 << 4), 0, "IDR3.XNX (bit 4) must be 0 — FEAT_XNX (S2UXN) not implemented (ARM §6.3.4, §2.3)");
 }
 
 // ============================================================================
