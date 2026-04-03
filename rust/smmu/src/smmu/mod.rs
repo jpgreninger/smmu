@@ -1337,9 +1337,12 @@ impl SMMU {
     ///
     /// - bit 2 (HAD): hierarchical attribute disable supported
     /// - bit 4 (XNX): 0 — FEAT_XNX (S2UXN enforcement) not implemented (BUG-AUDIT-S2-XNX)
-    /// - bit 8 (FWB): stage-2 force write-back attribute control supported
+    /// - bit 9 (STT): S2T0SZ values beyond 39 (up to 48) are supported
     /// - bit 10 (RIL): range-based invalidation supported
     /// - bits \[12:11\] (BBML) = 0b01: BBML level 1 (bit 11 set, bit 12 clear)
+    ///
+    /// Note: bit 8 (FWB) is NOT set — STE.S2FWB and `combine_attrs_fwb()` are not
+    /// implemented in this software model; advertising FWB=1 would violate ARM §2.3.
     #[must_use]
     pub fn get_idr3(&self) -> u32 {
         // BUG-AUDIT-37 fix: IDR3.HAD (bit 2) is RES0 when IDR0.S1P==0 (ARM §6.3.4 line 11425).
@@ -1347,8 +1350,12 @@ impl SMMU {
         // BUG-AUDIT-S2-XNX fix: IDR3.XNX (bit 4) must be 0. FEAT_XNX (separate S2UXN
         // enforcement in PagePermissions) is not implemented in this model; advertising
         // XNX=1 without the corresponding enforcement would be spec-non-compliant (ARM §6.3.4).
+        // BUG-IDR3-FWB fix: IDR3.FWB (bit 8) must be 0. STE.S2FWB and combine_attrs_fwb()
+        // are not implemented; advertising FEAT_S2FWB without enforcement violates ARM §2.3.
+        // BUG-IDR3-STT fix: IDR3.STT (bit 9) must be 1. The implementation already accepts
+        // S2T0SZ up to 48 (the STT=1 limit); IDR3 must advertise this truthfully (ARM §6.3.4).
         had             // HAD: hierarchical attribute disable; RES0 when S1P=0 (§6.3.4)
-        | (1u32 << 8)   // FWB: stage-2 force write-back attribute control
+        | (1u32 << 9)   // STT: S2T0SZ accepted up to 48 (STT=1 limit) — ARM §6.3.4
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
     }

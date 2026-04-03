@@ -73,33 +73,49 @@ fn bug_audit_s2_xnx_idr3_xnx_bit_must_be_zero_when_s2uxn_not_implemented() {
     );
 }
 
-/// BUG-AUDIT-S2-XNX regression baseline: other IDR3 capability bits that ARE
-/// implemented must still be set correctly after the XNX fix.
+/// BUG-AUDIT-S2-XNX / BUG-IDR3-FWB / BUG-IDR3-STT regression baseline: IDR3
+/// capability bits must reflect the correct implemented/not-implemented state
+/// after all IDR3 fixes.
 ///
-/// This test verifies that fixing XNX does not inadvertently clear other bits.
-/// It is expected to PASS before and after the fix.
+/// - FWB (bit 8): must be 0 — STE.S2FWB and combine_attrs_fwb() are not
+///   implemented (BUG-IDR3-FWB fix).
+/// - STT (bit 9): must be 1 — S2T0SZ is accepted up to 48, the STT=1 limit
+///   (BUG-IDR3-STT fix).
+/// - RIL (bit 10): must remain 1 — range-based invalidation is implemented.
+/// - BBML[0] (bit 11): must remain 1 — BBML level 1 is implemented.
 #[test]
 fn bug_audit_s2_xnx_idr3_other_bits_unaffected() {
     let smmu = SMMU::new();
     let idr3 = smmu.get_idr3();
 
-    // FWB (bit 8), RIL (bit 10), BBML[0] (bit 11) must remain set.
-    assert_ne!(
+    // FWB (bit 8) must be 0 — FEAT_S2FWB is not implemented (BUG-IDR3-FWB fix).
+    assert_eq!(
         idr3 & (1 << 8),
         0,
-        "IDR3.FWB (bit 8) must remain set after XNX fix: idr3=0x{:08x}",
+        "IDR3.FWB (bit 8) must be 0 — STE.S2FWB / combine_attrs_fwb() not implemented \
+         (BUG-IDR3-FWB): idr3=0x{:08x}",
         idr3,
     );
+    // STT (bit 9) must be 1 — S2T0SZ accepted up to 48 (BUG-IDR3-STT fix).
+    assert_ne!(
+        idr3 & (1 << 9),
+        0,
+        "IDR3.STT (bit 9) must be 1 — S2T0SZ accepted up to 48 (BUG-IDR3-STT): \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // RIL (bit 10) must remain set.
     assert_ne!(
         idr3 & (1 << 10),
         0,
-        "IDR3.RIL (bit 10) must remain set after XNX fix: idr3=0x{:08x}",
+        "IDR3.RIL (bit 10) must remain set after IDR3 fixes: idr3=0x{:08x}",
         idr3,
     );
+    // BBML[0] (bit 11) must remain set.
     assert_ne!(
         idr3 & (1 << 11),
         0,
-        "IDR3.BBML[0] (bit 11) must remain set after XNX fix: idr3=0x{:08x}",
+        "IDR3.BBML[0] (bit 11) must remain set after IDR3 fixes: idr3=0x{:08x}",
         idr3,
     );
 }
@@ -140,6 +156,86 @@ fn bug_audit_s2_oas_idr5_oas_reflects_52bit_default_pa_config() {
         idr5,
     );
 }
+
+// ============================================================================
+// BUG-IDR3-FWB — IDR3.FWB must be 0 because S2FWB / combine_attrs_fwb() is
+//                not implemented in this software model
+// ============================================================================
+
+/// BUG-IDR3-FWB: `get_idr3()` must return bit 8 (FWB) == 0.
+///
+/// ARM IHI0070G.b §2.3 / §6.3.4: IDR3.FWB (bit 8) advertises support for
+/// FEAT_S2FWB — stage-2 force write-back attribute override via STE.S2FWB.
+/// The field `STE.S2FWB` does not exist in this model's `StreamContext`, and
+/// there is no `combine_attrs_fwb()` implementation. Advertising FWB=1 without
+/// the corresponding enforcement is spec-non-compliant.
+///
+/// Fix direction: clear IDR3.FWB (bit 8) — honest advertisement that FWB is
+/// not implemented in this software model.
+///
+/// BEFORE FIX: `get_idr3()` unconditionally sets `(1u32 << 8)` → FAILS.
+/// AFTER FIX:  `get_idr3()` returns bit 8 == 0 → PASSES.
+#[test]
+fn bug_idr3_fwb_bit_must_be_zero_when_s2fwb_not_implemented() {
+    // Default SMMU::new() — get_idr3() currently ORs in (1u32 << 8) always.
+    let smmu = SMMU::new();
+
+    let idr3 = smmu.get_idr3();
+    let fwb_bit = (idr3 >> 8) & 1;
+
+    assert_eq!(
+        fwb_bit,
+        0,
+        "BUG-IDR3-FWB: IDR3.FWB (bit 8) must be 0 because STE.S2FWB and \
+         combine_attrs_fwb() are not implemented in this software model — \
+         advertising FEAT_S2FWB without implementing it violates ARM §2.3 / §6.3.4. \
+         Current get_idr3() always sets bit 8: idr3=0x{:08x}",
+        idr3,
+    );
+}
+
+// ============================================================================
+// BUG-IDR3-STT — IDR3.STT must be 1 because S2T0SZ is accepted up to 48
+//                (the STT=1 maximum), so IDR3 must advertise that truthfully
+// ============================================================================
+
+/// BUG-IDR3-STT: `get_idr3()` must return bit 9 (STT) == 1.
+///
+/// ARM IHI0070G.b §6.3.4: IDR3.STT (bit 9) indicates whether the SMMU
+/// supports S2T0SZ values beyond 39 (i.e. up to 48). When STT=0 the maximum
+/// valid S2T0SZ is 39; when STT=1 the maximum is 48.
+///
+/// The implementation in `src/types/config.rs` and `check_ste_illegal()` already
+/// accepts S2T0SZ up to 48 — the STT=1 limit — yet `get_idr3()` does not set
+/// bit 9, creating an inconsistency between the advertised capability and the
+/// enforced limit. The correct fix is to set IDR3.STT=1.
+///
+/// Fix direction: OR `(1u32 << 9)` into the value returned by `get_idr3()`.
+///
+/// BEFORE FIX: `get_idr3()` does not set bit 9 → FAILS.
+/// AFTER FIX:  `get_idr3()` returns bit 9 == 1 → PASSES.
+#[test]
+fn bug_idr3_stt_bit_must_be_one_when_s2t0sz_accepts_up_to_48() {
+    // Default SMMU::new() — get_idr3() currently does not set bit 9.
+    let smmu = SMMU::new();
+
+    let idr3 = smmu.get_idr3();
+    let stt_bit = (idr3 >> 9) & 1;
+
+    assert_ne!(
+        stt_bit,
+        0,
+        "BUG-IDR3-STT: IDR3.STT (bit 9) must be 1 because the implementation \
+         accepts S2T0SZ values up to 48 (the STT=1 maximum). ARM §6.3.4 requires \
+         IDR3.STT to truthfully advertise this limit. \
+         Current get_idr3() leaves bit 9 clear: idr3=0x{:08x}",
+        idr3,
+    );
+}
+
+// ============================================================================
+// BUG-AUDIT-S2-OAS — IDR5.OAS must match max_pa_bits (52 → OAS=6)
+// ============================================================================
 
 /// BUG-AUDIT-S2-OAS regression: other IDR5 bits (GRAN4K, STALL_MAX) must be
 /// unaffected by deriving OAS at runtime.
