@@ -357,10 +357,12 @@ fn bug_new10_after_gerror_ack_queue_resumes() {
         "precondition: CERROR_ILL must be set"
     );
 
-    // Acknowledge the error via SMMU_GERRORN (clear GERROR_CMDQ_ERR).
+    // ARM §7.1 two-step recovery (BUG-AUDIT-93): advance CONS past the stuck
+    // command first, then acknowledge GERROR.CMDQ_ERR.
+    smmu.advance_cmdq_cons();
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
-    // Error must now be cleared.
+    // CONS.ERR must now be CERROR_NONE (cleared by advance_cmdq_cons).
     assert_eq!(
         smmu.get_cmdq_cons_err(),
         SMMU::CERROR_NONE,

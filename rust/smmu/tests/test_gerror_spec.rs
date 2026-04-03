@@ -192,6 +192,9 @@ fn test_command_queue_resumes_after_clear_gerror() {
         "CMDQ_ERR must be ACTIVE after command error"
     );
 
+    // ARM §7.1 two-step recovery (BUG-AUDIT-93): advance CONS past the stuck
+    // command first, then acknowledge GERROR.CMDQ_ERR.
+    smmu.advance_cmdq_cons();
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     assert_eq!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,

@@ -154,8 +154,8 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
 
     // Submit a valid sync command; it must NOT be processed while CMDQ_ERR is active.
     // BUG-NEW-10: bad_cmd is no longer auto-cleared by submit_command().  It stays
-    // in the queue until clear_gerror() explicitly pops it.  So the queue now has
-    // 2 entries: [bad_cmd (stuck), good_cmd].
+    // in the queue until advance_cmdq_cons() explicitly pops it (BUG-AUDIT-93).
+    // So the queue now has 2 entries: [bad_cmd (stuck), good_cmd].
     let good_cmd = CommandEntry::new(CommandType::Sync, 0, 0);
     smmu.submit_command(good_cmd).unwrap();
     assert_eq!(smmu.get_command_queue_size(), 2,
@@ -176,7 +176,13 @@ fn rust2_process_command_queue_seqlock_halts_on_cmdq_err() {
         "valid command must remain in queue while CMDQ_ERR is active (bad cmd also still present)"
     );
 
-    // Clear the error — command queue processing must resume
+    // BUG-AUDIT-93 two-step recovery: step 1 — advance CONS past the stuck command.
+    // This pops bad_cmd and clears CONS.ERR, leaving only good_cmd in the queue.
+    smmu.advance_cmdq_cons();
+    assert_eq!(smmu.get_command_queue_size(), 1,
+        "advance_cmdq_cons must pop the erroneous command; queue must have only good_cmd");
+
+    // Step 2: acknowledge GERROR.CMDQ_ERR — command queue processing can now resume.
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     assert_eq!(
         (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR,

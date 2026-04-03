@@ -91,7 +91,10 @@ fn f3_commands_resume_after_clear_gerror() {
         "F3: CMDQ_ERR must be active"
     );
 
-    // Acknowledge the error.
+    // ARM §7.1 two-step recovery: advance CONS past the erroneous command first,
+    // then acknowledge GERROR.CMDQ_ERR.  (BUG-AUDIT-93: clear_gerror alone no
+    // longer pops the bad command — that is advance_cmdq_cons's responsibility.)
+    smmu.advance_cmdq_cons();
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
     // CMDQ_ERR must now be inactive.
@@ -167,7 +170,10 @@ fn f3_gerror_xor_active_test_is_correct() {
     smmu.submit_command(bad_cmd2).unwrap();
     let _ = smmu.process_command_queue();
 
-    // Acknowledge (GERRORN catches up to GERROR → XOR = 0 → INACTIVE).
+    // ARM §7.1 two-step recovery: advance CONS past the erroneous command first,
+    // then acknowledge GERROR.CMDQ_ERR.  (BUG-AUDIT-93: clear_gerror alone no
+    // longer pops the bad command — that is advance_cmdq_cons's responsibility.)
+    smmu.advance_cmdq_cons();
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
     let gerror_xor_gerrorn = smmu.get_gerror() ^ smmu.get_gerrorn();

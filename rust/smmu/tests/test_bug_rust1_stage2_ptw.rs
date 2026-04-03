@@ -398,32 +398,22 @@ fn bug_rust1_write_to_s2_readonly_ipa_returns_permission_violation() {
 ///
 /// KEY INSIGHT: If we configure Stage-2 as Execute-only (only execute bit set),
 /// and Stage-1 allows Execute:
-/// - Bug: translate_page(ipa, Execute) → passes (execute-only allows execute)
-/// - Fix: translate_page(ipa, Read) → FAILS (execute-only, no read)
-/// With the fix, the PTW fetch using Read fails the permission check!
-/// That means the fix would BREAK the execute case!
+/// - ARM §3.2.1: Stage-2 permission checks use the actual transaction access type.
+/// - Execute access through execute-only S2: Stage-2 checks Execute → execute-only
+///   allows Execute → intersection(S1=X, S2=X) = X → translation succeeds.
 ///
-/// Actually the spec says PTW uses "Data, Read" — not "instruction fetch".
-/// An Execute-only Stage-2 mapping should NOT allow PTW reads through it.
-/// So the fix (using Read for PTW) correctly rejects Execute-only Stage-2 PTW.
+/// BUG-AUDIT-90 correction: `translate_two_stage` is the DATA translation path
+/// (actual instruction fetch / data access), NOT a page table walk (PTW).
+/// The PTW "Data Read" rule (§7.3.16) applies only when the SMMU walks Stage-1
+/// page table entries through Stage-2 (a separate code path).  For the final
+/// data/instruction translation, Stage-2 must use the actual access type.
 ///
 /// THE DISTINGUISHING TEST: Stage-2 Execute-only, Stage-1 Execute-only,
 /// access is Execute.
-/// - Bug: translate_page(ipa, Execute) → Ok (execute-only allows execute)
-///   → intersection(S1=X, S2=X) = X → Execute allowed → PA returned
-/// - Fix: translate_page(ipa, Read) → PermissionViolation (execute-only, no read)
-///
-/// So the test asserts: Execute access on Execute-only S2 mapping should FAIL
-/// after the fix (because PTW uses Read, which execute-only S2 does not allow).
-///
-/// This test MUST FAIL before the fix (returns Ok) and PASS after the fix
-/// (returns PermissionViolation because PTW uses Read on execute-only Stage-2).
-///
-/// Wait — is this the correct spec behaviour? Per ARM §7.3.16: PTW uses
-/// "Data Read". An execute-only Stage-2 page should NOT be walkable for PTW.
-/// So yes, the fix correctly prevents a PTW read through an execute-only page.
+/// Correct ARM behaviour: Execute through execute-only S2 succeeds.
+/// S1 ∩ S2 = X ∩ X = X — execute permission is granted by both stages.
 #[test]
-fn bug_rust1_execute_only_s2_ptw_fails_after_fix() {
+fn bug_rust1_execute_only_s2_execute_succeeds() {
     let smmu = make_smmu();
 
     let cfg = StreamConfig::builder()
@@ -458,16 +448,9 @@ fn bug_rust1_execute_only_s2_ptw_fails_after_fix() {
     )
     .unwrap();
 
-    // Per ARM §7.3.16 PTW uses "Data Read".  An execute-only Stage-2 mapping
-    // does NOT permit Data reads, so the PTW must fail with PermissionViolation.
-    //
-    // BEFORE FIX: Stage-2 translate_page uses Execute → execute-only allows it
-    //   → intersection(S1=X, S2=X) = X → Execute succeeds → returns PA.
-    //   This test FAILS before the fix (result is Ok).
-    //
-    // AFTER FIX: Stage-2 translate_page uses Read → execute-only rejects it
-    //   → PermissionViolation.
-    //   This test PASSES after the fix.
+    // ARM §3.2.1: Stage-2 uses the actual access type (Execute).
+    // Execute-only Stage-2 allows Execute → translation must succeed.
+    // (BUG-AUDIT-90 fix: translate_two_stage passes actual access_type to Stage-2.)
     let result = smmu.translate(
         sid(0xC1_03),
         pasid(0),
@@ -476,7 +459,8 @@ fn bug_rust1_execute_only_s2_ptw_fails_after_fix() {
         SecurityState::NonSecure,
     );
     assert!(
-        matches!(result, Err(TranslationError::PermissionViolation { .. })),
-        "BUG-RUST-1: §7.3.16 PTW must use Read; execute-only Stage-2 must reject PTW Read; got: {result:?}"
+        result.is_ok(),
+        "ARM §3.2.1: Execute through execute-only S2 must succeed; \
+         S1∩S2=X∩X=X grants execute; got: {result:?}"
     );
 }

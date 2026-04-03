@@ -599,14 +599,18 @@ fn bug_new19_t0sz_fault_event_class_is_2() {
 // BUG-NEW-20: SSV must be set when s1cd_max > 0, not only when pasid != 0
 // ============================================================================
 
-/// BUG-NEW-20: On a substream-capable stream (s1cd_max>0), a fault with
-/// PASID=0 must produce an event with ssv=true.
+/// BUG-NEW-20 (corrected by BUG-AUDIT-92): On a substream-capable stream
+/// (s1cd_max>0), translate() uses ssv=false internally.  A fault at PASID=0
+/// via translate() must therefore record ssv=false in the event.
 ///
-/// ARM §7.3.20: SSV=1 when a SubstreamID was presented.  PASID=0 counts as a
-/// valid SubstreamID presentation on a substream-capable stream (s1cd_max>0).
+/// ARM §7.3.20: SSV=1 when a SubstreamID was presented on this specific
+/// transaction.  translate() passes ssv=false — no SubstreamID was presented.
+/// Stream capability (s1cd_max > 0) does NOT mean SubstreamID was presented.
 ///
-/// BEFORE FIX: ssv = `pasid.as_u32() != 0`, so PASID=0 gives ssv=false (bug).
-/// AFTER FIX:  ssv = `s1cd_max > 0`, so even PASID=0 gives ssv=true.
+/// BUG-AUDIT-92 correction: the original BUG-NEW-20 "fix" incorrectly used
+/// s1cd_max > 0 to set SSV, overriding the actual transaction ssv signal.
+/// The correct behavior: SSV = ssv_param || pasid.as_u32() != 0.
+/// For translate() (ssv=false) with PASID=0 → SSV=false.
 #[test]
 fn bug_new20_ssv_true_for_pasid0_on_substream_capable_stream() {
     let smmu = make_smmu();
@@ -620,7 +624,7 @@ fn bug_new20_ssv_true_for_pasid0_on_substream_capable_stream() {
     smmu.configure_stream(sid(stream), config).unwrap();
     smmu.create_pasid(sid(stream), pasid(0)).unwrap();
 
-    // Trigger a fault at PASID=0 (no page mapped → F_TRANSLATION / PageNotMapped).
+    // translate() passes ssv=false internally.  Fault at unmapped address.
     let result = smmu.translate(
         sid(stream),
         pasid(0),
@@ -641,10 +645,13 @@ fn bug_new20_ssv_true_for_pasid0_on_substream_capable_stream() {
         ))
         .expect("BUG-NEW-20: a translation fault event must be present");
 
+    // BUG-AUDIT-92 corrected: SSV=false because translate() passes ssv=false
+    // and PASID=0.  Stream capability (s1cd_max>0) does not imply SubstreamID
+    // was presented on this specific transaction.
     assert!(
-        ev.ssv,
-        "BUG-NEW-20: fault event on substream-capable stream (s1cd_max>0) with PASID=0 \
-         must have ssv=true (ARM §7.3.20). Got ssv=false. event={ev:?}"
+        !ev.ssv,
+        "BUG-NEW-20/BUG-AUDIT-92: fault event via translate() (ssv=false, PASID=0) \
+         must have ssv=false; s1cd_max>0 alone does not set SSV. event={ev:?}"
     );
 }
 

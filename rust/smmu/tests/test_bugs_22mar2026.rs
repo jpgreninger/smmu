@@ -205,19 +205,20 @@ fn rust1_cmdq_cons_desync_after_cerror_ill_restart() {
         "BUG-NEW-6: PROD must remain at 2 after CERROR_ILL — the SMMU must not write CMDQ_PROD"
     );
 
-    // Step 2: clear GERROR (software acknowledges the error).
+    // Step 2a: advance_cmdq_cons() — pop the bad CMD_SYNC, advance CONS to 1,
+    // clear CONS.ERR.  (ARM §7.1 step 2; BUG-AUDIT-93: separated from clear_gerror.)
+    smmu.advance_cmdq_cons();
+    //   - The bad CMD_SYNC is gone from the VecDeque (popped).
+    //   - CONS advances from 0 to 1 (past the erroneous slot).
+    //   - CONS.ERR cleared to CERROR_NONE.
+    //   - Queue has 1 entry remaining: the NOP.
+
+    // Step 2b: clear GERROR (software acknowledges the error).
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
     let active_after_clear = (smmu.get_gerror() ^ smmu.get_gerrorn()) & SMMU::GERROR_CMDQ_ERR;
     assert_eq!(active_after_clear, 0, "precondition: GERROR.CMDQ_ERR cleared");
 
-    // BUG-NEW-10 update: clear_gerror(GERROR_CMDQ_ERR) now also pops the stuck
-    // erroneous command and advances CONS per ARM §7.1.  After clear_gerror:
-    //   - The bad CMD_SYNC is gone from the VecDeque (popped).
-    //   - CONS advances from 0 to 1 (past the erroneous slot).
-    //   - PROD remains at 2 (software-driven, SMMU never writes it).
-    //   - Queue has 1 entry remaining: the NOP.
-
-    // Step 3: process again — bad CMD_SYNC has been popped by clear_gerror,
+    // Step 3: process again — bad CMD_SYNC has been popped by advance_cmdq_cons,
     // NOP is now at the front; NOP processes successfully.
     let processed = smmu.process_command_queue();
     assert!(processed.is_ok(), "Re-process after clear_gerror must succeed: {processed:?}");
@@ -278,18 +279,20 @@ fn rust1_vecdeque_empty_after_desync_restart() {
     // - Fix: 2 (CMD_SYNC still present at slot 0)
     // We do not assert this directly; we use the restart result.
 
-    // Clear GERROR.
+    // ARM §7.1 two-step recovery (BUG-AUDIT-93):
+    //   Step 2a: advance_cmdq_cons — pops bad CMD_SYNC, advances CONS, clears CONS.ERR.
+    //   Step 2b: clear_gerror — acknowledges GERROR.CMDQ_ERR.
+    smmu.advance_cmdq_cons();
     smmu.clear_gerror(SMMU::GERROR_CMDQ_ERR);
 
     // Restart processing.
     let processed = smmu.process_command_queue();
 
-    // BUG-NEW-10 update: clear_gerror(GERROR_CMDQ_ERR) pops the erroneous
-    // command and advances CONS.  After clear_gerror the queue holds only the
-    // NOP.  The restart (process_command_queue) processes the NOP → queue empty.
+    // After advance_cmdq_cons + clear_gerror the queue holds only the NOP.
+    // The restart (process_command_queue) processes the NOP → queue empty.
     //
-    // Correct post-BUG-NEW-10 behaviour:
-    //   - clear_gerror pops bad CMD_SYNC; queue now has 1 entry (NOP).
+    // Correct post-BUG-AUDIT-93 behaviour:
+    //   - advance_cmdq_cons pops bad CMD_SYNC; queue now has 1 entry (NOP).
     //   - Restart processes NOP → Ok(1); queue is now empty.
     //   - get_command_queue_size() == 0 is CORRECT (all commands consumed).
     let queue_size_after_restart = smmu.get_command_queue_size();

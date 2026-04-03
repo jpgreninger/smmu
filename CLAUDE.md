@@ -104,6 +104,22 @@ When the user says 'implement X' where X is a section or task number, always che
 
 **FAILURE TO USE THESE SUBAGENTS WILL RESULT IN INCOMPLETE/NON-COMPLIANT IMPLEMENTATIONS**
 
+## Before spawning any subagent
+Only spawn subagents for complex, multi-step tasks.
+For simple tasks, handle directly without calling route_task.
+When you do need a subagent:
+Call route_task(task, files, directory) first. Always.
+- REUSE → call get_context(agent_id), check stale_files, re-read any that changed
+- CREATE_NEW → check existing_agents in response before spawning
+
+## For code search
+Prefer cocoindex.search() over Grep for semantic/exploratory queries.
+Use Grep only for exact string matches.
+
+## Memory
+claude-mem auto-captures observations. Use search() → get_observations()
+for progressive retrieval (don't load everything)
+
 ### Required Subagent Usage
 **CRITICAL**: Always use these specialized subagents for development tasks:
 
@@ -285,7 +301,7 @@ void TemplateClass<T>::method(const T& value) {
 ## Key Files to Understand
 
 - `ARM_SMMU_v3_PRD.md` - Complete product requirements document
-- `IHI0070G_b-System_Memory_Management_Unit_Architecture_Specification.pdf` - ARM official specification
+- `IHI0070G_b-System_Memory_Management_Unit_Architecture_Specification.md` - ARM official specification in markdown format
 - `TASKS.md` - Detailed implementation task breakdown with time estimates
 - `include/smmu/types.h` - Core protocol definitions (when created)
 - `include/smmu/smmu.h` - Main SMMU controller interface (when created)

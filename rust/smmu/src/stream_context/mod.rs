@@ -2235,7 +2235,17 @@ impl StreamContext {
                 Some(s) => s,
                 None => return (Err(TranslationError::StreamNotConfigured), Some(ipa_raw)),
             };
-            stage2.translate_page(ipa, AccessType::Read, stage1_result.security_state())
+            // BUG-AUDIT-90 fix: use the actual access_type for the data translation.
+            // Stage-2 IPA→PA is the real data access — permission checks must reflect the
+            // transaction's actual access type so a Write to a read-only page generates a
+            // write fault (rnw=false), not a spurious read fault.
+            //
+            // BUG-2 fix: ARM IHI0070G.b §3.10.2.2 — "When stage 1 translation is
+            // performed, the NS attribute provided to stage 2 comes from stage 1
+            // translation tables."  The NS bit for the Stage-2 lookup must come from
+            // the Stage-1 output (stage1_result.security_state()), not the incoming
+            // transaction's security_state parameter.
+            stage2.translate_page(ipa, access_type, stage1_result.security_state())
         };
 
         // Stage-2 failed → return the IPA so the SMMU can populate the event record.
@@ -2610,18 +2620,19 @@ impl StreamContext {
         let stage2_result = {
             let stage2_guard = self.stage2_address_space.read().unwrap();
             let stage2 = stage2_guard.as_ref().ok_or(TranslationError::StreamNotConfigured)?;
-            // BUG-RUST-1 fix: ARM IHI0070G.b §7.3.16 — "When CLASS == TT, the
-            // access is implicitly Data and a read."  The Stage-2 lookup for the
-            // page-table walk (PTW) must use AccessType::Read regardless of the
-            // original transaction's access type.  The actual permission check is
-            // done by the S1 ∩ S2 intersection logic below (lines ~1516-1531).
+            // BUG-AUDIT-90 fix: use the actual access_type for the Stage-2 data translation.
+            // This is the IPA→PA lookup for the actual transaction, NOT a page-table walk
+            // (PTW) fetch.  A PTW lookup would use AccessType::Read per §7.3.16, but this
+            // code path performs the data access itself — permission checks must use the
+            // real access type so that a Write to a read-only S2 page generates a write
+            // fault (rnw=false) rather than a spurious read fault.
             //
             // BUG-2 fix: ARM IHI0070G.b §3.10.2.2 — "When stage 1 translation is
             // performed, the NS attribute provided to stage 2 comes from stage 1
             // translation tables."  The NS bit for the Stage-2 lookup must come from
             // the Stage-1 output (stage1_result.security_state()), not the incoming
             // transaction's security_state parameter.
-            stage2.translate_page(ipa, AccessType::Read, stage1_result.security_state())
+            stage2.translate_page(ipa, access_type, stage1_result.security_state())
         }; // stage2_address_space read-lock released here
 
         // §3.12.2 / BUG-RUST-TWOSTAGE-S1-FAULT-CLASS fix: do NOT call

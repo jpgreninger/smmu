@@ -699,6 +699,10 @@ impl StreamConfig {
         // maximum T0SZ across all valid TG+SL0 combinations per ARM §5.2).
         // Values > 48 are always invalid regardless of combination; values in (39, 48] may
         // be valid for certain SL0 values (e.g. T0SZ=42 with 4KB/SL0=1 is valid).
+        //
+        // BUG-AUDIT-48: s2_t0sz=0 is the software model's "no IPA range restriction"
+        // sentinel (analogous to C++ behaviour).  It is preserved here and in the
+        // per-combination check in check_ste_illegal() via the `!= 0` guard.
         if self.s2_t0sz > 48 {
             return Err(ValidationError::InvalidConfiguration {
                 reason: format!(

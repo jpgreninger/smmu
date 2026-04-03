@@ -1449,8 +1449,10 @@ impl SMMU {
             event_type: EventType::FSteFetch,
             stream_id: stream_id.as_u32(),
             timestamp,
-            // AUDIT-NEW-04 fix: §7.3.4/§7.3.20 — SSV=1 when stream is substream-capable
-            // (s1cd_max > 0), matching the rule used in inject_walk_eabt().
+            // §7.3.5 / §7.3.20 — SSV=1 when a SubstreamID was presented.  For injected
+            // STE fetch aborts, the STE content (including cd_max) is unavailable in
+            // hardware, but in this software model the stream context is already configured
+            // so we can derive SSV from s1cd_max > 0 (same convention as inject_walk_eabt).
             ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0,
             ..EventEntry::zeroed()
         };
@@ -1471,9 +1473,13 @@ impl SMMU {
             stream_id: stream_id.as_u32(),
             pasid: pasid.as_u32(),
             timestamp,
-            // AUDIT-NEW-04 fix: §7.3.10/§7.3.20 — SSV=1 when stream is substream-capable
-            // (s1cd_max > 0) or a non-zero PASID was presented, matching inject_walk_eabt().
-            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
+            // §7.3.10 / §7.3.20 — SSV=1 when a SubstreamID was presented.  For CD fetch
+            // aborts the PASID is known; a non-zero PASID directly implies a SubstreamID
+            // was presented.  On a substream-capable stream (s1cd_max > 0) even PASID=0
+            // means SubstreamID=0 was carried, so include the s1cd_max > 0 term
+            // (consistent with inject_walk_eabt).
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0
+                || pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         self.enqueue_event(event);
@@ -2299,28 +2305,31 @@ impl SMMU {
             }
             std::hint::spin_loop();
         }
-        // BUG-NEW-10 fix: §6.3.28 / §7.1 — when software acknowledges
-        // GERROR.CMDQ_ERR via GERRORN, clear CMDQ_CONS.ERR and discard the stuck
-        // erroneous command from the queue so processing can resume.
-        //
-        // ARM §7.1: after an error, CONS.RD points at the erroneous command.
-        // Software acknowledges the error by writing GERRORN (via clear_gerror).
-        // The SMMU then resumes from the NEXT command.  In the ring-buffer model
-        // software would advance CONS past the bad entry; in this SW model
-        // clear_gerror pops the stuck entry and advances cmdq_cons so that the
-        // next process_command_queue call processes fresh commands.
-        if bits & Self::GERROR_CMDQ_ERR != 0 {
-            // Pop and discard the erroneous command that stalled the queue.
-            {
-                let mut queue = self.command_queue.write().unwrap();
-                queue.pop_front();
-            }
-            let cons = self.cmdq_cons.load(Ordering::Relaxed);
-            self.cmdq_cons
-                .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
-            // Clear CMDQ_CONS.ERR: error acknowledged, queue ready to resume.
-            self.cmdq_cons_err.store(Self::CERROR_NONE, Ordering::Release);
+        // BUG-AUDIT-93 fix: the pop + CONS advance + CONS.ERR clear are now a
+        // separate step performed by advance_cmdq_cons() (ARM §7.1 step 2 of 4).
+        // clear_gerror() only performs step 4 (acknowledge GERROR.CMDQ_ERR).
+        // Software must call advance_cmdq_cons() BEFORE clear_gerror().
+    }
+
+    /// Advance the command queue consumer pointer past the stuck erroneous command.
+    ///
+    /// ARM §7.1 CMDQ error recovery (step 2 of 4): after the problem is fixed,
+    /// software must advance CONS.RD past the erroneous command before acknowledging
+    /// GERROR.CMDQ_ERR.  This method performs that advancement: it pops the failed
+    /// command from the internal queue, increments CONS, and clears CONS.ERR.
+    ///
+    /// Must be called BEFORE `clear_gerror(GERROR_CMDQ_ERR)`.
+    pub fn advance_cmdq_cons(&self) {
+        // Pop and discard the erroneous command that stalled the queue.
+        {
+            let mut queue = self.command_queue.write().unwrap();
+            queue.pop_front();
         }
+        let cons = self.cmdq_cons.load(Ordering::Relaxed);
+        self.cmdq_cons
+            .store(Self::advance_index(cons, self.cmdq_log2size), Ordering::Release);
+        // Clear CMDQ_CONS.ERR: error acknowledged, queue ready to resume.
+        self.cmdq_cons_err.store(Self::CERROR_NONE, Ordering::Release);
     }
 
     /// Perform all STE/CD illegality checks (ARM §5.2 SteIllegal + §5.5 CdIllegal).
@@ -2406,6 +2415,10 @@ impl SMMU {
         // The old hardcoded [16, 39] was both too loose (accepted values invalid for
         // certain SL0 combinations, e.g. T0SZ=20 for SL0=2) and too tight (rejected
         // valid values like T0SZ=42 for SL0=1).
+        // BUG-AUDIT-48 fix: s2_t0sz=0 is the software model's "no IPA range restriction"
+        // sentinel (mirrored by the `if s2_t0sz > 0` guard in translate_two_stage).
+        // The `!= 0` condition below preserves this: only non-zero T0SZ values are
+        // range-checked against the (S2TG, S2SL0)-specific bounds.
         if config.stage2_enabled && config.s2_t0sz != 0 {
             // Compute the valid (min, max) T0SZ range for the configured (S2TG, S2SL0).
             // Returns None if the combination is architecturally ILLEGAL.
@@ -3974,8 +3987,9 @@ impl SMMU {
                             event_class: 0,
                             // BUG-RUST-3 fix: §7.3.6 wire format — bits 100(RnW)/99(InD)/98(PnU)
                             // are RES0 for F_BAD_ATS_TREQ; do NOT set from access type.
-                            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
-                            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
+                            // BUG-AUDIT-92 fix: §7.3.20 — SSV=1 when a SubstreamID was
+                            // presented on this transaction (ssv param) or non-zero PASID.
+                            ssv: ssv || pasid.as_u32() != 0,
                             // §7.3.6: ATS-specific permission bits [95:92] — pre-STE-override.
                             // R=true when access is not a pure write (read or execute).
                             // W=true when write permission is requested (!NW).
@@ -4025,8 +4039,9 @@ impl SMMU {
                             // BUG-RUST-3 fix: §7.3.8 wire format — RnW (bit 100) IS defined
                             // for F_TRANSL_FORBIDDEN; InD (bit 99) is RES0.  Keep rnw, zero ind.
                             rnw: !access.can_write(),
-                            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
-                            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
+                            // BUG-AUDIT-92 fix: §7.3.20 — SSV=1 when a SubstreamID was
+                            // presented on this transaction (ssv param) or non-zero PASID.
+                            ssv: ssv || pasid.as_u32() != 0,
                             ..EventEntry::zeroed()
                         };
                         if let Ok(mut queue) = self.event_queue.write() {
@@ -4503,9 +4518,6 @@ impl SMMU {
                         // the C_BAD_CD inline push block (same pattern as
                         // record_translation_fault()).
                         let stream_mev = stream_ref.value().mev();
-                        // BUG-NEW-20 fix: §7.3.20 — snapshot s1cd_max before dropping
-                        // stream_ref so SSV can be set to s1cd_max > 0 in the inline event.
-                        let cbadcd_s1cd_max = stream_ref.value().get_s1cd_max();
                         // Drop stream_ref guard before recording fault (not strictly needed
                         // but avoids holding the DashMap shard lock longer than necessary).
                         drop(stream_ref);
@@ -4538,10 +4550,11 @@ impl SMMU {
                                 timestamp,
                                 stall: false,
                                 stag: 0,
-                                // §7.3.11 / BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID
-                                // was presented: either s1cd_max > 0 (any PASID on a substream-
-                                // capable stream counts) or a non-zero PASID was presented.
-                                ssv: cbadcd_s1cd_max > 0 || pasid.as_u32() != 0,
+                                // BUG-AUDIT-92 fix: §7.3.20 — SSV=1 when a SubstreamID was
+                                // presented on this transaction (ssv param) or non-zero PASID.
+                                // Stream capability (cbadcd_s1cd_max > 0) does NOT mean a
+                                // SubstreamID was presented on this specific transaction.
+                                ssv: ssv || pasid.as_u32() != 0,
                                 ..EventEntry::zeroed()
                             };
                             if let Ok(mut queue) = self.event_queue.write() {
@@ -4745,7 +4758,7 @@ impl SMMU {
                         let p = ctx.is_access_privileged(access);
                         (eff, p)
                     });
-                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max);
+                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false, ssv);
                 return Err(oas_error);
             }
         }
@@ -4768,7 +4781,7 @@ impl SMMU {
                         .map_or(false, |ctx| ctx.is_access_privileged(access));
                     self.record_translation_fault(
                         stream_id, pasid, iova, access, security_state,
-                        &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
+                        &oas_error, false, 0, false, 0, pnu, false, ssv,
                     );
                     return Err(oas_error);
                 }
@@ -4804,7 +4817,7 @@ impl SMMU {
             let pnu = self.streams.get(&stream_id.as_u32())
                 .map_or(false, |ctx| ctx.is_access_privileged(access));
             self.record_translation_fault(
-                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, ssv,
             );
             return Err(substreamid_error);
         }
@@ -4943,7 +4956,7 @@ impl SMMU {
                         let pnu = self.streams.get(&stream_id.as_u32())
                             .map_or(false, |ctx| ctx.is_access_privileged(access));
                         self.record_translation_fault(
-                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false, stream_s1cd_max,
+                            stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false, ssv,
                         );
                         return Err(oas_error);
                     }
@@ -4968,7 +4981,7 @@ impl SMMU {
                                     let nsipa = security_state == SecurityState::NonSecure;
                                     self.record_translation_fault(
                                         stream_id, pasid, iova, access, security_state,
-                                        e, false, 0u16, true, iova.as_u64(), pnu, nsipa, stream_s1cd_max,
+                                        e, false, 0u16, true, iova.as_u64(), pnu, nsipa, ssv,
                                     );
                                     return Err(e.clone());
                                 }
@@ -5159,7 +5172,7 @@ impl SMMU {
                                     && security_state == SecurityState::NonSecure;
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, effective_access, security_state,
-                                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa, stream_s1cd_max,
+                                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa, ssv,
                                 );
                                 return Err(TranslationError::StallQueueFull);
                             }
@@ -5188,7 +5201,7 @@ impl SMMU {
 
             self.record_translation_fault(
                 stream_id, pasid, iova, effective_access, security_state,
-                error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa, stream_s1cd_max,
+                error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa, ssv,
             );
 
             if is_stall {
@@ -5426,7 +5439,7 @@ impl SMMU {
         ipa: u64,
         pnu: bool,
         nsipa: bool,
-        s1cd_max: u8,
+        ssv: bool,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -5517,10 +5530,11 @@ impl SMMU {
             nsipa,
             // GAP-N / ARM IHI0070G.b §7.3.9: C_BAD_SUBSTREAMID always has SSV=true —
             // "In this event, SubstreamID is always valid (there is no SSV qualifier)."
-            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented:
-            // either s1cd_max > 0 (PASID=0 counts on substream-capable stream) or
-            // a non-zero PASID was presented (C_BAD_SUBSTREAMID: always SSV=true).
-            ssv: matches!(event_type, EventType::CBadSubstreamid) || s1cd_max > 0 || pasid.as_u32() != 0,
+            // BUG-AUDIT-92 fix: §7.3.20 — SSV=1 when a SubstreamID was presented on
+            // this specific transaction (the `ssv` parameter), or when a non-zero PASID
+            // was presented (non-zero PASID always implies a SubstreamID was given).
+            // Stream capability (s1cd_max > 0) does NOT mean a SubstreamID was presented.
+            ssv: matches!(event_type, EventType::CBadSubstreamid) || ssv || pasid.as_u32() != 0,
             // §7.3.6: ATS-specific permission bits [95:92] — RES0 for all non-ATS events.
             ats_r: false,
             ats_w: false,
@@ -6098,8 +6112,10 @@ impl SMMU {
             event_class: 0,
             rnw: !access.can_write(),
             ind: access.can_execute() && !access.can_write(),
-            // BUG-NEW-20 fix: §7.3.20 — SSV=1 when a SubstreamID was presented.
-            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0 || pasid.as_u32() != 0,
+            // BUG-AUDIT-92 fix: §7.3.20 — SSV=1 when a SubstreamID was presented on
+            // the transaction.  report_unsupported_transaction has no ssv parameter; a
+            // non-zero PASID implies a SubstreamID was presented.
+            ssv: pasid.as_u32() != 0,
             ..EventEntry::zeroed()
         };
         if let Ok(mut queue) = self.event_queue.write() {
