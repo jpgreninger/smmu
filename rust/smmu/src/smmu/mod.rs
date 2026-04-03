@@ -1347,6 +1347,9 @@ impl SMMU {
     pub fn get_idr3(&self) -> u32 {
         // BUG-AUDIT-37 fix: IDR3.HAD (bit 2) is RES0 when IDR0.S1P==0 (ARM §6.3.4 line 11425).
         let had = if self.s1p_supported.load(Ordering::Acquire) { 1u32 << 2 } else { 0 };
+        // BUG-AUDIT-94/95 fix: IDR3.E0PD (bit 13) and IDR3.PTWNNC (bit 14) are both
+        // mandatory in SMMUv3.3+ when IDR0.S2P==1; both are RES0 when S2P==0 (ARM §6.3.4).
+        let s2p = self.s2p_supported.load(Ordering::Acquire);
         // BUG-AUDIT-S2-XNX fix: IDR3.XNX (bit 4) must be 0. FEAT_XNX (separate S2UXN
         // enforcement in PagePermissions) is not implemented in this model; advertising
         // XNX=1 without the corresponding enforcement would be spec-non-compliant (ARM §6.3.4).
@@ -1358,6 +1361,8 @@ impl SMMU {
         | (1u32 << 9)   // STT: S2T0SZ accepted up to 48 (STT=1 limit) — ARM §6.3.4
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
+        | (if s2p { 1u32 << 13 } else { 0 })  // E0PD: mandatory for SMMUv3.3+ when S2P=1 (BUG-AUDIT-94, ARM §6.3.4)
+        | (if s2p { 1u32 << 14 } else { 0 })  // PTWNNC: mandatory for SMMUv3.3+ when S2P=1 (BUG-AUDIT-95, ARM §6.3.4)
     }
 
     /// Read SMMU_IDR4 (§6.3.5) — all zeros for basic SW model.

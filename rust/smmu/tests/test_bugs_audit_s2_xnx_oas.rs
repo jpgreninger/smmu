@@ -234,6 +234,146 @@ fn bug_idr3_stt_bit_must_be_one_when_s2t0sz_accepts_up_to_48() {
 }
 
 // ============================================================================
+// BUG-AUDIT-94 — IDR3.E0PD (bit 13) missing (mandatory for SMMUv3.3 when S2P=1)
+// ============================================================================
+
+/// BUG-AUDIT-94: `get_idr3()` must return bit 13 (E0PD) == 1 when S2P is
+/// enabled (the default).
+///
+/// ARM IHI0070G.b §6.3.4: "This bit is 1 in all implementations of SMMUv3.3
+/// and later." and "If SMMU_IDR0.S2P == 0, this bit is res0." Therefore when
+/// S2P=1 (default) the SMMU must advertise E0PD support by setting bit 13.
+///
+/// The current `get_idr3()` never sets bit 13 regardless of S2P, so this test
+/// FAILS before the fix.
+///
+/// BEFORE FIX: `get_idr3()` does not set bit 13 → FAILS.
+/// AFTER FIX:  `get_idr3()` returns bit 13 == 1 when S2P=1 → PASSES.
+#[test]
+fn bug_audit_94_idr3_e0pd_bit_must_be_one_when_s2p_enabled() {
+    // Default SMMU::new() has s2p_supported=true (AtomicBool::new(true)).
+    // ARM §6.3.4: IDR3.E0PD (bit 13) must be 1 for SMMUv3.3+ when S2P=1.
+    let smmu = SMMU::new();
+
+    let idr3 = smmu.get_idr3();
+    let e0pd_bit = (idr3 >> 13) & 1;
+
+    assert_eq!(
+        e0pd_bit,
+        1,
+        "BUG-AUDIT-94: IDR3.E0PD (bit 13) must be 1 when S2P=1 — ARM §6.3.4 \
+         states this bit is 1 in all SMMUv3.3+ implementations and is res0 only \
+         when IDR0.S2P==0. Default SMMU has S2P=1 so bit 13 must be set. \
+         Current get_idr3() never sets bit 13: idr3=0x{:08x}",
+        idr3,
+    );
+}
+
+// ============================================================================
+// BUG-AUDIT-95 — IDR3.PTWNNC (bit 14) missing (mandatory when S2P=1 for SMMUv3.3)
+// ============================================================================
+
+/// BUG-AUDIT-95: `get_idr3()` must return bit 14 (PTWNNC) == 1 when S2P is
+/// enabled (the default).
+///
+/// ARM IHI0070G.b §6.3.4: "In implementations of SMMUv3.3 and later that have
+/// SMMU_IDR0.S2P == 1, SMMU_IDR3.PTWNNC == 1." The current `get_idr3()` never
+/// sets bit 14, so this test FAILS before the fix.
+///
+/// BEFORE FIX: `get_idr3()` does not set bit 14 → FAILS.
+/// AFTER FIX:  `get_idr3()` returns bit 14 == 1 when S2P=1 → PASSES.
+#[test]
+fn bug_audit_95_idr3_ptwnnc_bit_must_be_one_when_s2p_enabled() {
+    // Default SMMU::new() has s2p_supported=true (AtomicBool::new(true)).
+    // ARM §6.3.4: PTWNNC (bit 14) must be 1 for SMMUv3.3+ when S2P=1.
+    let smmu = SMMU::new();
+
+    let idr3 = smmu.get_idr3();
+    let ptwnnc_bit = (idr3 >> 14) & 1;
+
+    assert_eq!(
+        ptwnnc_bit,
+        1,
+        "BUG-AUDIT-95: IDR3.PTWNNC (bit 14) must be 1 when S2P=1 — ARM §6.3.4 \
+         states that in SMMUv3.3+ implementations with IDR0.S2P==1, PTWNNC must \
+         be 1. Default SMMU has S2P=1 so bit 14 must be set. \
+         Current get_idr3() never sets bit 14: idr3=0x{:08x}",
+        idr3,
+    );
+}
+
+// ============================================================================
+// BUG-AUDIT-94/95 regression baseline — other IDR3 bits must be unaffected
+// ============================================================================
+
+/// BUG-AUDIT-94/95 regression baseline: existing IDR3 capability bits must
+/// remain correct after the E0PD and PTWNNC fixes are applied.
+///
+/// Verified bits:
+/// - HAD (bit 2): must be 1 — hierarchical attribute disable supported (S1P=1).
+/// - XNX (bit 4): must be 0 — FEAT_XNX (S2UXN) not implemented (BUG-AUDIT-S2-XNX fix).
+/// - FWB (bit 8): must be 0 — STE.S2FWB / combine_attrs_fwb() not implemented (BUG-IDR3-FWB fix).
+/// - STT (bit 9): must be 1 — S2T0SZ accepted up to 48 (BUG-IDR3-STT fix).
+/// - RIL (bit 10): must be 1 — range-based invalidation implemented.
+/// - BBML[0] (bit 11): must be 1 — BBML level 1 implemented.
+///
+/// This test is expected to PASS both before and after the BUG-AUDIT-94/95 fixes.
+#[test]
+fn bug_audit_94_95_idr3_other_bits_unaffected_by_e0pd_ptwnnc_fix() {
+    let smmu = SMMU::new();
+    let idr3 = smmu.get_idr3();
+
+    // HAD (bit 2) must be 1 — S1P=1 by default, so HAD is advertised.
+    assert_ne!(
+        idr3 & (1 << 2),
+        0,
+        "IDR3.HAD (bit 2) must remain 1 (S1P=1 by default) after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // XNX (bit 4) must be 0 — FEAT_XNX not implemented.
+    assert_eq!(
+        idr3 & (1 << 4),
+        0,
+        "IDR3.XNX (bit 4) must remain 0 — S2UXN not implemented — after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // FWB (bit 8) must be 0 — STE.S2FWB not implemented.
+    assert_eq!(
+        idr3 & (1 << 8),
+        0,
+        "IDR3.FWB (bit 8) must remain 0 — STE.S2FWB not implemented — after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // STT (bit 9) must be 1 — S2T0SZ accepted up to 48.
+    assert_ne!(
+        idr3 & (1 << 9),
+        0,
+        "IDR3.STT (bit 9) must remain 1 — S2T0SZ up to 48 accepted — after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // RIL (bit 10) must remain set.
+    assert_ne!(
+        idr3 & (1 << 10),
+        0,
+        "IDR3.RIL (bit 10) must remain 1 — range invalidation implemented — after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+    // BBML[0] (bit 11) must remain set.
+    assert_ne!(
+        idr3 & (1 << 11),
+        0,
+        "IDR3.BBML[0] (bit 11) must remain 1 — BBML level 1 implemented — after E0PD/PTWNNC fix: \
+         idr3=0x{:08x}",
+        idr3,
+    );
+}
+
+// ============================================================================
 // BUG-AUDIT-S2-OAS — IDR5.OAS must match max_pa_bits (52 → OAS=6)
 // ============================================================================
 
