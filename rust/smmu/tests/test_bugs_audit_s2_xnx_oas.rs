@@ -418,3 +418,16 @@ fn bug_audit_s2_oas_idr5_other_bits_unaffected() {
         idr5,
     );
 }
+
+// ============================================================================
+// BUG-AUDIT-96 — IDR3.MTEPERM (bit 0) missing (mandatory for SMMUv3.4)
+// ============================================================================
+
+#[test]
+fn bug_audit_96_idr3_mteperm_mandatory_bit0_must_be_set() {
+    // BUG-AUDIT-96: IDR3.MTEPERM (bit 0) is mandatory for SMMUv3.4 per ARM §2.8.
+    // "SMMUv3.4-MTE_PERM Mandatory: Support for stage 2 MemAttr NoTagAccess encodings."
+    let smmu = SMMU::new();
+    let idr3 = smmu.get_idr3();
+    assert_eq!(idr3 & 1, 1, "BUG-AUDIT-96: IDR3.MTEPERM (bit 0) must be 1 (mandatory SMMUv3.4 feature), got idr3={:#010x}", idr3);
+}

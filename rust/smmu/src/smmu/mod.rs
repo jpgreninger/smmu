@@ -1333,8 +1333,9 @@ impl SMMU {
         0
     }
 
-    /// Read SMMU_IDR3 (§6.3.4) — capability bits for SMMUv3.2 features.
+    /// Read SMMU_IDR3 (§6.3.4) — capability bits for SMMUv3.2+ features.
     ///
+    /// - bit 0 (MTEPERM): 1 — mandatory SMMUv3.4; stage-2 MemAttr NoTagAccess encodings
     /// - bit 2 (HAD): hierarchical attribute disable supported
     /// - bit 4 (XNX): 0 — FEAT_XNX (S2UXN enforcement) not implemented (BUG-AUDIT-S2-XNX)
     /// - bit 9 (STT): S2T0SZ values beyond 39 (up to 48) are supported
@@ -1357,7 +1358,8 @@ impl SMMU {
         // are not implemented; advertising FEAT_S2FWB without enforcement violates ARM §2.3.
         // BUG-IDR3-STT fix: IDR3.STT (bit 9) must be 1. The implementation already accepts
         // S2T0SZ up to 48 (the STT=1 limit); IDR3 must advertise this truthfully (ARM §6.3.4).
-        had             // HAD: hierarchical attribute disable; RES0 when S1P=0 (§6.3.4)
+        1u32            // bit 0: MTEPERM — mandatory SMMUv3.4 (MTE_PERM stage-2 MemAttr NoTagAccess encodings)
+        | had           // HAD: hierarchical attribute disable; RES0 when S1P=0 (§6.3.4)
         | (1u32 << 9)   // STT: S2T0SZ accepted up to 48 (STT=1 limit) — ARM §6.3.4
         | (1u32 << 10)  // RIL: range-based invalidation (RIL TLBI commands processed)
         | (1u32 << 11)  // BBML[0]: BBML level 1 (BBML=0b01, bit11 set, bit12 clear)
