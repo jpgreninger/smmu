@@ -1924,6 +1924,13 @@ impl SMMU {
     ///
     /// Valid hardware range per ARM §6.3.4: 1–20 (model accepts 0–31; 32 = disabled).
     pub fn set_strtab_log2size(&self, v: u8) {
+        // BUG-AUDIT-97 fix: §3.3.1.1 / §6.3.4 — LOG2SIZE must not exceed IDR1.SIDSIZE (32).
+        // Values > 32 are architecturally invalid and must be silently ignored, matching the
+        // write-guard pattern used elsewhere. Value 32 is the model-internal sentinel meaning
+        // "no table-size limit" (not an encodeable hardware value but safe for initialization).
+        if v > 32 {
+            return;
+        }
         // BUG-AUDIT-63 fix: ARM IHI0070G.b §6.3.24/§6.3.25 line 13807 — STRTAB_BASE is RO when SMMUEN=1.
         // Writes while SMMUEN=1 must be silently ignored.
         // BUG-AUDIT-70 fix: also gate on CR0ACK.SMMUEN, matching the write-guard pattern
@@ -2516,9 +2523,12 @@ impl SMMU {
             .map_err(|e| SMMUError::invalid_configuration(format!("Stream config validation failed: {e:?}")))?;
 
         // CONF-GAP-16: SteIllegal() checks per ARM §5.2 — STRW field validation.
-        // STRW is only relevant when stage-1 is active; for bypass/stage-2-only configs
-        // the field is ignored (strw_unused = !stage1_enabled).
-        let strw_unused = !config.stage1_enabled;
+        // STRW is only relevant for stage-1-only configs; per ARM §5.2 IgnoreSTESTRW():
+        // "if Config == '11x' then return TRUE" — STRW is ignored when both stage-1
+        // AND stage-2 are enabled (two-stage, Config==0b111).  Also ignored for
+        // bypass/stage-2-only configs where stage-1 is not active.
+        // BUG-AUDIT-98 fix: strw_unused = !stage1_enabled || stage2_enabled.
+        let strw_unused = !config.stage1_enabled || config.stage2_enabled;
         if !strw_unused {
             // (a) ARM §5.2: STRW bit[0]=1 (pattern 'x1') is ILLEGAL for NonSecure/Realm streams.
             //     This covers STRW=El2 (0b01) AND STRW=El3 (0b11).
@@ -4824,6 +4834,24 @@ impl SMMU {
             result
         };
 
+        // BUG-AUDIT-100 fix: ARM §5.2 STE.S1CDMax — "If this field is 0, then any
+        // transaction presented with SSV=1 is terminated with an abort, and a
+        // C_BAD_SUBSTREAMID event is generated."
+        // When s1cd_max==0 the stream is not substream-capable; presenting SSV=1
+        // is therefore illegal regardless of the PASID value.
+        // This check must precede the PASID-range check (s1cd_max > 0) below and
+        // the TLB caching step so that an invalid result is never stored.
+        if !is_bypass && stream_s1cd_max == 0 && ssv {
+            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            let substreamid_error = TranslationError::BadSubstreamId;
+            let pnu = self.streams.get(&stream_id.as_u32())
+                .map_or(false, |ctx| ctx.is_access_privileged(access));
+            self.record_translation_fault(
+                stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, ssv,
+            );
+            return Err(substreamid_error);
+        }
+
         // NEW-52 / ARM §7.3.9 / §3.10: C_BAD_SUBSTREAMID when SubstreamID (PASID) >= 2^STE.S1CDMax.
         // This check applies to stage-1-capable, substream-capable streams (s1cd_max > 0)
         // when the presented PASID falls outside the valid index range.
@@ -5029,7 +5057,7 @@ impl SMMU {
                         security_state,
                     ));
                 }
-                _ => {
+                0x02 => {
                     // BUG-E fix: §3.9 / §7.3.7 — S1DSS==0b10 + SSV==1 + PASID==0 → F_STREAM_DISABLED.
                     // When STE.S1DSS==0b10, the SMMU uses CD[0] for transactions that arrive
                     // *without* a SubstreamID (SSV=0).  A transaction that *has* a SubstreamID
@@ -5086,8 +5114,57 @@ impl SMMU {
                         }
                         return Err(TranslationError::StreamDisabled);
                     }
-                    // s1dss == 0b10, SSV==0 (or any reserved value): use CD[0] — result
-                    // already computed, fall through to the normal success/fault handling below.
+                    // s1dss == 0b10, SSV==0: use CD[0] — result already computed,
+                    // fall through to the normal success/fault handling below.
+                }
+                _ => {
+                    // BUG-AUDIT-99 fix: ARM §5.2 STE.S1DSS — values 0b11 and above are
+                    // RESERVED and must behave identically to 0b00 (abort with
+                    // F_STREAM_DISABLED per §7.3.7).  Previously the `_ =>` arm covered
+                    // both 0b10 and reserved values, silently treating 0b11 as 0b10.
+                    // Now 0b10 has its own arm above; this arm handles only reserved values.
+                    if transaction_type != TransactionType::AtsTranslationRequest {
+                        self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let fault = crate::types::FaultRecord::builder()
+                            .stream_id(stream_id)
+                            .pasid(pasid)
+                            .address(iova)
+                            .fault_type(crate::types::FaultType::StreamDisabled)
+                            .access_type(access)
+                            .security_state(security_state)
+                            .timestamp(timestamp)
+                            .build();
+                        self.record_fault(fault);
+                        let event = EventEntry {
+                            event_type: EventType::FStreamDisabled,
+                            stream_id: stream_id.as_u32(),
+                            pasid: 0,
+                            address: 0,
+                            security_state,
+                            error_code: 0,
+                            timestamp,
+                            stall: false,
+                            stag: 0,
+                            ..EventEntry::zeroed()
+                        };
+                        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                            if let Ok(mut queue) = self.event_queue.write() {
+                                if queue.len() < self.event_queue_capacity {
+                                    queue.push_back(event);
+                                    self.event_count.fetch_add(1, Ordering::Relaxed);
+                                    let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                    self.eventq_prod.store(
+                                        Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
+                                        Ordering::Release,
+                                    );
+                                } else {
+                                    self.toggle_ovflg_once();
+                                }
+                            }
+                        }
+                    }
+                    return Err(TranslationError::StreamDisabled);
                 }
             }
         }

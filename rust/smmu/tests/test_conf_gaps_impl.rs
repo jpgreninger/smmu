@@ -567,3 +567,135 @@ fn test_two_level_invalid_stream_id_rejected() {
         "Out-of-range StreamID in 2-level table must fail"
     );
 }
+
+// ============================================================================
+// BUG-AUDIT-97: set_strtab_log2size() must reject values > SIDSIZE (32)
+// §3.3.1.1 / §6.3.4 — LOG2SIZE must not exceed IDR1.SIDSIZE
+// ============================================================================
+
+#[test]
+fn test_strtab_log2size_rejects_above_sidsize() {
+    let smmu = SMMU::new();
+    // Default is 32 (model sentinel for "no limit")
+    assert_eq!(smmu.get_strtab_log2size(), 32);
+
+    // Valid values: 0..=32 must be accepted
+    smmu.set_strtab_log2size(20);
+    assert_eq!(smmu.get_strtab_log2size(), 20, "log2size=20 must be accepted (within SIDSIZE=32)");
+
+    smmu.set_strtab_log2size(32);
+    assert_eq!(smmu.get_strtab_log2size(), 32, "log2size=32 must be accepted (model sentinel)");
+
+    // Set to known value, then try to write above SIDSIZE
+    smmu.set_strtab_log2size(10);
+    assert_eq!(smmu.get_strtab_log2size(), 10);
+
+    // BUG-AUDIT-97: value > 32 must be silently ignored (write-guard pattern)
+    smmu.set_strtab_log2size(33);
+    assert_eq!(smmu.get_strtab_log2size(), 10, "log2size=33 exceeds SIDSIZE=32; write must be ignored");
+
+    smmu.set_strtab_log2size(255);
+    assert_eq!(smmu.get_strtab_log2size(), 10, "log2size=255 exceeds SIDSIZE=32; write must be ignored");
+}
+
+// ============================================================================
+// BUG-AUDIT-101: Linear stream table boundary values
+// §3.3.1.1 / §6.3.4 — StreamID = 2^LOG2SIZE-1 (last valid) must succeed;
+//                       StreamID = 2^LOG2SIZE (first invalid) must return
+//                       C_BAD_STREAMID; LOG2SIZE=0 (single-entry table) must
+//                       accept only StreamID=0.
+// ============================================================================
+
+#[test]
+fn test_linear_strtab_last_valid_streamid_succeeds() {
+    // §3.3.1.1: linear table has 2^LOG2SIZE entries indexed 0..2^LOG2SIZE-1.
+    // A configured stream at the last valid index must translate successfully.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(4); // table has 16 entries: StreamIDs 0..15
+
+    let last_valid = StreamID::new(15).unwrap(); // 2^4 - 1
+    smmu.configure_stream(last_valid, StreamConfig::bypass()).unwrap();
+    smmu.enable().unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+    let result = smmu.translate(
+        last_valid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        result.is_ok(),
+        "StreamID at 2^LOG2SIZE-1 (last valid entry) must translate successfully; got {result:?}"
+    );
+}
+
+#[test]
+fn test_linear_strtab_first_invalid_streamid_rejected() {
+    // §3.3.1.1: StreamID = 2^LOG2SIZE is out of range; translate() must return
+    // C_BAD_STREAMID (InvalidStreamID) regardless of configure_stream state.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(4); // table has 16 entries: StreamIDs 0..15
+
+    let first_invalid = StreamID::new(16).unwrap(); // 2^4
+    // Pre-configure the stream so the fault is purely the range check, not a
+    // missing STE — this confirms the range guard fires before the DashMap lookup.
+    smmu.configure_stream(first_invalid, StreamConfig::bypass()).unwrap();
+    smmu.enable().unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+    let result = smmu.translate(
+        first_invalid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        result.is_err(),
+        "StreamID at 2^LOG2SIZE (first out-of-range entry) must be rejected with C_BAD_STREAMID"
+    );
+}
+
+#[test]
+fn test_linear_strtab_log2size_zero_single_entry() {
+    // §3.3.1.1 / §6.3.4: LOG2SIZE=0 means a table with 2^0=1 entry.
+    // Only StreamID=0 is in-range; StreamID=1 must be rejected.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(0); // table has 1 entry: StreamID 0 only
+
+    let sid0 = StreamID::new(0).unwrap();
+    smmu.configure_stream(sid0, StreamConfig::bypass()).unwrap();
+    smmu.enable().unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+
+    // StreamID=0 must succeed
+    let ok = smmu.translate(
+        sid0,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        ok.is_ok(),
+        "StreamID=0 with LOG2SIZE=0 must translate successfully; got {ok:?}"
+    );
+
+    // StreamID=1 must be out-of-range
+    let sid1 = StreamID::new(1).unwrap();
+    smmu.configure_stream(sid1, StreamConfig::bypass()).unwrap();
+    let err = smmu.translate(
+        sid1,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        err.is_err(),
+        "StreamID=1 with LOG2SIZE=0 (table size 1) must be rejected with C_BAD_STREAMID"
+    );
+}
