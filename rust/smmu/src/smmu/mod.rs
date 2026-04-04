@@ -1262,7 +1262,7 @@ impl SMMU {
     /// - bit 23: ATSRECERR — ATS error recovery (CR2.REC_CFG_ATS) implemented
     /// - bits\[25:24\]: STALL_MODEL — 0b00: both stall and terminate models supported
     /// - bit 26: TERM_MODEL — 0: RAZ/WI termination IS supported; CD.A=0 permitted (§3.12.1, Bug-2 fix)
-    /// - bit 27: ST_LEVEL[0] — 2-level stream table supported
+    /// - bits\[28:27\]: ST_LEVEL — 2-bit field; 0b01 = 2-level stream table supported (BUG-AUDIT-102)
     #[must_use]
     pub fn get_idr0(&self) -> u32 {
         // BUG-NEW-39 fix: IDR0.S2P (bit 0) is now configurable via set_s2p_supported().
@@ -1296,7 +1296,7 @@ impl SMMU {
         // Bug 2 fix: the model does not validate CD.A=1 before permitting termination,
         // so claiming TERM_MODEL=1 ("CD.A must be 1") would be a spec violation.
         // Clearing bit 26 correctly reports that both stall and terminate are supported.
-        | (1u32 << 27)       // ST_LEVEL[0] = 1 (2-level stream table)
+        | (1u32 << 27)       // ST_LEVEL[28:27] = 0b01 (2-level stream table supported; bit 28 stays 0 per §6.3.1)
     }
 
     /// Read SMMU_IDR1 (§6.3.2) — stream/substream ID sizes and queue capacity.

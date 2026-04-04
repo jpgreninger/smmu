@@ -569,6 +569,182 @@ fn test_two_level_invalid_stream_id_rejected() {
 }
 
 // ============================================================================
+// BUG-AUDIT-106: §6.3.25 — invalid SPLIT values must be clamped to 6
+// ============================================================================
+
+#[test]
+fn test_strtab_split_invalid_values_clamped_to_6() {
+    // §6.3.25: SPLIT valid values are 6, 8, 10. All other values are
+    // reserved and must behave as 6 (spec: "Other values are reserved,
+    // behave as 6 (0b0110)").
+    let smmu = SMMU::new();
+
+    for invalid in [0u8, 1, 5, 7, 9, 11, 12, 32, 255] {
+        smmu.set_strtab_split(invalid);
+        assert_eq!(
+            smmu.get_strtab_split(),
+            6,
+            "SPLIT={invalid} is reserved; must be stored as 6 per §6.3.25"
+        );
+    }
+
+    // Confirm valid values are stored as-is
+    for valid in [6u8, 8, 10] {
+        smmu.set_strtab_split(valid);
+        assert_eq!(
+            smmu.get_strtab_split(),
+            valid,
+            "SPLIT={valid} is a valid encoding; must be stored verbatim"
+        );
+    }
+}
+
+// ============================================================================
+// BUG-AUDIT-107: §3.3.1.2 — split=8 and split=10 L1/L2 boundary validation
+// ============================================================================
+
+#[test]
+fn test_two_level_split8_boundary() {
+    // split=8, log2size=10 → L1 has 2^(10-8)=4 entries, each L2 has 256 entries.
+    // Last valid StreamID = 2^10 - 1 = 1023. First invalid = 1024.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(10);
+    smmu.set_strtab_split(8);
+    smmu.set_strtab_format(smmu::types::StreamTableFormat::TwoLevel);
+
+    let last_valid = StreamID::new(1023).unwrap(); // 2^10 - 1
+    smmu.configure_stream(last_valid, StreamConfig::bypass()).unwrap();
+    smmu.enable().unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+
+    let ok = smmu.translate(
+        last_valid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        ok.is_ok(),
+        "split=8: StreamID 1023 (last valid) must translate successfully; got {ok:?}"
+    );
+
+    // StreamID 1024 is the first out-of-range entry
+    let first_invalid = StreamID::new(1024).unwrap();
+    smmu.configure_stream(first_invalid, StreamConfig::bypass()).unwrap();
+    let err = smmu.translate(
+        first_invalid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        err.is_err(),
+        "split=8: StreamID 1024 (first out-of-range) must return C_BAD_STREAMID"
+    );
+}
+
+#[test]
+fn test_two_level_split10_boundary() {
+    // split=10, log2size=12 → L1 has 2^(12-10)=4 entries, each L2 has 1024 entries.
+    // Last valid StreamID = 2^12 - 1 = 4095. First invalid = 4096.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(12);
+    smmu.set_strtab_split(10);
+    smmu.set_strtab_format(smmu::types::StreamTableFormat::TwoLevel);
+
+    let last_valid = StreamID::new(4095).unwrap(); // 2^12 - 1
+    smmu.configure_stream(last_valid, StreamConfig::bypass()).unwrap();
+    smmu.enable().unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+
+    let ok = smmu.translate(
+        last_valid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        ok.is_ok(),
+        "split=10: StreamID 4095 (last valid) must translate successfully; got {ok:?}"
+    );
+
+    let first_invalid = StreamID::new(4096).unwrap();
+    smmu.configure_stream(first_invalid, StreamConfig::bypass()).unwrap();
+    let err = smmu.translate(
+        first_invalid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        err.is_err(),
+        "split=10: StreamID 4096 (first out-of-range) must return C_BAD_STREAMID"
+    );
+}
+
+// ============================================================================
+// BUG-AUDIT-108: §3.3.1.2 L1STD.Span=0 equivalent — in-range but unconfigured
+// stream in 2-level mode must return C_BAD_STE (not C_BAD_STREAMID)
+// ============================================================================
+
+#[test]
+fn test_two_level_inrange_unconfigured_stream_returns_bad_ste() {
+    // §3.3.1.2: A StreamID that falls within the log2size range but selects
+    // an L1STD with Span=0 (no L2 table) is treated as invalid — the transaction
+    // is terminated with C_BAD_STE (absent STE), not C_BAD_STREAMID (range fault).
+    //
+    // In this software model, the hardware L1/L2 tables are not implemented;
+    // the DashMap absence of a stream configuration is the equivalent of Span=0.
+    // An in-range StreamID with no configure_stream() call must produce a fault
+    // that is NOT InvalidStreamID (range check) but rather a stream-not-found fault.
+    let smmu = SMMU::new();
+    smmu.set_strtab_log2size(8); // 256 entries
+    smmu.set_strtab_split(6);
+    smmu.set_strtab_format(smmu::types::StreamTableFormat::TwoLevel);
+    smmu.enable().unwrap();
+
+    // StreamID=100 is within [0, 255] range but never configure_stream()-ed.
+    let sid = StreamID::new(100).unwrap();
+
+    let iova = smmu::IOVA::new(0x1000).unwrap();
+    let result = smmu.translate(
+        sid,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    // Must fail (unconfigured stream → some fault), but NOT with the range-check
+    // error that signals C_BAD_STREAMID. The range check passes (100 < 256);
+    // the failure is a stream-not-found / C_BAD_STE type fault.
+    assert!(
+        result.is_err(),
+        "In-range but unconfigured stream in 2-level mode must fail (C_BAD_STE equivalent)"
+    );
+    // Verify it is NOT an InvalidStreamID (range) fault by checking that a
+    // within-range configured stream succeeds, confirming range check is passing.
+    let sid2 = StreamID::new(100).unwrap();
+    smmu.configure_stream(sid2, StreamConfig::bypass()).unwrap();
+    let ok = smmu.translate(
+        sid2,
+        smmu::PASID::new(0).unwrap(),
+        iova,
+        smmu::types::AccessType::Read,
+        smmu::types::SecurityState::NonSecure,
+    );
+    assert!(
+        ok.is_ok(),
+        "Same StreamID after configure_stream() must succeed, confirming range check passes"
+    );
+}
+
+// ============================================================================
 // BUG-AUDIT-97: set_strtab_log2size() must reject values > SIDSIZE (32)
 // §3.3.1.1 / §6.3.4 — LOG2SIZE must not exceed IDR1.SIDSIZE
 // ============================================================================

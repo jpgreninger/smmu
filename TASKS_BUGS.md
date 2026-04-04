@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.3.1.2
+CURRENT_SECTION = 3.3.2
 
 ## Status Legend
 
@@ -65,7 +65,7 @@ CURRENT_SECTION = 3.3.1.2
 | §3.3 | Data structures and translation procedure | ✅ | ✅ | | Global bypass (GBPA), 4-step translation procedure, stage-not-implemented bypass, StreamWorld, TLB key uses {StreamID,PASID} not {SW,VMID,ASID} — acceptable gap (TLBI correctly scans by ASID/VMID; correctness preserved) |
 | §3.3.1 | Stream table lookup (overview) | ✅ | ✅ | CONF-GAP-3/6 | Re-audited: Linear+2-level formats supported (strtab_fmt/split), StreamID range→C_BAD_STREAMID, write-guard on SMMUEN=1; CONF-GAP-3 (2-level) FIXED, CONF-GAP-6 (TLBI) FIXED (→§4.4) |
 | §3.3.1.1 | Linear Stream table | ✅ | ✅ | BUG-AUDIT-101 | Fully verified: 2^LOG2SIZE sizing correct, bounds check fires before DashMap, LOG2SIZE=0 single-entry table correct. BUG-AUDIT-101: added 3 boundary tests (last valid, first invalid, LOG2SIZE=0) — all pass |
-| §3.3.1.2 | 2-level Stream table | ⚠️ | ⚠️ | CONF-GAP-3/6 | L1STD validity, L2 fetch |
+| §3.3.1.2 | 2-level Stream table | ✅ | ✅ | BUG-AUDIT-102/106/107/108 | Implementation correct. BUG-AUDIT-102: fixed ST_LEVEL docstring (2-bit field). BUG-AUDIT-106: added invalid SPLIT clamping test. BUG-AUDIT-107: added split=8/10 boundary tests. BUG-AUDIT-108: added in-range/unconfigured stream test |
 | §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44 | S1CDMax, substream routing |
 | §3.3.3 | Configuration and Translation lookup | ⚠️ | ⚠️ | | STE.Config dispatch |
 | §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ⚠️ | ⚠️ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed |
@@ -763,7 +763,7 @@ The following areas are intentionally not implemented and will not be audited:
 |---------|---------------|------------|-----------------|--------------|----------------|
 | Ch. 1 About | 3 | 3 (N/A) | 0 | 0 | 0 |
 | Ch. 2 Introduction | 10 | 5 (4 N/A + 1 ✅) | 4 | 0 | 2 |
-| Ch. 3 Operation | 82 | 4 | 41 | 22 | 15 |
+| Ch. 3 Operation | 82 | 5 | 41 | 21 | 15 |
 | Ch. 4 Commands | 41 | 0 | 35 | 2 | 4 |
 | Ch. 5 Data Structures | 18 | 0 | 13 | 2 | 3 |
 | Ch. 6 Registers | 87 | 0 | 47 | 13 | 27 |
@@ -779,7 +779,7 @@ The following areas are intentionally not implemented and will not be audited:
 | Ch. 16 System | 22 | 5 (N/A) | 0 | 16 | 1 |
 | Ch. 17 MPAM | 1 | 0 | 0 | 0 | 1 |
 | Ch. 18 MEC | 1 | 0 | 0 | 0 | 1 |
-| **TOTAL** | **349** | **16 (N/A)** | **187** | **86** | **60** |
+| **TOTAL** | **349** | **17 (N/A)** | **187** | **85** | **60** |
 
 **Notes on status symbols**: All ⚠️ rows indicate sections that have been audited; bugs found were filed
 and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with bugs found and fixed —
