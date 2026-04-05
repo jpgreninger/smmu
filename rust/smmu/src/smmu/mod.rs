@@ -4841,7 +4841,16 @@ impl SMMU {
         // is therefore illegal regardless of the PASID value.
         // This check must precede the PASID-range check (s1cd_max > 0) below and
         // the TLB caching step so that an invalid result is never stored.
-        if !is_bypass && stream_s1cd_max == 0 && ssv {
+        //
+        // BUG-AUDIT-111 fix: ARM §3.3.2 line 1354 — "Transactions provided with a
+        // SubstreamID are terminated when stage 1 translation is not enabled."
+        // This applies to ALL SSV=1 transactions regardless of SubstreamID value,
+        // including SubstreamID=0 on bypass streams (stage1_enabled=false,
+        // stage2_enabled=false).  Bypass streams have s1cd_max=0 by construction
+        // (no substreams without stage-1), so removing the `!is_bypass` guard is
+        // correct: `stream_s1cd_max == 0 && ssv` is the sufficient condition for
+        // all streams that lack substream support.
+        if stream_s1cd_max == 0 && ssv {
             self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
             let substreamid_error = TranslationError::BadSubstreamId;
             let pnu = self.streams.get(&stream_id.as_u32())

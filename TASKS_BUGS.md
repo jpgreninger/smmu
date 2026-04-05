@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.3.2
+CURRENT_SECTION = 3.3.3
 
 ## Status Legend
 
@@ -66,7 +66,7 @@ CURRENT_SECTION = 3.3.2
 | §3.3.1 | Stream table lookup (overview) | ✅ | ✅ | CONF-GAP-3/6 | Re-audited: Linear+2-level formats supported (strtab_fmt/split), StreamID range→C_BAD_STREAMID, write-guard on SMMUEN=1; CONF-GAP-3 (2-level) FIXED, CONF-GAP-6 (TLBI) FIXED (→§4.4) |
 | §3.3.1.1 | Linear Stream table | ✅ | ✅ | BUG-AUDIT-101 | Fully verified: 2^LOG2SIZE sizing correct, bounds check fires before DashMap, LOG2SIZE=0 single-entry table correct. BUG-AUDIT-101: added 3 boundary tests (last valid, first invalid, LOG2SIZE=0) — all pass |
 | §3.3.1.2 | 2-level Stream table | ✅ | ✅ | BUG-AUDIT-102/106/107/108 | Implementation correct. BUG-AUDIT-102: fixed ST_LEVEL docstring (2-bit field). BUG-AUDIT-106: added invalid SPLIT clamping test. BUG-AUDIT-107: added split=8/10 boundary tests. BUG-AUDIT-108: added in-range/unconfigured stream test |
-| §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44 | S1CDMax, substream routing |
+| §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44, BUG-AUDIT-109/110/111/112 | S1CDMax, substream routing. BUG-AUDIT-109: s1cdMax==0+SSV=1+PASID!=0 must emit C_BAD_SUBSTREAMID. BUG-AUDIT-110: S1DSS==0b11 reserved→F_STREAM_DISABLED. BUG-AUDIT-111: bypass/stage-2-only+SSV=1→C_BAD_SUBSTREAMID. BUG-AUDIT-112: s1cdMax==0+SSV=1+PASID=0 must abort. All fixed; C++ 184/184 | Rust 4 new tests pass |
 | §3.3.3 | Configuration and Translation lookup | ⚠️ | ⚠️ | | STE.Config dispatch |
 | §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ⚠️ | ⚠️ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed |
 | §3.3.5 | Translation table descriptors | ☐ | ☐ | | Descriptor type handling |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-04
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-93, BUG-NEW-RUST-1/2 — all fixed ✅
+**Last updated**: 2026-04-05
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-112, BUG-NEW-RUST-1/2 — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 183/183 | Rust 251/251 | 0 clippy warnings
+**Test status**: C++ 184/184 | Rust 255/255 (all suites green) | 0 clippy warnings
