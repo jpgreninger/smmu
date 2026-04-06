@@ -94,16 +94,6 @@ When the user says 'implement X' where X is a section or task number, always che
 
 ### ⚠️ CRITICAL DEVELOPMENT REQUIREMENTS ⚠️
 
-**ABSOLUTELY MANDATORY**: Use the following subagents for ALL development work:
-
-- **cpp-pro**: ALWAYS use for implementing new C++ code
-- **rust-engineer**: ALWAYS use for implementing new Rust code
-- **debugger**: ALWAYS use for debugging compile errors and runtime bugs  
-- **qa-engineer**: ALWAYS use after each step to review against ARM SMMU v3 specification, update TASKS.md
-- **test-writer-fixer**: ALWAYS use to write tests and integrate into regression suite
-
-**FAILURE TO USE THESE SUBAGENTS WILL RESULT IN INCOMPLETE/NON-COMPLIANT IMPLEMENTATIONS**
-
 ## Before spawning any subagent
 Only spawn subagents for complex, multi-step tasks.
 For simple tasks, handle directly without calling route_task.
@@ -129,13 +119,6 @@ for progressive retrieval (don't load everything)
 - **qa-engineer**: **ALWAYS** use after each development step to review code against ARM SMMU v3 specification and update TASKS.md with missing features. Use proactively to ensure compliance and code quality.
 - **test-writer-fixer**: **ALWAYS** use to write comprehensive tests for each implementation step and integrate into overall regression test suite. Use proactively after code modifications to ensure comprehensive test coverage and suite health.
 
-**MANDATORY WORKFLOW**: 
-1. Use `cpp-pro` for all C++ code implementation
-2. Use `rust-engineer` for all Rust code implementation
-3. Use `debugger` immediately when compilation errors or bugs occur
-4. Use `qa-engineer` after each implementation step for compliance review
-5. Use `test-writer-fixer` to create/update tests and integrate into regression suite
-
 ### ⚠️ MANDATORY: Test-Driven Workflow for ALL Fixes and Features ⚠️
 
 **ABSOLUTE REQUIREMENT**: Test-Driven Development (TDD) or Test-Driven Debug (TDD) MUST ALWAYS be used when implementing any fix or feature. No code changes may be made without first writing a failing test that demonstrates the problem or missing behavior.
@@ -160,59 +143,7 @@ If the task is unreasonable or infeasible, or if any of the tests are incorrect,
 4. Verify the test passes and no regression tests broke
 5. Commit the test alongside the fix
 
-**No exceptions.** A fix without a prior failing test is not acceptable.
-
-### Adding New Features
-**MANDATORY STEP-BY-STEP WORKFLOW:**
-1. **Planning**: Use `qa-engineer` to review requirements against ARM SMMU v3 specification
-2. **Test-Driven Development**: Add comprehensive unit tests in `tests/` using `test-writer-fixer` that fail before implementation
-3. **Build Verification**: Build tests and verify they fail before implementing code
-4. **Implementation**: Implement in corresponding `src/` subdirectory using `cpp-pro`
-5. **Debug Issues**: Use `debugger` for any compilation errors or runtime issues
-6. **Code Review**: Use `qa-engineer` to review implementation against ARM SMMU v3 spec, update TASKS.md
-7. **Test Integration**: Use `test-writer-fixer` to ensure tests pass and integrate into regression suite
-8. **Final Validation**: Use `qa-engineer` to verify complete compliance and >95% test coverage
-
-**IMPORTANT**: Never proceed to next step without using the required subagent for current step.
-
-### Core Implementation Classes
-
-#### SMMU Class (Main Controller)
-```cpp
-class SMMU {
-public:
-    // Main translation API
-    TranslationResult translate(uint32_t streamID, uint32_t pasid, 
-                               uint64_t iova, AccessType access);
-    
-    // Stream management
-    void configureStream(uint32_t streamID, const StreamConfig& config);
-    
-    // Event handling
-    std::vector<FaultRecord> getEvents();
-};
-```
-
-#### AddressSpace Class (Translation Context)
-```cpp
-class AddressSpace {
-    std::unordered_map<uint64_t, PageEntry> pageTable; // Sparse representation
-    
-public:
-    void mapPage(uint64_t iova, uint64_t pa, PagePermissions perms);
-    TranslationResult translatePage(uint64_t iova, AccessType access);
-};
-```
-
-#### StreamContext Class (Per-Stream State)
-```cpp
-class StreamContext {
-    std::unordered_map<uint32_t, std::shared_ptr<AddressSpace>> pasidMap;
-    
-public:
-    TranslationResult translate(uint32_t pasid, uint64_t iova, AccessType access);
-};
-```
+**NO EXCEPTIONS:** A fix without a prior failing test is not acceptable.
 
 ## Coding Standards
 
@@ -267,13 +198,6 @@ void TemplateClass<T>::method(const T& value) {
 - All public APIs must have comprehensive unit tests
 - Critical paths require additional integration testing
 - Performance requirements must be validated with benchmarks
-
-### Test-Driven Development (TDD)
-**MANDATORY**: Always follow TDD approach:
-1. Write failing tests first using `test-writer-fixer`
-2. Implement minimal code to make tests pass using `cpp-pro`
-3. Refactor and optimize while maintaining test coverage
-4. Use `qa-engineer` to verify against specification requirements
 
 ## Performance Requirements
 
