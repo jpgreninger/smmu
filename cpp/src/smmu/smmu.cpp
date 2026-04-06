@@ -625,6 +625,46 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         return recheck;
     }
 
+    // BUG-AUDIT-109/112 fix: §5.2 STE.S1CDMax line 6691 — "If this field is 0, then any
+    // transaction using this STE that is presented with SSV=1 is terminated with an abort,
+    // and a C_BAD_SUBSTREAMID event is generated."
+    // This covers PASID==0 (BUG-AUDIT-112) and PASID!=0 (BUG-AUDIT-109) equally.
+    // Placed here (in translate(), where ssv is in scope) because performTwoStageTranslation()
+    // does not receive ssv.
+    if (ssv && streamCfgSnapshot.stage1Enabled && streamCfgSnapshot.s1cdMax == 0u) {
+        FaultRecord cBadSubFault;
+        cBadSubFault.streamID     = streamID;
+        cBadSubFault.pasid        = pasid;
+        cBadSubFault.address      = iova;
+        cBadSubFault.faultType    = FaultType::BadSubstreamId;
+        cBadSubFault.accessType   = accessType;
+        cBadSubFault.securityState = securityState;
+        cBadSubFault.timestamp    = currentTime;
+        recordFault(cBadSubFault);
+        generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::InvalidPASID);
+    }
+
+    // BUG-AUDIT-111 fix: ARM §3.3.2 line 1354 — "Transactions provided with a SubstreamID
+    // are terminated when stage 1 translation is not enabled."
+    // Applies to bypass streams (translationEnabled=false) and stage-2-only streams
+    // (stage1Enabled=false, stage2Enabled=true).  When SSV=1 on any stream that has no
+    // stage-1 context, abort with C_BAD_SUBSTREAMID.
+    // Note: the stage-1-enabled + s1cdMax==0 case is already handled above.
+    if (ssv && !streamCfgSnapshot.stage1Enabled) {
+        FaultRecord cBadSubFault;
+        cBadSubFault.streamID     = streamID;
+        cBadSubFault.pasid        = pasid;
+        cBadSubFault.address      = iova;
+        cBadSubFault.faultType    = FaultType::BadSubstreamId;
+        cBadSubFault.accessType   = accessType;
+        cBadSubFault.securityState = securityState;
+        cBadSubFault.timestamp    = currentTime;
+        recordFault(cBadSubFault);
+        generateEvent(EventType::C_BAD_SUBSTREAMID, streamID, pasid, iova, securityState);
+        return makeTranslationError(SMMUError::InvalidPASID);
+    }
+
     // BUG-E fix: §3.9 / §7.3.7 — S1DSS==0b10 + SSV==1 + PASID==0 → F_STREAM_DISABLED.
     // "When STE.S1DSS==0b10, transactions that arrive with SubstreamID 0 [and SSV=1]
     // are aborted and an event recorded." (ARM §3.9 table note on S1DSS==0b10.)
@@ -665,7 +705,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         pasid == 0 &&
         streamCfgSnapshot.stage1Enabled &&
         streamCfgSnapshot.s1cdMax > 0 &&
-        streamCfgSnapshot.s1dss == 0x00u) {
+        (streamCfgSnapshot.s1dss == 0x00u || streamCfgSnapshot.s1dss == 0x03u)) {
+        // BUG-AUDIT-110: S1DSS==0b11 is Reserved and behaves as 0b00 per §5.2 line 6716.
+        // For ATS TRs, both 0b00 and 0b11 abort silently (no event per §5.2 line 6725).
         return makeTranslationError(SMMUError::SubstreamDisabled);
     }
 
@@ -997,9 +1039,11 @@ VoidResult SMMU::configureStream(StreamID streamID, const StreamConfig& config) 
     // which would deadlock if called while holding the stripe lock.
 
     // Validation 1: STRW checks per ARM §5.2 SteIllegal() pseudocode.
-    // STRW is only meaningful when stage-1 is active (strwUnused = !stage1Enabled).
+    // STRW is only meaningful when stage-1 is active and stage-2 is NOT enabled.
+    // ARM §5.2 IgnoreSTESTRW(): Config==0b11x (stage-2 enabled) → always ignore STRW.
+    // BUG-AUDIT-113 fix: add ||config.stage2Enabled to correctly ignore STRW for Config=0b111.
     {
-        bool strwUnused = !config.stage1Enabled;
+        bool strwUnused = !config.stage1Enabled || config.stage2Enabled;
         if (!strwUnused) {
             // BUG-CPP-3(a) fix: ARM §5.2 bit[0]=1 pattern ('x1'): STRW encodings
             // 0b01 (EL2) and 0b11 (EL3) are ILLEGAL for NonSecure/Realm streams.
@@ -1936,9 +1980,11 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
     // substream-capable (S1CDMax > 0), non-substream transactions (PASID==0)
     // are handled according to STE.S1DSS before the normal CD[0] lookup.
     if (config.stage1Enabled && config.s1cdMax > 0 && pasid == 0) {
-        if (config.s1dss == 0x00u) {
+        if (config.s1dss == 0x00u || config.s1dss == 0x03u) {
             // §7.3.7: S1DSS==0b00 — non-substream transaction on substream-capable
             // stream aborts with F_STREAM_DISABLED (event 0x06).
+            // BUG-AUDIT-110 fix: §5.2 STE.S1DSS line 6716 — S1DSS==0b11 is Reserved
+            // and "behaves as 0b00".  Treat it identically: abort with F_STREAM_DISABLED.
             FaultRecord s1dssFault;
             s1dssFault.streamID = streamID;
             s1dssFault.pasid = pasid;

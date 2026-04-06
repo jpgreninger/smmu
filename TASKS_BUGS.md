@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.3.3
+CURRENT_SECTION = 3.3.4
 
 ## Status Legend
 
@@ -67,7 +67,7 @@ CURRENT_SECTION = 3.3.3
 | §3.3.1.1 | Linear Stream table | ✅ | ✅ | BUG-AUDIT-101 | Fully verified: 2^LOG2SIZE sizing correct, bounds check fires before DashMap, LOG2SIZE=0 single-entry table correct. BUG-AUDIT-101: added 3 boundary tests (last valid, first invalid, LOG2SIZE=0) — all pass |
 | §3.3.1.2 | 2-level Stream table | ✅ | ✅ | BUG-AUDIT-102/106/107/108 | Implementation correct. BUG-AUDIT-102: fixed ST_LEVEL docstring (2-bit field). BUG-AUDIT-106: added invalid SPLIT clamping test. BUG-AUDIT-107: added split=8/10 boundary tests. BUG-AUDIT-108: added in-range/unconfigured stream test |
 | §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44, BUG-AUDIT-109/110/111/112 | S1CDMax, substream routing. BUG-AUDIT-109: s1cdMax==0+SSV=1+PASID!=0 must emit C_BAD_SUBSTREAMID. BUG-AUDIT-110: S1DSS==0b11 reserved→F_STREAM_DISABLED. BUG-AUDIT-111: bypass/stage-2-only+SSV=1→C_BAD_SUBSTREAMID. BUG-AUDIT-112: s1cdMax==0+SSV=1+PASID=0 must abort. All fixed; C++ 184/184 | Rust 4 new tests pass |
-| §3.3.3 | Configuration and Translation lookup | ⚠️ | ⚠️ | | STE.Config dispatch |
+| §3.3.3 | Configuration and Translation lookup | ✅ | ✅ | BUG-AUDIT-113 | BUG-AUDIT-113: C++ strwUnused=!stage1Enabled missing ||stage2Enabled — Config=0b111 two-stage NonSecure stream with STRW=EL2 incorrectly rejected; fixed per ARM §5.2 IgnoreSTESTRW(). Rust already correct. FINDING-333-03 (TLB CacheKey missing StreamWorld): acceptable gap per §3.3 notes. FINDING-333-04 (CD.AA64/StreamWorld): AArch32 LPAE unsupported (intentional). FINDING-333-05 (T1SZ for EL2/EL3): only affects Secure streams (out of scope). C++ 185/185 |
 | §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ⚠️ | ⚠️ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed |
 | §3.3.5 | Translation table descriptors | ☐ | ☐ | | Descriptor type handling |
 

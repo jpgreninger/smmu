@@ -175,6 +175,7 @@ set(UNIT_TEST_SOURCES
     test_bugs_new28.cpp
     test_bugs_audit69_72.cpp
     test_bugs_audit109_112.cpp
+    test_bug_audit_113.cpp
     ../test_thread_safety.cpp
 )
 
