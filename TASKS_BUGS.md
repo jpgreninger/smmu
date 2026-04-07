@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.3.4
+CURRENT_SECTION = 3.5
 
 ## Status Legend
 
@@ -68,8 +68,8 @@ CURRENT_SECTION = 3.3.4
 | §3.3.1.2 | 2-level Stream table | ✅ | ✅ | BUG-AUDIT-102/106/107/108 | Implementation correct. BUG-AUDIT-102: fixed ST_LEVEL docstring (2-bit field). BUG-AUDIT-106: added invalid SPLIT clamping test. BUG-AUDIT-107: added split=8/10 boundary tests. BUG-AUDIT-108: added in-range/unconfigured stream test |
 | §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44, BUG-AUDIT-109/110/111/112 | S1CDMax, substream routing. BUG-AUDIT-109: s1cdMax==0+SSV=1+PASID!=0 must emit C_BAD_SUBSTREAMID. BUG-AUDIT-110: S1DSS==0b11 reserved→F_STREAM_DISABLED. BUG-AUDIT-111: bypass/stage-2-only+SSV=1→C_BAD_SUBSTREAMID. BUG-AUDIT-112: s1cdMax==0+SSV=1+PASID=0 must abort. All fixed; C++ 184/184 | Rust 4 new tests pass |
 | §3.3.3 | Configuration and Translation lookup | ✅ | ✅ | BUG-AUDIT-113 | BUG-AUDIT-113: C++ strwUnused=!stage1Enabled missing ||stage2Enabled — Config=0b111 two-stage NonSecure stream with STRW=EL2 incorrectly rejected; fixed per ARM §5.2 IgnoreSTESTRW(). Rust already correct. FINDING-333-03 (TLB CacheKey missing StreamWorld): acceptable gap per §3.3 notes. FINDING-333-04 (CD.AA64/StreamWorld): AArch32 LPAE unsupported (intentional). FINDING-333-05 (T1SZ for EL2/EL3): only affects Secure streams (out of scope). C++ 185/185 |
-| §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ⚠️ | ⚠️ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed |
-| §3.3.5 | Translation table descriptors | ☐ | ☐ | | Descriptor type handling |
+| §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ✅ | ✅ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed. Re-audited 2026-04-05: all fixes confirmed. MTCFG/SHCFG stage-1 TTD combine gap already tracked as §13.4.2/§13.1.5 ☐. C++ vs Rust STRW+two-stage divergence already tracked §5.2 ⚠️. No new bugs. |
+| §3.3.5 | Translation table descriptors | N/A | N/A | | PBHA=0 (IDR3.PBHA not advertised). No raw descriptor walk in either implementation (structured PageEntry API, not raw 64-bit descriptor parsing). Bits [63:60] of stage 2 Block/Page descriptors are RES0 (SMMUv3.1+); no fault or strip requirement when PBHA disabled. Section is a software constraint, not an SMMU hardware behavioral requirement. |
 
 ### §3.4 Address Sizes
 
@@ -78,7 +78,7 @@ CURRENT_SECTION = 3.3.4
 | §3.4 | Address sizes (overview) | ⚠️ | ⚠️ | NEW-GAP-C, AUDIT-47 | T0SZ range, IPS/PS |
 | §3.4.1 | Input address size and Virtual Address size | ⚠️ | ⚠️ | AUDIT-47 | T0SZ [16,39] enforcement |
 | §3.4.2 | Address alignment checks | ⚠️ | ⚠️ | AUDIT-84 | Stage-1 PA > OAS → F_ADDR_SIZE |
-| §3.4.3 | Address sizes of SMMU-originated accesses | ☐ | ☐ | | PTW address sizing |
+| §3.4.3 | Address sizes of SMMU-originated accesses | N/A | ⚠️ | BUG-AUDIT-114, BUG-AUDIT-115 | BUG-AUDIT-114 (Rust): stage-1-only PA > OAS must silently truncate per §3.4 line 1635, not F_ADDR_SIZE — fixed. BUG-AUDIT-115 (Rust): CD.TTB0/TTB1 out-of-IPS → C_BAD_CD missing; added ttb0/ttb1 fields to StreamConfig + check in check_ste_illegal() per CdIllegal() pseudocode §9.4. Architectural modeling gaps documented: BUG-AUDIT-116 (CD.TTB 48-bit DS=0 constraint — needs tg/ds fields), BUG-AUDIT-117 (S1ContextPtr OAS check), BUG-AUDIT-118 (L1CD.L2Ptr OAS), BUG-AUDIT-119 (STRTAB_BASE OAS) — all require PA pointer fields not present in in-memory model. C++ not applicable (Rust-only audit). |
 
 ### §3.5 Command and Event Queues
 
@@ -787,6 +787,6 @@ re-audit recommended to confirm full coverage." ✅ is reserved for sections wit
 and confirmed clean.
 
 **Last updated**: 2026-04-05
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-112, BUG-NEW-RUST-1/2 — all fixed ✅
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-113, BUG-NEW-RUST-1/2 — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 184/184 | Rust 255/255 (all suites green) | 0 clippy warnings
+**Test status**: C++ 185/185 | Rust 615/615 (all suites green) | 0 clippy warnings

@@ -2619,6 +2619,63 @@ impl SMMU {
             }
         }
 
+        // (3) CD.TTB0/TTB1 address-size check (BUG-AUDIT-115):
+        //     When Stage-1 is enabled, CD.TTB0 and CD.TTB1 must be within the IPS-bounded range.
+        //     ARM §3.4.3 / CdIllegal() pseudocode: CDTTBxOutOfRange(CD.TTBx, ...) → CD ILLEGAL → C_BAD_CD.
+        if config.stage1_enabled {
+            let ips_bits: u32 = match config.ips {
+                0 => 32,
+                1 => 36,
+                2 => 40,
+                3 => 42,
+                4 => 44,
+                5 => 48,
+                6 => 52,
+                _ => 48, // default to 48-bit for reserved values
+            };
+            // For IPS < 52 bits the valid range is [0, 2^ips_bits).
+            // For IPS == 52 we skip the check (any u64 TTB address is within 52-bit range in practice).
+            if ips_bits < 52 {
+                let ips_limit = 1u64 << ips_bits;
+                // Check TTB0 only when EPD0=false (TTB0 walk is enabled).
+                if !config.epd0 && config.ttb0 >= ips_limit {
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::CBadCd,
+                            stream_id: stream_id.as_u32(),
+                            security_state: config.security_state,
+                            timestamp,
+                            ..EventEntry::zeroed()
+                        };
+                        self.enqueue_event(event);
+                    }
+                    return Err(SMMUError::invalid_configuration(
+                        format!("C_BAD_CD: CD.TTB0 0x{:x} exceeds IPS ({}-bit, limit 0x{:x}) (ARM §3.4.3 CdIllegal)",
+                            config.ttb0, ips_bits, ips_limit),
+                    ));
+                }
+                // Check TTB1 only when EPD1=false (TTB1 walk is enabled).
+                if !config.epd1 && config.ttb1 >= ips_limit {
+                    if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                        let event = EventEntry {
+                            event_type: EventType::CBadCd,
+                            stream_id: stream_id.as_u32(),
+                            security_state: config.security_state,
+                            timestamp,
+                            ..EventEntry::zeroed()
+                        };
+                        self.enqueue_event(event);
+                    }
+                    return Err(SMMUError::invalid_configuration(
+                        format!("C_BAD_CD: CD.TTB1 0x{:x} exceeds IPS ({}-bit, limit 0x{:x}) (ARM §3.4.3 CdIllegal)",
+                            config.ttb1, ips_bits, ips_limit),
+                    ));
+                }
+            }
+        }
+
         // BUG-QA-12 fix: §5.5 — STALL_MODEL==0b01 (terminate-only) AND STE.S2S==1 → C_BAD_STE.
         // Guard: S2S is only meaningful when stage-2 is active; bypass/stage1-only
         // streams with s2_stall=true must not be rejected (QA-AUDIT-FIX-B).
@@ -4804,29 +4861,38 @@ impl SMMU {
             }
         }
 
-        // GAP NEW-5 / ARM IHI0070G.b §3.4 / §7.3.14: Stage-1-only OAS check.
-        // When Stage-1 is active and Stage-2 is bypassed (STE.Config=0b10x), the Stage-1
-        // output PA must be checked against the OAS limit.
-        // BUG-AUDIT-84 fix: ARM §7.3.14 CheckS1OutputAddrSize() — a stage-1-only translation
-        // that produces a PA >= 2^OAS must raise F_ADDR_SIZE (0x11), NOT silently truncate.
-        // The old code masked the PA (silent truncation), which is incorrect.
-        // NOTE: This MUST run BEFORE TLB insertion so the error is not cached.
+        // BUG-AUDIT-114 fix: ARM IHI0070G.b §3.4 line 1635 — Stage-1-only OAS truncation.
+        // When Stage-1 is active and Stage-2 is bypassed (STE.Config=0b10x), the stage-1
+        // output PA is used directly as the PA output.  If the PA exceeds the OAS, the spec
+        // requires the address to be **silently truncated** to fit the OAS — NOT faulted.
+        // "If the IPA is outside the range of the OAS, the address is silently truncated to
+        //  fit the OAS." (§3.4 line 1635)
+        // NOTE: This MUST run BEFORE TLB insertion so the truncated value is what gets cached.
         let result = if stream_stage1_enabled && !stream_stage2_enabled && !is_bypass {
-            if let Ok(ref data) = result {
+            if let Ok(data) = result {
                 let out_pa = data.physical_address().as_u64();
                 if oas_bits < 64 && out_pa >= (1u64 << oas_bits) {
-                    // §7.3.14: F_ADDR_SIZE — stage-1 output PA exceeds OAS.
-                    let oas_error = TranslationError::AddressSizeError;
-                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
-                    let pnu = self.streams.get(&stream_id.as_u32())
-                        .map_or(false, |ctx| ctx.is_access_privileged(access));
-                    self.record_translation_fault(
-                        stream_id, pasid, iova, access, security_state,
-                        &oas_error, false, 0, false, 0, pnu, false, ssv,
-                    );
-                    return Err(oas_error);
+                    // §3.4 line 1635: silently truncate the PA to OAS width.
+                    let oas_mask = (1u64 << oas_bits) - 1;
+                    let truncated_pa = out_pa & oas_mask;
+                    // PA::new always succeeds (returns Ok), so unwrap is safe here.
+                    let new_pa = PA::new(truncated_pa).unwrap_or_else(|_| unreachable!());
+                    // Reconstruct TranslationData with the truncated PA, preserving all
+                    // other fields (permissions, security state, output attributes).
+                    let mut truncated_data = crate::types::TranslationData::new(new_pa, data.permissions(), data.security_state())
+                        .with_output_attrs(
+                            data.mem_type(),
+                            data.shareability(),
+                            data.alloc_hint(),
+                            data.inst_cfg(),
+                            data.priv_cfg(),
+                            data.ns_cfg_out(),
+                        );
+                    truncated_data.page_attr = data.page_attr;
+                    Ok(truncated_data)
+                } else {
+                    Ok(data)
                 }
-                result
             } else {
                 result
             }

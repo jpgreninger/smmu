@@ -322,22 +322,24 @@ fn new2_stage1_fault_has_s2_false() {
 // GAP NEW-5: §3.4 Stage-2-bypass OAS: truncate vs abort
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// NEW-5 / BUG-AUDIT-84: Stage-1 OAS overflow raises F_ADDR_SIZE (§7.3.14).
+/// BUG-AUDIT-114 correction: §3.4 line 1635 requires silent truncation, not F_ADDR_SIZE.
 ///
-/// ARM IHI0070G.b §7.3.14 CheckS1OutputAddrSize(): when stage-2 is bypassed
-/// (stage-1 active, stage-2 disabled) and the stage-1 output PA exceeds OAS,
-/// F_ADDR_SIZE (0x11) must be raised — NOT silently truncated.
+/// ARM IHI0070G.b §3.4 line 1635: "If bypassing stage 2 (because STE.Config == 0b10x
+/// or if unimplemented), the IPA is presented directly as the PA output address.  If
+/// the IPA is outside the range of the OAS, the address is silently truncated to fit
+/// the OAS."
 ///
-/// BUG-AUDIT-84 superseded the old §3.4 "silent truncation" interpretation:
-/// §7.3.14 is the authoritative rule for stage-1 output address size checks.
+/// The earlier BUG-AUDIT-84 interpretation (raise F_ADDR_SIZE per §7.3.14) was incorrect
+/// for the stage-2-bypass case.  §3.4 line 1635 is the authoritative rule and mandates
+/// silent truncation with no event.
 ///
 /// Setup:
-///   - OAS = 36 bits (max_pa_bits = 36) → OAS limit = 0x10_0000_0000
+///   - OAS = 36 bits (max_pa_bits = 36) → OAS mask = 0x0F_FFFF_FFFF
 ///   - stage-1 stream maps IOVA→PA where PA > OAS limit
-///   - translate → must return Err AND record F_ADDR_SIZE event
+///   - translate → must return Ok with truncated PA AND no F_ADDR_SIZE event
 ///
-/// BEFORE BUG-AUDIT-84: translate returns Ok with OAS-truncated PA (old §3.4 behavior).
-/// AFTER BUG-AUDIT-84:  translate returns Err(AddressSizeError) and records F_ADDR_SIZE.
+/// BEFORE BUG-AUDIT-114 fix: translate returns Err(AddressSizeError) and records F_ADDR_SIZE.
+/// AFTER BUG-AUDIT-114 fix:  translate returns Ok with OAS-truncated PA; no event.
 #[test]
 fn new5_stage2_bypass_oas_truncates_not_aborts() {
     use smmu::types::{AddressConfig, EventType, SMMUConfig};
@@ -389,22 +391,36 @@ fn new5_stage2_bypass_oas_truncates_not_aborts() {
         SecurityState::NonSecure,
     );
 
-    // BUG-AUDIT-84: §7.3.14 CheckS1OutputAddrSize() — stage-1 PA exceeding OAS must abort.
+    // §3.4 line 1635: must return Ok with PA silently truncated to OAS width.
+    let oas_mask: u64 = (1u64 << oas_bits) - 1;
+    let expected_truncated_pa = high_pa & oas_mask; // 0x10_0000_1000 & 0x0F_FFFF_FFFF = 0x1000
+
     assert!(
-        result.is_err(),
-        "BUG-AUDIT-84: Stage-1 OAS overflow must raise F_ADDR_SIZE (Err), not silently truncate; \
-         got Ok with PA {:#x}",
-        result.as_ref().map_or(0, |d| d.physical_address().as_u64())
+        result.is_ok(),
+        "BUG-AUDIT-114: §3.4 line 1635 requires silent PA truncation to OAS width, \
+         not F_ADDR_SIZE. Got: {:?}",
+        result.err()
     );
 
-    // F_ADDR_SIZE event must be recorded.
+    let data = result.unwrap();
+    assert_eq!(
+        data.physical_address().as_u64(),
+        expected_truncated_pa,
+        "BUG-AUDIT-114: PA must be truncated to OAS width. Expected {:#x}, got {:#x}",
+        expected_truncated_pa,
+        data.physical_address().as_u64()
+    );
+
+    // No F_ADDR_SIZE event must be recorded — truncation is silent.
     let events = smmu.get_events();
     let has_addr_size = events
         .iter()
         .any(|e| e.event_type == EventType::FAddrSize);
     assert!(
-        has_addr_size,
-        "BUG-AUDIT-84: F_ADDR_SIZE event must be emitted when stage-1 PA exceeds OAS (ARM §7.3.14)"
+        !has_addr_size,
+        "BUG-AUDIT-114: §3.4 line 1635 requires SILENT truncation — \
+         no F_ADDR_SIZE event must be queued. Events: {:?}",
+        events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }
 

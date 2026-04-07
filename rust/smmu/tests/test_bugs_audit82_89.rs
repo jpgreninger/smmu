@@ -193,17 +193,20 @@ fn audit_83_disable_stream_must_invalidate_tlb() {
 //               F_ADDR_SIZE  (Spec §7.3.14)
 // ============================================================================
 
-/// With a 32-bit OAS, a stage-1 translation that produces a PA >= 2^32 must
-/// raise F_ADDR_SIZE (EventType::FAddrSize, 0x11), not silently truncate.
+/// BUG-AUDIT-114 correction: ARM §3.4 line 1635 overrides the §7.3.14 assumption.
 ///
-/// The current code at lines 4711-4732 applies silent truncation for stage-1-only
-/// streams (s1_en=true, s2_en=false, !bypass) when the output PA exceeds OAS.
-/// ARM §7.3.14 requires F_ADDR_SIZE to be raised in this case.
+/// §3.4 line 1635 states: "If the IPA is outside the range of the OAS, the address is
+/// silently truncated to fit the OAS."  This applies when stage 2 is bypassed
+/// (STE.Config=0b10x), which includes stage-1-only (STE.Config=0b101).
 ///
-/// BEFORE FIX: translate() returns Ok with a truncated PA; no F_ADDR_SIZE event.
-/// AFTER FIX:  translate() returns Err, and an F_ADDR_SIZE event is queued.
+/// The original AUDIT-84 test expected F_ADDR_SIZE, which contradicts §3.4 line 1635.
+/// The correct behavior: translate() returns Ok with the PA truncated to OAS width,
+/// and NO F_ADDR_SIZE event is queued.
+///
+/// BEFORE FIX (BUG-AUDIT-114): translate() returns Err (AddressSizeError) with F_ADDR_SIZE.
+/// AFTER FIX:  translate() returns Ok with truncated PA; no F_ADDR_SIZE event.
 #[test]
-fn audit_84_stage1_pa_exceeds_oas_must_raise_f_addr_size() {
+fn audit_84_stage1_pa_exceeds_oas_must_silently_truncate() {
     // Configure SMMU with a 32-bit OAS.
     let cfg = SMMUConfig {
         address_config: AddressConfig {
@@ -238,23 +241,36 @@ fn audit_84_stage1_pa_exceeds_oas_must_raise_f_addr_size() {
 
     let result = smmu.translate(stream, p, v, AccessType::Read, SecurityState::NonSecure);
 
-    // Must be an error, not Ok with truncated PA.
+    // §3.4 line 1635: must return Ok with PA silently truncated to OAS width.
+    // For 32-bit OAS: mask = (1u64 << 32) - 1 = 0xFFFF_FFFF.
+    // 0x1_0000_0000 & 0xFFFF_FFFF = 0x0000_0000.
+    let oas_mask: u64 = (1u64 << 32) - 1;
+    let expected_truncated_pa = over_oas_pa.as_u64() & oas_mask;
+
     assert!(
-        result.is_err(),
-        "BUG-AUDIT-84: stage-1 translation producing PA=0x{:X} (> 32-bit OAS) \
-         must return Err (F_ADDR_SIZE), not Ok. ARM §7.3.14. \
-         Got Ok({:?})",
-        over_oas_pa.as_u64(),
-        result.ok()
+        result.is_ok(),
+        "BUG-AUDIT-114: §3.4 line 1635 requires silent truncation of stage-1 PA \
+         exceeding OAS, not F_ADDR_SIZE. Got: {:?}",
+        result.err()
     );
 
-    // An F_ADDR_SIZE event must have been queued.
+    let data = result.unwrap();
+    assert_eq!(
+        data.physical_address().as_u64(),
+        expected_truncated_pa,
+        "BUG-AUDIT-114: translated PA must be truncated to OAS width. \
+         Expected 0x{:X}, got 0x{:X}",
+        expected_truncated_pa,
+        data.physical_address().as_u64()
+    );
+
+    // No F_ADDR_SIZE event — the truncation is silent per §3.4 line 1635.
     let events = smmu.get_events();
     let has_addr_size = events.iter().any(|e| e.event_type == EventType::FAddrSize);
     assert!(
-        has_addr_size,
-        "BUG-AUDIT-84: F_ADDR_SIZE event (0x11) must be queued when stage-1 PA \
-         exceeds OAS. ARM §7.3.14. Events queued: {:?}",
+        !has_addr_size,
+        "BUG-AUDIT-114: §3.4 line 1635 requires SILENT truncation — no F_ADDR_SIZE \
+         event must be queued. Events queued: {:?}",
         events.iter().map(|e| e.event_type).collect::<Vec<_>>()
     );
 }

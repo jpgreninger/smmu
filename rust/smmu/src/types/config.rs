@@ -401,6 +401,24 @@ pub struct StreamConfig {
 
     /// BUG-AUDIT-50: ARM §5.2 STE.S2ENDI — endianness for stage-2 table walks. 0=little-endian, 1=big-endian.
     pub s2endi: bool,
+
+    // ---- BUG-AUDIT-115: CD.TTB0 / CD.TTB1 base addresses (§3.4.3 / §5.4) ----
+
+    /// §5.4 CD.TTB0: Physical base address of the TTBR0 translation table.
+    ///
+    /// ARM §3.4.3 / CdIllegal() pseudocode: it is ILLEGAL for this address to be
+    /// outside the range described by the CD's effective IPS value.
+    /// Violation (when EPD0=false) → C_BAD_CD at configure time.
+    /// Default: `0`.
+    pub ttb0: u64,
+
+    /// §5.4 CD.TTB1: Physical base address of the TTBR1 translation table.
+    ///
+    /// ARM §3.4.3 / CdIllegal() pseudocode: it is ILLEGAL for this address to be
+    /// outside the range described by the CD's effective IPS value.
+    /// Violation (when EPD1=false) → C_BAD_CD at configure time.
+    /// Default: `0`.
+    pub ttb1: u64,
 }
 
 impl StreamConfig {
@@ -472,6 +490,8 @@ impl StreamConfig {
             s2_record: true,
             endi: false,
             s2endi: false,
+            ttb0: 0,
+            ttb1: 0,
         }
     }
 
@@ -528,6 +548,8 @@ impl StreamConfig {
             s2_record: true,
             endi: false,
             s2endi: false,
+            ttb0: 0,
+            ttb1: 0,
         }
     }
 
@@ -584,6 +606,8 @@ impl StreamConfig {
             s2_record: true,
             endi: false,
             s2endi: false,
+            ttb0: 0,
+            ttb1: 0,
         }
     }
 
@@ -640,6 +664,8 @@ impl StreamConfig {
             s2_record: true,
             endi: false,
             s2endi: false,
+            ttb0: 0,
+            ttb1: 0,
         }
     }
 
@@ -866,6 +892,9 @@ pub struct StreamConfigBuilder {
     // BUG-AUDIT-50
     endi: bool,
     s2endi: bool,
+    // BUG-AUDIT-115
+    ttb0: u64,
+    ttb1: u64,
 }
 
 impl StreamConfigBuilder {
@@ -922,6 +951,8 @@ impl StreamConfigBuilder {
             s2_record: true,
             endi: false,
             s2endi: false,
+            ttb0: 0,
+            ttb1: 0,
         }
     }
 
@@ -1292,6 +1323,26 @@ impl StreamConfigBuilder {
         self
     }
 
+    // ---- BUG-AUDIT-115: CD.TTB0 / CD.TTB1 builder methods ----
+
+    /// Set CD.TTB0 — physical base address of the TTBR0 translation table (BUG-AUDIT-115, ARM §5.4).
+    ///
+    /// ARM §3.4.3 / CdIllegal(): the address must be within the IPS-bounded range when EPD0=false.
+    #[must_use]
+    pub fn ttb0(mut self, v: u64) -> Self {
+        self.ttb0 = v;
+        self
+    }
+
+    /// Set CD.TTB1 — physical base address of the TTBR1 translation table (BUG-AUDIT-115, ARM §5.4).
+    ///
+    /// ARM §3.4.3 / CdIllegal(): the address must be within the IPS-bounded range when EPD1=false.
+    #[must_use]
+    pub fn ttb1(mut self, v: u64) -> Self {
+        self.ttb1 = v;
+        self
+    }
+
     /// Build the StreamConfig with validation
     #[must_use]
     pub fn build(self) -> Result<StreamConfig, ValidationError> {
@@ -1345,6 +1396,8 @@ impl StreamConfigBuilder {
             s2_record: self.s2_record,
             endi: self.endi,
             s2endi: self.s2endi,
+            ttb0: self.ttb0,
+            ttb1: self.ttb1,
         };
 
         config.validate()?;
