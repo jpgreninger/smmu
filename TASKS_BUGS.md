@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.22
+CURRENT_SECTION = 4.1
 
 ## Status Legend
 
@@ -229,22 +229,22 @@ CURRENT_SECTION = 3.22
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.22 | Destructive reads and directed cache prefetch | ☐ | ☐ | | DRE/DCP in STE |
-| §3.22.1 | Control of transaction downgrade | ☐ | ☐ | | |
-| §3.22.2 | Permissions model | ☐ | ☐ | | |
-| §3.22.3 | Memory types and Shareability | ☐ | ☐ | | |
-| §3.23 | Memory Tagging Extension | ☐ | ☐ | | MTE — IDR3.MTEPERM |
-| §3.23.1 | SMMU support for FEAT_MTE_PERM | ☐ | ☐ | | |
+| §3.22 | Destructive reads and directed cache prefetch | N/A | N/A | | AMBA AXI5 DR/RCI/W-DCP/NW-DCP HW transaction types not in SW model API; STE.DRE/DCP not implemented |
+| §3.22.1 | Control of transaction downgrade | N/A | N/A | | STE.DRE/DCP not advertised; downgrade N/A |
+| §3.22.2 | Permissions model | N/A | N/A | | DR/RCI permission model N/A (no HW transaction types) |
+| §3.22.3 | Memory types and Shareability | N/A | N/A | | Output interconnect constraints N/A for SW model |
+| §3.23 | Memory Tagging Extension | N/A | N/A | | IDR3.MTEPERM=1 set; MAIR 0xF0 Reserved enforced by SW model not implementing MAIR field parsing |
+| §3.23.1 | SMMU support for FEAT_MTE_PERM | N/A | N/A | | stage-2 MemAttr NoTagAccess remapping N/A (flat model uses page_attr 0x00/0xFF only) |
 | §3.24 | Device Permission Table | 🚫 | 🚫 | | DPT — out of scope |
 | §3.24.1–7 | DPT sub-sections | 🚫 | 🚫 | | |
 | §3.25 | Granule Protection Checks | 🚫 | 🚫 | | GPC/GPT — out of scope |
 | §3.25.1–6 | GPC sub-sections | 🚫 | 🚫 | | |
-| §3.26 | Permission Indirections | ☐ | ☐ | | PIE — S1PIE/S2PIE in STE/CD |
-| §3.26.1 | Stage 1 permission indirections | ☐ | ☐ | | |
-| §3.26.2 | Stage 2 permission indirections | ☐ | ☐ | | |
-| §3.27 | Translation Hardening | ☐ | ☐ | | AssuredOnly, Protected |
-| §3.27.1 | Protected attribute | ☐ | ☐ | | |
-| §3.27.2 | AssuredOnly permission checks | ☐ | ☐ | | STE.AssuredOnly bit [329] |
+| §3.26 | Permission Indirections | N/A | N/A | | S1PIE/S2PIE not advertised in IDR0; PIE not implemented |
+| §3.26.1 | Stage 1 permission indirections | N/A | N/A | | |
+| §3.26.2 | Stage 2 permission indirections | N/A | N/A | | |
+| §3.27 | Translation Hardening | N/A | N/A | | AssuredOnly/Protected not advertised; not implemented |
+| §3.27.1 | Protected attribute | N/A | N/A | | |
+| §3.27.2 | AssuredOnly permission checks | N/A | N/A | | |
 
 ---
 
