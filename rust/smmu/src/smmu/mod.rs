@@ -2091,6 +2091,11 @@ impl SMMU {
             // BUG-AUDIT-54 fix: CR2.PTM=1 → Private TLB Maintenance, SMMU does not participate (ARM §6.3.12)
             return;
         }
+        // §3.17 BUG-AUDIT-131: When S2P==0, substitute vmid=0 for all VMID-targeted
+        // broadcast invalidations. (ARM §3.17: "When S2P==0, the SMMU matches VMID 0
+        // for incoming broadcast TLB invalidation messages for a regime that uses VMIDs.")
+        let vmid = if !self.s2p_supported.load(Ordering::Acquire) { 0u16 } else { vmid };
+
         // Execute the invalidation
         let va_raw = va.as_u64();
         match cmd_type {

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.17
+CURRENT_SECTION = 3.17.1
 
 ## Status Legend
 
@@ -188,7 +188,7 @@ CURRENT_SECTION = 3.17
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ⚠️ | BUG-QA-14, BUG-NEW-20 | STRW field in TLBEntry; VMID zeroing for Secure only |
+| §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅ | STRW field in TLBEntry; S2P==0 → VMID=0 substitution in receive_broadcast_tlbi; ASET over-invalidation is permitted conservative behavior (spec says "not required to invalidate") |
 | §3.17.1 | The Global flag in translation table descriptor | ☐ | ☐ | | |
 | §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ⚠️ | BUG-NEW-37–40, AUDIT-54 | TLBI scoping, VMID vs global; PTM polarity fixed |
 | §3.17.2.1 | Broadcast TLB maintenance when Secure EL2 implemented | 🚫 | 🚫 | | Secure out of scope |
