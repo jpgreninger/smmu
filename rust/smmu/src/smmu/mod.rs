@@ -7690,6 +7690,9 @@ impl SMMU {
                     ));
                 }
                 // No prefetch side effects in SW model.
+                // §4.2 / §4.1.7: out-of-range StreamID/SubstreamID → IGNORED (no CERROR_ILL).
+                // §4.2 note: SSV=1 with SSIDSIZE==0 or S1CDMax==0 is CONSTRAINED UNPREDICTABLE;
+                // the "no effect" branch is taken here (flat model never caches CDs anyway).
             },
             // CMD_PREFETCH_ADDR — no side-effect processing required in the software model.
             // BUG-NEW-25 fix: ARM §4.2.2/§4.1.6 — SSec=1 on NS queue is ILLEGAL → CERROR_ILL.
@@ -7702,6 +7705,9 @@ impl SMMU {
                     ));
                 }
                 // No prefetch side effects in SW model.
+                // §4.2 / §4.1.7: out-of-range Address/StreamID → IGNORED (no CERROR_ILL, no fault).
+                // §4.2 note: SSV=1 with SSIDSIZE==0 or S1CDMax==0 is CONSTRAINED UNPREDICTABLE;
+                // the "no effect" branch is taken here (flat model never caches translation pages).
             },
             // BUG-NEW-36 fix: ARM §4.4.2.5 — CMD_TLBI_EL3_ALL causes CERROR_ILL:
             //   (1) when used on the Non-secure Command queue, OR

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 4.2
+CURRENT_SECTION = 4.3
 
 ## Status Legend
 
@@ -266,8 +266,8 @@ CURRENT_SECTION = 4.2
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §4.2.1 | CMD_PREFETCH_CONFIG | ⚠️ | ⚠️ | BUG-NEW-25 | SSec guard added |
-| §4.2.2 | CMD_PREFETCH_ADDR | ⚠️ | ⚠️ | BUG-NEW-25 | SSec guard added |
+| §4.2.1 | CMD_PREFETCH_CONFIG | ⚠️ | ⚠️ | BUG-NEW-25 | SSec guard correct; out-of-range → IGNORED; SSV+S1CDMax=0 CONSTRAINED UNPREDICTABLE documented |
+| §4.2.2 | CMD_PREFETCH_ADDR | ⚠️ | ⚠️ | BUG-NEW-25 | SSec guard correct; out-of-range address → IGNORED (no fault); flat-model Leaf=0/1 both no-op (conformant) |
 
 ### §4.3 Configuration Structure Invalidation
 
