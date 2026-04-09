@@ -2670,6 +2670,20 @@ impl StreamContext {
         // access type, record a PermissionFault and return PermissionViolation.
         let s2_data = stage2_result?;
 
+        // BUG-AUDIT-130 fix: §3.13.2 / §3.13.4 — when S2HA (or S2HD) is enabled,
+        // atomically set AF=1 in the stage-2 descriptor after a successful translation.
+        // Mirrors the fix in translate_two_stage_with_ipa (BUG-AUDIT-128).
+        {
+            let do_s2_af_update = self.s2ha.load(Ordering::Acquire);
+            let do_s2_dirty_update = self.s2hd.load(Ordering::Acquire);
+            if do_s2_af_update || do_s2_dirty_update {
+                let stage2_guard = self.stage2_address_space.read().unwrap();
+                if let Some(stage2) = stage2_guard.as_ref() {
+                    stage2.update_access_flags(ipa, do_s2_af_update, do_s2_dirty_update, access_type);
+                }
+            }
+        }
+
         // NEW-8 fix: §3.4/§7.3.14 — stage-2 output PA must be within S2PS range → F_ADDR_SIZE.
         {
             let s2_ps = self.s2_ps.load(Ordering::Acquire);

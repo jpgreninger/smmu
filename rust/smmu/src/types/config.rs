@@ -738,6 +738,23 @@ impl StreamConfig {
             });
         }
 
+        // BUG-AUDIT-129 fix: §3.13 / §3.13.4 — HD=1 requires HA=1.
+        // The combination {HA=0, HD=1} is architecturally illegal: dirty-state hardware
+        // table walk update (HD) requires access-flag hardware update (HA) to be enabled.
+        if self.hd && !self.ha {
+            return Err(ValidationError::InvalidConfiguration {
+                reason: "HD=1 requires HA=1 (§3.13.4: dirty-state HTTU implies access-flag HTTU)".into(),
+            });
+        }
+
+        // BUG-AUDIT-129 fix: §3.13.4 — S2HD=1 requires S2HA=1.
+        // Same constraint for stage-2: {S2HA=0, S2HD=1} is architecturally illegal.
+        if self.s2hd && !self.s2ha {
+            return Err(ValidationError::InvalidConfiguration {
+                reason: "S2HD=1 requires S2HA=1 (§3.13.4: stage-2 dirty-state HTTU implies stage-2 access-flag HTTU)".into(),
+            });
+        }
+
         Ok(())
     }
 

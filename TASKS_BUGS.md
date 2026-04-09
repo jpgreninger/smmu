@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.13.3
+CURRENT_SECTION = 3.13.5
 
 ## Status Legend
 
@@ -159,10 +159,10 @@ CURRENT_SECTION = 3.13.3
 | §3.13 | Translation tables and Access flag/Dirty state | ✅ | ✅ | NEW-GAP ✅ | IDR0.HTTU=0b01 (AF-only); S2HD/HD guards reject dirty-state when HTTU<0b10; HA hardware AF-update modeled; no mandatory enforcement for shared-ASID CD.HA/HD identity |
 | §3.13.1 | Software update of flags | N/A | N/A | | Software guidance only; AFFD (suppress F_ACCESS when AF=0) implemented in stream_context |
 | §3.13.2 | Access flag hardware update | ✅ | ✅ | NEW-GAP ✅, BUG-RUST-I ✅, BUG-AUDIT-128 ✅ | Stage-1 HA AF-update correct; stage-2 HA AF-update added (BUG-AUDIT-128); AFFD/S2AFFD suppress F_ACCESS; SMMU never clears AF |
-| §3.13.3 | Dirty state hardware update | ⚠️ | ⚠️ | BUG-NEW, BUG-NEW-22 | HD bit in STE/CD; WriteExecute dirty-bit variants |
-| §3.13.3.1 | Direct Permission Scheme | ☐ | ☐ | | |
-| §3.13.3.2 | Indirect Permission Scheme | ☐ | ☐ | | S2PIE/S1PIE |
-| §3.13.4 | HTTU behavior summary | ⚠️ | ⚠️ | | HD/HA combinations |
+| §3.13.3 | Dirty state hardware update | N/A | N/A | BUG-AUDIT-36 ✅, BUG-AUDIT-40 ✅ | HTTU=0b01: HD/S2HD always rejected at configure time; dirty-state HTTU unreachable by design |
+| §3.13.3.1 | Direct Permission Scheme | N/A | N/A | | HTTU<0b10 — DBM path structurally unreachable; SMMU never touches permission bits in update_access_flags |
+| §3.13.3.2 | Indirect Permission Scheme | N/A | N/A | | HTTU<0b10 — CD.HD/STE.S2HD always rejected; no DBM field in Indirect Scheme descriptors |
+| §3.13.4 | HTTU behavior summary | N/A | ✅ | BUG-AUDIT-129 ✅, BUG-AUDIT-130 ✅ | HD=1 requires HA=1 (and S2HD=1 requires S2HA=1) enforced in validate(); translate_two_stage() S2 HTTU update added; CMD_SYNC/TLB visibility satisfied structurally; speculative S2-dirty-on-S1-PTW-walk permitted behavior not modeled (flat-table model has no intermediate walk entries) |
 | §3.13.5 | HTTU with two stages | ☐ | ☐ | | |
 | §3.13.6 | Access flag in Table descriptors | ☐ | ☐ | | AF bit in TT descriptors |
 | §3.13.7 | ATS, PRI and translation table flag update | ☐ | ☐ | | |

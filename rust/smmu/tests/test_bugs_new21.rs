@@ -105,6 +105,7 @@ fn s2hd_raises_c_bad_ste_when_stage2_enabled() {
 
     let mut cfg = StreamConfig::stage2_only();
     cfg.security_state = SecurityState::NonSecure;
+    cfg.s2ha = true; // §3.13.4: S2HA=1 required when S2HD=1 (BUG-AUDIT-129).
     cfg.s2hd = true;
 
     let result = smmu.configure_stream(sid(1), cfg);
@@ -120,10 +121,14 @@ fn s2hd_raises_c_bad_ste_when_stage2_enabled() {
     );
 }
 
-/// BUG-AUDIT-36 test 2: `s2hd=true` but `stage2_enabled=false` (bypass) → accepted.
+/// BUG-AUDIT-36 test 2: `s2hd=true` with `s2ha=true` on bypass stream → accepted.
 ///
-/// S2HD is only validated when stage-2 translation is active.  A bypass
-/// stream with `s2hd=true` must be accepted silently.
+/// S2HD is only validated against HTTU when stage-2 translation is active.  A bypass
+/// stream with `s2hd=true` (and `s2ha=true`, required by §3.13.4) must be accepted silently.
+///
+/// NOTE: §3.13.4 requires S2HA=1 when S2HD=1.  This test was updated from the previous
+/// version (which incorrectly set s2hd=true without s2ha=true — an architecturally illegal
+/// combination per BUG-AUDIT-129 / §3.13.4).
 ///
 /// BEFORE / AFTER FIX: This must always pass (regression guard).
 #[test]
@@ -132,16 +137,18 @@ fn s2hd_accepted_when_stage2_disabled() {
 
     let mut cfg = StreamConfig::bypass();
     cfg.security_state = SecurityState::NonSecure;
+    cfg.s2ha = true; // §3.13.4: S2HA=1 is required when S2HD=1.
     cfg.s2hd = true;
 
     let result = smmu.configure_stream(sid(2), cfg);
     assert!(
         result.is_ok(),
-        "BUG-AUDIT-36 baseline: s2hd=true on a bypass (stage2_enabled=false) stream must be accepted"
+        "BUG-AUDIT-36 baseline: s2hd=true (with s2ha=true per §3.13.4) on a bypass \
+         (stage2_enabled=false) stream must be accepted"
     );
     assert!(
         !has_event(&smmu, EventType::CBadSte),
-        "BUG-AUDIT-36 baseline: no C_BAD_STE expected for bypass stream with s2hd=true"
+        "BUG-AUDIT-36 baseline: no C_BAD_STE expected for bypass stream with s2hd=true + s2ha=true"
     );
 }
 
@@ -415,6 +422,7 @@ fn hd_raises_c_bad_cd_when_stage1_enabled() {
     let mut cfg = StreamConfig::stage1_only();
     cfg.security_state = SecurityState::NonSecure;
     cfg.fault_mode = FaultMode::Terminate;
+    cfg.ha = true; // §3.13.4: HA=1 required when HD=1 (BUG-AUDIT-129).
     cfg.hd = true;
 
     let result = smmu.configure_stream(sid(20), cfg);
@@ -430,10 +438,14 @@ fn hd_raises_c_bad_cd_when_stage1_enabled() {
     );
 }
 
-/// BUG-AUDIT-40 test 2: `hd=true` but `stage1_enabled=false` (stage2-only) → accepted.
+/// BUG-AUDIT-40 test 2: `hd=true` with `ha=true` on a stage2-only stream → accepted.
 ///
-/// CD.HD is only meaningful when stage-1 translation is active.  A stage-2-only
-/// stream with `hd=true` must be accepted silently.
+/// CD.HD is only validated against HTTU when stage-1 is active.  A stage-2-only
+/// stream with `hd=true` (and `ha=true`, required by §3.13.4) must be accepted silently.
+///
+/// NOTE: §3.13.4 requires HA=1 when HD=1.  This test was updated from the previous
+/// version (which incorrectly set hd=true without ha=true — an architecturally illegal
+/// combination per BUG-AUDIT-129 / §3.13.4).
 ///
 /// BEFORE / AFTER FIX: This must always pass (regression guard).
 #[test]
@@ -442,16 +454,18 @@ fn hd_accepted_when_stage1_disabled() {
 
     let mut cfg = StreamConfig::stage2_only();
     cfg.security_state = SecurityState::NonSecure;
+    cfg.ha = true; // §3.13.4: HA=1 is required when HD=1.
     cfg.hd = true;
 
     let result = smmu.configure_stream(sid(21), cfg);
     assert!(
         result.is_ok(),
-        "BUG-AUDIT-40 baseline: hd=true on a stage2-only (stage1_enabled=false) stream must be accepted"
+        "BUG-AUDIT-40 baseline: hd=true (with ha=true per §3.13.4) on a stage2-only \
+         (stage1_enabled=false) stream must be accepted"
     );
     assert!(
         !has_event(&smmu, EventType::CBadCd),
-        "BUG-AUDIT-40 baseline: no C_BAD_CD expected for stage2-only stream with hd=true"
+        "BUG-AUDIT-40 baseline: no C_BAD_CD expected for stage2-only stream with hd=true + ha=true"
     );
 }
 
