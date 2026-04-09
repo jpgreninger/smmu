@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.13.7
+CURRENT_SECTION = 3.13.8
 
 ## Status Legend
 
@@ -165,9 +165,9 @@ CURRENT_SECTION = 3.13.7
 | §3.13.4 | HTTU behavior summary | N/A | ✅ | BUG-AUDIT-129 ✅, BUG-AUDIT-130 ✅ | HD=1 requires HA=1 (and S2HD=1 requires S2HA=1) enforced in validate(); translate_two_stage() S2 HTTU update added; CMD_SYNC/TLB visibility satisfied structurally; speculative S2-dirty-on-S1-PTW-walk permitted behavior not modeled (flat-table model has no intermediate walk entries) |
 | §3.13.5 | HTTU with two stages | N/A | ✅ | | Flat-model: S1 and final-S2 descriptor updates correct; intermediate S2 PTW-walk descriptors structurally inapplicable (no multi-level walk); "S2 must allow writes for S1 PTE update" is out of scope for flat model |
 | §3.13.6 | Access flag in Table descriptors | N/A | N/A | | IDR0.HTTU=0b01 → HAFT explicitly not supported (§6.3.1); flat model has no Table descriptors; CD.HAFT/STE.S2HAFT structurally inapplicable |
-| §3.13.7 | ATS, PRI and translation table flag update | ☐ | ☐ | | |
-| §3.13.7.1 | Hardware flag update for ATS and PRI | ☐ | ☐ | | |
-| §3.13.7.2 | Flag maintenance for ATS/PRI without HTTU | ☐ | ☐ | | |
+| §3.13.7 | ATS, PRI and translation table flag update | 🚫 | 🚫 | | PCIe ATS TR→TC path not implemented; GATOS (ARM ATOS) is separate and not covered here; STE.EATS gates ATS acceptance but no ATS TR processing path exists |
+| §3.13.7.1 | Hardware flag update for ATS and PRI | 🚫 | 🚫 | | ATS TR path out of scope; GATOS handles HTTU via normal translate path |
+| §3.13.7.2 | Flag maintenance for ATS/PRI without HTTU | 🚫 | 🚫 | | ATS TR path out of scope |
 | §3.13.8 | Hardware flag update for CMO and Destructive Reads | ☐ | ☐ | | |
 
 ### §3.14–3.16 Speculative, Coherency, Embedded
