@@ -7309,11 +7309,22 @@ impl SMMU {
                         "CMD_ATC_INV: SSec=1 on NS queue — CERROR_ILL (ARM §4.1.6)".to_string(),
                     ));
                 }
+                // §4.5.1: CMD_ATC_INV IDR0.ATS==0 guard — not needed here because IDR0.ATS
+                // is hardcoded to 1 (line ~1284). If ATS is ever made configurable, add:
+                //   if (self.get_idr0() & (1 << 10)) == 0 { → CERROR_ILL }
                 // CMD_ATC_INV (§4.5.1): range-based or global ATC invalidation.
                 //
                 // flags bit 0 = G (Global):
                 //   G=0: invalidate entries for addresses in [start_address, end_address]
                 //   G=1: invalidate ALL entries for (stream_id, PASID) regardless of address
+                //
+                // §4.5.1 (spec line 6005): "The Global parameter is IGNORED when SSV==0."
+                // SSV is not a separate CommandEntry field in this simulation model.
+                // PASID=0 can mean either SSV=0 (no PASID presented) or SSV=1+PASID=0
+                // (PASID 0 explicitly presented). Since we cannot distinguish these cases
+                // without an explicit SSV bit, we treat G=1 unconditionally — this is the
+                // "safest" over-invalidation: treating G=1+SSV=0 as G=1+SSV=1 is a
+                // conservative simulation-model choice that never under-invalidates.
                 let global = (command.flags & 1) != 0;
 
                 if let (Ok(stream_id), Ok(pasid)) = (
@@ -7394,9 +7405,20 @@ impl SMMU {
                 } else {
                     command.cs
                 };
+                if effective_cs == 0 {
+                    // §4.7.3: CS=0 (SIG_NONE) — no completion signal, no event.
+                    // Clear last-signal-type to 0 to accurately reflect "no signal requested"
+                    // rather than leaving a stale value from a prior CMD_SYNC.
+                    self.cmd_sync_last_signal_type.store(0, Ordering::Release);
+                }
                 if effective_cs != 0 {
                     // CONF-GAP-18: track last CMD_SYNC completion signal type (§4.7.3).
                     // CS=1 = SIG_IRQ, CS=2 = SIG_SEV.
+                    // §4.7.3 CS=1 (SIG_IRQ): spec requires writing MSIData to MSIAddress.
+                    // This simulation model has no physical bus; the MSI write is recorded
+                    // as a CommandSyncCompletion event below. The cmdq_sync_msi_attr and
+                    // cmdq_sync_msi_data registers are writable but not consumed here —
+                    // this is acceptable in a software simulation with no memory-mapped I/O.
                     self.cmd_sync_last_signal_type.store(effective_cs as u32, Ordering::Release);
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
                     // BUG-NEW-26 fix: §4.8 — CMD_SYNC has no StreamID operand; the
@@ -7567,6 +7589,11 @@ impl SMMU {
                 // BUG-NEW-A fix: ARM §4.5.2 — the 2-bit Resp field encodes the response type.
                 // Resp==0b11 is Reserved/ILLEGAL → raise CERROR_ILL + GERROR_CMDQ_ERR.
                 // The Resp value is carried in bits[1:0] of the `flags` field.
+                // §4.5.2 Resp encoding: 0b00=ResponseFailure, 0b01=InvalidRequest, 0b10=Success.
+                // All three valid Resp values are consumed identically in this simulation
+                // (no PCIe bus to assert Success/Failure on). The Resp value is validated
+                // (0b11→CERROR_ILL) but not otherwise differentiated — this is acceptable
+                // in a software simulation model where no physical ATC endpoint is present.
                 let resp = command.flags & 0x03;
                 if resp == 0b11u32 {
                     self.write_cmdq_cons_err(Self::CERROR_ILL);

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 4.5
+CURRENT_SECTION = 5.1
 
 ## Status Legend
 
@@ -317,15 +317,15 @@ CURRENT_SECTION = 4.5
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §4.5.1 | CMD_ATC_INV | ⚠️ | ⚠️ | AUDIT-81, BUG-NEW-38 | SMMUEN==0 → no-op; SSec guard added |
-| §4.5.2 | CMD_PRI_RESP | ⚠️ | ⚠️ | AUDIT-03, BUG-NEW-A, BUG-NEW-A (27Mar) | SMMUEN==0 ignored; Resp=0b11 CERROR; resp field added |
+| §4.5.1 | CMD_ATC_INV | ⚠️ | ⚠️ | AUDIT-81, BUG-NEW-38 | SMMUEN==0 → no-op; SSec guard; IDR0.ATS hardcoded=1; G+SSV: model conservatively treats G=1 as always active (no SSV field in CommandEntry — documented) |
+| §4.5.2 | CMD_PRI_RESP | ⚠️ | ⚠️ | AUDIT-03, BUG-NEW-A | SMMUEN==0 ignored; Resp=0b11 CERROR_ILL; IDR0.PRI guard; Resp 0b00/01/10 not differentiated (no PCIe bus — documented) |
 | §4.6.1 | CMD_DPTI_ALL | 🚫 | 🚫 | | DPT out of scope |
 | §4.6.2 | CMD_DPTI_PA | 🚫 | 🚫 | | DPT out of scope |
-| §4.7.1 | CMD_RESUME | ⚠️ | ⚠️ | BUG-NEW-16, BUG-NEW-21 | STAG, Action, Abort fields; SSec guard |
-| §4.7.2 | CMD_STALL_TERM | ⚠️ | ⚠️ | BUG-NEW-17, BUG-NEW-21 | Stall termination; SSec guard |
-| §4.7.2.1 | CMD_STALL_TERM notes and usage | N/A | N/A | | Guidance |
-| §4.7.3 | CMD_SYNC | ⚠️ | ⚠️ | AUDIT-55, 80, 87, BUG-QA-7, AUDIT-65, BUG-NEW-23/26/27, BUG-F | SEV vs MSI, CS=0b11 inline gerror, PASID=0; SEV gating; security state fix |
-| §4.8 | Command Consumption summary | ⚠️ | ⚠️ | | Per-command consume rules |
+| §4.7.1 | CMD_RESUME | ⚠️ | ⚠️ | BUG-NEW-16, BUG-NEW-21 | STAG, Action, Abort; SSec guard; STALL_MODEL guard all correct |
+| §4.7.2 | CMD_STALL_TERM | ⚠️ | ⚠️ | BUG-NEW-17, BUG-NEW-21 | Stall termination; SSec guard correct |
+| §4.7.2.1 | CMD_STALL_TERM notes and usage | N/A | N/A | | Guidance only |
+| §4.7.3 | CMD_SYNC | ⚠️ | ⚠️ | AUDIT-55/80/87, BUG-QA-7, AUDIT-65, BUG-NEW-23/26/27, BUG-F | CS=0b11 CERROR_ILL; CS=0b01 MSI simulation note added; CS=0b00 clears last-signal-type; SEV gating correct |
+| §4.8 | Command Consumption summary | ⚠️ | ⚠️ | | All per-command consume rules verified correct |
 
 ---
 
