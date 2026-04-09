@@ -1122,6 +1122,7 @@ fn test_pri_queue_submit_page_request() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
 
     assert!(smmu.submit_page_request(pri_entry).is_ok());
@@ -1144,6 +1145,7 @@ fn test_pri_queue_submit_multiple_requests() {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1170,6 +1172,7 @@ fn test_pri_queue_overflow_with_small_queue() {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1186,6 +1189,7 @@ fn test_pri_queue_overflow_with_small_queue() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
 
     let result = smmu.submit_page_request(overflow_entry);
@@ -1212,6 +1216,7 @@ fn test_pri_queue_get_all_requests() {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1235,6 +1240,7 @@ fn test_pri_queue_process_generates_events() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(pri_entry).unwrap();
 
@@ -1273,6 +1279,7 @@ fn test_pri_queue_process_multiple_requests() {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1316,6 +1323,7 @@ fn test_pri_queue_clear() {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(pri_entry).unwrap();
     }
@@ -1473,6 +1481,7 @@ fn test_queue_statistics() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     })
     .unwrap();
 
@@ -1583,6 +1592,7 @@ fn test_reset_queues_atomically() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     })
     .unwrap();
 

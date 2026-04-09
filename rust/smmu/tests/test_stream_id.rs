@@ -39,30 +39,30 @@ fn test_stream_id_new_zero() {
 
 #[test]
 fn test_stream_id_new_maximum() {
-    // Maximum valid StreamID (16-bit: 65_535)
-    let stream_id = StreamID::new(65_535).expect("Maximum is valid");
+    // 65_535 is valid (and so is anything up to u32::MAX — IDR1.SIDSIZE=32, ARM §3.2)
+    let stream_id = StreamID::new(65_535).expect("65_535 is valid");
     assert_eq!(stream_id.as_u32(), 65_535);
 }
 
 #[test]
 fn test_stream_id_new_above_maximum() {
-    // Just above maximum should fail
+    // IDR1.SIDSIZE=32 (ARM §3.2): 65_536 is a valid 32-bit StreamID
     let result = StreamID::new(65_536);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 #[test]
 fn test_stream_id_new_way_above_maximum() {
-    // Far above maximum should fail
+    // IDR1.SIDSIZE=32 (ARM §3.2): all u32 values are valid 32-bit StreamIDs
     let result = StreamID::new(1_000_000);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 #[test]
 fn test_stream_id_new_u32_max() {
-    // u32::MAX should fail
+    // IDR1.SIDSIZE=32 (ARM §3.2): u32::MAX is a valid 32-bit StreamID
     let result = StreamID::new(u32::MAX);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -76,14 +76,10 @@ fn test_stream_id_new_typical_values() {
 
 #[test]
 fn test_stream_id_validation_error_message() {
+    // IDR1.SIDSIZE=32 (ARM §3.2): 100_000 is a valid 32-bit StreamID; no error expected
     let result = StreamID::new(100_000);
-    assert!(result.is_err());
-
-    if let Err(err) = result {
-        let error_msg = err.to_string();
-        assert!(error_msg.contains("StreamID"));
-        assert!(error_msg.contains("100_000"));
-    }
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().as_u32(), 100_000);
 }
 
 // ============================================================================
@@ -127,19 +123,20 @@ fn test_stream_id_try_from_valid() {
 
 #[test]
 fn test_stream_id_try_from_invalid() {
+    // IDR1.SIDSIZE=32 (ARM §3.2): 100_000 is a valid 32-bit StreamID
     let result: Result<StreamID, ValidationError> = 100_000_u32.try_into();
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 #[test]
 fn test_stream_id_try_from_boundary() {
-    // Boundary: max valid value
+    // 65_535 is valid
     let stream_id: StreamID = 65535u32.try_into().unwrap();
     assert_eq!(stream_id.as_u32(), 65_535);
 
-    // Boundary: max + 1 (invalid)
+    // IDR1.SIDSIZE=32 (ARM §3.2): 65_536 is also valid as a 32-bit StreamID
     let result: Result<StreamID, ValidationError> = 65536u32.try_into();
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 // ============================================================================
@@ -336,8 +333,9 @@ fn test_stream_id_boundary_max() {
 
 #[test]
 fn test_stream_id_boundary_max_plus_one() {
+    // IDR1.SIDSIZE=32 (ARM §3.2): 65_536 is a valid 32-bit StreamID
     let result = StreamID::new(65_536);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -349,12 +347,11 @@ fn test_stream_id_boundary_one_below_max() {
 #[test]
 fn test_stream_id_boundary_powers_of_two() {
     // Test powers of 2 within valid range
-    for exp in 0..16 {
+    // IDR1.SIDSIZE=32 (ARM §3.2): all power-of-two values in u32 range are valid
+    for exp in 0..32 {
         let value = 1u32 << exp;
-        if value <= 65_535 {
-            let stream_id = StreamID::new(value).unwrap();
-            assert_eq!(stream_id.as_u32(), value);
-        }
+        let stream_id = StreamID::new(value).unwrap();
+        assert_eq!(stream_id.as_u32(), value);
     }
 }
 
@@ -364,10 +361,11 @@ fn test_stream_id_boundary_powers_of_two() {
 
 #[test]
 fn test_arm_spec_16_bit_range() {
-    // ARM SMMU v3: StreamID typically 16-bit (0-65_535)
+    // ARM SMMU v3 §3.2: IDR1.SIDSIZE=32 means the full u32 range is valid at type level.
+    // 16-bit values remain valid; values above 65_535 are also valid.
     assert!(StreamID::new(0).is_ok());
     assert!(StreamID::new(65_535).is_ok());
-    assert!(StreamID::new(65_536).is_err());
+    assert!(StreamID::new(65_536).is_ok()); // valid per IDR1.SIDSIZE=32
 }
 
 #[test]
@@ -464,22 +462,49 @@ fn test_stream_id_vec_contains() {
 
 #[test]
 fn test_stream_id_error_preserves_value() {
-    let invalid_value = 100_000_u32;
-    let result = StreamID::new(invalid_value);
-
-    assert!(result.is_err());
-    if let Err(err) = result {
-        let msg = err.to_string();
-        assert!(msg.contains("100_000"));
-    }
+    // IDR1.SIDSIZE=32 (ARM §3.2): 100_000 is a valid 32-bit StreamID
+    let value = 100_000_u32;
+    let result = StreamID::new(value);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().as_u32(), value);
 }
 
 #[test]
 fn test_stream_id_multiple_invalid_values() {
-    let invalid_values = vec![65_536, 100_000, 1_000_000, u32::MAX];
+    // IDR1.SIDSIZE=32 (ARM §3.2): all u32 values are valid 32-bit StreamIDs
+    let values = vec![65_536_u32, 100_000, 1_000_000, u32::MAX];
 
-    for value in invalid_values {
+    for value in values {
         let result = StreamID::new(value);
-        assert!(result.is_err(), "Value {value} should be invalid");
+        assert!(result.is_ok(), "Value {value} should be valid per IDR1.SIDSIZE=32");
     }
+}
+
+// ============================================================================
+// BUG-AUDIT-120: IDR1.SIDSIZE=32 consistency — StreamID type must accept full u32 range
+// ============================================================================
+// ARM §3.2 / §6.3.2: IDR1.SIDSIZE=32 means the SMMU supports StreamIDs 0..=0xFFFF_FFFF.
+// StreamID::new() must NOT cap at 65535 when SIDSIZE=32.
+// The architectural range limit is enforced at runtime by strtab_log2size (→ C_BAD_STREAMID).
+
+/// BUG-AUDIT-120: `StreamID(65536)` must succeed — `SIDSIZE=32` means 32-bit `StreamIDs` are valid.
+#[test]
+fn bug_audit_120_stream_id_above_16bit_is_valid() {
+    // FAILS before fix: StreamID::new(65_536) returns Err due to 16-bit cap
+    let result = StreamID::new(65_536);
+    assert!(
+        result.is_ok(),
+        "BUG-AUDIT-120: IDR1.SIDSIZE=32 → StreamID(65536) must be accepted at type level (ARM §3.2)"
+    );
+}
+
+/// BUG-AUDIT-120: `StreamID(0xFFFF_FFFF)` must succeed — `SIDSIZE=32` means `u32::MAX` is valid.
+#[test]
+fn bug_audit_120_stream_id_u32_max_is_valid() {
+    // FAILS before fix: StreamID::new(u32::MAX) returns Err due to 16-bit cap
+    let result = StreamID::new(u32::MAX);
+    assert!(
+        result.is_ok(),
+        "BUG-AUDIT-120: IDR1.SIDSIZE=32 → StreamID(u32::MAX) must be accepted at type level (ARM §3.2)"
+    );
 }

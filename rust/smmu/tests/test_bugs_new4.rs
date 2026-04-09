@@ -297,6 +297,7 @@ fn bug_new22_submit_page_request_emits_event_immediately() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
 
     // Submit the page request — this should emit E_PAGE_REQUEST immediately.
@@ -342,6 +343,7 @@ fn bug_new22_process_pri_queue_does_not_double_emit() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
 
     // Submit — emits once (after fix)
@@ -576,6 +578,7 @@ fn new_bug_b_submit_last1_when_effective_priqen_zero_generates_auto_failure() {
         timestamp: 0,
         prg_index: 7,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(req);
 
@@ -619,6 +622,7 @@ fn new_bug_b_submit_last0_when_effective_priqen_zero_no_auto_failure() {
         timestamp: 0,
         prg_index: 3,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(req);
 
@@ -656,6 +660,7 @@ fn new_bug_b_response_code_unconditional_failure_even_with_pasid() {
         timestamp: 0,
         prg_index: 5,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(req);
 

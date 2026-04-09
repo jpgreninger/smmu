@@ -593,10 +593,13 @@ fn new8_stage2_pa_within_s2ps() {
 /// AFTER FIX:  No event is queued when EVENTQEN=0.
 #[test]
 fn new9_stall_event_not_queued_when_eventqen_zero() {
-    let smmu = make_smmu();
+    // BUG-AUDIT-124 note: per ARM §6.3.9.4, EVENTQEN is RO-while-set.  Once
+    // set to 1 (e.g. by enable()), it cannot be cleared by set_cr0().  The
+    // correct way to obtain SMMUEN=1 / EVENTQEN=0 is to start from reset
+    // (where EVENTQEN=0) and set only the desired bits in a single call.
+    let smmu = SMMU::new();
 
-    // Enable SMMU but do NOT set CR0_EVENTQEN: events should not be recorded.
-    // enable() sets SMMUEN|EVENTQEN|CMDQEN|PRIQEN, so we override CR0 afterwards.
+    // From reset (EVENTQEN=0), enable SMMU with CMDQEN and PRIQEN but NOT EVENTQEN.
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN);
     // EVENTQEN is NOT set.
 

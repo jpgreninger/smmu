@@ -121,6 +121,7 @@ fn submit_and_emit_page_request(smmu: &SMMU, stream_id: u32, prg_idx: u16) -> us
         timestamp: 0,
         prg_index: prg_idx,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     // Ignore the result from submit_page_request — it may return Ok or Err
     // depending on whether PRIQEN is effectively on; the queue state is what matters.

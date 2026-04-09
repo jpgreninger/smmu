@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 3af312f34d3ac5e7d2d958517a3957821b318eec57ecd6b251f84b8e786a004f # shrinks to count = 1
 cc 78b1befd997dcf1f3e94a2151de3f7056b1600732ba02a7b827782e18861c08b # shrinks to pasid_val = 0
+cc 537989428915cb74109455d50064ba1bed3efbe100e028f6e118eebd9150af37 # shrinks to stream_val = 65536

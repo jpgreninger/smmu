@@ -446,44 +446,34 @@ fn audit_78_process_pri_queue_no_op_when_smmuen_zero() {
 }
 
 /// AUDIT-78 test: process_pri_queue() when PRIQEN=0 (SMMUEN=1) must return 0
-/// and not emit events for un-emitted PRI queue entries.
+/// and not emit events.
+///
+/// BUG-AUDIT-124 note: per ARM §6.3.9.3, PRIQEN is RO-while-set — once set
+/// to 1 it cannot be cleared via set_cr0().  Therefore this test achieves the
+/// PRIQEN=0 / SMMUEN=1 state by using an SMMU where PRI support is disabled
+/// (`set_pri_supported(false)`), so PRIQEN is never set in the first place.
+/// The set_cr0() PRIQEN-strip guard (BUG-AUDIT-73) silently removes PRIQEN
+/// from any caller-supplied value when PRI is unsupported, giving us a clean
+/// PRIQEN=0 baseline from reset without ever triggering the RO guard.
 #[test]
 fn audit_78_process_pri_queue_no_op_when_priqen_zero() {
-    // Small event queue so we can fill it easily.
     let mut cfg = SMMUConfig::default();
     cfg.queue_config.event_queue_size = 4;
     cfg.queue_config.pri_queue_size = 16;
     let smmu = SMMU::with_config(cfg);
 
-    // Enable with PRIQEN=1 to submit a PRI entry.
+    // Disable PRI support so set_cr0() will strip PRIQEN (§6.3.9 / BUG-AUDIT-73).
+    // This lets us reach SMMUEN=1 / EVENTQEN=1 / CMDQEN=1 / PRIQEN=0 without
+    // ever enabling PRIQEN, sidestepping the RO-while-set guard (§6.3.9.3).
+    smmu.set_pri_supported(false);
+
+    // Set SMMUEN=1 but leave PRIQEN=0 (stripped by the pri_supported guard).
     smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN | SMMU::CR0_PRIQEN);
-
-    // Fill the event queue so the PRI submit's immediate emission fails.
-    for i in 0u32..4 {
-        let event = EventEntry {
-            event_type: EventType::CBadSte,
-            stream_id: 200 + i,
-            timestamp: u64::from(i),
-            security_state: SecurityState::NonSecure,
-            stall: false,
-            ..EventEntry::zeroed()
-        };
-        let _ = smmu.submit_event(event);
-    }
-
-    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
-    let _ = smmu.submit_page_request(entry);
-    assert_eq!(smmu.priq_emitted_count(), 0, "AUDIT-78 precondition: priq_emitted must be 0");
-    assert_eq!(smmu.get_pri_queue_size(), 1, "AUDIT-78 precondition: PRI queue must have 1 entry");
-
-    // Clear the event queue and then set CR0: SMMUEN=1 but PRIQEN=0.
-    smmu.clear_event_queue();
-    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN | SMMU::CR0_CMDQEN);
 
     assert_eq!(
         smmu.get_cr0() & SMMU::CR0_PRIQEN,
         0,
-        "AUDIT-78 precondition: PRIQEN must be 0"
+        "AUDIT-78 precondition: PRIQEN must be 0 (stripped because PRI unsupported)"
     );
     assert_ne!(
         smmu.get_cr0() & SMMU::CR0_SMMUEN,

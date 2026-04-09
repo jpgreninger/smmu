@@ -259,12 +259,12 @@ fn test_completely_unconfigured_stream() {
 fn test_invalid_stream_id_operations() {
     let smmu = SMMU::new();
 
-    // StreamID has a max value of 65_535 (16-bit) in Rust implementation
-    // Values beyond this will fail at construction
+    // IDR1.SIDSIZE=32 (ARM §3.2): INVALID_STREAM_ID is a valid 32-bit StreamID at type level.
+    // Out-of-range enforcement is done at runtime by strtab_log2size (→ C_BAD_STREAMID).
     let result = StreamID::new(INVALID_STREAM_ID);
-    assert!(result.is_err()); // Should fail at StreamID construction
+    assert!(result.is_ok()); // Accepted at type level; rejected at runtime if outside strtab range
 
-    // Test with max valid StreamID
+    // Test with max valid 16-bit StreamID (still valid in 32-bit range)
     let max_stream_id = StreamID::new(65_535).unwrap();
     let config = StreamConfig::stage1_only();
     let result = smmu.configure_stream(max_stream_id, config);

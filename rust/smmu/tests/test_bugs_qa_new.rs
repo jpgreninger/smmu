@@ -96,6 +96,7 @@ fn fill_priq(smmu: &SMMU, count: usize) {
             timestamp: 0,
             prg_index: u16::try_from(i).unwrap_or(u16::MAX),
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         let _ = smmu.submit_page_request(req);
     }
@@ -304,6 +305,7 @@ fn bug_qa4_auto_failure_no_pasid_response_code_success() {
         timestamp: 0,
         prg_index: 99,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let result = smmu.submit_page_request(overflow_req);
     assert!(
@@ -351,6 +353,7 @@ fn bug_qa4_auto_failure_with_pasid_response_code_failure() {
         timestamp: 0,
         prg_index: 77,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let result = smmu.submit_page_request(overflow_req);
     assert!(
@@ -408,6 +411,7 @@ fn bug_qa5_overflow_active_inhibits_new_pprs_with_space() {
         timestamp: 0,
         prg_index: 200,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(overflow_req);
     // Drain the auto-failure from that overflow.
@@ -453,6 +457,7 @@ fn bug_qa5_overflow_active_inhibits_new_pprs_with_space() {
         timestamp: 0,
         prg_index: 50,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu2.submit_page_request(last_slot).unwrap();
     // Queue is now full (4/4). Submit one more to trigger OVFLG toggle.
@@ -465,6 +470,7 @@ fn bug_qa5_overflow_active_inhibits_new_pprs_with_space() {
         timestamp: 0,
         prg_index: 51,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu2.submit_page_request(trigger_overflow);
     // Drain the auto-failure.
@@ -497,6 +503,7 @@ fn bug_qa5_overflow_active_inhibits_new_pprs_with_space() {
         timestamp: 0,
         prg_index: 99,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let result = smmu2.submit_page_request(after_overflow_req);
     assert!(
@@ -538,6 +545,7 @@ fn bug_qa5_overflow_active_last0_silently_discarded() {
         timestamp: 0,
         prg_index: 1,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(trigger);
     // Clear auto-failures so far.
@@ -553,6 +561,7 @@ fn bug_qa5_overflow_active_last0_silently_discarded() {
         timestamp: 0,
         prg_index: 2,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(last0_req);
 

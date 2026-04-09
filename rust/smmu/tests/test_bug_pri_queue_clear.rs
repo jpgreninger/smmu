@@ -94,7 +94,7 @@ fn bug1_clear_pri_queue_resets_priq_cons_to_zero() {
     // Enqueue a page request.
     let req1 = PRIEntry { stream_id: 1, pasid: 0, requested_address: 0x1000,
         access_type: AccessType::Read, is_last_request: true, timestamp: 0,
-        prg_index: 0, security_state: smmu::types::SecurityState::NonSecure };
+        prg_index: 0, security_state: smmu::types::SecurityState::NonSecure, span: 0 };
     smmu.submit_page_request(req1).unwrap();
 
     // Process the PRI queue to emit E_PAGE_REQUEST events (does NOT advance priq_cons

@@ -722,6 +722,7 @@ fn bug_new21_priq_emitted_decrements_correctly_on_pri_resp() {
         timestamp: 0,
         prg_index: prg_idx,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(req).unwrap();
 

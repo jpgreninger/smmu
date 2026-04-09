@@ -456,12 +456,9 @@ fn qc_pasid_validation(val: u32) -> bool {
 fn qc_stream_id_validation(val: u32) -> bool {
     let result = StreamID::new(val);
 
-    // Valid range: 0..=65_535
-    if val <= 65_535 {
-        result.is_ok()
-    } else {
-        result.is_err()
-    }
+    // IDR1.SIDSIZE=32 (ARM §3.2): all u32 values are valid 32-bit StreamIDs at type level.
+    // Runtime range enforcement against strtab_log2size is a separate concern.
+    result.is_ok() && result.unwrap().as_u32() == val
 }
 
 #[quickcheck]

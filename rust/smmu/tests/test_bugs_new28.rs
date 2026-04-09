@@ -217,8 +217,10 @@ fn bug_audit_65_irq_cs1_always_works_regardless_of_sev_supported() {
 /// ARM §6.3.11: QUEUE_* (bits\[5:0\]) are RO only when CMDQEN=1 OR EVENTQEN=1 OR PRIQEN=1.
 /// SMMUEN alone must NOT prevent QUEUE_* writes.
 ///
-/// Scenario: Enable SMMU+queues. Disable all queues (CR0=SMMUEN only). Attempt to
-/// write QUEUE_SH. The write must succeed.
+/// Scenario (updated for BUG-AUDIT-124): ARM §6.3.9.3/§6.3.9.4 makes queue-enable
+/// bits RO-while-set, so once CMDQEN/EVENTQEN/PRIQEN are set to 1 they cannot be
+/// cleared by set_cr0().  The correct way to obtain SMMUEN=1 / all-queue-enables=0
+/// is to start from reset (where all bits are 0) and write only SMMUEN=1.
 ///
 /// BEFORE FIX: combined guard (`SMMUEN | CMDQEN | EVENTQEN | PRIQEN`) blocks the
 ///             entire write when SMMUEN=1 even though no queues are enabled → FAILS.
@@ -230,7 +232,7 @@ fn bug_audit_66_queue_fields_writable_when_smmuen_set_but_queues_disabled() {
     smmu.set_s1p_supported(true);
     smmu.set_s2p_supported(true);
 
-    // Set CR1 to 0 before enabling.
+    // Set CR1 to 0 before enabling (all bits are 0 at reset anyway; explicit for clarity).
     smmu.set_cr1(0);
     assert_eq!(
         smmu.get_cr1(),
@@ -238,20 +240,19 @@ fn bug_audit_66_queue_fields_writable_when_smmuen_set_but_queues_disabled() {
         "BUG-AUDIT-66 precondition: set_cr1(0) must succeed before enable"
     );
 
-    // Enable all queues + SMMUEN.
-    smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN);
-
-    // Now disable all queues but keep SMMUEN.
+    // From reset (all queue-enables=0), set only SMMUEN=1.
+    // Per BUG-AUDIT-124/§6.3.9.3, queue-enable bits are only RO-while-set; since
+    // they start at 0 (reset value), omitting them here leaves them at 0.
     smmu.set_cr0(SMMU::CR0_SMMUEN);
     assert_eq!(
         smmu.get_cr0() & (SMMU::CR0_CMDQEN | SMMU::CR0_EVENTQEN | SMMU::CR0_PRIQEN),
         0,
-        "BUG-AUDIT-66 precondition: all queue-enables must be cleared"
+        "BUG-AUDIT-66 precondition: all queue-enables must be 0 (never set from reset)"
     );
     assert_ne!(
         smmu.get_cr0() & SMMU::CR0_SMMUEN,
         0,
-        "BUG-AUDIT-66 precondition: SMMUEN must still be set"
+        "BUG-AUDIT-66 precondition: SMMUEN must be 1"
     );
 
     // Attempt to write QUEUE_SH (bits[5:4]).
@@ -266,8 +267,6 @@ fn bug_audit_66_queue_fields_writable_when_smmuen_set_but_queues_disabled() {
         "BUG-AUDIT-66: QUEUE_* bits must be writable when SMMUEN=1 but all queue-enables \
          are cleared. ARM §6.3.11: QUEUE_* is RO only when a queue-enable bit is set. \
          SMMUEN alone must not block QUEUE_* writes. \
-         Current code uses a combined guard (SMMUEN | CMDQEN | EVENTQEN | PRIQEN) that \
-         incorrectly prevents QUEUE_* writes when SMMUEN=1 with no queues enabled. \
          cr1=0x{:08X}",
         cr1
     );

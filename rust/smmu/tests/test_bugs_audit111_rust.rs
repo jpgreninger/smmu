@@ -219,3 +219,131 @@ fn stage1_enabled_valid_pasid_ssv1_unaffected() {
         "regression: valid substream must NOT generate C_BAD_SUBSTREAMID; got: {events:?}"
     );
 }
+
+// ============================================================================
+// §3.3.2: stage-2-only + SSV=1 + PASID=0 must abort (BUG-AUDIT-121)
+//
+// ARM IHI0070G.b §3.3.2 / S1Fmt field §5.2 line 6645:
+// "If STE.Config == 0b1x0 (stage 1 disabled), this field is IGNORED and the
+// supply of a SubstreamID with a transaction causes the transaction to be
+// terminated with an abort, recording C_BAD_SUBSTREAMID."
+//
+// This applies to BOTH full bypass (0b100) AND stage-2-only (0b110).
+// ============================================================================
+
+/// §3.3.2: stage-2-only stream + SSV=1 + PASID=0 must return Err(BadSubstreamId).
+///
+/// Stage-2-only has stage 1 disabled (STE.Config == 0b110). Any SSV=1 transaction
+/// must abort with `C_BAD_SUBSTREAMID`, including `SubstreamID`=0 (`PASID`=0 + `SSV`=1).
+#[test]
+fn stage2_only_ssv1_pasid0_fails() {
+    let smmu = make_smmu();
+    let stream_id = sid(210);
+
+    smmu.configure_stream(stream_id, StreamConfig::stage2_only()).unwrap();
+    smmu.create_stage2_address_space(stream_id).unwrap();
+    let pa = PA::new(0x2000).unwrap();
+    smmu.map_stage2_page(
+        stream_id,
+        iova_1000(),
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    let result = smmu.translate_with_ssv(
+        stream_id,
+        pasid(0),
+        iova_1000(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+        true, // SSV=1: SubstreamID=0 was presented
+    );
+
+    assert!(
+        matches!(result, Err(TranslationError::BadSubstreamId)),
+        "§3.3.2: stage-2-only + SSV=1 + PASID=0 must return Err(BadSubstreamId); got: {result:?}"
+    );
+}
+
+/// §3.3.2: stage-2-only stream + SSV=1 + PASID=0 must record `C_BAD_SUBSTREAMID` event.
+#[test]
+fn stage2_only_ssv1_pasid0_generates_event() {
+    let smmu = make_smmu();
+    let stream_id = sid(211);
+
+    smmu.configure_stream(stream_id, StreamConfig::stage2_only()).unwrap();
+    smmu.create_stage2_address_space(stream_id).unwrap();
+    let pa = PA::new(0x2000).unwrap();
+    smmu.map_stage2_page(
+        stream_id,
+        iova_1000(),
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    let _ = smmu.translate_with_ssv(
+        stream_id,
+        pasid(0),
+        iova_1000(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+        true,
+    );
+
+    let events = smmu.get_events_by_type(EventType::CBadSubstreamid);
+    assert!(
+        !events.is_empty(),
+        "§3.3.2: stage-2-only + SSV=1 + PASID=0 must generate C_BAD_SUBSTREAMID; got events: {:?}",
+        smmu.get_events().iter().map(|e| e.event_type).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        events[0].stream_id,
+        stream_id.as_u32(),
+        "C_BAD_SUBSTREAMID event must carry the faulting stream_id"
+    );
+}
+
+/// Regression: stage-2-only stream + SSV=0 + PASID=0 must still succeed.
+///
+/// SSV=0 means no `SubstreamID` was presented; the §3.3.2 rule does not apply.
+#[test]
+fn stage2_only_ssv0_pasid0_succeeds() {
+    let smmu = make_smmu();
+    let stream_id = sid(212);
+
+    smmu.configure_stream(stream_id, StreamConfig::stage2_only()).unwrap();
+    smmu.create_stage2_address_space(stream_id).unwrap();
+    let pa = PA::new(0x2000).unwrap();
+    smmu.map_stage2_page(
+        stream_id,
+        iova_1000(),
+        pa,
+        PagePermissions::read_write(),
+        SecurityState::NonSecure,
+    )
+    .unwrap();
+
+    let result = smmu.translate_with_ssv(
+        stream_id,
+        pasid(0),
+        iova_1000(),
+        AccessType::Read,
+        SecurityState::NonSecure,
+        false, // SSV=0: no SubstreamID presented
+    );
+
+    assert!(
+        result.is_ok(),
+        "regression: stage-2-only + SSV=0 + PASID=0 must succeed; got: {result:?}"
+    );
+
+    let events = smmu.get_events_by_type(EventType::CBadSubstreamid);
+    assert!(
+        events.is_empty(),
+        "regression: stage-2-only + SSV=0 must NOT generate C_BAD_SUBSTREAMID; got: {events:?}"
+    );
+}

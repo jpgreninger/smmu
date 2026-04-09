@@ -626,12 +626,10 @@ proptest! {
     fn prop_stream_id_validation(stream_val in 0u32..=100_000) {
         let result = StreamID::new(stream_val);
 
-        // Valid StreamIDs: 0 to 65_535 (16-bit)
-        if stream_val <= 65_535 {
-            assert!(result.is_ok());
-        } else {
-            assert!(result.is_err());
-        }
+        // IDR1.SIDSIZE=32 (ARM §3.2): all u32 values are valid 32-bit StreamIDs at type level.
+        // Range enforcement against strtab_log2size is a runtime concern.
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().as_u32(), stream_val);
     }
 }
 

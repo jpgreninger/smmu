@@ -110,6 +110,7 @@ fn fill_priq(smmu: &SMMU, count: usize, stream: u32, p: u32, start_prg: u16) {
             timestamp: 0,
             prg_index: start_prg + i_u16,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         let _ = smmu.submit_page_request(req);
     }
@@ -147,6 +148,7 @@ fn bug_new9_page_request_read_sets_ur() {
         timestamp: 0,
         prg_index: 0,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(req).unwrap();
     smmu.process_pri_queue().unwrap();
@@ -186,6 +188,7 @@ fn bug_new9_page_request_write_sets_uw() {
         timestamp: 0,
         prg_index: 1,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(req).unwrap();
     smmu.process_pri_queue().unwrap();
@@ -228,6 +231,7 @@ fn bug_new9_page_request_span_field_exists() {
         timestamp: 0,
         prg_index: 2,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(req).unwrap();
     smmu.process_pri_queue().unwrap();
@@ -480,6 +484,7 @@ fn bug_new12_overflow_last_false_no_auto_failure() {
         timestamp: 0,
         prg_index: 0xAA,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(overflow);
 
@@ -518,6 +523,7 @@ fn bug_new12_overflow_last_true_generates_auto_failure() {
         timestamp: 0,
         prg_index: 0xBB,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(overflow);
 
@@ -553,6 +559,7 @@ fn bug_new12_overflow_mixed_only_last_true_generates_failure() {
         timestamp: 0,
         prg_index: 0xCC,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(ovf1);
 
@@ -566,6 +573,7 @@ fn bug_new12_overflow_mixed_only_last_true_generates_failure() {
         timestamp: 0,
         prg_index: 0xDD,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     let _ = smmu.submit_page_request(ovf2);
 
@@ -621,6 +629,7 @@ fn bug_new14_process_pri_queue_does_not_advance_priq_cons() {
             timestamp: 0,
             prg_index: i,
             security_state: SecurityState::NonSecure,
+            span: 0,
         };
         smmu.submit_page_request(req).unwrap();
     }
@@ -668,6 +677,7 @@ fn bug_new14_cmd_pri_resp_advances_priq_cons() {
         timestamp: 0,
         prg_index: 42,
         security_state: SecurityState::NonSecure,
+        span: 0,
     };
     smmu.submit_page_request(req).unwrap();
 
