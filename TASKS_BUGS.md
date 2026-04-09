@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.17.2
+CURRENT_SECTION = 3.17.3
 
 ## Status Legend
 
@@ -190,7 +190,7 @@ CURRENT_SECTION = 3.17.2
 |---------|-------|-----|------|------|-------|
 | §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅ | STRW field in TLBEntry; S2P==0 → VMID=0 substitution in receive_broadcast_tlbi; ASET over-invalidation is permitted conservative behavior (spec says "not required to invalidate") |
 | §3.17.1 | The Global flag in translation table descriptor | N/A | N/A | | Flat model has no nG bit in page descriptors; always treats entries as non-global (ASID-tagged); conservative over-tagging is functionally safe; ASET-based ASID set matching not implemented (permitted optimization) |
-| §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ⚠️ | BUG-NEW-37–40, AUDIT-54 | TLBI scoping, VMID vs global; PTM polarity fixed |
+| §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ✅ | BUG-NEW-37–40 ✅, AUDIT-54 ✅ | TLBI scoping, VMID vs global; PTM polarity fixed; NH/EL3 commands correctly scope Secure/EL3 entries; re-verified conformant |
 | §3.17.2.1 | Broadcast TLB maintenance when Secure EL2 implemented | 🚫 | 🚫 | | Secure out of scope |
 | §3.17.3 | Broadcast TLB maintenance from ARMv7-A or AArch32 PEs | ☐ | ☐ | | |
 | §3.17.4 | Broadcast TLB maintenance in mixed AArch32/AArch64 | ☐ | ☐ | | |
