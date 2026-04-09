@@ -197,11 +197,13 @@ fn gap_c_t0sz_0_no_restriction() {
 // Gap D: §3.2/§13.5 — STE.INSTCFG access type override before permission checks
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Gap D Test 1: inst_cfg=1 (Force-Instruction), page mapped execute, access=Read → success.
+/// Gap D Test 1: inst_cfg=3 (0b11, Force-Instruction per ARM §5.2), page mapped execute, access=Read → success.
 ///
-/// ARM IHI0070G.b §3.2/§13.5: STE.INSTCFG=1 (Force Instruction) overrides the
-/// incoming access type: a Read is treated as Execute.  The page must be checked
-/// against Execute permission, not Read permission.
+/// ARM IHI0070G.b §3.2/§13.5 / BUG-AUDIT-133: STE.INSTCFG=3 (0b11, Force Instruction)
+/// overrides the incoming access type: a Read is treated as Execute.  The page must be
+/// checked against Execute permission, not Read permission.
+///
+/// INSTCFG=1 (0b01) is Reserved (passthrough per ARM §5.2) — not Force Instruction.
 ///
 /// Setup: page has execute permission.  access=Read → override to Execute → allowed.
 ///
@@ -212,12 +214,12 @@ fn gap_c_t0sz_0_no_restriction() {
 fn gap_d_instcfg1_read_overridden_to_execute_allowed() {
     let smmu = make_smmu();
 
-    // inst_cfg=1: Force-Instruction (Read → Execute override)
+    // inst_cfg=3 (0b11): Force-Instruction (Read → Execute override)
     let cfg = StreamConfig::builder()
         .stage1_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .inst_cfg(1)
+        .inst_cfg(3)
         .build()
         .unwrap();
     smmu.configure_stream(sid(0xD1), cfg).unwrap();
@@ -234,7 +236,7 @@ fn gap_d_instcfg1_read_overridden_to_execute_allowed() {
     )
     .unwrap();
 
-    // access=Read, but inst_cfg=1 overrides to Execute → page has Execute → success.
+    // access=Read, but inst_cfg=3 overrides to Execute → page has Execute → success.
     let result = smmu.translate(
         sid(0xD1),
         pasid(0),
@@ -245,16 +247,18 @@ fn gap_d_instcfg1_read_overridden_to_execute_allowed() {
 
     assert!(
         result.is_ok(),
-        "Gap D: inst_cfg=1, execute-only page, access=Read must succeed \
-         (Read overridden to Execute by INSTCFG=1); got error: {:?}",
+        "Gap D: inst_cfg=3, execute-only page, access=Read must succeed \
+         (Read overridden to Execute by INSTCFG=3); got error: {:?}",
         result.err()
     );
 }
 
-/// Gap D Test 2: inst_cfg=1 (Force-Instruction), page is read-only (no execute), access=Read → fail.
+/// Gap D Test 2: inst_cfg=3 (0b11, Force-Instruction), page is read-only (no execute), access=Read → fail.
 ///
-/// ARM IHI0070G.b §3.2/§13.5: STE.INSTCFG=1 overrides Read to Execute.
+/// ARM IHI0070G.b §3.2/§13.5 / BUG-AUDIT-133: STE.INSTCFG=3 (0b11) overrides Read to Execute.
 /// If the page does not have execute permission, the overridden check must deny access.
+///
+/// INSTCFG=1 (0b01) is Reserved (passthrough per ARM §5.2) — not Force Instruction.
 ///
 /// Setup: page has read-only permission.  access=Read → override to Execute → denied.
 ///
@@ -268,7 +272,7 @@ fn gap_d_instcfg1_read_overridden_to_execute_denied() {
         .stage1_enabled(true)
         .translation_enabled(true)
         .fault_mode(FaultMode::Terminate)
-        .inst_cfg(1)
+        .inst_cfg(3)
         .build()
         .unwrap();
     smmu.configure_stream(sid(0xD2), cfg).unwrap();
@@ -285,7 +289,7 @@ fn gap_d_instcfg1_read_overridden_to_execute_denied() {
     )
     .unwrap();
 
-    // access=Read, inst_cfg=1 → override to Execute → page lacks Execute → denied.
+    // access=Read, inst_cfg=3 → override to Execute → page lacks Execute → denied.
     let result = smmu.translate(
         sid(0xD2),
         pasid(0),
@@ -296,7 +300,7 @@ fn gap_d_instcfg1_read_overridden_to_execute_denied() {
 
     assert!(
         result.is_err(),
-        "Gap D: inst_cfg=1, read-only page, access=Read must fail \
+        "Gap D: inst_cfg=3, read-only page, access=Read must fail \
          (Read overridden to Execute, execute not permitted); got Ok"
     );
 }

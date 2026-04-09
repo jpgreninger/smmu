@@ -90,22 +90,26 @@ fn pasid(id: u32) -> PASID {
 //   rnw: !access.can_write(),
 //   ind: access.can_execute() && !access.can_write(),
 //
-// When INSTCFG=1 (Force Instruction) is active, a Write access becomes Execute
-// after STE override.  The event should reflect the POST-override type:
+// When INSTCFG=3 (0b11, Force Instruction per ARM §5.2) is active, a Write access
+// becomes Execute after STE override.  The event should reflect the POST-override type:
 //   ind = true   (Execute is an instruction fetch)
 // But the raw Write gives:
 //   ind = false  (Write.can_execute() == false)
 //
-// Setup: stream with inst_cfg=1 (Force Instruction) and t0sz=16 (VA limit
+// BUG-AUDIT-133: INSTCFG=1 (0b01) is Reserved (passthrough), not Force Instruction.
+//   Force Instruction requires INSTCFG=3 (0b11).
+//
+// Setup: stream with inst_cfg=3 (Force Instruction) and t0sz=16 (VA limit
 // 2^(64-16) = 2^48).  Issue a Write to an address that exceeds 2^48.
 // The T0SZ check fires before the address-space lookup.
 //
 // BEFORE FIX: event.ind == false (raw Write) → assertion fails.
-// AFTER FIX:  event.ind == true  (effective Execute, INSTCFG=1)→ passes.
+// AFTER FIX:  event.ind == true  (effective Execute, INSTCFG=3) → passes.
 
-/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=1 and Write — ind must be true.
+/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=3 (Force Instruction) and Write — ind must be true.
 ///
-/// INSTCFG=1 forces all Data writes to become instruction fetches.  The resulting
+/// BUG-AUDIT-133: INSTCFG=3 (0b11) is Force Instruction per ARM §5.2.
+/// INSTCFG=3 forces all Data writes to become instruction fetches.  The resulting
 /// F_TRANSLATION event must carry ind=true (instruction access) not ind=false
 /// (raw Write).
 ///
@@ -116,12 +120,12 @@ fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
     let smmu = make_smmu();
     let stream_id = sid(0xB1_01);
 
-    // INSTCFG=1 (Force Instruction): Write → Execute after STE override.
+    // INSTCFG=3 (0b11, Force Instruction): Write → Execute after STE override.
     // T0SZ=16 → VA limit = 2^(64-16) = 2^48 = 0x0001_0000_0000_0000.
     // Address 0x0001_0000_0000_0000 is exactly at the limit (violates T0SZ).
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz     = 16;           // VA limit = 2^48
-    cfg.inst_cfg = 1;            // Force Instruction: Write → Execute
+    cfg.inst_cfg = 3;            // Force Instruction (0b11): Write → Execute
     cfg.aa64     = true;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
@@ -133,7 +137,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
         stream_id,
         pasid(0),
         violating_iova,
-        AccessType::Write, // raw Write; INSTCFG=1 → effective Execute
+        AccessType::Write, // raw Write; INSTCFG=3 → effective Execute
         SecurityState::NonSecure,
     );
     assert!(
@@ -151,13 +155,13 @@ fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
         })
         .expect("RUST-1: Expected an F_TRANSLATION event for the T0SZ violation");
 
-    // The effective access after INSTCFG=1 is Execute → ind must be true.
+    // The effective access after INSTCFG=3 is Execute → ind must be true.
     //
     // ARM §7.3.13: event fields must reflect the POST-STE-override access type.
     //   ind = (effective access is instruction fetch) = true for Execute.
     assert!(
         ev.ind,
-        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=1 and Write access \
+        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=3 and Write access \
          must have ind=true (effective Execute after INSTCFG override). \
          Got ind=false — bug: raw Write.can_execute()=false used instead of \
          effective Execute.can_execute()=true."
@@ -204,9 +208,10 @@ fn rust1_t0sz_f_translation_no_instcfg_write_ind_is_false() {
     );
 }
 
-/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=1 and Write — rnw must be false.
+/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=3 (Force Instruction) and Write — rnw must be true.
 ///
-/// With INSTCFG=1 and Write → effective Execute.  Execute.can_write()=false
+/// BUG-AUDIT-133: INSTCFG=3 (0b11) is Force Instruction per ARM §5.2.
+/// With INSTCFG=3 and Write → effective Execute.  Execute.can_write()=false
 /// so rnw = !can_write() = true.  But for raw Write: !Write.can_write() = false.
 ///
 /// ARM §7.3.13: rnw must reflect the EFFECTIVE (post-override) access type.
@@ -220,7 +225,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
 
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz     = 16;
-    cfg.inst_cfg = 1;  // Force Instruction: Write → Execute
+    cfg.inst_cfg = 3;  // Force Instruction (0b11): Write → Execute
     cfg.aa64     = true;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
@@ -230,7 +235,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
         stream_id,
         pasid(0),
         violating_iova,
-        AccessType::Write, // raw Write; INSTCFG=1 → effective Execute
+        AccessType::Write, // raw Write; INSTCFG=3 → effective Execute
         SecurityState::NonSecure,
     );
 
@@ -243,11 +248,11 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
         })
         .expect("RUST-1: Expected an F_TRANSLATION event");
 
-    // With INSTCFG=1: effective Execute → rnw = !Execute.can_write() = !false = true.
-    // Bug: raw Write → rnw = !Write.can_write() = !true = false.
+    // With INSTCFG=3: effective Execute → rnw = !Execute.can_write() = !false = true.
+    // Bug (pre-fix): raw Write → rnw = !Write.can_write() = !true = false.
     assert!(
         ev.rnw,
-        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=1 and Write access \
+        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=3 and Write access \
          must have rnw=true (effective Execute: not a write). \
          Got rnw=false — bug: raw Write.can_write()=true used, yielding !true=false, \
          instead of effective Execute.can_write()=false → !false=true."

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 5.2
+CURRENT_SECTION = 5.3
 
 ## Status Legend
 
@@ -337,7 +337,7 @@ CURRENT_SECTION = 5.2
 |---------|-------|-----|------|------|-------|
 | §5.1 | L1STD, Level 1 Stream Table Descriptor | ⚠️ | ⚠️ | | Flat-model: no in-memory L1STD structure; L1STD.V=0/Span=0/invalid L2 all map to missing DashMap entry → C_BAD_STREAMID (equivalent outcome). Span=0 enforcement, reserved Span 12-31, and Span-vs-SPLIT check not separately validated but semantically covered by DashMap absence fault. |
 | §5.1.1 | General properties of L1STD | ⚠️ | ⚠️ | | SW write constraints not enforced by SMMU HW (per spec); CFGI_STE invalidation covers caching requirement. Flat-model justification same as §5.1. |
-| §5.2 | STE, Stream Table Entry | ⚠️ | ⚠️ | AUDIT-01,36,40,42–48,58,88,91 | Extensively audited; re-audit recommended |
+| §5.2 | STE, Stream Table Entry | ⚠️ | ✅ | AUDIT-01,36,40,42–48,58,88,91, BUG-AUDIT-133 ✅ | BUG-AUDIT-133: INSTCFG=0b01 (Reserved) incorrectly forced Instruction semantics; fixed to passthrough. INSTCFG=0b11 now correctly forces Instruction. All 4 encoding cases verified by TDD tests. |
 | §5.2.1 | General properties of STE | ⚠️ | ⚠️ | AUDIT-36,42,43,46, AUDIT-58 | Config validation, S2AA64, HD; S2TG granule check |
 | §5.2.2 | Validity of STE | ⚠️ | ⚠️ | AUDIT-44,45, CONF-GAP-16, BUG-CPP-3/RUST-2, BUG-NEW-39, BUG-A/B/C | S1CDMax, S2T0SZ, EATS validity; STRW EL2/EL3; S2P/Hyp gates |
 | §5.2 (STRW) | STE.STRW validity rules | ⚠️ | ⚠️ | BUG-CPP-3/RUST-2, AUDIT-79 | EL2/EL3 promotion, illegal checks |

@@ -208,11 +208,14 @@ fn bug1_stage2_only_s2t0sz_violation_s2_true_ipa_equals_iova() {
 
 /// BUG-2 Test 1: INSTCFG=1, ReadPrivileged on data-only page → F_PERMISSION, ind=true.
 ///
-/// Setup: stage-1-only stream with INSTCFG=1 (Force-Instruction).
+/// Setup: stage-1-only stream with INSTCFG=3 (0b11, Force-Instruction per ARM §5.2).
 /// Page mapped with read-only (data) permissions.
 /// Access: ReadPrivileged.
 ///
-/// With INSTCFG=1, ReadPrivileged must become ExecutePrivileged.
+/// BUG-AUDIT-133: INSTCFG=3 (0b11) is Force Instruction. INSTCFG=1 (0b01) is Reserved
+/// (passthrough). Updated from INSTCFG=1 to INSTCFG=3 to use the correct encoding.
+///
+/// With INSTCFG=3, ReadPrivileged must become ExecutePrivileged.
 /// The page has no execute permission → F_PERMISSION.
 /// ind must be true (execute access in the event).
 ///
@@ -226,7 +229,7 @@ fn bug2_instcfg1_readprivileged_becomes_executeprivileged() {
 
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz = 0; // no VA range restriction
-    cfg.inst_cfg = 1; // Force-Instruction: Read→Execute, ReadPrivileged→ExecutePrivileged
+    cfg.inst_cfg = 3; // Force-Instruction (0b11): Read→Execute, ReadPrivileged→ExecutePrivileged
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
 
@@ -241,7 +244,7 @@ fn bug2_instcfg1_readprivileged_becomes_executeprivileged() {
     )
     .unwrap();
 
-    // ReadPrivileged: with INSTCFG=1 this must become ExecutePrivileged.
+    // ReadPrivileged: with INSTCFG=3 this must become ExecutePrivileged.
     // The page has no execute permission → F_PERMISSION.
     let result = smmu.translate(
         stream_id,
@@ -252,7 +255,7 @@ fn bug2_instcfg1_readprivileged_becomes_executeprivileged() {
     );
     assert!(
         result.is_err(),
-        "BUG-2: INSTCFG=1 ReadPrivileged on data-only page must fault (execute check); got Ok"
+        "BUG-2: INSTCFG=3 ReadPrivileged on data-only page must fault (execute check); got Ok"
     );
 
     let events = smmu.get_events();
@@ -265,12 +268,12 @@ fn bug2_instcfg1_readprivileged_becomes_executeprivileged() {
     assert_eq!(
         ev.event_type,
         EventType::FPermission,
-        "BUG-2: INSTCFG=1 ReadPrivileged→ExecutePrivileged on data-only page must be F_PERMISSION; got {:?}",
+        "BUG-2: INSTCFG=3 ReadPrivileged→ExecutePrivileged on data-only page must be F_PERMISSION; got {:?}",
         ev.event_type
     );
     assert!(
         ev.ind,
-        "BUG-2: INSTCFG=1 ReadPrivileged must be treated as execute (ind=true); got ind=false. EventEntry={ev:?}"
+        "BUG-2: INSTCFG=3 ReadPrivileged must be treated as execute (ind=true); got ind=false. EventEntry={ev:?}"
     );
 }
 

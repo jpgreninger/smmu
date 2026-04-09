@@ -765,16 +765,21 @@ impl StreamContext {
     ///
     /// BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
     /// BUG-3 fix: §3.3.4/§13.5 — PRIVCFG applied to the INSTCFG-adjusted type.
+    /// BUG-AUDIT-133 fix: §5.2 — correct INSTCFG encoding:
+    ///   0b00 (0) = Use Incoming (passthrough)
+    ///   0b01 (1) = Reserved — behaves as 0b00 (passthrough)
+    ///   0b10 (2) = Force Data
+    ///   0b11 (3) = Force Instruction
     #[inline]
     pub(crate) fn effective_access_type(&self, access_type: AccessType) -> AccessType {
         // Step 1: apply INSTCFG
         let after_instcfg = match self.inst_cfg.load(Ordering::Acquire) {
-            1 => match access_type {
-                // INSTCFG=1 (Force Instruction): ARM §13.1 — the SMMU forces the
-                // transaction's instruction attribute to Instruction for ALL accesses.
-                // For event field reporting (ARM §7.3.13), InD and RnW must reflect
-                // the post-override effective type: both Read and Write become Execute,
-                // so the event correctly records InD=1 (instruction) and RnW=1 (not-write).
+            // 0b11 (3) = Force Instruction: ARM §13.1 — the SMMU forces the
+            // transaction's instruction attribute to Instruction for ALL accesses.
+            // For event field reporting (ARM §7.3.13), InD and RnW must reflect
+            // the post-override effective type: both Read and Write become Execute,
+            // so the event correctly records InD=1 (instruction) and RnW=1 (not-write).
+            3 => match access_type {
                 AccessType::Read           => AccessType::Execute,
                 AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
                 AccessType::Write          => AccessType::Execute,
@@ -1881,16 +1886,17 @@ impl StreamContext {
             access_type
         };
 
-        // Gap D fix: §3.2/§13.5 — STE.INSTCFG override applied before permission checks.
-        // inst_cfg==1: Force-Instruction — Read accesses are treated as Execute.
-        // inst_cfg==2: Force-Data         — Execute accesses are treated as Read.
-        // inst_cfg==0 (or reserved): pass through unchanged.
+        // BUG-AUDIT-133 fix: §5.2 — correct INSTCFG encoding:
+        //   inst_cfg==0b11 (3): Force-Instruction — Read/Write become Execute.
+        //   inst_cfg==0b10 (2): Force-Data         — Execute accesses become Read.
+        //   inst_cfg==0b01 (1): Reserved — behaves as 0b00 (pass through unchanged).
+        //   inst_cfg==0b00 (0): Use Incoming — pass through unchanged.
         //
         // BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
-        // INSTCFG=1: ReadPrivileged → ExecutePrivileged (not just Read → Execute).
+        // INSTCFG=3: ReadPrivileged → ExecutePrivileged (not just Read → Execute).
         // INSTCFG=2: ExecutePrivileged → ReadPrivileged (not just Execute → Read).
         let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
-            1 => match access_type {
+            3 => match access_type {
                 AccessType::Read => AccessType::Execute,
                 AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
                 // NOTE: ReadWrite, ReadExecute, WriteExecute, ReadWriteExecute are
@@ -1909,6 +1915,7 @@ impl StreamContext {
                 AccessType::ReadExecutePrivileged => AccessType::ReadPrivileged,
                 _ => access_type,
             },
+            // 0b01 (Reserved) and 0b00 (Use Incoming) both pass through unchanged.
             _ => access_type,
         };
 
@@ -2037,14 +2044,15 @@ impl StreamContext {
             }
 
             // Two-stage path: delegate to the specialised helper that returns the IPA.
-            // Gap D fix: §3.2/§13.5 — apply STE.INSTCFG override before the permission
-            // checks inside translate_two_stage_with_ipa (which does not call translate()).
+            // BUG-AUDIT-133 fix: §5.2 — correct INSTCFG encoding applied before
+            // permission checks inside translate_two_stage_with_ipa.
             //
             // BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
-            // INSTCFG=1: ReadPrivileged → ExecutePrivileged.
-            // INSTCFG=2: ExecutePrivileged → ReadPrivileged.
+            // INSTCFG=3 (Force Instruction): ReadPrivileged → ExecutePrivileged.
+            // INSTCFG=2 (Force Data): ExecutePrivileged → ReadPrivileged.
+            // INSTCFG=1 (Reserved): behaves as 0b00 (passthrough).
             let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
-                1 => match access_type {
+                3 => match access_type {
                     AccessType::Read => AccessType::Execute,
                     AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
                     _ => access_type,
@@ -2057,6 +2065,7 @@ impl StreamContext {
                     AccessType::ReadExecutePrivileged => AccessType::ReadPrivileged,
                     _ => access_type,
                 },
+                // 0b01 (Reserved) and 0b00 (Use Incoming) both pass through unchanged.
                 _ => access_type,
             };
             // BUG-3 fix: §3.3.4/§13.5 — apply STE.PRIVCFG override to effective_access

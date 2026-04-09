@@ -507,9 +507,12 @@ fn rust2b_process_command_queue_cons_advances_correctly_under_concurrency() {
 // ARM §7.3.14: InD/PnU are post-STE override values.
 // ARM §5.2.1: INSTCFG applies to bypass (STE.Config=0b100) streams.
 //
-// Setup: bypass stream with INSTCFG=1 (Force Instruction).
+// Setup: bypass stream with INSTCFG=3 (0b11 = Force Instruction per ARM §5.2).
 //   Raw access = Write → effective = Execute (ind=true, rnw=true).
 //   OAS overflow → F_ADDR_SIZE event.
+//
+// BUG-AUDIT-133 correction: INSTCFG=1 (0b01) is Reserved (passthrough per ARM §5.2).
+//   Force Instruction is INSTCFG=3 (0b11).
 //
 // BEFORE FIX: event.rnw=false, event.ind=false (raw Write) → FAILS.
 // AFTER FIX:  event.rnw=true, event.ind=true (effective Execute) → PASSES.
@@ -519,7 +522,7 @@ fn rust2b_process_command_queue_cons_advances_correctly_under_concurrency() {
 /// ARM §7.3.14: InD/PnU are post-STE override values (INSTCFG applies).
 /// ARM §5.2.1: INSTCFG applies to bypass (STE.Config=0b100) streams.
 ///
-/// With INSTCFG=1 (Force Instruction), Write → Execute.
+/// With INSTCFG=3 (0b11, Force Instruction), Write → Execute.
 /// Execute: rnw=true (not-write), ind=true (instruction).
 ///
 /// BEFORE FIX: rnw=false, ind=false (raw Write used) → FAILS.
@@ -539,9 +542,9 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
     smmu.enable().unwrap();
 
     // Configure a bypass stream (STE.Config=0b100: both stages disabled).
-    // Set INSTCFG=1 (Force Instruction) so Write access is overridden to Execute.
+    // Set INSTCFG=3 (0b11, Force Instruction) so Write access is overridden to Execute.
     let bypass_cfg = StreamConfig {
-        inst_cfg: 1, // INSTCFG=1: Force Instruction
+        inst_cfg: 3, // INSTCFG=3 (0b11): Force Instruction per ARM §5.2
         ..StreamConfig::bypass()
     };
     let stream_id = sid(0x3B);
@@ -553,7 +556,7 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
     let high_iova = iova(oas_limit + 0x1000); // above 36-bit limit
 
     // Submit a Write access (raw: rnw=false, ind=false).
-    // With INSTCFG=1: effective = Execute (rnw=true, ind=true).
+    // With INSTCFG=3 (Force Instruction): effective = Execute (rnw=true, ind=true).
     let result = smmu.translate(
         stream_id,
         pasid(0),
@@ -575,15 +578,15 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
         })
         .expect("BUG-RUST-3: Expected an F_ADDR_SIZE event");
 
-    // INSTCFG=1: Write → Execute. Execute: rnw=true (not-write), ind=true (instruction).
+    // INSTCFG=3 (Force Instruction): Write → Execute. Execute: rnw=true (not-write), ind=true.
     assert!(
         ev.rnw,
-        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=1 must have rnw=true \
+        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=3 must have rnw=true \
          (effective Execute, not raw Write). Got rnw=false — bug: raw access used."
     );
     assert!(
         ev.ind,
-        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=1 must have ind=true \
+        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=3 must have ind=true \
          (effective Execute). Got ind=false — bug: raw access used."
     );
 }
