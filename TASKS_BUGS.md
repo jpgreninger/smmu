@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.17.3
+CURRENT_SECTION = 3.18
 
 ## Status Legend
 
@@ -192,12 +192,12 @@ CURRENT_SECTION = 3.17.3
 | §3.17.1 | The Global flag in translation table descriptor | N/A | N/A | | Flat model has no nG bit in page descriptors; always treats entries as non-global (ASID-tagged); conservative over-tagging is functionally safe; ASET-based ASID set matching not implemented (permitted optimization) |
 | §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ✅ | BUG-NEW-37–40 ✅, AUDIT-54 ✅ | TLBI scoping, VMID vs global; PTM polarity fixed; NH/EL3 commands correctly scope Secure/EL3 entries; re-verified conformant |
 | §3.17.2.1 | Broadcast TLB maintenance when Secure EL2 implemented | 🚫 | 🚫 | | Secure out of scope |
-| §3.17.3 | Broadcast TLB maintenance from ARMv7-A or AArch32 PEs | ☐ | ☐ | | |
-| §3.17.4 | Broadcast TLB maintenance in mixed AArch32/AArch64 | ☐ | ☐ | | |
-| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ⚠️ | ⚠️ | BUG-NEW-A | TLBI_EL2_ASID E2H method |
-| §3.17.6 | VMID Wildcards | ☐ | ☐ | | |
-| §3.17.7 | Broadcast TLB maintenance for GPT information | 🚫 | 🚫 | | GPC out of scope |
-| §3.17.8 | TLBInXS maintenance operations | ☐ | ☐ | | |
+| §3.17.3 | Broadcast TLB maintenance from ARMv7-A or AArch32 PEs | N/A | ✅ | | AArch32 TLBIs mapped to same NH commands by interconnect; NH scope handling correct |
+| §3.17.4 | Broadcast TLB maintenance in mixed AArch32/AArch64 | N/A | ✅ | | ASID16=1/VMID16=1 in IDR0; u16 fields; 16-bit direct comparison correct |
+| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ⚠️ | ✅ | BUG-NEW-A ✅ | TLBI_EL2_ASID E2H method; any-EL2 vs any-EL2-E2H not required to be differentiated per spec |
+| §3.17.6 | VMID Wildcards | N/A | ✅ | | CR0.VMW wildcard masking implemented; applies to both broadcast and command-queue TLBI |
+| §3.17.7 | Broadcast TLB maintenance for GPT information | 🚫 | 🚫 | | GPC/RME out of scope |
+| §3.17.8 | TLBInXS maintenance operations | N/A | N/A | | FEAT_XS not implemented; XS attribute implicitly 0 for all translations; TLBInXS ≡ TLBI; conformant by equivalence |
 
 ### §3.18–3.19 Interrupts and Power
 
