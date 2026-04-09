@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.14
+CURRENT_SECTION = 3.15
 
 ## Status Legend
 
@@ -174,7 +174,7 @@ CURRENT_SECTION = 3.14
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.14 | Speculative accesses | ☐ | ☐ | | |
+| §3.14 | Speculative accesses | N/A | N/A | | Entirely IMPLEMENTATION DEFINED; model does not implement speculative transactions; conformant by omission |
 | §3.15 | Coherency considerations and memory access types | ☐ | ☐ | | COHACC |
 | §3.15.1 | Client devices | ☐ | ☐ | | |
 | §3.15.1.1 | Fully-coherent client devices | ☐ | ☐ | | |
