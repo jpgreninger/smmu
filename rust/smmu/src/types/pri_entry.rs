@@ -45,6 +45,13 @@ pub struct PRIEntry {
     /// The E_PAGE_REQUEST event must carry the security state of the originating
     /// transaction.  Defaults to `SecurityState::NonSecure`.
     pub security_state: SecurityState,
+    /// Access span hint in units of 4096 bytes (ARM §7.3.19).
+    ///
+    /// The size of the intended access span in bytes is `span * 4096`.
+    /// A value of 0 means a single page (the hint conveys no multi-page span).
+    /// This is propagated directly to the `span` field of the emitted
+    /// `E_PAGE_REQUEST` event record.
+    pub span: u8,
 }
 
 /// Auto-generated PRG_RESPONSE for a PPR discarded due to PRIQ overflow (§8.1).
@@ -91,7 +98,7 @@ impl PriAutoFailureResponse {
     ///
     /// let entry = PRIEntry { stream_id: 1, pasid: 0, requested_address: 0x1000,
     ///     access_type: AccessType::Read, is_last_request: true, timestamp: 0,
-    ///     prg_index: 7, security_state: smmu::types::SecurityState::NonSecure };
+    ///     prg_index: 7, security_state: smmu::types::SecurityState::NonSecure, span: 0 };
     /// let resp = PriAutoFailureResponse::new(entry);
     /// assert_eq!(resp.response_code, 0x0); // no PASID → Success
     ///
@@ -134,6 +141,7 @@ impl PRIEntry {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         }
     }
 
@@ -159,6 +167,7 @@ impl PRIEntry {
             timestamp: 0,
             prg_index: 0,
             security_state: SecurityState::NonSecure,
+            span: 0,
         }
     }
 
@@ -200,6 +209,28 @@ impl PRIEntry {
     #[must_use]
     pub const fn with_security_state(mut self, security_state: SecurityState) -> Self {
         self.security_state = security_state;
+        self
+    }
+
+    /// Set the access span hint and return `self` (builder pattern).
+    ///
+    /// The span is in units of 4096 bytes: the intended access span in bytes
+    /// is `span * 4096`.  A value of 0 means a single page (no multi-page hint).
+    /// This value is propagated to the `span` field of the emitted
+    /// `E_PAGE_REQUEST` event record per ARM §7.3.19.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use smmu::types::{AccessType, PRIEntry};
+    ///
+    /// let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
+    ///     .with_span(4);
+    /// assert_eq!(entry.span, 4); // 4 * 4096 = 16 KiB span
+    /// ```
+    #[must_use]
+    pub const fn with_span(mut self, span: u8) -> Self {
+        self.span = span;
         self
     }
 }

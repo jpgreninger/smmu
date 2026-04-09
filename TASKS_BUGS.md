@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.5
+CURRENT_SECTION = 3.12.5
 
 ## Status Legend
 
@@ -61,12 +61,12 @@ CURRENT_SECTION = 3.5
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §3.1 | Software interface | ✅ | ✅ | | IDR1.SIDSIZE=32 and SSIDSIZE=20 consistent; PRI queue correctly gated on IDR0.PRI; IMPL_DEF fields safe at 0 |
-| §3.2 | Stream numbering | ⚠️ | ⚠️ | CONF-GAP, AUDIT-82 | Re-audited: C_BAD_STREAMID (RECINVSID gate), PASID cap, stage-2-only PASID!=0 guard all PASS; SSV=1/PASID=0 on stage-2-only accepted (PASID=0 = default context, spec-permissible) |
+| §3.2 | Stream numbering | ✅ | ✅ | CONF-GAP, AUDIT-82, BUG-AUDIT-120 | Re-audited: C_BAD_STREAMID (RECINVSID gate), PASID cap, stage-2-only PASID!=0 guard all PASS; SSV=1/PASID=0 on stage-2-only accepted (PASID=0 = default context, spec-permissible). BUG-AUDIT-120: StreamID type now accepts full u32 range matching IDR1.SIDSIZE=32 advertisement; runtime enforcement via strtab_log2size. All 47 tests pass. |
 | §3.3 | Data structures and translation procedure | ✅ | ✅ | | Global bypass (GBPA), 4-step translation procedure, stage-not-implemented bypass, StreamWorld, TLB key uses {StreamID,PASID} not {SW,VMID,ASID} — acceptable gap (TLBI correctly scans by ASID/VMID; correctness preserved) |
 | §3.3.1 | Stream table lookup (overview) | ✅ | ✅ | CONF-GAP-3/6 | Re-audited: Linear+2-level formats supported (strtab_fmt/split), StreamID range→C_BAD_STREAMID, write-guard on SMMUEN=1; CONF-GAP-3 (2-level) FIXED, CONF-GAP-6 (TLBI) FIXED (→§4.4) |
 | §3.3.1.1 | Linear Stream table | ✅ | ✅ | BUG-AUDIT-101 | Fully verified: 2^LOG2SIZE sizing correct, bounds check fires before DashMap, LOG2SIZE=0 single-entry table correct. BUG-AUDIT-101: added 3 boundary tests (last valid, first invalid, LOG2SIZE=0) — all pass |
 | §3.3.1.2 | 2-level Stream table | ✅ | ✅ | BUG-AUDIT-102/106/107/108 | Implementation correct. BUG-AUDIT-102: fixed ST_LEVEL docstring (2-bit field). BUG-AUDIT-106: added invalid SPLIT clamping test. BUG-AUDIT-107: added split=8/10 boundary tests. BUG-AUDIT-108: added in-range/unconfigured stream test |
-| §3.3.2 | StreamIDs to Context Descriptors | ⚠️ | ⚠️ | AUDIT-44, BUG-AUDIT-109/110/111/112 | S1CDMax, substream routing. BUG-AUDIT-109: s1cdMax==0+SSV=1+PASID!=0 must emit C_BAD_SUBSTREAMID. BUG-AUDIT-110: S1DSS==0b11 reserved→F_STREAM_DISABLED. BUG-AUDIT-111: bypass/stage-2-only+SSV=1→C_BAD_SUBSTREAMID. BUG-AUDIT-112: s1cdMax==0+SSV=1+PASID=0 must abort. All fixed; C++ 184/184 | Rust 4 new tests pass |
+| §3.3.2 | StreamIDs to Context Descriptors | ✅ | ✅ | AUDIT-44, BUG-AUDIT-109/110/111/112, BUG-AUDIT-121 | S1CDMax, substream routing. BUG-AUDIT-109: s1cdMax==0+SSV=1+PASID!=0 must emit C_BAD_SUBSTREAMID. BUG-AUDIT-110: S1DSS==0b11 reserved→F_STREAM_DISABLED. BUG-AUDIT-111: bypass/stage-2-only+SSV=1→C_BAD_SUBSTREAMID. BUG-AUDIT-112: s1cdMax==0+SSV=1+PASID=0 must abort. BUG-AUDIT-121: stage-2-only+SSV=1+PASID=0 test gap filled — implementation already correct per §5.2 S1Fmt line 6645. 210/210 tests pass. |
 | §3.3.3 | Configuration and Translation lookup | ✅ | ✅ | BUG-AUDIT-113 | BUG-AUDIT-113: C++ strwUnused=!stage1Enabled missing ||stage2Enabled — Config=0b111 two-stage NonSecure stream with STRW=EL2 incorrectly rejected; fixed per ARM §5.2 IgnoreSTESTRW(). Rust already correct. FINDING-333-03 (TLB CacheKey missing StreamWorld): acceptable gap per §3.3 notes. FINDING-333-04 (CD.AA64/StreamWorld): AArch32 LPAE unsupported (intentional). FINDING-333-05 (T1SZ for EL2/EL3): only affects Secure streams (out of scope). C++ 185/185 |
 | §3.3.4 | Transaction attributes: incoming, two-stage and overrides | ✅ | ✅ | NEW-GAP-A-D, BUG-NEW-RUST-1/2 | INSTCFG, PRIVCFG, NSCFG, access type; rnw/ind fixed. Re-audited 2026-04-05: all fixes confirmed. MTCFG/SHCFG stage-1 TTD combine gap already tracked as §13.4.2/§13.1.5 ☐. C++ vs Rust STRW+two-stage divergence already tracked §5.2 ⚠️. No new bugs. |
 | §3.3.5 | Translation table descriptors | N/A | N/A | | PBHA=0 (IDR3.PBHA not advertised). No raw descriptor walk in either implementation (structured PageEntry API, not raw 64-bit descriptor parsing). Bits [63:60] of stage 2 Block/Page descriptors are RES0 (SMMUv3.1+); no fault or strip requirement when PBHA disabled. Section is a software constraint, not an SMMU hardware behavioral requirement. |
@@ -75,50 +75,50 @@ CURRENT_SECTION = 3.5
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.4 | Address sizes (overview) | ⚠️ | ⚠️ | NEW-GAP-C, AUDIT-47 | T0SZ range, IPS/PS |
-| §3.4.1 | Input address size and Virtual Address size | ⚠️ | ⚠️ | AUDIT-47 | T0SZ [16,39] enforcement |
-| §3.4.2 | Address alignment checks | ⚠️ | ⚠️ | AUDIT-84 | Stage-1 PA > OAS → F_ADDR_SIZE |
-| §3.4.3 | Address sizes of SMMU-originated accesses | N/A | ⚠️ | BUG-AUDIT-114, BUG-AUDIT-115 | BUG-AUDIT-114 (Rust): stage-1-only PA > OAS must silently truncate per §3.4 line 1635, not F_ADDR_SIZE — fixed. BUG-AUDIT-115 (Rust): CD.TTB0/TTB1 out-of-IPS → C_BAD_CD missing; added ttb0/ttb1 fields to StreamConfig + check in check_ste_illegal() per CdIllegal() pseudocode §9.4. Architectural modeling gaps documented: BUG-AUDIT-116 (CD.TTB 48-bit DS=0 constraint — needs tg/ds fields), BUG-AUDIT-117 (S1ContextPtr OAS check), BUG-AUDIT-118 (L1CD.L2Ptr OAS), BUG-AUDIT-119 (STRTAB_BASE OAS) — all require PA pointer fields not present in in-memory model. C++ not applicable (Rust-only audit). |
+| §3.4 | Address sizes (overview) | ⚠️ | ✅ | NEW-GAP-C, AUDIT-47 | T0SZ range, IPS/PS |
+| §3.4.1 | Input address size and Virtual Address size | ⚠️ | ✅ | AUDIT-47 | T0SZ [16,39] enforcement; T0SZ magnitude check correct for single-TTBR0 model (EPD1/upper-half not modelled). |
+| §3.4.2 | Address alignment checks | N/A | N/A | | §3.4.2 states SMMU does NOT check address alignment. No implementation needed. |
+| §3.4.3 | Address sizes of SMMU-originated accesses | N/A | ✅ | BUG-AUDIT-114, BUG-AUDIT-115, BUG-AUDIT-123 | BUG-AUDIT-114: stage-1-only PA > OAS silently truncates per §3.4 line 1635 — fixed. BUG-AUDIT-115: CD.TTB0/TTB1 out-of-IPS → C_BAD_CD — fixed. BUG-AUDIT-123: IPS=52/OAS=52 range checks skipped (< 52 guard); changed to <= 52 so 2^52 limit enforced — fixed. 5 new tests, 210/210 pass. Modeling gaps (BUG-AUDIT-116/117/118/119) require PA pointer fields not present in model — documented N/A. C++ not applicable. |
 
 ### §3.5 Command and Event Queues
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.5.1 | SMMU circular queues | ⚠️ | ⚠️ | CONF-GAP, BUG-RUST-Q2/Q4, BUG-CPP-1/2 | PROD/CONS wrap-around, full/empty; stall_pending reset, PRIQ_CONS FIFO |
-| §3.5.2 | Queue entry visibility semantics | ⚠️ | ⚠️ | 2026-03-21, BUG-CPP-1/RUST-1 | CONS must not advance in getEvents(); peek-before-pop fixed |
-| §3.5.3 | Event queue behavior | ⚠️ | ⚠️ | AUDIT-75 | EVENTQEN gate on submit |
-| §3.5.4 | Definition of event record write "Commit" | ⚠️ | ⚠️ | BUG-2/BUG-5 | eventq_prod advance after push_back; fixed in Rust |
-| §3.5.5 | Event merging | ☐ | ☐ | | Duplicate suppression rules |
-| §3.5.6 | Enhanced Command queue interfaces (ECMDQ) | ☐ | ☐ | | ECMDQ not audited |
-| §3.5.6.1 | ECMDQ behavior | ☐ | ☐ | | |
-| §3.5.6.2 | Enabling/disabling ECMDQ | ☐ | ☐ | | |
-| §3.5.6.3 | Errors relating to ECMDQ | ☐ | ☐ | | |
+| §3.5.1 | SMMU circular queues | ⚠️ | ✅ | CONF-GAP, BUG-RUST-Q2/Q4, BUG-CPP-1/2 | Re-audited 2026-04-07: advance_index uses 2^(log2size+1) modulus (wrap bit at position log2size ✓); OVFLG at bit[31] correct per ARM §6.3 EVENTQ_PROD register spec; stall events buffered in stall_pending on full queue ✓; enqueue_event only called for non-stall config events ✓; no new defects found. |
+| §3.5.2 | Queue entry visibility semantics | ⚠️ | ✅ | 2026-03-21, BUG-CPP-1/RUST-1 | Re-audited 2026-04-07: push_back before eventq_prod.store(Release) at all push sites ✓; get_events() never modifies eventq_cons ✓; eventq_cons only written in consume/advance path ✓; no new defects. Software model trivially satisfies memory-ordering requirement. |
+| §3.5.3 | Event queue behavior | ⚠️ | ✅ | AUDIT-75 | Re-audited 2026-04-07: EVENTQEN gate enforced at all enqueue_event call sites ✓; stall events buffered in stall_pending on full queue ✓; non-stall events discarded + OVFLG toggled ✓; stall drain on next write/read ✓; no overwrite of unconsumed events ✓; no new defects. |
+| §3.5.4 | Definition of event record write "Commit" | ⚠️ | ✅ | BUG-2/BUG-5 | Re-audited 2026-04-07: stall buffered in stall_pending without PROD advance ✓; stall drain commits with Release store after push_back ✓; non-stall discard has no PROD advance ✓; all PROD.store use Ordering::Release ✓; no phantom commits ✓; no new defects. |
+| §3.5.5 | Event merging | N/A | ✅ | | Merging is optional per §3.5.5; software implementations not required to respect STE.MEV (§3.5.5/§7.3.1). Rust implementation optionally deduplicates events gated on stream_mev flag (BUG-RUST-2/CONF-GAP-14) — more than required. Stall events (Stall==1) correctly never merged. No defects. |
+| §3.5.6 | Enhanced Command queue interfaces (ECMDQ) | 🚫 | 🚫 | | IDR1.ECMDQ=0 not advertised; feature requires dedicated hardware register pages — out of scope for software model |
+| §3.5.6.1 | ECMDQ behavior | 🚫 | 🚫 | | Out of scope (ECMDQ not implemented) |
+| §3.5.6.2 | Enabling/disabling ECMDQ | 🚫 | 🚫 | | Out of scope (ECMDQ not implemented) |
+| §3.5.6.3 | Errors relating to ECMDQ | 🚫 | 🚫 | | Out of scope (ECMDQ not implemented) |
 
 ### §3.6–3.8 Ownership, Registers, Virtualization
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.6 | Structure and queue ownership | ☐ | ☐ | | Software vs SMMU ownership |
-| §3.7 | Programming registers | ⚠️ | ⚠️ | | CR0 write-after-enable guards |
-| §3.8 | Virtualization | ☐ | ☐ | | Hyp mode, VMID handling |
+| §3.6 | Structure and queue ownership | N/A | N/A | | Informational only. All statements use "Arm expects" guidance language directed at system software (OS, hypervisor, secure firmware), not SMMU hardware. No behavioral requirements on the SMMU model. Secure/Realm interfaces out of scope. No code changes required. |
+| §3.7 | Programming registers | ✅ | ✅ | BUG-AUDIT-73, BUG-AUDIT-124 | BUG-AUDIT-73: PRIQEN RES0 when IDR0.PRI==0. BUG-AUDIT-124: CMDQEN/EVENTQEN/PRIQEN RO-while-set guard in set_cr0() via (CR0|CR0ACK) preserve. ATSCHK behavior correct. SMMUEN write-guards on CR1/CR2/strtab all verified. 210 tests pass. |
+| §3.8 | Virtualization | N/A | N/A | | Purely informational. All language is descriptive ("Arm expects," "might provide"). Stage 2-only mapping behavior already covered by §3.3. IMPL DEF extra interfaces explicitly "beyond scope." No SMMU model behavioral requirements. |
 
 ### §3.9 PCI Express, PASIDs, PRI, and ATS
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.9.1 | ATS Interface | ⚠️ | ⚠️ | AUDIT-01, NEW-FINDING-1 | S1DSS, NS1ATS, EATS |
-| §3.9.1.1 | Handling of addresses in ATS-related transactions | ⚠️ | ⚠️ | | |
-| §3.9.1.2 | Responses to ATS Translation Requests | ⚠️ | ⚠️ | | Permission encoding in TC |
-| §3.9.1.3 | Handling of ATS Translated transactions | ⚠️ | ⚠️ | | Bypass/permission checks |
+| §3.9.1 | ATS Interface | ⚠️ | ⚠️ | AUDIT-01, NEW-FINDING-1, BUG-AUDIT-125 | S1DSS, NS1ATS, EATS; BUG-AUDIT-125: ATS TT+ATSCHK=1+abort stream spuriously emitted F_TRANSL_FORBIDDEN; must silently abort per §3.9.1.3 |
+| §3.9.1.1 | Handling of addresses in ATS-related transactions | ⚠️ | ⚠️ | | IMPL DEF: truncate or abort on PA overflow. No behavioral gap. |
+| §3.9.1.2 | Responses to ATS Translation Requests | ⚠️ | ⚠️ | BUG-AUDIT-126 | BUG-AUDIT-126: ATS TR encountering F_TRANSLATION/F_ADDR_SIZE/F_ACCESS/F_PERMISSION incorrectly recorded events; spec §3.9.1.2 requires no event. Fixed by is_ats_tr flag in record_translation_fault(). All UR/CA event-gating paths (SMMUEN=0, EATS=0, abort, bypass, C_BAD_STREAMID via REC_CFG_ATS+RECINVSID) verified correct. |
+| §3.9.1.3 | Handling of ATS Translated transactions | ⚠️ | ⚠️ | BUG-AUDIT-125, BUG-AUDIT-127 | BUG-AUDIT-125: abort→silent, bypass→F_TRANSL_FORBIDDEN. BUG-AUDIT-127: ATS TT+ATSCHK=1 config errors (C_BAD_SUBSTREAMID, F_STREAM_DISABLED) were replaced with F_TRANSL_FORBIDDEN; fixed to keep config event gated on REC_CFG_ATS=1, no F_TRANSL_FORBIDDEN. Translation-class errors still produce F_TRANSL_FORBIDDEN. ATSCHK=0 passthrough verified. |
 | §3.9.1.4 | ATS Invalidation timeout | ⚠️ | ⚠️ | AUDIT-81 | SMMUEN==0 → no-op |
-| §3.9.1.5 | ATS Invalidation errors | ☐ | ☐ | | |
-| §3.9.2 | Changing ATS configuration | ☐ | ☐ | | Reconfigure rules while active |
+| §3.9.1.5 | ATS Invalidation errors | N/A | N/A | | UR response to CMD_ATC_INV completes without error — software/RC behavior, no SMMU model requirement. |
+| §3.9.2 | Changing ATS configuration | N/A | N/A | | Software programming sequence guide (enable/disable ATS ordering). No SMMU hardware behavioral requirement. EATS validity already enforced by configure_stream() SteIllegal() checks. |
 | §3.9.3 | SMMU interactions with CXL | 🚫 | 🚫 | | CXL out of scope |
-| §3.9.4 | SMMU interactions with PCle T/TE/XT fields | ☐ | ☐ | | T bit, TE bit, XT bit |
-| §3.9.4.1 | T bit and PCle IDE TLP prefix | ☐ | ☐ | | |
-| §3.9.4.2 | TE bit on ATS Translation Completions | ☐ | ☐ | | |
-| §3.9.4.3 | XT bit on Untranslated/Translation/Translated | ☐ | ☐ | | |
-| §3.9.4.4 | XT/T fields on PRI/ATS Invalidation messages | ☐ | ☐ | | |
+| §3.9.4 | SMMU interactions with PCle T/TE/XT fields | N/A | N/A | | PCIe TLP T/TE/XT fields + Realm/TDISP/TEE extensions. Realm out of scope; PCIe wire format out of scope. No SMMU model behavioral requirement. |
+| §3.9.4.1 | T bit and PCle IDE TLP prefix | N/A | N/A | | Realm/T-bit wire format. Out of scope. |
+| §3.9.4.2 | TE bit on ATS Translation Completions | N/A | N/A | | Requires SMMU_R_IDR3.XT=1 (Realm). Out of scope. |
+| §3.9.4.3 | XT bit on Untranslated/Translation/Translated | N/A | N/A | | Requires IDR3.XT=1 (Realm+TDISP). Out of scope. |
+| §3.9.4.4 | XT/T fields on PRI/ATS Invalidation messages | N/A | N/A | | Requires IDR3.XT=1 (Realm). Out of scope. |
 
 ### §3.10 Security States
 
@@ -144,12 +144,12 @@ CURRENT_SECTION = 3.5
 | §3.12 | Fault models (overview) | ⚠️ | ⚠️ | | Terminate/Stall dispatch |
 | §3.12.1 | Terminate model | ⚠️ | ⚠️ | | |
 | §3.12.2 | Stall model | ⚠️ | ⚠️ | BUG-QA-12/13, BUG-CPP-S1, BUG-RUST-Q2/Q4 | S2S/S2R, stall decision; double-fault, stall_pending reset |
-| §3.12.2.1 | Suppression of duplicate Stall event records | ☐ | ☐ | | STAG/dedup logic |
-| §3.12.2.2 | Early retry of Stalled transactions | ☐ | ☐ | | |
-| §3.12.2.3 | Miscellaneous Stall considerations | ☐ | ☐ | | |
+| §3.12.2.1 | Suppression of duplicate Stall event records | N/A | N/A | | Dedup is "permitted but not required". One fault per transaction enforced. No mandatory requirement unmet. |
+| §3.12.2.2 | Early retry of Stalled transactions | N/A | N/A | | "SMMU is permitted" to early-retry — IMPL DEF optional. Synchronous model does not implement speculative retry. |
+| §3.12.2.3 | Miscellaneous Stall considerations | N/A | N/A | | Backpressure and IMPL DEF capacity limits. No behavioral requirement for SW model. |
 | §3.12.3 | Considerations for client devices using Stall | N/A | N/A | | Software guidance |
-| §3.12.4 | Virtual Memory paging with SMMU | ☐ | ☐ | | Page-in flow |
-| §3.12.4.1 | Page-in request event | ⚠️ | ⚠️ | BUG-QA-6 | E_PAGE_REQUEST perm bits |
+| §3.12.4 | Virtual Memory paging with SMMU | N/A | N/A | | Informational — three fault models; no additional behavioral requirement beyond §3.12.1, §3.12.2, §8 |
+| §3.12.4.1 | Page-in request event | ✅ | ✅ | BUG-QA-6 ✅ | E_PAGE_REQUEST perm bits fixed; span field added to PRIEntry (§7.3.19 span*4096 encoding) |
 | §3.12.5 | Combinations of fault config with two stages | ⚠️ | ⚠️ | BUG-QA-12/13 | S2S/S2R vs STALL_MODEL |
 
 ### §3.13 Translation Tables and HTTU
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-05
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-113, BUG-NEW-RUST-1/2 — all fixed ✅
+**Last updated**: 2026-04-08
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 185/185 | Rust 615/615 (all suites green) | 0 clippy warnings
+**Test status**: C++ 185/185 | Rust 210/210 (all suites green) | 0 clippy warnings

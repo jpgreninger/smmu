@@ -1102,11 +1102,21 @@ impl SMMU {
         // BUG-AUDIT-73 fix: ARM §6.3.9 — PRIQEN is RES0 when IDR0.PRI==0.
         // Silently clear PRIQEN from the caller-supplied value when PRI is not
         // supported, mirroring the guard already present in enable().
-        let effective = if !self.pri_supported.load(Ordering::Acquire) {
+        let mut effective = if !self.pri_supported.load(Ordering::Acquire) {
             value & !Self::CR0_PRIQEN
         } else {
             value
         };
+        // BUG-AUDIT-124 fix: §6.3.9.3/§6.3.9.4 — CMDQEN, EVENTQEN, and PRIQEN
+        // are read-only (RO) while set in CR0 or CR0ACK.  A queue-enable bit
+        // cannot be cleared by software while it reads as 1 in either register.
+        // Preserve any such bits by OR-ing them back into the effective value,
+        // mirroring the guard pattern used in set_cr1() for the same bit group.
+        let cr0_current = self.cr0.load(Ordering::Acquire);
+        let ack_current = self.cr0ack.load(Ordering::Acquire);
+        let queue_bits = Self::CR0_CMDQEN | Self::CR0_EVENTQEN | Self::CR0_PRIQEN;
+        let ro_bits = (cr0_current | ack_current) & queue_bits;
+        effective |= ro_bits;
         self.cr0.store(effective, Ordering::Release);
         self.enabled.store((effective & Self::CR0_SMMUEN) != 0, Ordering::Release);
         // CONF-GAP-9: CR0ACK mirrors CR0 synchronously in this software model (§6.3.10).
@@ -2592,9 +2602,9 @@ impl SMMU {
                 6 => 52,
                 _ => 48, // default to 48-bit for reserved values
             };
-            // For OAS < 52 bits the valid range is [0, 2^oas_bits).
-            // For OAS == 52 we skip the check (any u64 S2TTB could be valid).
-            if oas_bits < 52 {
+            // For OAS <= 52 bits the valid range is [0, 2^oas_bits).
+            // 2^52 = 0x0010_0000_0000_0000 fits in u64 so the check is safe at 52 bits too.
+            if oas_bits <= 52 {
                 let oas_limit = 1u64 << oas_bits;
                 if config.s2_ttb >= oas_limit {
                     // BUG-11 fix: ARM §7.3.5 — emit C_BAD_STE event before returning Err.
@@ -2633,9 +2643,9 @@ impl SMMU {
                 6 => 52,
                 _ => 48, // default to 48-bit for reserved values
             };
-            // For IPS < 52 bits the valid range is [0, 2^ips_bits).
-            // For IPS == 52 we skip the check (any u64 TTB address is within 52-bit range in practice).
-            if ips_bits < 52 {
+            // For IPS <= 52 bits the valid range is [0, 2^ips_bits).
+            // 2^52 = 0x0010_0000_0000_0000 fits in u64 so the check is safe at 52 bits too.
+            if ips_bits <= 52 {
                 let ips_limit = 1u64 << ips_bits;
                 // Check TTB0 only when EPD0=false (TTB0 walk is enabled).
                 if !config.epd0 && config.ttb0 >= ips_limit {
@@ -4293,10 +4303,27 @@ impl SMMU {
             // bypass stream returns Ok (identity PA==IOVA), so recheck.is_err() would never
             // fire.  Pre-check the stream configuration here and short-circuit to
             // F_TRANSL_FORBIDDEN before the inner translate() is called.
-            let stream_is_bypass = self.streams
+            //
+            // BUG-AUDIT-125 fix: ARM §3.9.1.3 table distinguishes two cases:
+            //   STE.Config==0b000 (abort)  → ATSCHK=1: silently aborted, NO event.
+            //   STE.Config==0b100 (bypass) → ATSCHK=1: F_TRANSL_FORBIDDEN + aborted.
+            // The previous check used !is_stage1_enabled() && !is_stage2_enabled() which
+            // is true for BOTH abort and bypass; abort mode must NOT generate any event.
+            let (stream_is_no_translation, stream_is_abort) = self.streams
                 .get(&stream_id.as_u32())
-                .map(|ctx| !ctx.value().is_stage1_enabled() && !ctx.value().is_stage2_enabled())
-                .unwrap_or(false);
+                .map(|ctx| {
+                    let no_xlat = !ctx.value().is_stage1_enabled() && !ctx.value().is_stage2_enabled();
+                    let abort = ctx.value().is_abort_mode();
+                    (no_xlat, abort)
+                })
+                .unwrap_or((false, false));
+            // Abort mode (Config==0b000): silently abort, no event (§3.9.1.3 table row 1).
+            if stream_is_no_translation && stream_is_abort {
+                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                return Err(TranslationError::PermissionViolation { access });
+            }
+            // Bypass mode (Config==0b100, no-translation, not abort): F_TRANSL_FORBIDDEN (§3.9.1.3 table row 2).
+            let stream_is_bypass = stream_is_no_translation && !stream_is_abort;
             if stream_is_bypass {
                 if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                     let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
@@ -4345,7 +4372,46 @@ impl SMMU {
             let snapshot_prod = self.eventq_prod.load(Ordering::Acquire);
 
             let recheck = self.translate(stream_id, pasid, iova, access, security_state);
-            if recheck.is_err() {
+            if let Err(ref recheck_err) = recheck {
+                // BUG-AUDIT-127 fix: §3.9.1.3 — distinguish config-class errors from
+                // translation-class errors for ATS Translated transactions with ATSCHK=1.
+                //
+                // Translation-class (F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION):
+                //   → Roll back inner events, emit F_TRANSL_FORBIDDEN.
+                //
+                // Config-class (C_BAD_SUBSTREAMID, F_STREAM_DISABLED, C_BAD_STE, etc.):
+                //   → Keep inner events only if CR2.REC_CFG_ATS==1; else roll back.
+                //   → Abort (return Err), do NOT emit F_TRANSL_FORBIDDEN.
+                let is_config_error = matches!(
+                    recheck_err,
+                    TranslationError::BadSubstreamId
+                        | TranslationError::StreamDisabled
+                        | TranslationError::AbortMode
+                        | TranslationError::StreamNotConfigured
+                        | TranslationError::InvalidStreamID
+                        | TranslationError::BadCD
+                );
+
+                if is_config_error {
+                    // §3.9.1.3: config errors on ATS TT are recorded only if REC_CFG_ATS=1.
+                    let rec_cfg_ats = (self.cr2.load(Ordering::Acquire) & Self::CR2_REC_CFG_ATS) != 0;
+                    if !rec_cfg_ats {
+                        // Suppress: roll back any events the inner translate() recorded.
+                        if let Ok(mut queue) = self.event_queue.write() {
+                            let added = queue.len().saturating_sub(snapshot_len);
+                            self.event_count.fetch_sub(added as u64, Ordering::Relaxed);
+                            for _ in 0..added {
+                                queue.pop_back();
+                            }
+                            self.eventq_prod.store(snapshot_prod, Ordering::Release);
+                        }
+                    }
+                    // Else REC_CFG_ATS=1: keep the events already recorded by inner translate().
+                    self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                    return Err(recheck_err.clone());
+                }
+
+                // Translation-class error: roll back inner events and emit F_TRANSL_FORBIDDEN.
                 // Remove any events that the inner translate() appended (e.g.
                 // F_TRANSLATION for unmapped address) — only F_TRANSL_FORBIDDEN
                 // must be visible to the caller.
@@ -4856,7 +4922,7 @@ impl SMMU {
                         let p = ctx.is_access_privileged(access);
                         (eff, p)
                     });
-                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false, ssv);
+                self.record_translation_fault(stream_id, pasid, iova, effective_access, security_state, &oas_error, false, 0, false, 0, pnu, false, ssv, transaction_type == TransactionType::AtsTranslationRequest);
                 return Err(oas_error);
             }
         }
@@ -4923,6 +4989,7 @@ impl SMMU {
                 .map_or(false, |ctx| ctx.is_access_privileged(access));
             self.record_translation_fault(
                 stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, ssv,
+                transaction_type == TransactionType::AtsTranslationRequest,
             );
             return Err(substreamid_error);
         }
@@ -4952,6 +5019,7 @@ impl SMMU {
                 .map_or(false, |ctx| ctx.is_access_privileged(access));
             self.record_translation_fault(
                 stream_id, pasid, iova, access, security_state, &substreamid_error, false, 0, false, 0, pnu, false, ssv,
+                transaction_type == TransactionType::AtsTranslationRequest,
             );
             return Err(substreamid_error);
         }
@@ -5091,6 +5159,7 @@ impl SMMU {
                             .map_or(false, |ctx| ctx.is_access_privileged(access));
                         self.record_translation_fault(
                             stream_id, pasid, iova, access, security_state, &oas_error, false, 0, false, 0, pnu, false, ssv,
+                            transaction_type == TransactionType::AtsTranslationRequest,
                         );
                         return Err(oas_error);
                     }
@@ -5116,6 +5185,7 @@ impl SMMU {
                                     self.record_translation_fault(
                                         stream_id, pasid, iova, access, security_state,
                                         e, false, 0u16, true, iova.as_u64(), pnu, nsipa, ssv,
+                                        transaction_type == TransactionType::AtsTranslationRequest,
                                     );
                                     return Err(e.clone());
                                 }
@@ -5356,6 +5426,7 @@ impl SMMU {
                                 self.record_translation_fault(
                                     stream_id, pasid, iova, effective_access, security_state,
                                     error, false, 0, fault_s2, fault_ipa, pnu, nsipa, ssv,
+                                    transaction_type == TransactionType::AtsTranslationRequest,
                                 );
                                 return Err(TranslationError::StallQueueFull);
                             }
@@ -5385,6 +5456,7 @@ impl SMMU {
             self.record_translation_fault(
                 stream_id, pasid, iova, effective_access, security_state,
                 error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa, ssv,
+                transaction_type == TransactionType::AtsTranslationRequest,
             );
 
             if is_stall {
@@ -5623,6 +5695,11 @@ impl SMMU {
         pnu: bool,
         nsipa: bool,
         ssv: bool,
+        // BUG-AUDIT-126 fix: §3.9.1.2 — ATS Translation Requests that encounter
+        // F_TRANSLATION / F_ADDR_SIZE / F_ACCESS / F_PERMISSION must NOT record
+        // any fault event ("no fault is recorded in the SMMU").  The FaultRecord
+        // is still stored for internal accounting; only the EventEntry is suppressed.
+        is_ats_tr: bool,
     ) {
         let fault_type = Self::map_translation_error_to_fault_type(error);
 
@@ -5669,6 +5746,17 @@ impl SMMU {
 
         // Also record to event queue for ARM SMMU v3 compliance (Section 6.3)
         let event_type = Self::map_fault_type_to_event_type(fault_type);
+
+        // BUG-AUDIT-126 fix: §3.9.1.2 — For ATS Translation Requests, F_TRANSLATION,
+        // F_ADDR_SIZE, F_ACCESS, and F_PERMISSION must NOT be recorded as events in the
+        // SMMU event queue. "no fault is recorded in the SMMU." This applies only to
+        // translation-class faults (not configuration errors like C_BAD_STE/C_BAD_CD).
+        if is_ats_tr && matches!(
+            event_type,
+            EventType::FTranslation | EventType::FAddrSize | EventType::FAccess | EventType::FPermission
+        ) {
+            return;
+        }
         // GAP NEW-1 / ARM IHI0070G.b §7.3: CLASS is a 2-bit field defined ONLY for
         // translation-related F_* events.  C_* configuration events must leave CLASS==0
         // (it is not defined for them).  For F_* translation faults in this SW model the
@@ -7756,7 +7844,7 @@ impl SMMU {
             pr: is_priv && can_r,
             pw: is_priv && can_w,
             px: is_priv && can_x,
-            span: 0,
+            span: request.span,
             ..EventEntry::zeroed()
         };
         // submit_event() may fail if the event queue is full; in that case the
@@ -7866,7 +7954,7 @@ impl SMMU {
                         pr: is_priv && can_r,
                         pw: is_priv && can_w,
                         px: is_priv && can_x,
-                        span: 0,
+                        span: req.span,
                         ..EventEntry::zeroed()
                     };
 
@@ -9591,6 +9679,7 @@ mod tests {
             timestamp: 0,
             prg_index: 0,
             security_state: crate::types::SecurityState::NonSecure,
+            span: 0,
         };
         let r = smmu.submit_page_request(req);
         assert!(r.is_ok(), "submit_pri_request must succeed on empty queue");

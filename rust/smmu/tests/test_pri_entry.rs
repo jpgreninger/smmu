@@ -676,3 +676,41 @@ fn test_pri_entry_with_prg_index_preserves_other_fields() {
     assert_eq!(entry.timestamp, 0);
     assert_eq!(entry.prg_index, 10);
 }
+
+// ============================================================================
+// §7.3.19 E_PAGE_REQUEST span field (§3.12.4.1 / BUG-QA-6 span gap)
+// ============================================================================
+
+#[test]
+fn test_pri_entry_has_span_field_default_zero() {
+    // §7.3.19: Span=0 means single page. PRIEntry must carry span so callers
+    // can communicate multi-page hints. Default must be 0.
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read);
+    assert_eq!(entry.span, 0u8);
+}
+
+#[test]
+fn test_pri_entry_with_span_builder() {
+    // §7.3.19: Span in units of 4096 bytes; Span*4096 = access span in bytes.
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
+        .with_span(4);
+    assert_eq!(entry.span, 4);
+}
+
+#[test]
+fn test_pri_entry_with_span_max() {
+    let entry = PRIEntry::with_address(1, 0, 0x1000, AccessType::Read)
+        .with_span(u8::MAX);
+    assert_eq!(entry.span, u8::MAX);
+}
+
+#[test]
+fn test_pri_entry_with_span_preserves_other_fields() {
+    let entry = PRIEntry::with_address(3, 7, 0x2000, AccessType::Write)
+        .with_span(8);
+    assert_eq!(entry.stream_id, 3);
+    assert_eq!(entry.pasid, 7);
+    assert_eq!(entry.requested_address, 0x2000);
+    assert_eq!(entry.access_type, AccessType::Write);
+    assert_eq!(entry.span, 8);
+}
