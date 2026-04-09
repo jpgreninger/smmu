@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.15
+CURRENT_SECTION = 3.17
 
 ## Status Legend
 
@@ -175,14 +175,14 @@ CURRENT_SECTION = 3.15
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §3.14 | Speculative accesses | N/A | N/A | | Entirely IMPLEMENTATION DEFINED; model does not implement speculative transactions; conformant by omission |
-| §3.15 | Coherency considerations and memory access types | ☐ | ☐ | | COHACC |
-| §3.15.1 | Client devices | ☐ | ☐ | | |
-| §3.15.1.1 | Fully-coherent client devices | ☐ | ☐ | | |
-| §3.16 | Embedded Implementations | ☐ | ☐ | | TABLES_PRESET, QUEUES_PRESET |
-| §3.16.1 | Changes to structure/queue storage when fixed/preset | ☐ | ☐ | | |
-| §3.16.1.1 | Event Queue and PRI Queue (embedded) | ☐ | ☐ | | |
-| §3.16.1.2 | Command Queue (embedded) | ☐ | ☐ | | |
-| §3.16.1.3 | Stream Table Entry (embedded) | ☐ | ☐ | | |
+| §3.15 | Coherency considerations and memory access types | N/A | N/A | | Hardware coherency concerns; COHACC=0 correct for SW model (no IO-coherent access); atomicity satisfied by Rust DashMap AtomicU64 |
+| §3.15.1 | Client devices | N/A | N/A | | Hardware snoop/cache topology; not applicable to SW simulation |
+| §3.15.1.1 | Fully-coherent client devices | N/A | N/A | | GPC/DPT/snoop hardware behavior; out of scope |
+| §3.16 | Embedded Implementations | N/A | N/A | | TABLES_PRESET/QUEUES_PRESET hardwired storage; SW model uses dynamic allocation; IDR1.TABLES_PRESET=0/QUEUES_PRESET=0 correct |
+| §3.16.1 | Changes to structure/queue storage when fixed/preset | N/A | N/A | | Embedded preset storage behavior; not applicable |
+| §3.16.1.1 | Event Queue and PRI Queue (embedded) | N/A | N/A | | |
+| §3.16.1.2 | Command Queue (embedded) | N/A | N/A | | |
+| §3.16.1.3 | Stream Table Entry (embedded) | N/A | N/A | | |
 
 ### §3.17 TLB Tagging, VMIDs, ASIDs, Broadcast TLB Maintenance
 
