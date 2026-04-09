@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 4.3
+CURRENT_SECTION = 4.4
 
 ## Status Legend
 
@@ -273,15 +273,15 @@ CURRENT_SECTION = 4.3
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §4.3.1 | CMD_CFGI_STE | ⚠️ | ⚠️ | | Leaf behavior |
-| §4.3.2 | CMD_CFGI_STE_RANGE | ⚠️ | ⚠️ | BUG-3 | Range > 31 UB/panic fixed |
-| §4.3.3 | CMD_CFGI_CD | ⚠️ | ⚠️ | NEW-AUDIT-02/04, BUG-NEW-15 | Global S1P guard; SSec guard |
-| §4.3.4 | CMD_CFGI_CD_ALL | ⚠️ | ⚠️ | NEW-AUDIT-02/04, BUG-NEW-15 | Global S1P guard; SSec guard |
-| §4.3.5 | CMD_CFGI_VMS_PIDM | ⚠️ | ⚠️ | BUG-NEW-A-G, BUG-G | SSec+MPAM guard; IDR3.MPAM bit 7 fix |
-| §4.3.5.1 | CMD_CFGI_VMS_PIDM usage | N/A | N/A | | Software guidance |
-| §4.3.6 | CMD_CFGI_ALL | ⚠️ | ⚠️ | BUG-NEW-15 | SSec guard added |
-| §4.3.7 | VM guest OS structure invalidations by hypervisor | ☐ | ☐ | | |
-| §4.3.8 | Configuration structure invalidation semantics/rules | ☐ | ☐ | | Ordering guarantees |
+| §4.3.1 | CMD_CFGI_STE | ⚠️ | ⚠️ | | SSec guard correct; Leaf=0/1 flat-model equivalence documented (no L1ST cache) |
+| §4.3.2 | CMD_CFGI_STE_RANGE | ⚠️ | ⚠️ | BUG-3 | Range < 31 prefix match correct; range=31 global invalidation; range>31 clamped |
+| §4.3.3 | CMD_CFGI_CD | ⚠️ | ⚠️ | NEW-AUDIT-02/04, BUG-NEW-15 | SSec+S1P guard correct; Leaf=0/1 flat-model equivalence documented (no L1CD cache) |
+| §4.3.4 | CMD_CFGI_CD_ALL | ⚠️ | ⚠️ | NEW-AUDIT-02/04, BUG-NEW-15 | SSec+S1P guard correct; Leaf flat-model equivalence documented |
+| §4.3.5 | CMD_CFGI_VMS_PIDM | ⚠️ | ⚠️ | BUG-NEW-A-G, BUG-G | SSec+MPAM guard correct; IDR3.MPAM=0 → always CERROR_ILL (conformant) |
+| §4.3.5.1 | CMD_CFGI_VMS_PIDM usage | N/A | N/A | | Software guidance only |
+| §4.3.6 | CMD_CFGI_ALL | ⚠️ | ⚠️ | BUG-NEW-15 | SSec guard correct; global TLB invalidation correct |
+| §4.3.7 | VM guest OS structure invalidations by hypervisor | N/A | N/A | | Software-only guidance; no SMMU enforcement required |
+| §4.3.8 | Configuration structure invalidation semantics/rules | ⚠️ | ⚠️ | | Single-threaded model; stall/invalidation independence, CMD_SYNC ordering all conformant |
 
 ### §4.4 TLB Invalidation
 

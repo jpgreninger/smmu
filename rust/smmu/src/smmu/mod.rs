@@ -7507,6 +7507,11 @@ impl SMMU {
                         "CMD_CFGI_CD: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.3.3)".to_string(),
                     ));
                 }
+                // §4.3.3 / §4.3.8: `command.leaf` (Leaf=0 vs Leaf=1) is vacuously irrelevant:
+                // Leaf=0 requires invalidating the CD AND any intermediate L1CD descriptors;
+                // Leaf=1 requires only the CD itself.  This flat model holds no L1CD or
+                // multi-level CD table structures, so both cases reduce to the same TLB eviction.
+                let _ = command.leaf; // flat model: no L1CD cache — leaf is a no-op (§4.3.3)
                 // CMD_CFGI_CD (§4.3.3): invalidate TLB entries cached from the
                 // Context Descriptor for the specified (stream, PASID) pair.
                 if let (Ok(stream_id), Ok(pasid)) = (
@@ -7535,6 +7540,10 @@ impl SMMU {
                         "CMD_CFGI_CD_ALL: IDR0.S1P=0 — stage-1 not implemented, CERROR_ILL (ARM §4.3.4)".to_string(),
                     ));
                 }
+                // §4.3.4 / §4.3.8: Leaf=0 requires invalidating all CDs AND intermediate
+                // L1CD descriptors; Leaf=1 requires only the CD entries.  Flat model holds
+                // no L1CD intermediate structures; both cases reduce to stream-wide TLB eviction.
+                let _ = command.leaf; // flat model: no L1CD cache — leaf is a no-op (§4.3.4)
                 // CMD_CFGI_CD_ALL (§4.3.4): invalidate TLB entries cached from
                 // all Context Descriptors of the specified stream.
                 if let Ok(stream_id) = StreamID::new(command.stream_id) {
@@ -7628,9 +7637,14 @@ impl SMMU {
                         "CMD_CFGI_STE: CERROR_ILL — SSec=1 is ILLEGAL on the NS command queue (ARM §4.1.6)".to_string(),
                     ));
                 }
-                // Nothing to flush if the stream does not exist; no-op is correct.
-                // (For a real HW model with an STE cache, this would evict the cached
-                //  entry if present, and be a harmless no-op if not.)
+                // §4.3.1 / §4.3.8: This model uses a flat stream table with no STE cache.
+                // `command.leaf` (Leaf=0 vs Leaf=1) is vacuously irrelevant here:
+                //   Leaf=0 spec requires invalidating the STE AND any intermediate L1ST
+                //   descriptors; Leaf=1 requires only the STE itself.  Since this flat
+                //   model holds no L1ST or multi-level intermediate structures, there are
+                //   no additional entries to evict beyond the TLB, and the nothing-to-flush
+                //   path is architecturally correct in both cases.
+                let _ = command.leaf; // flat model: no L1ST cache — leaf is a no-op (§4.3.1)
             },
             // CMD_CFGI_ALL / CMD_CFGI_STE_RANGE (ARM §4.3.2):
             // Both use opcode 0x04 (CfgiAll); the `range` field distinguishes them.
