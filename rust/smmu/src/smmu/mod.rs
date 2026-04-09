@@ -6465,6 +6465,77 @@ impl SMMU {
         Ok(())
     }
 
+    /// Submit a command by raw opcode, detecting reserved opcodes per §4.1.1/§4.1.3.
+    ///
+    /// ## BUG-AUDIT-132
+    ///
+    /// ARM §4.1.3 mandates that encountering a reserved command opcode raises
+    /// `CERROR_ILL` and signals `GERROR_CMDQ_ERR`.  Because the typed
+    /// [`CommandType`] enum only contains known-valid opcodes, software has no
+    /// way to exercise this path through the normal API.  This method accepts a
+    /// raw `u8` opcode, checks it against the complete list of valid opcodes
+    /// from §4.1.1, and:
+    ///
+    /// - **Reserved opcode**: writes `CERROR_ILL` to `CMDQ_CONS.ERR`, signals
+    ///   `GERROR_CMDQ_ERR`, and returns `Err(SMMUError::InvalidCommandParameters)`.
+    /// - **Valid opcode**: constructs a default [`CommandEntry`] for that
+    ///   [`CommandType`] and submits it via the normal [`submit_command`] path.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` containing `CERROR_ILL` description when `opcode` is not
+    /// in the set of valid ARM §4.1.1 opcodes.
+    pub fn submit_raw_opcode(&self, opcode: u8) -> Result<(), SMMUError> {
+        // Complete set of valid opcodes per ARM IHI0070G.b §4.1.1.
+        // Every opcode not in this set is Reserved and must raise CERROR_ILL.
+        let cmd_type = match opcode {
+            0x01 => CommandType::PrefetchConfig,
+            0x02 => CommandType::PrefetchAddr,
+            0x03 => CommandType::CfgiSte,
+            0x04 => CommandType::CfgiAll,
+            0x05 => CommandType::CfgiCd,
+            0x06 => CommandType::CfgiCdAll,
+            0x07 => CommandType::CfgiVmsPidm,
+            0x10 => CommandType::TlbiNhAll,
+            0x11 => CommandType::TlbiNhAsid,
+            0x12 => CommandType::TlbiNhVa,
+            0x13 => CommandType::TlbiNhVaa,
+            0x18 => CommandType::TlbiEl3All,
+            0x1A => CommandType::TlbiEl3Va,
+            0x20 => CommandType::TlbiEl2All,
+            0x21 => CommandType::TlbiEl2Asid,
+            0x22 => CommandType::TlbiEl2Va,
+            0x23 => CommandType::TlbiEl2Vaa,
+            0x28 => CommandType::TlbiS12Vmall,
+            0x2A => CommandType::TlbiS2Ipa,
+            0x30 => CommandType::TlbiNsnhAll,
+            0x40 => CommandType::AtcInv,
+            0x41 => CommandType::PriResp,
+            0x44 => CommandType::Resume,
+            0x45 => CommandType::StallTerm,
+            0x46 => CommandType::Sync,
+            0x50 => CommandType::TlbiSEl2All,
+            0x51 => CommandType::TlbiSEl2Asid,
+            0x52 => CommandType::TlbiSEl2Va,
+            0x53 => CommandType::TlbiSEl2Vaa,
+            0x58 => CommandType::TlbiSS12Vmall,
+            0x5A => CommandType::TlbiSS2Ipa,
+            0x60 => CommandType::TlbiSnhAll,
+            0x70 => CommandType::DptiAll,
+            0x73 => CommandType::DptiPa,
+            _ => {
+                // §4.1.3: Reserved opcode → CERROR_ILL + GERROR_CMDQ_ERR.
+                self.write_cmdq_cons_err(Self::CERROR_ILL);
+                self.signal_gerror(Self::GERROR_CMDQ_ERR);
+                return Err(SMMUError::InvalidCommandParameters(format!(
+                    "Reserved command opcode 0x{opcode:02X} (§4.1.1/§4.1.3): CERROR_ILL"
+                )));
+            }
+        };
+
+        self.submit_command(CommandEntry::new(cmd_type, 0, 0))
+    }
+
     /// Process all commands in the command queue
     ///
     /// Processes commands in FIFO order and generates completion events.

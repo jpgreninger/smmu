@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 4.1
+CURRENT_SECTION = 4.2
 
 ## Status Legend
 
@@ -254,13 +254,13 @@ CURRENT_SECTION = 4.1
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §4.1.1 | Command opcodes | ⚠️ | ⚠️ | AUDIT-72 | Unknown opcode → CERROR_ILL+GERROR |
-| §4.1.2 | Submitting commands to the Command queue | ⚠️ | ⚠️ | | PROD write ordering |
-| §4.1.3 | Command errors | ⚠️ | ⚠️ | AUDIT-72, 93 | CERROR_ILL, ERR field, recovery |
-| §4.1.4 | Consumption of commands from the Command queue | ⚠️ | ⚠️ | AUDIT-93, BUG-CPP-1/RUST-1 | Two-step recovery (CONS then GERROR); peek-before-pop |
-| §4.1.5 | Reserved fields | ☐ | ☐ | | MBZ checking |
-| §4.1.6 | Common command fields | ⚠️ | ⚠️ | BUG-NEW-28/32, BUG-NEW-15/16/17/21, BUG-NEW-24/25, BUG-NEW-37/38 | SSec guards on NS queue; CMD_RESUME/STALL_TERM/CFGI/TLBI SSec |
-| §4.1.7 | Out-of-range parameters | ⚠️ | ⚠️ | AUDIT-72 | CERROR_ILL for invalid params |
+| §4.1.1 | Command opcodes | ⚠️ | ⚠️ | AUDIT-72, BUG-AUDIT-132 | Unknown/reserved opcode → CERROR_ILL+GERROR via submit_raw_opcode() |
+| §4.1.2 | Submitting commands to the Command queue | ⚠️ | ⚠️ | | PROD write ordering correct; queue-full detection correct |
+| §4.1.3 | Command errors | ⚠️ | ⚠️ | AUDIT-72, 93, BUG-AUDIT-132 | CERROR_ILL+GERROR for reserved opcode; ERR field set; recovery correct |
+| §4.1.4 | Consumption of commands from the Command queue | ⚠️ | ⚠️ | AUDIT-93, BUG-CPP-1/RUST-1 | Two-step recovery (CONS then GERROR); peek-before-pop correct |
+| §4.1.5 | Reserved fields | ⚠️ | ⚠️ | | MBZ fields silently ignored (spec-permitted; no CERROR_ILL required) |
+| §4.1.6 | Common command fields | ⚠️ | ⚠️ | BUG-NEW-28/32, BUG-NEW-15/16/17/21, BUG-NEW-24/25, BUG-NEW-37/38 | SSec guards on NS queue; CMD_RESUME/STALL_TERM/CFGI/TLBI SSec all correct |
+| §4.1.7 | Out-of-range parameters | ⚠️ | ⚠️ | AUDIT-72 | Out-of-range SID/SSID treated as no-op (CONSTRAINED UNPREDICTABLE — conformant) |
 
 ### §4.2 Prefetch Commands
 
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-08
+**Last updated**: 2026-04-09
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 210/210 (all suites green) | 0 clippy warnings
