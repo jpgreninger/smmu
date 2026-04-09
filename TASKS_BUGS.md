@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.18
+CURRENT_SECTION = 3.20
 
 ## Status Legend
 
@@ -203,11 +203,11 @@ CURRENT_SECTION = 3.18
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.18 | Interrupts and notifications | ⚠️ | ⚠️ | | GERROR toggle protocol |
-| §3.18.1 | MSI synchronization | ☐ | ☐ | | MSI delivery ordering |
-| §3.18.2 | Interrupt sources | ⚠️ | ⚠️ | BUG-QA-7, AUDIT-55, AUDIT-65 | SEV vs MSI CMD_SYNC CS; IDR0.SEV gating |
-| §3.19 | Power control | ⚠️ | ⚠️ | AUDIT-53 | IDR0.DORMHINT |
-| §3.19.1 | Dormant state | ☐ | ☐ | | Dormant entry/exit behavior |
+| §3.18 | Interrupts and notifications | ⚠️ | ✅ | | GERROR/GERRORN toggle protocol correct; MSI/wired simulated (no real HW writes); interrupt notification ordering satisfied structurally |
+| §3.18.1 | MSI synchronization | N/A | ✅ | | CMD_SYNC ensures MSI completion; SW model has no actual MSI writes; ordering satisfied structurally |
+| §3.18.2 | Interrupt sources | ⚠️ | ✅ | BUG-QA-7 ✅, AUDIT-55 ✅, AUDIT-65 ✅ | SEV gated on IDR0.SEV; CS=0b11 → CERROR_ILL; CS=0b10 with SEV=0 → SIG_NONE (deliberate safe fallback per AUDIT-65) |
+| §3.19 | Power control | ⚠️ | ✅ | AUDIT-53 ✅ | DORMHINT=1 in IDR0; STATUSR.DORMANT set after shutdown(); power-off preconditions are SW responsibility per spec |
+| §3.19.1 | Dormant state | N/A | ✅ | | Stalled-transaction abort on dormancy is SW precondition per §3.19.1; shutdown() clears streams/queue; DORMANT bit set |
 
 ### §3.20–3.21 TLB Conflicts and Structure Update Procedures
 
