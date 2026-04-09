@@ -7055,12 +7055,18 @@ impl SMMU {
                         .saturating_sub(1);
                     // BUG-NEW-37 fix: ARM §4.4.2.3 — TLBI_NH_VA is VMID-scoped.
                     // Use VMID+VA+ASID invalidation to preserve other VMIDs' entries.
+                    // §4.4.2.4 note: spec also requires invalidating "global entries by
+                    // VMID+VA regardless of ASID" (nG=0 page table entries without an ASID
+                    // tag).  This flat model does not mark entries as global (CacheEntry
+                    // always stores an explicit ASID from the CD); there are no separately-
+                    // tagged global entries to evict, so this requirement is vacuously met.
                     self.tlb_cache.invalidate_by_vmid_and_va_range_and_asid(
                         command.vmid, command.start_address, range_end, command.asid,
                     );
                 } else {
                     // BUG-NEW-37 fix: ARM §4.4.2.3 — TLBI_NH_VA is VMID-scoped.
                     // Use VMID+VA+ASID invalidation to preserve other VMIDs' entries.
+                    // §4.4.2.4 global-entry note: same flat-model justification as above.
                     self.tlb_cache.invalidate_by_vmid_and_va_and_asid(
                         command.vmid, command.start_address, command.asid,
                     );

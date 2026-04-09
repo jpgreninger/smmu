@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 4.4
+CURRENT_SECTION = 4.5
 
 ## Status Legend
 
@@ -287,30 +287,30 @@ CURRENT_SECTION = 4.4
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §4.4.1 | Common TLB invalidation fields | ⚠️ | ⚠️ | AUDIT-NEW-01 | |
-| §4.4.1.1 | Range-based invalidation and level hint (RIL) | ⚠️ | ⚠️ | AUDIT-86, AUDIT-NEW-01, BUG-NEW-B/C/E | TLBI_S2_IPA RIL formula; TG check tightened |
-| §4.4.2 | TLB invalidation of stage 1 | ⚠️ | ⚠️ | AUDIT-NEW-03 | |
-| §4.4.2.1 | CMD_TLBI_NH_ALL | ⚠️ | ⚠️ | AUDIT-85, BUG-QA-14 | S1P guard removed; VMID-scoped |
-| §4.4.2.2 | CMD_TLBI_NH_ASID | ⚠️ | ⚠️ | BUG-CPP-2/RUST-2 | VMID+ASID joint invalidation |
-| §4.4.2.3 | CMD_TLBI_NH_VAA | ⚠️ | ⚠️ | BUG-NEW-37 | VMID-scoped; VMID+VA added |
-| §4.4.2.4 | CMD_TLBI_NH_VA | ⚠️ | ⚠️ | BUG-NEW-37 | VMID-scoped; VMID+VA+ASID added |
+| §4.4.1 | Common TLB invalidation fields | ⚠️ | ⚠️ | AUDIT-NEW-01 | ASID16/VMID16 correct; 16-bit tags always used |
+| §4.4.1.1 | Range-based invalidation and level hint (RIL) | ⚠️ | ⚠️ | AUDIT-86, AUDIT-NEW-01, BUG-NEW-B/C/E | RIL formula correct; TG encoding 1=4K/2=16K/3=64K; SCALE capped at 39 |
+| §4.4.2 | TLB invalidation of stage 1 | ⚠️ | ⚠️ | AUDIT-NEW-03 | All guards and scoping correct |
+| §4.4.2.1 | CMD_TLBI_NH_ALL | ⚠️ | ⚠️ | AUDIT-85, BUG-QA-14 | VMID-scoped; no S1P guard (correct) |
+| §4.4.2.2 | CMD_TLBI_NH_ASID | ⚠️ | ⚠️ | BUG-CPP-2/RUST-2 | VMID+ASID joint invalidation correct |
+| §4.4.2.3 | CMD_TLBI_NH_VAA | ⚠️ | ⚠️ | BUG-NEW-37 | VMID+VA scoped; RIL path correct |
+| §4.4.2.4 | CMD_TLBI_NH_VA | ⚠️ | ⚠️ | BUG-NEW-37 | VMID+VA+ASID correct; global-entry (nG) requirement vacuously met (flat model, no nG entries) — documented |
 | §4.4.2.5 | CMD_TLBI_EL3_ALL | ⚠️ | ⚠️ | BUG-QA-9 | CERROR_ILL on NS queue |
 | §4.4.2.6 | CMD_TLBI_EL3_VA | ⚠️ | ⚠️ | BUG-QA-9 | CERROR_ILL on NS queue |
-| §4.4.2.7 | CMD_TLBI_EL2_ALL | ⚠️ | ⚠️ | BUG-NEW-24–27, BUG-NEW-16/18 | Hyp guard; IDR0.Hyp==0 → CERROR_ILL |
-| §4.4.2.8 | CMD_TLBI_EL2_VA | ⚠️ | ⚠️ | BUG-NEW-A, BUG-NEW-24/27, BUG-NEW-E | EL2E2H method; Hyp guard; EL2-scoped filter |
-| §4.4.2.9 | CMD_TLBI_EL2_VAA | ⚠️ | ⚠️ | BUG-NEW-B, BUG-NEW-24/27, BUG-NEW-E | EL2-scoped; Hyp guard; EL2-scoped filter |
-| §4.4.2.10 | CMD_TLBI_EL2_ASID | ⚠️ | ⚠️ | BUG-NEW-B, BUG-NEW-24/27, BUG-NEW-D | EL2E2H method; Hyp guard; EL2-scoped ASID |
+| §4.4.2.7 | CMD_TLBI_EL2_ALL | ⚠️ | ⚠️ | BUG-NEW-24–27, BUG-NEW-16/18 | IDR0.Hyp==0 → CERROR_ILL; EL2-scoped invalidation correct |
+| §4.4.2.8 | CMD_TLBI_EL2_VA | ⚠️ | ⚠️ | BUG-NEW-A, BUG-NEW-24/27, BUG-NEW-E | Hyp guard; RIL formula; EL2-scoped filter all correct |
+| §4.4.2.9 | CMD_TLBI_EL2_VAA | ⚠️ | ⚠️ | BUG-NEW-B, BUG-NEW-24/27, BUG-NEW-E | Hyp guard; EL2-scoped; RIL page-by-page (correct, perf note only) |
+| §4.4.2.10 | CMD_TLBI_EL2_ASID | ⚠️ | ⚠️ | BUG-NEW-B, BUG-NEW-24/27, BUG-NEW-D | EL2E2H method; Hyp guard; EL2-scoped ASID correct |
 | §4.4.2.11 | CMD_TLBI_S_EL2_ALL | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 | §4.4.2.12 | CMD_TLBI_S_EL2_VA | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 | §4.4.2.13 | CMD_TLBI_S_EL2_VAA | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 | §4.4.2.14 | CMD_TLBI_S_EL2_ASID | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
-| §4.4.3 | TLB invalidation of stage 2 | ⚠️ | ⚠️ | | |
-| §4.4.3.1 | CMD_TLBI_S2_IPA | ⚠️ | ⚠️ | AUDIT-86, BUG-NEW-38, BUG-NEW-39 | S2P guard; RIL formula; SSec removed |
-| §4.4.3.2 | CMD_TLBI_S12_VMALL | ⚠️ | ⚠️ | BUG-NEW-38, BUG-NEW-39 | S2P guard; SSec removed |
+| §4.4.3 | TLB invalidation of stage 2 | ⚠️ | ⚠️ | | All S2P guards and RIL formulas correct |
+| §4.4.3.1 | CMD_TLBI_S2_IPA | ⚠️ | ⚠️ | AUDIT-86, BUG-NEW-38, BUG-NEW-39 | S2P guard; RIL formula; Reserved RIL check all correct |
+| §4.4.3.2 | CMD_TLBI_S12_VMALL | ⚠️ | ⚠️ | BUG-NEW-38, BUG-NEW-39 | S2P guard; CR0.VMW masking correct |
 | §4.4.3.3 | CMD_TLBI_S_S2_IPA | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 | §4.4.3.4 | CMD_TLBI_S_S12_VMALL | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 | §4.4.4 | Common TLB invalidation | ⚠️ | ⚠️ | | |
-| §4.4.4.1 | CMD_TLBI_NSNH_ALL | ⚠️ | ⚠️ | AUDIT-85, BUG-NEW-18 | S1P guard removed; NonSecure+EL1_EL0 filter |
+| §4.4.4.1 | CMD_TLBI_NSNH_ALL | ⚠️ | ⚠️ | AUDIT-85, BUG-NEW-18 | EL1_EL0-scoped; no S1P guard (correct) |
 | §4.4.4.2 | CMD_TLBI_SNH_ALL | ⚠️ | ⚠️ | BUG-NEW-28/32 | CERROR_ILL on NS queue |
 
 ### §4.5–4.8 ATS/PRI, DPT, Fault Response, Sync
