@@ -3710,6 +3710,17 @@ impl SMMU {
         stream_context.create_stage2_address_space().map_err(SMMUError::from)
     }
 
+    /// Read the Access Flag of a stage-2 page (for testing §3.13.2 HTTU behavior).
+    ///
+    /// Returns `Some(true)` if the page is marked accessed (AF=1),
+    /// `Some(false)` if the page is unmapped-but-has-AF=0, or `None` if the
+    /// page does not exist in the stage-2 address space.
+    #[must_use]
+    pub fn get_stage2_page_access_flag(&self, stream_id: StreamID, ipa: IOVA) -> Option<bool> {
+        let ctx = self.streams.get(&stream_id.as_u32())?;
+        ctx.get_stage2_page_access_flag(ipa)
+    }
+
     /// Get a copy of the global SMMU configuration
     ///
     /// Returns a cloned copy of the configuration to avoid holding read lock.

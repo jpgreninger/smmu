@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.13
+CURRENT_SECTION = 3.13.3
 
 ## Status Legend
 
@@ -156,9 +156,9 @@ CURRENT_SECTION = 3.13
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.13 | Translation tables and Access flag/Dirty state | ⚠️ | ⚠️ | NEW-GAP | AF, HD/HA in page tables |
-| §3.13.1 | Software update of flags | ☐ | ☐ | | |
-| §3.13.2 | Access flag hardware update | ⚠️ | ⚠️ | NEW-GAP, BUG-RUST-I | map_range AF=true default; map_range/map_pages AF fix |
+| §3.13 | Translation tables and Access flag/Dirty state | ✅ | ✅ | NEW-GAP ✅ | IDR0.HTTU=0b01 (AF-only); S2HD/HD guards reject dirty-state when HTTU<0b10; HA hardware AF-update modeled; no mandatory enforcement for shared-ASID CD.HA/HD identity |
+| §3.13.1 | Software update of flags | N/A | N/A | | Software guidance only; AFFD (suppress F_ACCESS when AF=0) implemented in stream_context |
+| §3.13.2 | Access flag hardware update | ✅ | ✅ | NEW-GAP ✅, BUG-RUST-I ✅, BUG-AUDIT-128 ✅ | Stage-1 HA AF-update correct; stage-2 HA AF-update added (BUG-AUDIT-128); AFFD/S2AFFD suppress F_ACCESS; SMMU never clears AF |
 | §3.13.3 | Dirty state hardware update | ⚠️ | ⚠️ | BUG-NEW, BUG-NEW-22 | HD bit in STE/CD; WriteExecute dirty-bit variants |
 | §3.13.3.1 | Direct Permission Scheme | ☐ | ☐ | | |
 | §3.13.3.2 | Indirect Permission Scheme | ☐ | ☐ | | S2PIE/S1PIE |

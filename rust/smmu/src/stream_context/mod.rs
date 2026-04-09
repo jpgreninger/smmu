@@ -1736,6 +1736,16 @@ impl StreamContext {
         stage2.map_page_device(ipa, pa, permissions, security_state)
     }
 
+    /// Read the Access Flag of a stage-2 page (for testing §3.13.2 HTTU behavior).
+    ///
+    /// Returns `Some(true)` if AF=1, `Some(false)` if AF=0, or `None` if the
+    /// page does not exist in the stage-2 address space.
+    #[must_use]
+    pub fn get_stage2_page_access_flag(&self, ipa: IOVA) -> Option<bool> {
+        let guard = self.stage2_address_space.read().unwrap();
+        guard.as_ref()?.get_page_access_flag(ipa)
+    }
+
     // ========================================================================
     // Translation Operations
     // ========================================================================
@@ -2250,7 +2260,21 @@ impl StreamContext {
 
         // Stage-2 failed → return the IPA so the SMMU can populate the event record.
         let s2_data = match stage2_result {
-            Ok(d) => d,
+            Ok(d) => {
+                // BUG-AUDIT-128 fix: §3.13.2 — when S2HA (or S2HD) is enabled, atomically
+                // set AF=1 in the stage-2 descriptor after a successful translation.
+                // Mirrors the stage-1 update_access_flags call above (line ~2143).
+                // §3.13.2: hardware AF update for stage-2 when S2HA or S2HD enabled.
+                let do_s2_af_update = self.s2ha.load(Ordering::Acquire);
+                let do_s2_dirty_update = self.s2hd.load(Ordering::Acquire);
+                if do_s2_af_update || do_s2_dirty_update {
+                    let stage2_guard = self.stage2_address_space.read().unwrap();
+                    if let Some(stage2) = stage2_guard.as_ref() {
+                        stage2.update_access_flags(ipa, do_s2_af_update, do_s2_dirty_update, access_type);
+                    }
+                }
+                d
+            }
             Err(e) => return (Err(e), Some(ipa_raw)),
         };
 
