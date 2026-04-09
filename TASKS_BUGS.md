@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.12.5
+CURRENT_SECTION = 3.13
 
 ## Status Legend
 
@@ -150,7 +150,7 @@ CURRENT_SECTION = 3.12.5
 | §3.12.3 | Considerations for client devices using Stall | N/A | N/A | | Software guidance |
 | §3.12.4 | Virtual Memory paging with SMMU | N/A | N/A | | Informational — three fault models; no additional behavioral requirement beyond §3.12.1, §3.12.2, §8 |
 | §3.12.4.1 | Page-in request event | ✅ | ✅ | BUG-QA-6 ✅ | E_PAGE_REQUEST perm bits fixed; span field added to PRIEntry (§7.3.19 span*4096 encoding) |
-| §3.12.5 | Combinations of fault config with two stages | ⚠️ | ⚠️ | BUG-QA-12/13 | S2S/S2R vs STALL_MODEL |
+| §3.12.5 | Combinations of fault config with two stages | ✅ | ✅ | BUG-QA-12/13 ✅ | S1 fault uses CD.S; S2 fault uses STE.S2S; S2R=0&&S2S=0 suppresses S2 events; all 8 table rows correct; F_ACCESS is stall-eligible per §7.3.22 |
 
 ### §3.13 Translation Tables and HTTU
 
