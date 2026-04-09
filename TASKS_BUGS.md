@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.13.8
+CURRENT_SECTION = 3.14
 
 ## Status Legend
 
@@ -168,7 +168,7 @@ CURRENT_SECTION = 3.13.8
 | §3.13.7 | ATS, PRI and translation table flag update | 🚫 | 🚫 | | PCIe ATS TR→TC path not implemented; GATOS (ARM ATOS) is separate and not covered here; STE.EATS gates ATS acceptance but no ATS TR processing path exists |
 | §3.13.7.1 | Hardware flag update for ATS and PRI | 🚫 | 🚫 | | ATS TR path out of scope; GATOS handles HTTU via normal translate path |
 | §3.13.7.2 | Flag maintenance for ATS/PRI without HTTU | 🚫 | 🚫 | | ATS TR path out of scope |
-| §3.13.8 | Hardware flag update for CMO and Destructive Reads | ☐ | ☐ | | |
+| §3.13.8 | Hardware flag update for CMO and Destructive Reads | N/A | N/A | | HTTU dirty-state (HD=1) always rejected (HTTU=0b01); CMO/DR/DH paths not modeled; AF update unaffected (fires normally); vacuously conformant |
 
 ### §3.14–3.16 Speculative, Coherency, Embedded
 
