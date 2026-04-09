@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 3.20
+CURRENT_SECTION = 3.22
 
 ## Status Legend
 
@@ -216,14 +216,14 @@ CURRENT_SECTION = 3.20
 | §3.20 | TLB and configuration cache conflict | 🚫 | 🚫 | | IMPL DEF — out of scope |
 | §3.20.1 | TLB conflict | 🚫 | 🚫 | | F_TLB_CONFLICT — IMPL DEF |
 | §3.20.2 | Configuration cache conflicts | 🚫 | 🚫 | | F_CFG_CONFLICT — IMPL DEF |
-| §3.21 | Structure access rules and update procedures | ⚠️ | ⚠️ | AUDIT-83 | cache invalidation ordering |
-| §3.21.1 | Translation tables and TLB invalidation completion | ⚠️ | ⚠️ | | |
-| §3.21.1.1 | Translation tables update procedure | ☐ | ☐ | | |
-| §3.21.1.2 | BBML==1 (Level 1) | ☐ | ☐ | | |
-| §3.21.1.3 | BBML==2 (Level 2) | ☐ | ☐ | | |
-| §3.21.2 | Queues | ☐ | ☐ | | Queue update atomicity |
-| §3.21.3 | Configuration structures and invalidation completion | ⚠️ | ⚠️ | CONF-GAP-14 | disable_stream() TLB flush |
-| §3.21.3.1 | Configuration structure update procedure | ☐ | ☐ | | |
+| §3.21 | Structure access rules and update procedures | ⚠️ | ✅ | AUDIT-83 ✅ | disable_stream() TLB flush correct; all sub-sections verified |
+| §3.21.1 | Translation tables and TLB invalidation completion | ⚠️ | ✅ | | TLB insert gated on SMMUEN; completion ordering satisfied structurally |
+| §3.21.1.1 | Translation tables update procedure | N/A | N/A | | Flat model; no multi-level walk; BBM N/A |
+| §3.21.1.2 | BBML==1 (Level 1) | N/A | ✅ | | IDR3.BBML=0b01 set; nT bit N/A in flat model |
+| §3.21.1.3 | BBML==2 (Level 2) | N/A | N/A | | Not claimed (BBML=0b01); TLB conflict F_TLB_CONFLICT out of scope (§3.20) |
+| §3.21.2 | Queues | N/A | ✅ | | PROD/CONS semantics correct; SW preconditions are user responsibility |
+| §3.21.3 | Configuration structures and invalidation completion | ⚠️ | ✅ | CONF-GAP-14 ✅ | CMD_CFGI_* handlers correct; CfgiSte no-op correct (no STE cache); CfgiAll global flush |
+| §3.21.3.1 | Configuration structure update procedure | N/A | N/A | | Software guidance only; not SMMU enforcement |
 
 ### §3.22–3.27 Specialized Features
 
