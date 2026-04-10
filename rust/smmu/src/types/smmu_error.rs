@@ -71,6 +71,14 @@ pub enum SMMUError {
     #[error("PRI queue is full")]
     PriQueueFull,
 
+    /// PPR received from a Secure stream — discarded per ARM §8.2
+    #[error("PPR from Secure stream discarded (§8.2)")]
+    PriSecureStreamDiscarded,
+
+    /// GERROR.PRIQ_ABT_ERR active — PRI queue writes blocked per ARM §8.2
+    #[error("GERROR.PRIQ_ABT_ERR active: PRI queue writes blocked (§8.2)")]
+    PriQueueAbortError,
+
     /// Invalid command parameters
     #[error("Invalid command parameters: {0}")]
     InvalidCommandParameters(String),

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 8.1
+CURRENT_SECTION = 9.1
 
 ## Status Legend
 
@@ -576,9 +576,9 @@ CURRENT_SECTION = 8.1
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §8.1 | PRI queue overflow | ⚠️ | ⚠️ | BUG-QA-4/5, BUG-NEW-21/22 | OVFLG, inhibit new PPRs; priq_emitted CAS; E_PAGE_REQUEST emit |
-| §8.1.1 | Recovery procedure | ☐ | ☐ | | |
-| §8.2 | Miscellaneous | ⚠️ | ⚠️ | BUG-QA-2, BUG-PRIQEN-ASYMMETRY, BUG-NEW-15 | PRIAutoFailure responseCode; effective PRIQEN; SMMUEN gate |
-| §8.3 | PRG Response Message codes | ⚠️ | ⚠️ | BUG-NEW-A (27Mar) | Resp=0b11 → CERROR_ILL |
+| §8.1.1 | Recovery procedure | N/A | ✅ | BUG-8-1-1-01 ✅ | recover_priq_overflow(): classify complete/incomplete PRGs, clear queue, acknowledge OVFLG; 3 TDD tests added |
+| §8.2 | Miscellaneous | ⚠️ | ✅ | BUG-QA-2, BUG-PRIQEN-ASYMMETRY, BUG-NEW-15, BUG-8-2-01/02 ✅ | PRIQ_ABT_ERR gate + Secure stream discard (ResponseCode=0b1111); 6 TDD tests; FINDING-NEW-32 test updated to spec |
+| §8.3 | PRG Response Message codes | ⚠️ | ✅ | BUG-NEW-A (27Mar) ✅ | Resp=0b11 → CERROR_ILL; all 3 valid codes (0b00/01/10) accept+consume entry; 5 TDD tests added |
 
 ---
 

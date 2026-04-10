@@ -122,6 +122,32 @@ pub enum ResumeOutcome {
     Abort,
 }
 
+/// Result returned by [`SMMU::recover_priq_overflow`] (ARM SMMU v3 §8.1.1).
+///
+/// Reports how many Page Request Groups (PRGs) were found in the queue at the
+/// time of recovery, split by completeness:
+///
+/// - `complete_groups`: PRGs for which a Last==1 entry was visible in the queue.
+///   Software should send `CMD_PRI_RESP` for these (or consider them handled).
+/// - `incomplete_groups`: PRGs whose Last==1 entry was among those discarded
+///   when the queue overflowed and auto-responded.  §8.1.1 requires software to
+///   **ignore** these groups entirely.
+///
+/// # ARM SMMU v3 Compliance
+///
+/// ARM IHI0070G.b §8.1.1:
+/// > "A group must be **ignored** by software if no Last event has been found
+/// > for it up to SMMU_PRIQ_PROD.WR."
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriqRecoveryResult {
+    /// Number of PRGs that had a visible Last==1 entry in the queue and were
+    /// therefore complete and processable.
+    pub complete_groups: usize,
+    /// Number of PRGs whose Last==1 was lost to overflow (auto-responded) and
+    /// must be ignored per §8.1.1.
+    pub incomplete_groups: usize,
+}
+
 /// GBPA (Global Bypass/Abort) output attribute configuration (§6.3.22).
 ///
 /// When SMMUEN=0 and GBPA.ABORT=0, these fields are applied to the identity-mapping
@@ -7981,6 +8007,7 @@ impl SMMU {
     /// # ARM SMMU v3 Compliance
     ///
     /// Implements Page Request Interface per Section 7.
+    #[allow(clippy::too_many_lines)]
     pub fn submit_page_request(&self, request: PRIEntry) -> Result<(), SMMUError> {
         // §6.3.9.5 + §8.2: effective PRIQEN = CR0.PRIQEN AND CR0.SMMUEN.
         // When SMMUEN==0 the SMMU is disabled; the PRI queue is inactive
@@ -8011,6 +8038,34 @@ impl SMMU {
             return Err(SMMUError::InvalidConfiguration(
                 "effective CR0.PRIQEN=0: PRI queue is not enabled (SMMUEN or PRIQEN is clear)".to_string(),
             ));
+        }
+
+        // §8.2: PRIQ_ABT_ERR gate — active abort error inhibits all queue writes.
+        // Equivalent to PRIQEN=0: no entries written, all PPRs get ResponseCode=0b1111.
+        // An error bit x in GERROR is ACTIVE when GERROR[x] != GERRORN[x].
+        let priq_combined = self.gerror_combined.load(Ordering::Acquire);
+        // XOR of GERROR (bits[31:0]) and GERRORN (bits[63:32]) yields active-error mask.
+        let active_gerror = ((priq_combined & 0xFFFF_FFFF) as u32) ^ ((priq_combined >> 32) as u32);
+        if (active_gerror & Self::GERROR_PRIQ_ABT_ERR) != 0 {
+            // §8.2: "No PASID prefix on responses auto-generated because of PRIQ_ABT_ERR"
+            // → ResponseCode is unconditionally 0b1111 for Last=1.
+            if request.is_last_request {
+                if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                    auto_resp.push(PriAutoFailureResponse { entry: request, response_code: 0xF });
+                }
+            }
+            return Err(SMMUError::PriQueueAbortError);
+        }
+
+        // §8.2: PPRs from a Secure stream are discarded and never enter the queue.
+        // Auto-response with ResponseCode=0b1111 for Last=1.
+        if request.security_state == SecurityState::Secure {
+            if request.is_last_request {
+                if let Ok(mut auto_resp) = self.pri_auto_failure_responses.lock() {
+                    auto_resp.push(PriAutoFailureResponse { entry: request, response_code: 0xF });
+                }
+            }
+            return Err(SMMUError::PriSecureStreamDiscarded);
         }
 
         let mut queue = self.pri_queue.write().unwrap();
@@ -8290,6 +8345,100 @@ impl SMMU {
         } else {
             Vec::new()
         }
+    }
+
+    /// §8.1.1 — PRI queue overflow recovery procedure.
+    ///
+    /// Called by software after detecting a PRI queue overflow (`OVFLG != OVACKFLG`).
+    /// Processes all entries currently in the queue:
+    ///
+    /// - **Complete PRGs** (a Last==1 entry is visible in the queue): counted as
+    ///   `complete_groups` — software would normally send `CMD_PRI_RESP` for these.
+    /// - **Incomplete PRGs** (no Last==1 visible; the Last was among those
+    ///   auto-responded when overflow fired): counted as `incomplete_groups` and
+    ///   **ignored** per §8.1.1.
+    ///
+    /// After classification the entire queue is cleared and the overflow condition
+    /// is acknowledged by writing `PRIQ_CONS.OVACKFLG = PRIQ_PROD.OVFLG` (both
+    /// reset to 0, satisfying `OVFLG == OVACKFLG` → overflow inactive).
+    ///
+    /// Returns immediately with zero counts if no overflow is active
+    /// (`OVFLG == OVACKFLG`).
+    ///
+    /// # ARM SMMU v3 Compliance
+    ///
+    /// ARM IHI0070G.b §8.1.1:
+    /// > Entries are read from SMMU_PRIQ_CONS.RD up to SMMU_PRIQ_PROD.WR, sending
+    /// > CMD_PRI_RESP commands … when 'Last' entries are encountered.  A group must
+    /// > be **ignored** by software if no Last event has been found for it up to
+    /// > SMMU_PRIQ_PROD.WR.  Update SMMU_PRIQ_CONS.RD, including OVACKFLG, to
+    /// > clear the overflow condition and mark the entire queue as empty or processed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use smmu::SMMU;
+    /// use smmu::smmu::PriqRecoveryResult;
+    ///
+    /// let smmu = SMMU::new();
+    /// // (set up overflow scenario here)
+    /// let result = smmu.recover_priq_overflow();
+    /// // If no overflow was active:
+    /// assert_eq!(result, PriqRecoveryResult { complete_groups: 0, incomplete_groups: 0 });
+    /// ```
+    pub fn recover_priq_overflow(&self) -> PriqRecoveryResult {
+        use std::collections::HashMap;
+
+        // Check whether an overflow is active: OVFLG (bit 31 of PRIQ_PROD) must
+        // differ from OVACKFLG (bit 31 of PRIQ_CONS).
+        let prod = self.priq_prod.load(Ordering::Acquire);
+        let cons = self.priq_cons.load(Ordering::Acquire);
+        let ovflg    = (prod >> 31) & 1;
+        let ovackflg = (cons >> 31) & 1;
+
+        if ovflg == ovackflg {
+            // No overflow active — nothing to do.
+            return PriqRecoveryResult { complete_groups: 0, incomplete_groups: 0 };
+        }
+
+        // §8.1.1: scan all entries currently in the queue.
+        // For each unique prg_index, determine whether a Last==1 entry is visible.
+        let queue = self.pri_queue.read().unwrap();
+        // Maps prg_index → has_seen_last
+        let mut prg_has_last: HashMap<u16, bool> = HashMap::new();
+        for entry in queue.iter() {
+            let seen = prg_has_last.entry(entry.prg_index).or_insert(false);
+            if entry.is_last_request {
+                *seen = true;
+            }
+        }
+        drop(queue);
+
+        let mut complete_groups = 0usize;
+        let mut incomplete_groups = 0usize;
+        for has_last in prg_has_last.values() {
+            if *has_last {
+                complete_groups += 1;
+            } else {
+                incomplete_groups += 1;
+            }
+        }
+
+        // §8.1.1: "mark the entire queue as empty or processed" — clear the
+        // VecDeque and reset all index registers to 0 so PROD == CONS (empty).
+        let mut q = self.pri_queue.write().unwrap();
+        q.clear();
+        drop(q);
+
+        // Reset PROD and CONS to 0: both OVFLG and OVACKFLG become 0, so
+        // OVFLG == OVACKFLG → overflow inactive (acknowledged).
+        self.priq_prod.store(0, Ordering::Release);
+        self.priq_cons.store(0, Ordering::Release);
+        // Reset the emit cursor so process_pri_queue() starts from the beginning
+        // of a freshly populated queue after recovery.
+        self.priq_emitted.store(0, Ordering::Release);
+
+        PriqRecoveryResult { complete_groups, incomplete_groups }
     }
 
     // ========================================================================
@@ -8618,6 +8767,13 @@ impl SMMU {
             current & !(1u32 << 31)
         };
         self.priq_cons.store(new, Ordering::Release);
+    }
+
+    /// For integration tests only (§8.2): activate a GERROR flag as though the
+    /// hardware had signalled it.  Uses `signal_gerror` so the XOR-toggle semantics
+    /// are preserved (only toggles if the bit is currently inactive).
+    pub fn signal_gerror_for_test(&self, flag: u32) {
+        self.signal_gerror(flag);
     }
 
     /// Pre-fill the stall queue with all 65535 STAGs to simulate exhaustion.
