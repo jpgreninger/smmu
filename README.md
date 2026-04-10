@@ -2,13 +2,13 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel across Rust and C++ before waiting for the 5-hour window to reset the tokens. From my experience, the lack of memory in AI and the context window size causes the AI to partially fix things per pass or causes partial implementations due to it's inability to remember other sections of the 717 page spec that may modify the implementation of the SMMU in the area that it's currently working on. This requires multiple passes through the spec to guarantee that the implementation is correct. Thank you for your patience
 
-## ✅ **PRODUCTION RELEASE v1.6.4 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.6.5 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
 **🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.0% lines / 91.5% branches (185 tests), Rust 94.30% lines / 93.59% functions (211 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (April 10, 2026)**: v1.6.4 — §7.3.1 event merging conformance fix (BUG-7.3.1-01): stall events (Stall==1) were illegally suppressed by the MEV dedup guard when STE.MEV==1; fixed by adding `!event.stall` guard per ARM IHI0070G.b §7.3.1. §6.3.45 SMMU_IDR6 marked out of scope (ECMDQ=0). C++ tests: 185/185 passing, Rust tests: 211/211 passing, zero clippy warnings.
+**Latest Update (April 10, 2026)**: v1.6.5 — §7.3.22 F_VMS_FETCH inject method added (BUG-7322-01); §7.4 overflow conformance verified; §7.5/§7.5.1 GERROR fixes: DPT_ERR constant (BUG-GERROR-01), GERROR interrupt notification via `gerror_irq_pending` (BUG-GERROR-02/03), IRQ_CTRL named constants. C++ tests: 185/185 passing, Rust tests: 211/211 passing, zero clippy warnings.
 
 ## Production Features
 

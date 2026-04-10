@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.4)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.5)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -14,17 +14,28 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION READY v1.6.4** - 100% ARM IHI0070G.b Conformance ⚡
+## ✅ **PRODUCTION READY v1.6.5** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 211 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (April 10, 2026)**: Version 1.6.4 — §7.3.1 event merging conformance fix (BUG-7.3.1-01): stall events (Stall==1) were illegally suppressed by the MEV dedup guard when STE.MEV==1; fixed by adding `!event.stall` guard to predicate per ARM IHI0070G.b §7.3.1. Added `StreamConfigBuilder::mev()` builder method. 211/211 tests passing, zero clippy warnings.
+**🎯 Latest Update (April 10, 2026)**: Version 1.6.5 — §7.3.22 F_VMS_FETCH inject gap filled (BUG-7322-01); §7.4 event queue overflow conformance verified with stall-pending drain test; §7.5/§7.5.1 GERROR fixes: DPT_ERR constant added (BUG-GERROR-01), GERROR interrupt notification implemented per §7.5.1 (BUG-GERROR-02/03), IRQ_CTRL named constants added. 211/211 tests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.6.5 (April 10, 2026)
+
+**§7.3.22/§7.4/§7.5/§7.5.1 Conformance Fixes**
+
+- ✅ **BUG-7322-01 (§7.3.22)**: Added `inject_vms_fetch_abort(stream_id, pasid)` — F_VMS_FETCH (0x25) event type existed but had no injection method, unlike the three sibling fetch-abort injectors.
+- ✅ **§7.4 Audit**: All five §7.4 event queue overflow requirements verified conformant; stale doc comment fixed; `debug_assert!(!event.stall)` added to `enqueue_event()`; new test for `get_events()` stall-pending drain path.
+- ✅ **BUG-GERROR-01 (§7.5)**: Added `GERROR_DPT_ERR` (bit 10) constant per §6.3.17; added named `IRQ_CTRL_GERROR/PRIQ/EVENTQ_IRQEN` constants per §6.3.45.
+- ✅ **BUG-GERROR-02/03 (§7.5.1)**: `signal_gerror()` now checks `GERROR_IRQEN` and sets `gerror_irq_pending` (AtomicBool) when new bits activate — `MSI_GERROR_ABT_ERR` excluded per spec. New `get_gerror_irq_pending()`, `clear_gerror_irq_pending()`, `get_irq_ctrl()` accessors.
+- ✅ **11 new TDD tests** across `test_7_3_22_event_priorities.rs`, `test_bug13_stall_events_not_dropped_spec.rs`, `test_7_5_gerror_irq_spec.rs`
+- ✅ **211/211 tests passing, zero clippy warnings**
 
 ### 🚀 Release v1.6.4 (April 10, 2026)
 

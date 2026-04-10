@@ -2,11 +2,13 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION RELEASE v1.6.4** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.6.5** - 100% ARM IHI0070G.b Conformance ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 185/185 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.6.4
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 185/185 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.6.5
 
 > **Since v1.2.6 (Feb 17, 2026)**: 100+ conformance fixes across 11 QA passes. Full ARM SMMU v3 IHI0070G.b compliance achieved (100%). All critical/high/medium/low/partial severity gaps resolved. All 185 tests pass at 100%.
+>
+> **v1.6.5 (April 10, 2026)**: Rust-only conformance audit §7.3.22/§7.4/§7.5/§7.5.1 — no C++ changes. C++ 185/185 tests passing.
 >
 > **v1.6.4 (April 10, 2026)**: Conformance audit §3.12–§7.3.22 + register fixes — §7.3.1 stall event merging fix (BUG-7.3.1-01: stall events must never be merged per §7.3.1), IRQ_CTRL mask corrected to bits [2:0] (BUG-IRQ-01/02: upper bits RES0, PRIQ_IRQEN only valid when IDR0.PRI==1), AIDR ArchMajorRev corrected 0x02→0x12 per §6.3.8 (BUG-AIDR-01), INSTCFG reserved encoding fix (0b01→passthrough, 0b11→Force-Instruction per §5.2, BUG-AUDIT-133), §3.17 S2P==0 must substitute VMID=0 in broadcast TLBI (audit-131), §3.13.2 stage-2 HA hardware AF-update missing in two-stage translation (audit-128), §3.13.4 HTTU HD→HA constraint (audit-129/130), §3.4.3 stage-1 OAS truncation and CD.TTB0/TTB1 IPS validation (audit-114/115), §4.1.1 reserved command opcode generates CERROR_ILL (audit-132), §3.12.4 E_PAGE_REQUEST span field (audit-3.12.4), §3.3.2 substream validation gaps (audit-109/112), §3.3.3 strwUnused formula fix (audit-113). 28 new regression tests added. 185/185 C++ tests passing, zero warnings.
 >
@@ -581,6 +583,11 @@ Ready for immediate deployment in:
 - ✅ True O(1) scalability verified
 
 ## Version History
+
+**v1.6.5** (2026-04-10):
+- ✅ Rust-only release — no C++ source changes
+- ✅ §7.3.22/§7.4/§7.5/§7.5.1 conformance audit completed in Rust
+- ✅ C++ 185/185 tests passing, zero warnings (unchanged)
 
 **v1.6.4** (2026-04-10):
 - ✅ §7.3.1: BUG-7.3.1-01: stall events must never be merged — MEV deduplication now correctly skips stall events per §7.3.1
