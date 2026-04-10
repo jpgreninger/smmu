@@ -483,6 +483,16 @@ pub struct SMMU {
     /// SMMU_IRQ_CTRLACK register (§6.3.46): mirrors `irq_ctrl` after each write.
     irq_ctrlack: AtomicU32,
 
+    /// §7.5.1 GERROR interrupt pending flag.
+    ///
+    /// Set to `true` by `signal_gerror()` when a new GERROR bit activates AND
+    /// `IRQ_CTRL.GERROR_IRQEN == 1`, except for `MSI_GERROR_ABT_ERR` (§7.5.1:
+    /// "A GERROR interrupt is triggered … with the exception of MSI_GERROR_ABT_ERR").
+    ///
+    /// Cleared by `clear_gerror_irq_pending()` (models software ISR acknowledgment).
+    /// Observable via `get_gerror_irq_pending()`.
+    gerror_irq_pending: AtomicBool,
+
     // ---- BUG-RUST-2: process_command_queue() serialization mutex ----
 
     /// Serialization mutex for `process_command_queue()` (ARM §3.5.1).
@@ -586,6 +596,19 @@ impl SMMU {
     pub const GERROR_SFM_ERR: u32            = 1 << 8;
     /// GERROR bit 9: CMDQP_ERR — Command queue paused error (§6.3.17)
     pub const GERROR_CMDQP_ERR: u32          = 1 << 9;
+    /// GERROR bit 10: DPT_ERR — DPT lookup fault (§6.3.17 / §3.24.4)
+    pub const GERROR_DPT_ERR: u32            = 1 << 10;
+
+    // ========================================================================
+    // ARM §6.3.45: SMMU_IRQ_CTRL bit constants
+    // ========================================================================
+
+    /// IRQ_CTRL bit 0: GERROR_IRQEN — enables GERROR interrupt (§6.3.45)
+    pub const IRQ_CTRL_GERROR_IRQEN: u32 = 1 << 0;
+    /// IRQ_CTRL bit 1: PRIQ_IRQEN — enables PRI queue interrupt (§6.3.45)
+    pub const IRQ_CTRL_PRIQ_IRQEN: u32   = 1 << 1;
+    /// IRQ_CTRL bit 2: EVENTQ_IRQEN — enables event queue interrupt (§6.3.45)
+    pub const IRQ_CTRL_EVENTQ_IRQEN: u32 = 1 << 2;
 
     // Backward-compatible aliases for renamed/repositioned constants.
     // Existing test code that references these names continues to compile.
@@ -888,6 +911,7 @@ impl SMMU {
             // GAP-NEW-E: IRQ_CTRL / IRQ_CTRLACK reset to 0 (§6.3.45–6.3.46).
             irq_ctrl: AtomicU32::new(0),
             irq_ctrlack: AtomicU32::new(0),
+            gerror_irq_pending: AtomicBool::new(false),
             // BUG-RUST-2: serialization mutex for process_command_queue().
             cmdq_processing_mutex: Mutex::new(()),
             // BUG-NEW-11: STALL_MODEL=0b00 (both stall and terminate supported).
@@ -1483,6 +1507,29 @@ impl SMMU {
     #[must_use]
     pub fn get_irq_ctrlack(&self) -> u32 {
         self.irq_ctrlack.load(Ordering::Acquire)
+    }
+
+    /// Read SMMU_IRQ_CTRL (§6.3.45) — interrupt enable control register.
+    #[must_use]
+    pub fn get_irq_ctrl(&self) -> u32 {
+        self.irq_ctrl.load(Ordering::Acquire)
+    }
+
+    /// §7.5.1: Returns `true` if a GERROR interrupt is pending.
+    ///
+    /// Set by `signal_gerror()` when `IRQ_CTRL.GERROR_IRQEN==1` and a new
+    /// GERROR bit activates (excluding `MSI_GERROR_ABT_ERR` per §7.5.1).
+    /// Cleared by `clear_gerror_irq_pending()`.
+    #[must_use]
+    pub fn get_gerror_irq_pending(&self) -> bool {
+        self.gerror_irq_pending.load(Ordering::Acquire)
+    }
+
+    /// §7.5.1: Clear the GERROR interrupt pending flag.
+    ///
+    /// Models the software ISR acknowledging the interrupt.
+    pub fn clear_gerror_irq_pending(&self) {
+        self.gerror_irq_pending.store(false, Ordering::Release);
     }
 
     // ========================================================================
@@ -2298,6 +2345,14 @@ impl SMMU {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ).is_ok() {
+                // §7.5.1: raise GERROR interrupt if GERROR_IRQEN==1 and new bits activated,
+                // excluding MSI_GERROR_ABT_ERR (spec: "with the exception of MSI_GERROR_ABT_ERR").
+                let irqen_bits = inactive & !Self::GERROR_MSI_GERROR_ABT_ERR;
+                if irqen_bits != 0
+                    && (self.irq_ctrl.load(Ordering::Acquire) & Self::IRQ_CTRL_GERROR_IRQEN) != 0
+                {
+                    self.gerror_irq_pending.store(true, Ordering::Release);
+                }
                 break; // success — CAS applied atomically to both fields
             }
             // CAS failed: combined changed concurrently — retry.

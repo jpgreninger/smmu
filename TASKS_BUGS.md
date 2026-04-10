@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 7.5
+CURRENT_SECTION = 8.1
 
 ## Status Legend
 
@@ -566,8 +566,8 @@ CURRENT_SECTION = 7.5
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §7.4 | Event queue overflow | ⚠️ | ✅ | BUG-QA-1/3, RUST-2 (22Mar) | All 5 §7.4 requirements conformant; stale doc comment fixed; debug_assert added to enqueue_event; get_events() stall-drain test added |
-| §7.5 | Global error recording | ⚠️ | ⚠️ | AUDIT-93 | GERROR bit set, SFM_ERR |
-| §7.5.1 | GERROR interrupt notification | ⚠️ | ⚠️ | | Toggle protocol |
+| §7.5 | Global error recording | ⚠️ | ✅ | AUDIT-93, BUG-GERROR-01 ✅ | Toggle/active/CMDQ_ERR gate all conformant; GERROR_DPT_ERR bit 10 added; IRQ_CTRL named constants added |
+| §7.5.1 | GERROR interrupt notification | ⚠️ | ✅ | BUG-GERROR-02/03 ✅ | gerror_irq_pending flag added; signal_gerror() now gates on GERROR_IRQEN; MSI_GERROR_ABT_ERR excluded per spec |
 
 ---
 
