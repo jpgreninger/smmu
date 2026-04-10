@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 7.3.1
+CURRENT_SECTION = 7.3.22
 
 ## Status Legend
 
@@ -393,7 +393,7 @@ CURRENT_SECTION = 7.3.1
 | §6.3.6 | SMMU_IDR5 | ⚠️ | ⚠️ | AUDIT-52,53 | GRAN*, OAS, D128, VAX, STALL_MAX; GRAN16K/64K cleared |
 | §6.3.7 | SMMU_IIDR | ✅ | ✅ | | IIDR=0 valid (no Arm JEP106 code used); RO invariant held |
 | §6.3.8 | SMMU_AIDR | ✅ | ✅ | BUG-AIDR-01 ✅ | ArchMajorRev fixed 0→1: 0x02→0x12. ArchMinorRev=2 (SMMUv3.2). TDD: 3 tests. |
-| §6.3.45 | SMMU_IDR6 | ☐ | ☐ | | ECMDQ page counts |
+| §6.3.45 | SMMU_IDR6 | 🚫 | 🚫 | | IDR1.ECMDQ=0 → register absent → RES0 conformant; ECMDQ feature out of scope |
 
 ### §6.3 Control Registers (CR0, CR0ACK, CR1, CR2, STATUSR)
 
@@ -538,7 +538,7 @@ CURRENT_SECTION = 7.3.1
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §7.3 | Event records (overview, common fields) | ⚠️ | ⚠️ | AUDIT-92, BUG-NEW-RUST-1/2, AUDIT-90 | SSV field computation (transaction vs capability); rnw/ind/pnu fixed |
-| §7.3.1 | Event record merging | ☐ | ☐ | | Duplicate stall suppression |
+| §7.3.1 | Event record merging | N/A | ✅ | BUG-7.3.1-01 ✅ | Stall events (Stall==1) never merged per §7.3.1; fixed missing `!event.stall` guard in MEV dedup predicate. MEV builder method added. 3 TDD tests. |
 | §7.3.2 | F_UUT | ⚠️ | ⚠️ | AUDIT-92 | SSV, STALL=0 |
 | §7.3.3 | C_BAD_STREAMID | ⚠️ | ⚠️ | CONF-GAP, AUDIT-82, BUG-NEW-RUST-1/2 | Out-of-range SID; GERROR/RECINVSID gating |
 | §7.3.4 | F_STE_FETCH | ⚠️ | ⚠️ | NEW-AUDIT-05 | class=2 (TTE), SSV |

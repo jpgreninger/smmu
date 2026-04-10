@@ -5907,16 +5907,19 @@ impl SMMU {
             .map_or(false, |ctx| ctx.mev());
 
         if let Ok(mut queue) = self.event_queue.write() {
-            // CONF-GAP-14: STE.MEV event merging (§5.2).
-            // If the stream has MEV=true, suppress duplicate events (same type + stream_id).
+            // CONF-GAP-14: STE.MEV event merging (§5.2 / §7.3.1).
+            // If the stream has MEV=true, suppress duplicate non-stall events (same type + stream_id).
+            // BUG-7.3.1-01 fix: §7.3.1 — "Events with Stall=1 are never merged."
+            // The `!event.stall` guard ensures stall events are always recorded regardless of MEV.
             if stream_mev
+                && !event.stall
                 && queue.iter().any(|e| {
                     e.event_type == event.event_type
                         && e.stream_id == event.stream_id
                         && e.pasid == event.pasid
                 })
             {
-                // Duplicate suppressed — drop the event without recording.
+                // Duplicate non-stall event suppressed — drop the event without recording.
                 return;
             }
 

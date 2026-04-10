@@ -1052,6 +1052,16 @@ impl StreamConfigBuilder {
         self
     }
 
+    /// Set STE.MEV — Merged Event flag (§5.2 / §7.3.1).
+    ///
+    /// When `true`, duplicate non-stall events (same type + stream_id) are suppressed.
+    /// Stall events (Stall==1) are never suppressed regardless of MEV per §7.3.1.
+    #[must_use]
+    pub fn mev(mut self, mev: bool) -> Self {
+        self.mev = mev;
+        self
+    }
+
     /// Enable or disable translation.
     ///
     /// When called with `false`, also marks the stream as disabled/abort
