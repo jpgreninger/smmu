@@ -82,6 +82,14 @@ pub enum SMMUError {
     /// Invalid command parameters
     #[error("Invalid command parameters: {0}")]
     InvalidCommandParameters(String),
+
+    /// SMMU is in Service Failure Mode (ARM §12.3)
+    ///
+    /// Returned from queue-write operations (e.g. `submit_page_request`) when
+    /// `GERROR.SFM_ERR` (bit 8) is active.  Per §12.3 the SMMU must stop
+    /// accessing its queues while SFM is active.
+    #[error("SMMU Service Failure Mode active (§12.3 GERROR.SFM_ERR) — queue access terminated")]
+    ServiceFailureMode,
 }
 
 impl SMMUError {

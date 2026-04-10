@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 9.1
+CURRENT_SECTION = 12.4
 
 ## Status Legend
 
@@ -586,13 +586,13 @@ CURRENT_SECTION = 9.1
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §9.1 | Register usage (overview) | ⚠️ | ⚠️ | AUDIT-38,39,49 | |
-| §9.1.1 | ATOS_CTRL | ⚠️ | ⚠️ | AUDIT-39, AUDIT-64 | SMMUEN check first; INV_STAGE for bypass/disabled |
-| §9.1.2 | ATOS_SID | ⚠️ | ⚠️ | AUDIT-82 | Out-of-range SID handling |
-| §9.1.3 | ATOS_ADDR | ⚠️ | ⚠️ | NEW-GAP | PnU, RnW, HTTUI |
-| §9.1.4 | ATOS_PAR | ⚠️ | ⚠️ | AUDIT-49, 38, AUDIT-49, NEW-GAP-A | ATTR/SH (device vs normal), FADDR, REASON; 4-value REASON encoding |
-| §9.1.5 | ATOS_PAR.FAULTCODE encodings | ⚠️ | ⚠️ | AUDIT-38, AUDIT-38 | F_UUT/F_BAD_ATS_TREQ/F_TRANSL_FORBIDDEN → 0xFD |
-| §9.1.6 | SMMU_(S_)VATOS_SEL | ☐ | ☐ | | VATOS VMID selection |
+| §9.1 | Register usage (overview) | ✅ | ✅ | AUDIT-38,39,49 | All prior bugs fixed; §6.3.37-§6.3.40 verified ✅; re-audited 2026-04-10 — no new gaps |
+| §9.1.1 | ATOS_CTRL | ✅ | ✅ | AUDIT-39, AUDIT-64 | SMMUEN check first; INV_STAGE for bypass/disabled; verified conformant |
+| §9.1.2 | ATOS_SID | ✅ | ✅ | AUDIT-82 | Out-of-range SID→C_BAD_STREAMID; verified conformant |
+| §9.1.3 | ATOS_ADDR | ✅ | ✅ | NEW-GAP | PnU, RnW, HTTUI; AccessType encoding correct; HTTUI=software model limitation; verified conformant |
+| §9.1.4 | ATOS_PAR | ✅ | ✅ | AUDIT-49, 38, AUDIT-49, NEW-GAP-A | ATTR/SH/FAULTCODE/REASON all correct; 4-value REASON encoding confirmed; verified conformant |
+| §9.1.5 | ATOS_PAR.FAULTCODE encodings | ✅ | ✅ | AUDIT-38, AUDIT-38 | All FAULTCODE values correct; priority ordering conformant; verified conformant |
+| §9.1.6 | SMMU_(S_)VATOS_SEL | 🚫 | 🚫 | | VATOS not implemented; IDR0.VATOS=0 (optional feature, spec §6.3.1); IDR2 BA_VATOS=0; out of scope |
 
 ---
 
@@ -616,9 +616,9 @@ CURRENT_SECTION = 9.1
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §12.1 | Error propagation, consumption, containment | ☐ | ☐ | | |
-| §12.2 | Error consumption visible through SMMU interface | ☐ | ☐ | | |
-| §12.3 | Service Failure Mode (SFM) | ⚠️ | ⚠️ | BUG-QA-1 | SFM_ERR in GERROR |
+| §12.1 | Error propagation, consumption, containment | N/A | N/A | | Guidance/informational only — no normative requirements; RAS optional (not implemented, no IDR0.RAS); SFM covered by §12.3 |
+| §12.2 | Error consumption visible through SMMU interface | ✅ | ✅ | | F_WALK_EABT/F_STE_FETCH/F_CD_FETCH all defined+wired; CMDQ_ERR+CERROR_ABT conformant; EVENTQ_ABT_ERR/PRIQ_ABT_ERR constants defined+gated (hardware-only signals, N/A for SW model); §12.2 uses "expected to" guidance language — no normative gaps |
+| §12.3 | Service Failure Mode (SFM) | ✅ | ✅ | BUG-QA-1, BUG-12.3-A | SFM_ERR bit defined; BUG-12.3-A: SFM gate added to translate() and submit_page_request() — returns ServiceFailureMode error; clear_gerror() restores operation; 4 TDD tests added (212 total); 0 clippy warnings |
 | §12.4 | RAS fault handling/reporting | ☐ | ☐ | | |
 | §12.5 | Confidential information in RAS Error Records | ☐ | ☐ | | |
 | §12.6 | Recommendations for reporting SMMU events in RAS | ☐ | ☐ | | |
@@ -769,24 +769,24 @@ The following areas are intentionally not implemented and will not be audited:
 | Ch. 6 Registers | 87 | 1 | 46 | 2 | 38 |
 | Ch. 7 Faults/Events | 28 | 0 | 23 | 1 | 5 |
 | Ch. 8 PRI | 4 | 0 | 4 | 0 | 0 |
-| Ch. 9 ATOS | 7 | 0 | 6 | 1 | 0 |
+| Ch. 9 ATOS | 7 | 6 | 0 | 0 | 1 |
 | Ch. 10 PMCG | 1 | 0 | 0 | 0 | 1 |
 | Ch. 11 Debug | 1 | 0 | 0 | 0 | 1 |
-| Ch. 12 RAS | 10 | 0 | 1 | 9 | 0 |
+| Ch. 12 RAS | 10 | 3 (1 N/A + 2 ✅) | 0 | 7 | 0 |
 | Ch. 13 Attrs | 28 | 0 | 15 | 13 | 0 |
 | Ch. 14 External | 3 | 2 (N/A) | 0 | 1 | 0 |
 | Ch. 15 Trans. Proc. | 2 | 1 (N/A) | 1 | 0 | 0 |
 | Ch. 16 System | 22 | 5 (N/A) | 0 | 16 | 1 |
 | Ch. 17 MPAM | 1 | 0 | 0 | 0 | 1 |
 | Ch. 18 MEC | 1 | 0 | 0 | 0 | 1 |
-| **TOTAL** | **349** | **20 (N/A+✅)** | **186** | **73** | **70** |
+| **TOTAL** | **349** | **29 (N/A+✅)** | **179** | **70** | **71** |
 
 **Notes on status symbols**: All ⚠️ rows indicate sections that have been audited; bugs found were filed
 and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with bugs found and fixed —
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-09 (Session: §6.3.40 ✅, §6.3.44-109 VATOS/ECMDQ 🚫, §6.3.170 N/A, CURRENT_SECTION→7.2.2)
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅
+**Last updated**: 2026-04-10 (Session: §12.2 ✅, §12.3 ✅ BUG-12.3-A SFM gate added to translate()/submit_page_request(), 4 TDD tests, 212 total, CURRENT_SECTION→12.4)
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 185/185 | Rust 210/210 (all suites green) | 0 clippy warnings
+**Test status**: C++ 185/185 | Rust 212/212 (all suites green) | 0 clippy warnings

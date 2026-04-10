@@ -168,6 +168,14 @@ pub enum TranslationError {
     /// device-memory page during a table walk.  Generates `F_PERMISSION` (event 0x13).
     #[error("S2PTW fault — device-memory stage-2 page during table walk (§5.2 F_PERMISSION)")]
     S2PtwFault,
+
+    /// SMMU is in Service Failure Mode (ARM §12.3)
+    ///
+    /// Returned when `GERROR.SFM_ERR` (bit 8) is active (`GERROR[8] != GERRORN[8]`).
+    /// Per §12.3 the SMMU must terminate all client transactions and stop accessing
+    /// its queues while SFM is active.  PCIe requests are responded to with CA.
+    #[error("SMMU Service Failure Mode active (§12.3 GERROR.SFM_ERR) — transaction terminated")]
+    ServiceFailureMode,
 }
 
 /// Translation result data structure

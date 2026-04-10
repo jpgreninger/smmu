@@ -2334,6 +2334,21 @@ impl SMMU {
         (self.gerror_combined.load(Ordering::Acquire) >> 32) as u32
     }
 
+    /// Check whether `GERROR.SFM_ERR` (bit 8) is currently ACTIVE (ARM §12.3).
+    ///
+    /// A GERROR bit is active when `GERROR[x] != GERRORN[x]`, i.e., the XOR of the
+    /// two halves of `gerror_combined` is non-zero for that bit.
+    ///
+    /// When this returns `true` the SMMU is in Service Failure Mode and must
+    /// terminate all client transactions and stop accessing its queues (§12.3).
+    #[inline]
+    fn is_sfm_active(&self) -> bool {
+        let combined = self.gerror_combined.load(Ordering::Acquire);
+        let gerror  = (combined & 0xFFFF_FFFF) as u32;
+        let gerrorn = (combined >> 32) as u32;
+        (gerror ^ gerrorn) & Self::GERROR_SFM_ERR != 0
+    }
+
     /// Signal a GERROR error condition (ARM §6.3.19 XOR-toggle protocol).
     ///
     /// Toggles GERROR[x] for each bit in `bits` that is currently INACTIVE
@@ -4348,6 +4363,17 @@ impl SMMU {
             }
         }
 
+        // ── §12.3 Service Failure Mode (SFM) gate ────────────────────────────
+        // When GERROR.SFM_ERR is active (GERROR[8] != GERRORN[8]) the SMMU must
+        // terminate all client transactions.  This check follows the SMMUEN=0 block
+        // so that SMMUEN=0 bypass/ATS fault paths remain unaffected; SFM is only
+        // relevant when the SMMU is enabled and attempting a real translation.
+        if self.is_sfm_active() {
+            self.total_translations.0.fetch_add(1, Ordering::Relaxed);
+            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+            return Err(TranslationError::ServiceFailureMode);
+        }
+
         // ── NEW-12 §3.9: ATS Translation Request check ────────────────────────
         // NEW-15: Not-found stream → let translate() emit C_BAD_STREAMID (gated on
         //   CR2.REC_CFG_ATS + CR2.RECINVSID for ATS TR context).
@@ -5836,6 +5862,10 @@ impl SMMU {
             TranslationError::WxnFault => FaultType::PermissionFault,
             // NEW-GAP-L: §5.2 — S2PTW device-memory page during table walk → F_PERMISSION.
             TranslationError::S2PtwFault => FaultType::PermissionFault,
+            // §12.3: SFM terminates the transaction before any fault recording.
+            // This arm is unreachable in practice (the SFM gate returns before
+            // map_translation_error_to_fault_type is called), but must be exhaustive.
+            TranslationError::ServiceFailureMode => FaultType::TranslationFault,
         }
     }
 
@@ -8038,6 +8068,14 @@ impl SMMU {
             return Err(SMMUError::InvalidConfiguration(
                 "effective CR0.PRIQEN=0: PRI queue is not enabled (SMMUEN or PRIQEN is clear)".to_string(),
             ));
+        }
+
+        // ── §12.3 Service Failure Mode gate ──────────────────────────────────
+        // When GERROR.SFM_ERR is active the SMMU must stop accessing its queues.
+        // This is a harder stop than PRIQ_ABT_ERR: no auto-failure response is
+        // generated because the SMMU hardware itself is failing.
+        if self.is_sfm_active() {
+            return Err(SMMUError::ServiceFailureMode);
         }
 
         // §8.2: PRIQ_ABT_ERR gate — active abort error inhibits all queue writes.
