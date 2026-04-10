@@ -1538,6 +1538,37 @@ impl SMMU {
         self.enqueue_event(event);
     }
 
+    /// Inject a VMS fetch external abort event (F_VMS_FETCH, §7.3.20).
+    ///
+    /// Simulates an external abort during a Virtualization Management Structure
+    /// (VMS) fetch from memory for the given stream and PASID.  F_VMS_FETCH
+    /// (event 0x25) has lower priority than `C_BAD_STE` and implementation-defined
+    /// priority relative to other events (§7.3.22).  The event is recorded only
+    /// when `CR0.EVENTQEN=1`.
+    ///
+    /// Per §7.3.20, `FetchAddr` is the physical address used for the fetch;
+    /// this software model does not have a VMS fetch address so the address field
+    /// is left as zero.  SSV=1 when a SubstreamID was presented (s1cd_max > 0
+    /// or a non-zero PASID), consistent with `inject_cd_fetch_abort()`.
+    pub fn inject_vms_fetch_abort(&self, stream_id: StreamID, pasid: PASID) {
+        if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) == 0 {
+            return;
+        }
+        let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+        let event = EventEntry {
+            event_type: EventType::FVmsFetch,
+            stream_id: stream_id.as_u32(),
+            pasid: pasid.as_u32(),
+            timestamp,
+            // §7.3.20: SSV=1 when a SubstreamID was presented: either s1cd_max > 0
+            // (substream-capable stream) or a non-zero PASID was presented.
+            ssv: self.streams.get(&stream_id.as_u32()).map_or(0u8, |ctx| ctx.get_s1cd_max()) > 0
+                || pasid.as_u32() != 0,
+            ..EventEntry::zeroed()
+        };
+        self.enqueue_event(event);
+    }
+
     /// Inject a page-table walk external abort event (F_WALK_EABT, §7.3.12).
     ///
     /// Simulates an external abort during a translation table walk for the

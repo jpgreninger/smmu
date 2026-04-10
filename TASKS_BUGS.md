@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 7.3.22
+CURRENT_SECTION = 7.4
 
 ## Status Legend
 
@@ -557,9 +557,9 @@ CURRENT_SECTION = 7.3.22
 | §7.3.17 | F_TLB_CONFLICT | 🚫 | 🚫 | | IMPL DEF — out of scope |
 | §7.3.18 | F_CFG_CONFLICT | 🚫 | 🚫 | | IMPL DEF — out of scope |
 | §7.3.19 | E_PAGE_REQUEST | ⚠️ | ⚠️ | BUG-QA-6, BUG-NEW-7 | Permission bits; E_PAGE_REQUEST emit timing |
-| §7.3.20 | F_VMS_FETCH | 🚫 | 🚫 | | VMS out of scope |
+| §7.3.20 | F_VMS_FETCH | 🚫 | ⚠️ | BUG-7322-01 ✅ | VMS fetch not simulated; inject_vms_fetch_abort() added for completeness |
 | §7.3.21 | IMPDEF_EVENTn | 🚫 | 🚫 | | IMPL DEF |
-| §7.3.22 | Event queue record priorities | ☐ | ☐ | | Priority ordering for concurrent events |
+| §7.3.22 | Event queue record priorities | ☐ | ✅ | BUG-7322-01 ✅ | Priority ordering enforced by structural early-returns; F_VMS_FETCH inject added |
 
 ### §7.4–7.5 Overflow and Global Errors
 
