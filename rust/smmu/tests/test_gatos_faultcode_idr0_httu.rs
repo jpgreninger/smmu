@@ -72,12 +72,12 @@ fn test_gap2_gatos_c_bad_substreamid_faultcode_is_0x08() {
 }
 
 // ============================================================================
-// GAP-2 Test 2: absent/out-of-range StreamID in GATOS → FAULTCODE must be 0xFE
+// GAP-2 Test 2: out-of-range StreamID in GATOS → FAULTCODE must be 0x02
 //
-// BUG-AUDIT-64 fix: ARM §9.1.3 line 27699 — a GATOS request for an absent stream
-// (not in the stream table / out-of-range StreamID) must return INV_STAGE:
-// FAULT=1, FAULTCODE=0xFE. Previously C_BAD_STREAMID (0x02) was returned; the
-// pre-check now intercepts absent streams before translate() is called.
+// BUG-AUDIT-82 fix: ARM §9.1.3 — an out-of-range StreamID (STREAMID >= 2^LOG2SIZE)
+// is NOT an absent bypass/disabled stream; it must fault with C_BAD_STREAMID
+// (FAULTCODE=0x02), NOT INV_STAGE (FAULTCODE=0xFE). The translate() path generates
+// a C_BAD_STREAMID event which gatos_translate() then reads from the event queue.
 //
 // Setup: LOG2SIZE=8 (valid range 0..=255), RECINVSID=1, StreamID=0x9999 (> 255).
 // ============================================================================

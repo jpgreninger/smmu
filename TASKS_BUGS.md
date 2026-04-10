@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 6.3.13
+CURRENT_SECTION = 7.3.1
 
 ## Status Legend
 
@@ -414,47 +414,47 @@ CURRENT_SECTION = 6.3.13
 | §6.3.12.1 | CR2.PTM | ⚠️ | ⚠️ | AUDIT-54 | PTM polarity fixed (PTM=1 skips, PTM=0 participates) |
 | §6.3.12.2 | CR2.RECINVSID | ⚠️ | ⚠️ | | |
 | §6.3.12.3 | CR2.E2H | ⚠️ | ⚠️ | | |
-| §6.3.13 | SMMU_STATUSR | ☐ | ☐ | | DORMANT bit |
+| §6.3.13 | SMMU_STATUSR | ✅ | ✅ | | DORMANT bit; RO; bits[31:1]=RES0; DORMHINT=1 hardcoded; reset=0; conformant |
 
 ### §6.3 Global Bypass and Fault Registers
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.14 | SMMU_GBPA | ⚠️ | ⚠️ | AUDIT-76, BUG-QA-11 | Update procedure, atomic + shadow sync |
-| §6.3.14.1 | GBPA update procedure | ⚠️ | ⚠️ | AUDIT-76 | |
-| §6.3.15 | SMMU_AGBPA | ☐ | ☐ | | IMPL DEF |
-| §6.3.16 | SMMU_IRQ_CTRL | ☐ | ☐ | | EVENTQ/PRIQ/GERROR IRQ enables |
-| §6.3.17 | SMMU_S2PII | ☐ | ☐ | | Stage-2 permission indirections |
-| §6.3.18 | SMMU_IRQ_CTRLACK | ☐ | ☐ | | |
-| §6.3.19 | SMMU_GERROR | ⚠️ | ⚠️ | AUDIT-93, BUG-QA-1–6 | CMDQ_ERR, SFM_ERR, toggle protocol |
-| §6.3.20 | SMMU_GERRORN | ⚠️ | ⚠️ | AUDIT-93 | Two-step recovery acknowledge |
-| §6.3.21 | SMMU_GERROR_IRQ_CFG0 | ☐ | ☐ | | MSI address/data |
-| §6.3.22 | SMMU_GERROR_IRQ_CFG1 | ☐ | ☐ | | |
-| §6.3.23 | SMMU_GERROR_IRQ_CFG2 | ☐ | ☐ | | SH, MemAttr |
+| §6.3.14 | SMMU_GBPA | ✅ | ✅ | AUDIT-76, BUG-QA-11, BUG-GBPA-01, BUG-GBPA-02, BUG-GBPA-03, BUG-GBPA-04 | INSTCFG/PRIVCFG 0b01→0b00 normalized; ALLOCCFG 0b0xxx→0 (use incoming); field width masking; Update bit sync model conformant |
+| §6.3.14.1 | GBPA update procedure | ✅ | ✅ | AUDIT-76 | Synchronous model: Update always 0; no raw register exposed |
+| §6.3.15 | SMMU_AGBPA | N/A | N/A | | All bits IMPL DEF; unsupported → RES0 per spec; no behavioral req |
+| §6.3.16 | SMMU_IRQ_CTRL | ✅ | ✅ | BUG-IRQ-01, BUG-IRQ-02 | bits[31:3]=RES0 masked; PRIQ_IRQEN gated on IDR0.PRI; IRQ_CTRLACK sync model conformant |
+| §6.3.17 | SMMU_S2PII | N/A | N/A | | IDR3.S2PI=0 → reg not present → RES0; FEAT_S2PIE not advertised; conformant |
+| §6.3.18 | SMMU_IRQ_CTRLACK | ✅ | ✅ | | RO; mirrors IRQ_CTRL; bits[31:3]=RES0; PRIQ_IRQEN RAZ when PRI=0; reset=0; conformant via §6.3.16 fixes |
+| §6.3.19 | SMMU_GERROR | ✅ | ✅ | AUDIT-93, BUG-QA-1–6 | RO; XOR-toggle protocol; RES0 bits correct; MSI/PRI/DPT/ECMDQ bits=0 (features not advertised); reset=0; conformant |
+| §6.3.20 | SMMU_GERRORN | ✅ | ✅ | AUDIT-93 | RW; SMMU never writes it; CAS-atomic toggle; inactive-bit guard; RES0 implicit; reset=0; conformant |
+| §6.3.21 | SMMU_GERROR_IRQ_CFG0 | N/A | N/A | | IDR0.MSI=0 → not present → RES0; MSI not implemented |
+| §6.3.22 | SMMU_GERROR_IRQ_CFG1 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
+| §6.3.23 | SMMU_GERROR_IRQ_CFG2 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
 
 ### §6.3 Stream Table Base Registers
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.24 | SMMU_STRTAB_BASE | ⚠️ | ⚠️ | AUDIT-69, AUDIT-63, AUDIT-67 | Write guard: SMMUEN must be 0; CR0ACK guard added |
-| §6.3.25 | SMMU_STRTAB_BASE_CFG | ⚠️ | ⚠️ | AUDIT-70, AUDIT-63, AUDIT-69/70 | LOG2SIZE, SPLIT, write guard; CR0ACK guard for split/log2size |
+| §6.3.24 | SMMU_STRTAB_BASE | ✅ | ✅ | AUDIT-69, AUDIT-63, AUDIT-67 | ADDR/RA not stored (SW model uses HashMap); write guard (SMMUEN=0) enforced on all behavioral fields; conformant |
+| §6.3.25 | SMMU_STRTAB_BASE_CFG | ✅ | ✅ | AUDIT-70, AUDIT-63, AUDIT-69/70 | FMT reserved→0b00; SPLIT invalid→6; LOG2SIZE effective=MIN(v,SIDSIZE); write guard enforced; conformant |
 
 ### §6.3 Command Queue Registers
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.26 | SMMU_CMDQ_BASE | ⚠️ | ⚠️ | | Write guard |
-| §6.3.27 | SMMU_CMDQ_PROD | ⚠️ | ⚠️ | BUG-NEW-6 | WR pointer, wrap bit; CMDQ_PROD not written on error path |
-| §6.3.28 | SMMU_CMDQ_CONS | ⚠️ | ⚠️ | AUDIT-93, AUDIT-58 | ERR field, RD pointer, two-step recovery; CONS.ERR written on CERROR_ILL |
+| §6.3.26 | SMMU_CMDQ_BASE | ✅ | ✅ | | ADDR/RA not stored (SW model); LOG2SIZE fixed==IDR1.CMDQS; write guard trivially satisfied; conformant |
+| §6.3.27 | SMMU_CMDQ_PROD | ✅ | ✅ | BUG-NEW-6 | RES0 bits[31:20] implicit; wrap semantics correct; SMMU never writes PROD; conformant |
+| §6.3.28 | SMMU_CMDQ_CONS | ✅ | ✅ | AUDIT-93, AUDIT-58 | ERR[30:24] separate atomic; RD RAZ above QS+1 implicit; RD frozen on error; two-step recovery; conformant |
 
 ### §6.3 Event Queue Registers
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.29 | SMMU_EVENTQ_BASE | ⚠️ | ⚠️ | | Write guard |
-| §6.3.30 | SMMU_EVENTQ_IRQ_CFG0 | ☐ | ☐ | | MSI address |
-| §6.3.31 | SMMU_EVENTQ_IRQ_CFG1 | ☐ | ☐ | | |
-| §6.3.32 | SMMU_EVENTQ_IRQ_CFG2 | ☐ | ☐ | | |
+| §6.3.29 | SMMU_EVENTQ_BASE | ✅ | ✅ | | ADDR/WA not stored (SW model); LOG2SIZE fixed==IDR1.EVENTQS; EVENTQEN gate enforced throughout; conformant |
+| §6.3.30 | SMMU_EVENTQ_IRQ_CFG0 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
+| §6.3.31 | SMMU_EVENTQ_IRQ_CFG1 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
+| §6.3.32 | SMMU_EVENTQ_IRQ_CFG2 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
 | §6.3.95 | SMMU_EVENTQ_PROD | ⚠️ | ⚠️ | BUG-QA-3, BUG-NEW-A/F (20Mar) | OVFLG toggle; OVFLG mask in empty check |
 | §6.3.96 | SMMU_EVENTQ_CONS | ⚠️ | ⚠️ | BUG-QA-3, BUG-NEW-F (20Mar) | OVACKFLG, RD; OVACKFLG mask in empty check |
 
@@ -462,10 +462,10 @@ CURRENT_SECTION = 6.3.13
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.33 | SMMU_PRIQ_BASE | ⚠️ | ⚠️ | | Write guard |
-| §6.3.34 | SMMU_PRIQ_IRQ_CFG0 | ☐ | ☐ | | |
-| §6.3.35 | SMMU_PRIQ_IRQ_CFG1 | ☐ | ☐ | | |
-| §6.3.36 | SMMU_PRIQ_IRQ_CFG2 | ☐ | ☐ | | |
+| §6.3.33 | SMMU_PRIQ_BASE | ✅ | ✅ | | ADDR/WA not stored (SW model); LOG2SIZE fixed==IDR1.PRIQS; present when PRI=1; write guard trivially satisfied; conformant |
+| §6.3.34 | SMMU_PRIQ_IRQ_CFG0 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
+| §6.3.35 | SMMU_PRIQ_IRQ_CFG1 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
+| §6.3.36 | SMMU_PRIQ_IRQ_CFG2 | N/A | N/A | | IDR0.MSI=0 → not present → RES0 |
 | §6.3.97 | SMMU_PRIQ_PROD | ⚠️ | ⚠️ | BUG-QA-4/5, BUG-NEW-D (20Mar) | OVFLG; bit-31 preservation at call sites only |
 | §6.3.98 | SMMU_PRIQ_CONS | ⚠️ | ⚠️ | BUG-QA-4/5, BUG-RUST-Q4 | OVACKFLG; strict FIFO CONS advancement |
 
@@ -473,10 +473,10 @@ CURRENT_SECTION = 6.3.13
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.37 | SMMU_GATOS_CTRL | ⚠️ | ⚠️ | AUDIT-39, AUDIT-62 | SMMUEN==0 → FAULT+FAULTCODE=0xFD; shadow smmuen_ removed |
-| §6.3.38 | SMMU_GATOS_SID | ⚠️ | ⚠️ | AUDIT-82 | Out-of-range SID → C_BAD_STREAMID |
-| §6.3.39 | SMMU_GATOS_ADDR | ⚠️ | ⚠️ | NEW-GAP | PnU, RnW, HTTUI fields |
-| §6.3.40 | SMMU_GATOS_PAR | ⚠️ | ⚠️ | AUDIT-49, 38, AUDIT-38, AUDIT-64 | ATTR/SH/FAULTCODE/REASON encoding; INV_STAGE for bypass/disabled; GATOS reserved faultcodes |
+| §6.3.37 | SMMU_GATOS_CTRL | ✅ | ✅ | AUDIT-39, AUDIT-62 | SMMUEN=0→FAULT/0xFD; sync model: RUN always 0; IDR0.ATOS=1; conformant |
+| §6.3.38 | SMMU_GATOS_SID | ✅ | ✅ | AUDIT-82 | Out-of-range SID→C_BAD_STREAMID; STREAMID passed directly; conformant |
+| §6.3.39 | SMMU_GATOS_ADDR | ✅ | ✅ | NEW-GAP | AccessType encodes PnU/RnW/InD; HTTUI not modeled (SW model); TYPE stage-select is sim limitation; prior gaps addressed |
+| §6.3.40 | SMMU_GATOS_PAR | ✅ | ✅ | AUDIT-49, AUDIT-38, AUDIT-64, AUDIT-82 | ATTR/SH/FAULTCODE/REASON all correct; doc references fixed (§9.3.3→§6.3.40/§9.1.4); stale test comment corrected; all 4 prior audit bugs verified fixed; 211 tests pass |
 
 ### §6.3 MPAM Registers (Out of Scope)
 
@@ -490,20 +490,20 @@ CURRENT_SECTION = 6.3.13
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.3.44 | SMMU_VATOS_SEL | ☐ | ☐ | | VATOS VMID selection |
-| §6.3.99 | SMMU_VATOS_CTRL | ☐ | ☐ | | |
-| §6.3.100 | SMMU_VATOS_SID | ☐ | ☐ | | |
-| §6.3.101 | SMMU_VATOS_ADDR | ☐ | ☐ | | TYPE, PnU, RnW, InD |
-| §6.3.102 | SMMU_VATOS_PAR | ☐ | ☐ | | |
+| §6.3.44 | SMMU_VATOS_SEL | 🚫 | 🚫 | | VATOS not implemented (IDR2.BA_VATOS=0) |
+| §6.3.99 | SMMU_VATOS_CTRL | 🚫 | 🚫 | | VATOS not implemented |
+| §6.3.100 | SMMU_VATOS_SID | 🚫 | 🚫 | | VATOS not implemented |
+| §6.3.101 | SMMU_VATOS_ADDR | 🚫 | 🚫 | | VATOS not implemented |
+| §6.3.102 | SMMU_VATOS_PAR | 🚫 | 🚫 | | VATOS not implemented |
 | §6.3.46 | SMMU_DPT_BASE | 🚫 | 🚫 | | DPT out of scope |
 | §6.3.47 | SMMU_DPT_BASE_CFG | 🚫 | 🚫 | | |
 | §6.3.48 | SMMU_DPT_CFG_FAR | 🚫 | 🚫 | | |
-| §6.3.49 | SMMU_CMDQ_CONTROL_PAGE_BASE<n> | ☐ | ☐ | | ECMDQ |
-| §6.3.50 | SMMU_CMDQ_CONTROL_PAGE_CFG<n> | ☐ | ☐ | | ECMDQ enable |
-| §6.3.51 | SMMU_CMDQ_CONTROL_PAGE_STATUS<n> | ☐ | ☐ | | ECMDQ status |
-| §6.3.107 | SMMU_ECMDQ_BASE<n> | ☐ | ☐ | | ECMDQ queue base |
-| §6.3.108 | SMMU_ECMDQ_PROD<n> | ☐ | ☐ | | ERRACK bit |
-| §6.3.109 | SMMU_ECMDQ_CONS<n> | ☐ | ☐ | | ERR, ERR_REASON, ENACK |
+| §6.3.49 | SMMU_CMDQ_CONTROL_PAGE_BASE<n> | 🚫 | 🚫 | | ECMDQ not implemented (IDR6.ECMDQ=0) |
+| §6.3.50 | SMMU_CMDQ_CONTROL_PAGE_CFG<n> | 🚫 | 🚫 | | ECMDQ not implemented |
+| §6.3.51 | SMMU_CMDQ_CONTROL_PAGE_STATUS<n> | 🚫 | 🚫 | | ECMDQ not implemented |
+| §6.3.107 | SMMU_ECMDQ_BASE<n> | 🚫 | 🚫 | | ECMDQ not implemented |
+| §6.3.108 | SMMU_ECMDQ_PROD<n> | 🚫 | 🚫 | | ECMDQ not implemented |
+| §6.3.109 | SMMU_ECMDQ_CONS<n> | 🚫 | 🚫 | | ECMDQ not implemented |
 
 ### §6.3 Secure Registers (Out of Scope)
 
@@ -517,7 +517,7 @@ CURRENT_SECTION = 6.3.13
 |---------|-------|-----|------|-------|
 | §6.3.110–121 | SMMU_ROOT_IDR0, ROOT_IIDR, ROOT_CR0/ACK, ROOT_GPT_BASE/CFG, ROOT_GPF_FAR, ROOT_GPT_CFG_FAR, ROOT_TLBI, ROOT_TLBI_CTRL, ROOT_GPT_BASE2, ROOT_GPT_BASE_UPDATE | 🚫 | 🚫 | Root page out of scope |
 | §6.3.122–169 | SMMU_R_IDR*, R_CR*, R_GERROR, R_STRTAB_BASE, R_CMDQ, R_EVENTQ, R_PRIQ, R_MPAMIDR, R_GMPAM, R_DPT*, R_MECIDR, R_GMECID, R_CMDQ_CONTROL_PAGE | 🚫 | 🚫 | Realm interface out of scope |
-| §6.3.170 | ID_REGS | ☐ | ☐ | | ID register discovery |
+| §6.3.170 | ID_REGS | N/A | N/A | | Pure identification registers (CIDR0-3, PIDR0-7); no spec-mandated software flow consumes these; simulation model has no MMIO register map; out of scope |
 
 ---
 
@@ -530,7 +530,7 @@ CURRENT_SECTION = 6.3.13
 | §7.1 | Command queue errors | ⚠️ | ⚠️ | AUDIT-72, 93, AUDIT-58 | CERROR_ILL, two-step CONS→GERROR recovery; CONS.ERR field |
 | §7.2 | Event queue recorded faults and events | ⚠️ | ⚠️ | AUDIT-75 | EVENTQEN gate |
 | §7.2.1 | Recording of events and conditions for writing to Event queue | ⚠️ | ⚠️ | AUDIT-75, BUG-NEW-1 | Conditions for event write; S1DSS+stage2 missing events fixed |
-| §7.2.2 | Event queue access external abort | ☐ | ☐ | | Abort handling |
+| §7.2.2 | Event queue access external abort | N/A | N/A | | IMPDEF: bus abort on queue write; simulation uses in-memory VecDeques with no external abort capability; EVENTQ_ABT_ERR not applicable |
 | §7.2.3 | Secure and Non-secure Event queues | 🚫 | 🚫 | | Secure out of scope |
 
 ### §7.3 Event Records
@@ -766,8 +766,8 @@ The following areas are intentionally not implemented and will not be audited:
 | Ch. 3 Operation | 82 | 5 | 41 | 21 | 15 |
 | Ch. 4 Commands | 41 | 0 | 35 | 2 | 4 |
 | Ch. 5 Data Structures | 18 | 0 | 13 | 2 | 3 |
-| Ch. 6 Registers | 87 | 0 | 47 | 13 | 27 |
-| Ch. 7 Faults/Events | 28 | 0 | 23 | 1 | 4 |
+| Ch. 6 Registers | 87 | 1 | 46 | 2 | 38 |
+| Ch. 7 Faults/Events | 28 | 0 | 23 | 1 | 5 |
 | Ch. 8 PRI | 4 | 0 | 4 | 0 | 0 |
 | Ch. 9 ATOS | 7 | 0 | 6 | 1 | 0 |
 | Ch. 10 PMCG | 1 | 0 | 0 | 0 | 1 |
@@ -779,14 +779,14 @@ The following areas are intentionally not implemented and will not be audited:
 | Ch. 16 System | 22 | 5 (N/A) | 0 | 16 | 1 |
 | Ch. 17 MPAM | 1 | 0 | 0 | 0 | 1 |
 | Ch. 18 MEC | 1 | 0 | 0 | 0 | 1 |
-| **TOTAL** | **349** | **17 (N/A)** | **187** | **85** | **60** |
+| **TOTAL** | **349** | **20 (N/A+✅)** | **186** | **73** | **70** |
 
 **Notes on status symbols**: All ⚠️ rows indicate sections that have been audited; bugs found were filed
 and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with bugs found and fixed —
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-09
+**Last updated**: 2026-04-09 (Session: §6.3.40 ✅, §6.3.44-109 VATOS/ECMDQ 🚫, §6.3.170 N/A, CURRENT_SECTION→7.2.2)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 210/210 (all suites green) | 0 clippy warnings

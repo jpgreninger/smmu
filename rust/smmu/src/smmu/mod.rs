@@ -1461,10 +1461,20 @@ impl SMMU {
     ///
     /// In the synchronous SW model, IRQ_CTRLACK is updated immediately to mirror
     /// the new IRQ_CTRL value (same handshake pattern as CR0/CR0ACK).
+    ///
+    /// Conformance requirements applied here:
+    /// - BUG-IRQ-01: Bits [31:3] are RES0 — masked to 0 on write (§6.3.16).
+    /// - BUG-IRQ-02: Bit [1] PRIQ_IRQEN is RES0 when IDR0.PRI == 0 (§6.3.16).
     pub fn set_irq_ctrl(&self, value: u32) {
-        self.irq_ctrl.store(value, Ordering::Release);
+        // BUG-IRQ-01: mask to the three defined bits [2:0]; all upper bits are RES0.
+        let mut masked = value & 0x7;
+        // BUG-IRQ-02: PRIQ_IRQEN (bit 1) is only valid when IDR0.PRI == 1.
+        if !self.pri_supported.load(Ordering::Acquire) {
+            masked &= !0x2u32; // force bit 1 to 0
+        }
+        self.irq_ctrl.store(masked, Ordering::Release);
         // Synchronous model: IRQ_CTRLACK mirrors IRQ_CTRL immediately.
-        self.irq_ctrlack.store(value, Ordering::Release);
+        self.irq_ctrlack.store(masked, Ordering::Release);
     }
 
     /// Read SMMU_IRQ_CTRLACK (§6.3.46) — interrupt control acknowledge register.
@@ -1613,10 +1623,10 @@ impl SMMU {
     /// GATOS (Generic Address Translation Operation Service) translation wrapper.
     ///
     /// Performs a full SMMU address translation and returns the result in the
-    /// GATOS_PAR (Physical Address Register) format per ARM §9.3.3:
+    /// SMMU_GATOS_PAR register format per ARM IHI0070G.b §6.3.40 and §9.1.4:
     ///
-    /// - On **success**: returns `pa_bits[63:12]` in bits[63:12] (bit 0 = 0).
-    /// - On **fault**:   returns `1` (bit 0 = 1, all other bits = 0).
+    /// - On **success** (FAULT=0): bits[63:56]=ATTR, bits[55:12]=PA, bits[9:8]=SH, bit[0]=0.
+    /// - On **fault**  (FAULT=1): bits[11:4]=FAULTCODE (§9.1.5), bits[2:1]=REASON, bit[0]=1.
     ///
     /// # Arguments
     ///
@@ -1770,9 +1780,35 @@ impl SMMU {
     /// `abort` field also updates the existing `gbpa_abort` atomic for
     /// backward compatibility with `is_gbpa_abort()`.
     pub fn set_gbpa_config(&self, cfg: GbpaConfig) {
-        self.gbpa_abort.store(cfg.abort, Ordering::Release);
+        // §6.3.14 field width masking: enforce hardware register widths before storage.
+        // BUG-GBPA-04: alloc_cfg is 4 bits; inst_cfg, priv_cfg, sh_cfg are 2 bits each;
+        // mem_attr is 4 bits.
+        let alloc_cfg_masked = cfg.alloc_cfg & 0x0F;
+        let mem_attr_masked = cfg.mem_attr & 0x0F;
+        let sh_cfg_masked = cfg.sh_cfg & 0x03;
+
+        // §6.3.14 INSTCFG[19:18]: encoding 0b01 is reserved and behaves as 0b00.
+        // BUG-GBPA-01: normalize reserved encoding 1 → 0 after masking.
+        let inst_cfg_raw = cfg.inst_cfg & 0x03;
+        let inst_cfg_normalized = if inst_cfg_raw == 1 { 0 } else { inst_cfg_raw };
+
+        // §6.3.14 PRIVCFG[17:16]: encoding 0b01 is reserved and behaves as 0b00.
+        // BUG-GBPA-02: normalize reserved encoding 1 → 0 after masking.
+        let priv_cfg_raw = cfg.priv_cfg & 0x03;
+        let priv_cfg_normalized = if priv_cfg_raw == 1 { 0 } else { priv_cfg_raw };
+
+        let normalized = GbpaConfig {
+            abort: cfg.abort,
+            inst_cfg: inst_cfg_normalized,
+            priv_cfg: priv_cfg_normalized,
+            mt_cfg: cfg.mt_cfg,
+            mem_attr: mem_attr_masked,
+            sh_cfg: sh_cfg_masked,
+            alloc_cfg: alloc_cfg_masked,
+        };
+        self.gbpa_abort.store(normalized.abort, Ordering::Release);
         let mut guard = self.gbpa_config.write().unwrap();
-        *guard = cfg;
+        *guard = normalized;
     }
 
     /// Read the current GBPA configuration (§6.3.22).
@@ -4531,6 +4567,10 @@ impl SMMU {
             // CONF-GAP-13: apply GBPA output attributes to the bypass result (§6.3.22).
             let gbpa = self.gbpa_config.read().unwrap();
             let resolved_mem_type = if gbpa.mt_cfg { gbpa.mem_attr } else { 0 };
+            // BUG-GBPA-03: §6.3.14 ALLOCCFG — bit 3 == 0 means "use incoming allocation
+            // hints" (no override). Only when bit 3 == 1 does the field carry an override.
+            // In the software model "use incoming" is represented as alloc_hint == 0.
+            let resolved_alloc = if gbpa.alloc_cfg & 0b1000 != 0 { gbpa.alloc_cfg } else { 0 };
             return Ok(crate::types::TranslationData::new(
                 pa,
                 crate::types::PagePermissions::all(),
@@ -4539,7 +4579,7 @@ impl SMMU {
             .with_output_attrs(
                 resolved_mem_type,
                 gbpa.sh_cfg,
-                gbpa.alloc_cfg,
+                resolved_alloc,
                 gbpa.inst_cfg,
                 gbpa.priv_cfg,
                 0,

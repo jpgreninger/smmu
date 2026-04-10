@@ -216,7 +216,7 @@ fn test_gbpa_config_roundtrip() {
     let smmu = SMMU::new();
     let cfg = smmu::GbpaConfig {
         abort: false,
-        inst_cfg: 1,
+        inst_cfg: 1, // reserved encoding — normalized to 0 on write (§6.3.14 BUG-GBPA-01)
         priv_cfg: 2,
         mt_cfg: true,
         mem_attr: 3,
@@ -225,7 +225,8 @@ fn test_gbpa_config_roundtrip() {
     };
     smmu.set_gbpa_config(cfg.clone());
     let got = smmu.get_gbpa_config();
-    assert_eq!(got.inst_cfg, cfg.inst_cfg);
+    // inst_cfg=1 (0b01) is reserved per §6.3.14 and normalized to 0 on write.
+    assert_eq!(got.inst_cfg, 0, "INSTCFG=0b01 is reserved and must normalize to 0b00");
     assert_eq!(got.priv_cfg, cfg.priv_cfg);
     assert_eq!(got.mt_cfg, cfg.mt_cfg);
     assert_eq!(got.mem_attr, cfg.mem_attr);
