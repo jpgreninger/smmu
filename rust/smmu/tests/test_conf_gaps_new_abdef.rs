@@ -173,9 +173,9 @@ fn test_gap_new_d_idr5_granules() {
 #[test]
 fn test_gap_new_d_aidr_iidr() {
     let smmu = SMMU::new();
-    // AIDR must be 0x02 (SMMUv3.2) since RIL/STT/T0SZ features are implemented.
+    // AIDR must be 0x12 (ArchMajorRev=1, ArchMinorRev=2 → SMMUv3.2) per §6.3.8 (BUG-AIDR-01 fix).
     let aidr = smmu.get_aidr();
-    assert_eq!(aidr, 0x02, "AIDR must be 0x02 (SMMUv3.2)");
+    assert_eq!(aidr, 0x12, "AIDR must be 0x12 (SMMUv3.2, ArchMajorRev=1)");
     // IIDR is 0 (no implementer code assigned)
     let iidr = smmu.get_iidr();
     assert_eq!(iidr, 0x0, "IIDR must be 0");
@@ -198,11 +198,11 @@ fn test_gap_p2_idr3_capability_bits() {
     assert_eq!(idr3 & (1 << 12), 0, "IDR3 bit 12 (BBML[1]) must be clear (BBML=0b01)");
 }
 
-/// GAP-P1: AIDR must return 0x02 (SMMUv3.2) since RIL/STT/T0SZ features are implemented.
+/// GAP-P1: AIDR must return 0x12 (ArchMajorRev=1, ArchMinorRev=2 → SMMUv3.2) per §6.3.8 (BUG-AIDR-01 fix).
 #[test]
 fn test_gap_p1_aidr_smmuv32() {
     let smmu = SMMU::new();
-    assert_eq!(smmu.get_aidr(), 0x02, "AIDR must be 0x02 (SMMUv3.2)");
+    assert_eq!(smmu.get_aidr(), 0x12, "AIDR must be 0x12 (SMMUv3.2, ArchMajorRev=1 per §6.3.8)");
 }
 
 // ============================================================================
