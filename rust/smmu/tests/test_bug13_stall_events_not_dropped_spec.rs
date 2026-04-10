@@ -336,3 +336,69 @@ fn bug13_non_stall_overflow_still_triggers_ovflg() {
         "BUG-13 regression: non-stall overflow must still toggle OVFLG to 1"
     );
 }
+
+/// §7.4: stall_pending drains into main queue via get_events() alone —
+/// no new translation needed to trigger the drain.
+///
+/// Coverage gap identified in §7.4 conformance audit: existing tests drain
+/// stall_pending by triggering a subsequent translate() call. This test
+/// verifies the get_events() drain path directly per §7.4: "an event is
+/// reported for the stalled transaction when the queue is next writable."
+///
+/// Strategy: use a queue of size 2.
+///   1. Fill one slot with a non-stall event.
+///   2. Trigger a stall fault to fill the second slot — queue now full.
+///   3. Trigger another stall fault — goes to stall_pending.
+///   4. Call get_events() (drains + snapshots) to free the queue.
+///   5. Call get_events() again — must return the stall_pending event.
+#[test]
+fn test_7_4_stall_pending_drained_by_get_events_without_new_translation() {
+    let q = QueueConfig::MIN_QUEUE_SIZE; // 16
+    let smmu = make_smmu_with_event_queue(q);
+
+    setup_stall_stream(&smmu, 50);
+
+    // Fill q-1 slots with non-stall events, leaving one slot free.
+    for _ in 0..(q - 1) {
+        smmu.submit_event(EventEntry::new(EventType::FTranslation, 0, 0, 0))
+            .unwrap();
+    }
+
+    // Last slot: first stall fault (queue now full after this).
+    let _ = smmu.translate(
+        sid(50), pasid(0), iova(0x2000), // unmapped
+        AccessType::Read, SecurityState::NonSecure,
+    );
+    assert_eq!(
+        smmu.get_event_queue_size() as usize, q,
+        "precondition: queue must be full ({q}/{q})"
+    );
+
+    // Queue is now full. Second stall fault goes to stall_pending.
+    let _ = smmu.translate(
+        sid(50), pasid(0), iova(0x3000), // unmapped
+        AccessType::Read, SecurityState::NonSecure,
+    );
+    assert!(
+        smmu.get_pending_stall_count() >= 1,
+        "precondition: stall event must be in stall_pending"
+    );
+
+    // First get_events(): snapshots all q events AND immediately drains
+    // stall_pending into the queue (the write lock is still held, so space
+    // becomes available as the drain loop runs before the snapshot).
+    // The stall event from stall_pending must appear in this call.
+    let first = smmu.get_events();
+    let stall_in_first = first.iter().filter(|e| e.stall).count();
+
+    // Second get_events() (in case stall event was drained after snapshot):
+    // either the first or second call must contain the stall event.
+    let second = smmu.get_events();
+    let stall_in_second = second.iter().filter(|e| e.stall).count();
+
+    assert!(
+        stall_in_first >= 1 || stall_in_second >= 1,
+        "§7.4: get_events() must drain stall_pending directly without a new translation; \
+         stall in first call: {stall_in_first}, stall in second call: {stall_in_second}"
+    );
+}

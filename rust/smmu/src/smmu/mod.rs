@@ -333,7 +333,7 @@ pub struct SMMU {
 
     /// Stall-event pending buffer (ARM IHI0070G.b §7.4 / BUG-13).
     ///
-    /// When the main event queue is full (len >= 2*capacity) and a stall event
+    /// When the main event queue is full (len >= capacity) and a stall event
     /// arrives, the event is placed here instead of being silently dropped.
     /// ARM §7.4: "a fault record from a stalled transaction is not discarded
     /// and an event is reported for the stalled transaction when the queue is
@@ -1625,6 +1625,9 @@ impl SMMU {
     /// BUG-NEW-B fix: previously silently discarded events without calling
     /// `toggle_ovflg_once()`, leaving OVFLG=0 even on overflow.
     fn enqueue_event(&self, event: EventEntry) {
+        // §7.4: stall events must never be routed here — they go to stall_pending.
+        // This assert catches future callers that mistakenly pass a stall event.
+        debug_assert!(!event.stall, "enqueue_event: stall events must use stall_pending, not enqueue_event");
         if let Ok(mut queue) = self.event_queue.write() {
             if queue.len() < self.event_queue_capacity {
                 queue.push_back(event);

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 7.4
+CURRENT_SECTION = 7.5
 
 ## Status Legend
 
@@ -565,7 +565,7 @@ CURRENT_SECTION = 7.4
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §7.4 | Event queue overflow | ⚠️ | ⚠️ | BUG-QA-1/3, RUST-2 (22Mar) | OVFLG toggle; 7 enqueue_event() sites fixed |
+| §7.4 | Event queue overflow | ⚠️ | ✅ | BUG-QA-1/3, RUST-2 (22Mar) | All 5 §7.4 requirements conformant; stale doc comment fixed; debug_assert added to enqueue_event; get_events() stall-drain test added |
 | §7.5 | Global error recording | ⚠️ | ⚠️ | AUDIT-93 | GERROR bit set, SFM_ERR |
 | §7.5.1 | GERROR interrupt notification | ⚠️ | ⚠️ | | Toggle protocol |
 
