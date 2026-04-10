@@ -1,11 +1,11 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.0)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.4)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-94.30%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -14,17 +14,28 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION READY v1.6.0** - 100% ARM IHI0070G.b Conformance ⚡
+## ✅ **PRODUCTION READY v1.6.4** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 210 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 211 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (March 24, 2026)**: Version 1.6.0 — Post-QA audit conformance hardening (BUG-QA-1..14, BUG-NEW-9..14, BUG-RUST-1..2). Key fixes: IDR0/IDR5 field corrections, CMD_SYNC SEV label, WALK_EABT CLASS=TT, EL3 TLBI → CERROR_ILL, SSV field, S2S/S2R s2_stall field + two-stage stall/record, NH_ALL VMID-scoped EL1_EL0 (invalidate_nh_by_vmid), STALL_MODEL guard, EventEntry access permission fields on E_PAGE_REQUEST, CERROR_ILL persistence (removed auto-clear from submit_command), PRI overflow Last=1 only, PRIQ_CONS advance only via CMD_PRI_RESP, TLBI NH_ASID joint VMID+ASID invalidation, STRW validation. 210/210 tests passing, zero clippy warnings.
+**🎯 Latest Update (April 10, 2026)**: Version 1.6.4 — §7.3.1 event merging conformance fix (BUG-7.3.1-01): stall events (Stall==1) were illegally suppressed by the MEV dedup guard when STE.MEV==1; fixed by adding `!event.stall` guard to predicate per ARM IHI0070G.b §7.3.1. Added `StreamConfigBuilder::mev()` builder method. 211/211 tests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.6.4 (April 10, 2026)
+
+**§7.3.1 Event Merging Conformance Fix — BUG-7.3.1-01**
+
+- ✅ **BUG-7.3.1-01 (§7.3.1)**: Stall events (Stall==1) must never be merged per ARM IHI0070G.b §7.3.1. The MEV dedup guard in `record_translation_fault()` was missing `!event.stall`, causing stall events to be illegally dropped when STE.MEV==1 and a prior event of the same (type, stream_id, pasid) was in the queue.
+- ✅ **StreamConfigBuilder::mev()**: Added missing builder method for `STE.MEV` field (was public field only, no setter).
+- ✅ **§6.3.45 SMMU_IDR6**: Marked 🚫 out of scope — IDR1.ECMDQ=0 → register absent → RES0 conformant; ECMDQ feature not implemented.
+- ✅ **§6.3.13 SMMU_STATUSR, §6.3.16 SMMU_IRQ_CTRL**: Reserved-bit masking and PRIQ_IRQEN gating conformance verified.
+- ✅ **3 TDD tests added**: `test_7_3_1_event_merging_conformance.rs`
+- ✅ **211/211 tests passing, zero clippy warnings**
 
 ### 🚀 Release v1.6.0 (March 24, 2026)
 
