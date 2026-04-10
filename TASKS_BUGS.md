@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 5.3
+CURRENT_SECTION = 6.3.13
 
 ## Status Legend
 
@@ -344,8 +344,8 @@ CURRENT_SECTION = 5.3
 | §5.2 (EATS) | STE.EATS ATS mode | ⚠️ | ⚠️ | AUDIT-01 | NS1ATS dependency |
 | §5.2 (S2T0SZ) | STE.S2T0SZ validation | ⚠️ | ⚠️ | AUDIT-45, 88, 91, AUDIT-48 | Sentinel vs spec minimum; s2_t0sz=0 sentinel guard |
 | §5.2 (S2S/S2R) | STE.S2S/S2R stall/record | ⚠️ | ⚠️ | BUG-QA-12/13 | Two-stage stall decisions |
-| §5.3 | L1CD, Level 1 Context Descriptor | ☐ | ☐ | | V bit, L2Ptr |
-| §5.3.1 | General properties of L1CD | ☐ | ☐ | | |
+| §5.3 | L1CD, Level 1 Context Descriptor | N/A | N/A | | Flat-model: S1Fmt always 0b00; no L1CD struct, no L2Ptr fetch, no V-bit check. IDR0.CD2L=1 advertised (flat PASID map semantically equivalent). C_BAD_SUBSTREAMID for out-of-range PASID correctly generated. CMD_CFGI_CD Leaf=0/1 both handled with documented flat-model no-op for L1CD cache. |
+| §5.3.1 | General properties of L1CD | N/A | N/A | | V==0→C_BAD_SUBSTREAMID path unreachable in flat model; equivalent outcome via PASID-out-of-range check at smmu/mod.rs:5001–5040. Invalidation semantics correct per §4.3.3 (Leaf vacuously no-op). |
 
 ### §5.4–5.6 Context Descriptor, Fault Config, VMS
 
@@ -371,13 +371,13 @@ CURRENT_SECTION = 5.3
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §6.1 | Memory map | ☐ | ☐ | | Page 0/1, VATOS offsets |
+| §6.1 | Memory map | N/A | N/A | | Physical layout (64KB pages, offsets) — NA for software model. Behavioral: IDR0.VATOS=0 ✓, IDR1.ECMDQ=0 ✓, IDR2=0 ✓, guarded writes (CR2/CR1/STRTAB_BASE) ✓, queue-enable sticky bits ✓, PRIQEN masked when PRI=0 ✓. Gap note: CMDQ_BASE/EVENTQ_BASE/PRIQ_BASE write guards needed if those write APIs ever added. |
 | §6.2 | Register overview | N/A | N/A | | Table of registers |
-| §6.2.1 | Registers in Page 0 | ☐ | ☐ | | |
-| §6.2.2 | Registers in Page 1 | ☐ | ☐ | | |
-| §6.2.3 | Registers in the VATOS page | ☐ | ☐ | | |
+| §6.2.1 | Registers in Page 0 | N/A | N/A | | Physical offset table — NA for software model; behavioral coverage in §6.3.x |
+| §6.2.2 | Registers in Page 1 | N/A | N/A | | Physical offset table — NA for software model |
+| §6.2.3 | Registers in the VATOS page | N/A | N/A | | IDR0.VATOS=0 → VATOS absent; page NA |
 | §6.2.4 | Registers in the S_VATOS page | 🚫 | 🚫 | | Secure out of scope |
-| §6.2.5 | Registers in a Command queue control page | ☐ | ☐ | | ECMDQ |
+| §6.2.5 | Registers in a Command queue control page | N/A | N/A | | IDR1.ECMDQ=0 → ECMDQ absent; page NA |
 | §6.2.6 | Root Control Page | 🚫 | 🚫 | | Root out of scope |
 | §6.2.7–9 | Realm Register Pages | 🚫 | 🚫 | | Realm out of scope |
 
@@ -387,12 +387,12 @@ CURRENT_SECTION = 5.3
 |---------|-------|-----|------|------|-------|
 | §6.3.1 | SMMU_IDR0 | ⚠️ | ⚠️ | AUDIT-01,02,41,53,55, BUG-A/B, AUDIT-37,41 | SEV, DORMHINT, Hyp, VMW, NS1ATS, HTTU, S1P/S2P, STALL_MODEL; IDR0.VMW/Hyp S2P/S1P gates |
 | §6.3.2 | SMMU_IDR1 | ⚠️ | ⚠️ | AUDIT-44 | SSIDSIZE, SIDSIZE, ECMDQ |
-| §6.3.3 | SMMU_IDR2 | ☐ | ☐ | | BA_S_VATOS |
+| §6.3.3 | SMMU_IDR2 | ✅ | ✅ | | IDR2=0 correct (VATOS not implemented, IDR0.VATOS=0 → BA_VATOS is RES0) |
 | §6.3.4 | SMMU_IDR3 | ⚠️ | ⚠️ | AUDIT-02,37, BUG-G | HAD, XNX, FWB, MPAM, BBML; IDR3.MPAM bit 7 |
-| §6.3.5 | SMMU_IDR4 | ☐ | ☐ | | IMPL DEF |
+| §6.3.5 | SMMU_IDR4 | N/A | N/A | | IMPL DEF — IDR4=0 is valid |
 | §6.3.6 | SMMU_IDR5 | ⚠️ | ⚠️ | AUDIT-52,53 | GRAN*, OAS, D128, VAX, STALL_MAX; GRAN16K/64K cleared |
-| §6.3.7 | SMMU_IIDR | ☐ | ☐ | | Implementer ID |
-| §6.3.8 | SMMU_AIDR | ☐ | ☐ | | Architecture revision |
+| §6.3.7 | SMMU_IIDR | ✅ | ✅ | | IIDR=0 valid (no Arm JEP106 code used); RO invariant held |
+| §6.3.8 | SMMU_AIDR | ✅ | ✅ | BUG-AIDR-01 ✅ | ArchMajorRev fixed 0→1: 0x02→0x12. ArchMinorRev=2 (SMMUv3.2). TDD: 3 tests. |
 | §6.3.45 | SMMU_IDR6 | ☐ | ☐ | | ECMDQ page counts |
 
 ### §6.3 Control Registers (CR0, CR0ACK, CR1, CR2, STATUSR)
@@ -401,7 +401,7 @@ CURRENT_SECTION = 5.3
 |---------|-------|-----|------|------|-------|
 | §6.3.9 | SMMU_CR0 | ⚠️ | ⚠️ | AUDIT-69–71,73,75,78 | SMMUEN, CMDQEN, EVENTQEN, PRIQEN |
 | §6.3.9.1 | CR0.VMW | ⚠️ | ⚠️ | BUG-NEW-A-G | S2P dependency |
-| §6.3.9.2 | CR0.ATSCHK | ☐ | ☐ | | |
+| §6.3.9.2 | CR0.ATSCHK | ✅ | ✅ | | CR0_ATSCHK bit 4 correct; ATS TR+EATS==0 abort unconditional (mandatory §3.9.1.2); ATS TT+ATSCHK=1 gated correctly |
 | §6.3.9.3 | CR0.CMDQEN | ⚠️ | ⚠️ | AUDIT-69 | write-guard |
 | §6.3.9.4 | CR0.EVENTQEN | ⚠️ | ⚠️ | AUDIT-75 | toggle/gate on submit |
 | §6.3.9.5 | CR0.PRIQEN | ⚠️ | ⚠️ | AUDIT-71,73,78, BUG-PRIQEN-ASYMMETRY, BUG-NEW-15 | IDR0.PRI guard, gate on process_pri; effective PRIQEN = PRIQEN AND SMMUEN |
