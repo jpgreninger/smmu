@@ -774,16 +774,14 @@ impl StreamContext {
     pub(crate) fn effective_access_type(&self, access_type: AccessType) -> AccessType {
         // Step 1: apply INSTCFG
         let after_instcfg = match self.inst_cfg.load(Ordering::Acquire) {
-            // 0b11 (3) = Force Instruction: ARM §13.1 — the SMMU forces the
-            // transaction's instruction attribute to Instruction for ALL accesses.
-            // For event field reporting (ARM §7.3.13), InD and RnW must reflect
-            // the post-override effective type: both Read and Write become Execute,
-            // so the event correctly records InD=1 (instruction) and RnW=1 (not-write).
+            // 0b11 (3) = Force Instruction: ARM §13.1.2 — INSTCFG can only change
+            // the instruction/data marking of *reads*.  Writes are always considered
+            // Data on input, prior to any translation table permission checks.
+            // Therefore only Read → Execute and ReadPrivileged → ExecutePrivileged;
+            // Write and WritePrivileged fall through unchanged (§13.1.2).
             3 => match access_type {
                 AccessType::Read           => AccessType::Execute,
                 AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
-                AccessType::Write          => AccessType::Execute,
-                AccessType::WritePrivileged => AccessType::ExecutePrivileged,
                 _ => access_type,
             },
             2 => match access_type {

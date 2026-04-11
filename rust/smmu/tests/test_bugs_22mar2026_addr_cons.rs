@@ -506,27 +506,33 @@ fn rust2b_process_command_queue_cons_advances_correctly_under_concurrency() {
 //
 // ARM §7.3.14: InD/PnU are post-STE override values.
 // ARM §5.2.1: INSTCFG applies to bypass (STE.Config=0b100) streams.
+// ARM §13.1.2: INSTCFG can only change the instruction/data marking of *reads*.
+//   Writes are always considered Data on input, prior to any permission checks.
 //
 // Setup: bypass stream with INSTCFG=3 (0b11 = Force Instruction per ARM §5.2).
-//   Raw access = Write → effective = Execute (ind=true, rnw=true).
-//   OAS overflow → F_ADDR_SIZE event.
+//   Raw access = Write.  Per §13.1.2, Write must remain Write (Data) even when
+//   INSTCFG=3 is active — INSTCFG applies only to reads.
+//   OAS overflow → F_ADDR_SIZE event with rnw=false, ind=false (Data, Write).
 //
-// BUG-AUDIT-133 correction: INSTCFG=1 (0b01) is Reserved (passthrough per ARM §5.2).
-//   Force Instruction is INSTCFG=3 (0b11).
+// BUG-13.1.2-A correction: the original version of this test incorrectly asserted
+//   Write → Execute under INSTCFG=3.  §13.1.2 prohibits that conversion; only
+//   reads may be promoted to instruction accesses.
 //
-// BEFORE FIX: event.rnw=false, event.ind=false (raw Write) → FAILS.
-// AFTER FIX:  event.rnw=true, event.ind=true (effective Execute) → PASSES.
+// CORRECT BEHAVIOUR (post BUG-13.1.2-A fix):
+//   event.rnw=false (Write, not Execute)
+//   event.ind=false (Data, not Instruction)
 
-/// BUG-RUST-3: F_ADDR_SIZE on bypass OAS must use effective access type.
+/// BUG-RUST-3 (corrected per §13.1.2): F_ADDR_SIZE on bypass OAS must use
+/// effective access type, but writes must never be converted to instruction
+/// accesses by INSTCFG.
 ///
-/// ARM §7.3.14: InD/PnU are post-STE override values (INSTCFG applies).
+/// ARM §7.3.14: InD/PnU are post-STE override values (INSTCFG applies to reads).
 /// ARM §5.2.1: INSTCFG applies to bypass (STE.Config=0b100) streams.
+/// ARM §13.1.2: INSTCFG cannot change the instruction/data marking of writes.
 ///
-/// With INSTCFG=3 (0b11, Force Instruction), Write → Execute.
-/// Execute: rnw=true (not-write), ind=true (instruction).
-///
-/// BEFORE FIX: rnw=false, ind=false (raw Write used) → FAILS.
-/// AFTER FIX:  rnw=true, ind=true (effective Execute) → PASSES.
+/// With INSTCFG=3 (0b11, Force Instruction) and a Write access:
+///   effective = Write (unchanged per §13.1.2)
+///   rnw=false (Write), ind=false (Data).
 #[test]
 fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
     // Build SMMU with 36-bit OAS so overflow is easy to trigger.
@@ -542,9 +548,9 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
     smmu.enable().unwrap();
 
     // Configure a bypass stream (STE.Config=0b100: both stages disabled).
-    // Set INSTCFG=3 (0b11, Force Instruction) so Write access is overridden to Execute.
+    // INSTCFG=3 (Force Instruction) applies only to reads per ARM §13.1.2.
     let bypass_cfg = StreamConfig {
-        inst_cfg: 3, // INSTCFG=3 (0b11): Force Instruction per ARM §5.2
+        inst_cfg: 3, // INSTCFG=3 (0b11): Force Instruction (reads only per §13.1.2)
         ..StreamConfig::bypass()
     };
     let stream_id = sid(0x3B);
@@ -555,13 +561,13 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
     let oas_limit: u64 = 1u64 << 36;
     let high_iova = iova(oas_limit + 0x1000); // above 36-bit limit
 
-    // Submit a Write access (raw: rnw=false, ind=false).
-    // With INSTCFG=3 (Force Instruction): effective = Execute (rnw=true, ind=true).
+    // Submit a Write access.  Per §13.1.2, INSTCFG=3 does NOT promote writes
+    // to Execute — writes are always Data on input.
     let result = smmu.translate(
         stream_id,
         pasid(0),
         high_iova,
-        AccessType::Write, // raw access
+        AccessType::Write,
         SecurityState::NonSecure,
     );
     assert!(
@@ -578,15 +584,17 @@ fn rust3_bypass_oas_faddrsize_uses_effective_access_type() {
         })
         .expect("BUG-RUST-3: Expected an F_ADDR_SIZE event");
 
-    // INSTCFG=3 (Force Instruction): Write → Execute. Execute: rnw=true (not-write), ind=true.
+    // §13.1.2: Write with INSTCFG=3 must remain Write (Data).
+    // rnw=false (Write), ind=false (Data, not Instruction).
     assert!(
-        ev.rnw,
-        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=3 must have rnw=true \
-         (effective Execute, not raw Write). Got rnw=false — bug: raw access used."
+        !ev.rnw,
+        "BUG-RUST-3 (§13.1.2): F_ADDR_SIZE on bypass+INSTCFG=3 with Write access \
+         must have rnw=false (Write is Data per §13.1.2). Got rnw=true."
     );
     assert!(
-        ev.ind,
-        "BUG-RUST-3: F_ADDR_SIZE on bypass+INSTCFG=3 must have ind=true \
-         (effective Execute). Got ind=false — bug: raw access used."
+        !ev.ind,
+        "BUG-RUST-3 (§13.1.2): F_ADDR_SIZE on bypass+INSTCFG=3 with Write access \
+         must have ind=false (Data). §13.1.2 — INSTCFG cannot change writes to \
+         instruction. Got ind=true."
     );
 }

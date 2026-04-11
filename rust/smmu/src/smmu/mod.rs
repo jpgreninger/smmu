@@ -4712,6 +4712,11 @@ impl SMMU {
             // hints" (no override). Only when bit 3 == 1 does the field carry an override.
             // In the software model "use incoming" is represented as alloc_hint == 0.
             let resolved_alloc = if gbpa.alloc_cfg & 0b1000 != 0 { gbpa.alloc_cfg } else { 0 };
+            // BUG-13.1.2-B fix: ARM §13.1.2 — INSTCFG can only change the
+            // instruction/data marking of reads.  Writes must always be treated
+            // as Data regardless of GBPA.INSTCFG.  Clamp inst_cfg to 0
+            // (use-incoming / Data) for any write access.
+            let effective_inst_cfg = if access.can_write() { 0 } else { gbpa.inst_cfg };
             return Ok(crate::types::TranslationData::new(
                 pa,
                 crate::types::PagePermissions::all(),
@@ -4721,7 +4726,7 @@ impl SMMU {
                 resolved_mem_type,
                 gbpa.sh_cfg,
                 resolved_alloc,
-                gbpa.inst_cfg,
+                effective_inst_cfg,
                 gbpa.priv_cfg,
                 0,
             ));

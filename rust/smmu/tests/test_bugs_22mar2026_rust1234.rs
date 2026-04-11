@@ -90,11 +90,10 @@ fn pasid(id: u32) -> PASID {
 //   rnw: !access.can_write(),
 //   ind: access.can_execute() && !access.can_write(),
 //
-// When INSTCFG=3 (0b11, Force Instruction per ARM §5.2) is active, a Write access
-// becomes Execute after STE override.  The event should reflect the POST-override type:
-//   ind = true   (Execute is an instruction fetch)
-// But the raw Write gives:
-//   ind = false  (Write.can_execute() == false)
+// ARM §7.3.13: event fields must reflect the POST-STE-override access type.
+// ARM §13.1.2: INSTCFG can only change the instruction/data marking of *reads*.
+//   Writes are always considered Data on input.  INSTCFG=3 does NOT promote
+//   writes to Execute.
 //
 // BUG-AUDIT-133: INSTCFG=1 (0b01) is Reserved (passthrough), not Force Instruction.
 //   Force Instruction requires INSTCFG=3 (0b11).
@@ -103,29 +102,27 @@ fn pasid(id: u32) -> PASID {
 // 2^(64-16) = 2^48).  Issue a Write to an address that exceeds 2^48.
 // The T0SZ check fires before the address-space lookup.
 //
-// BEFORE FIX: event.ind == false (raw Write) → assertion fails.
-// AFTER FIX:  event.ind == true  (effective Execute, INSTCFG=3) → passes.
+// CORRECT BEHAVIOUR (post BUG-13.1.2-A fix):
+//   event.ind == false (Write stays Write/Data per §13.1.2)
+//   event.rnw == false (Write)
 
-/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=3 (Force Instruction) and Write — ind must be true.
+/// RUST-1 (corrected per §13.1.2): T0SZ F_TRANSLATION with INSTCFG=3 and Write.
 ///
-/// BUG-AUDIT-133: INSTCFG=3 (0b11) is Force Instruction per ARM §5.2.
-/// INSTCFG=3 forces all Data writes to become instruction fetches.  The resulting
-/// F_TRANSLATION event must carry ind=true (instruction access) not ind=false
-/// (raw Write).
-///
-/// BEFORE FIX: ind=false  → test FAILS.
-/// AFTER FIX:  ind=true   → test PASSES.
+/// ARM §13.1.2: INSTCFG can only change the instruction/data marking of reads.
+/// A Write access must remain Write (Data) even when INSTCFG=3 (Force Instruction)
+/// is active.  The F_TRANSLATION event must carry ind=false (Data) and rnw=false
+/// (Write), not the previously-expected Execute/ind=true values.
 #[test]
 fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
     let smmu = make_smmu();
     let stream_id = sid(0xB1_01);
 
-    // INSTCFG=3 (0b11, Force Instruction): Write → Execute after STE override.
+    // INSTCFG=3 (0b11, Force Instruction): applies only to reads (§13.1.2).
     // T0SZ=16 → VA limit = 2^(64-16) = 2^48 = 0x0001_0000_0000_0000.
     // Address 0x0001_0000_0000_0000 is exactly at the limit (violates T0SZ).
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz     = 16;           // VA limit = 2^48
-    cfg.inst_cfg = 3;            // Force Instruction (0b11): Write → Execute
+    cfg.inst_cfg = 3;            // Force Instruction (reads only per §13.1.2)
     cfg.aa64     = true;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
@@ -137,7 +134,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
         stream_id,
         pasid(0),
         violating_iova,
-        AccessType::Write, // raw Write; INSTCFG=3 → effective Execute
+        AccessType::Write, // Write stays Write per §13.1.2 even with INSTCFG=3
         SecurityState::NonSecure,
     );
     assert!(
@@ -155,16 +152,12 @@ fn rust1_t0sz_f_translation_instcfg1_write_ind_is_true() {
         })
         .expect("RUST-1: Expected an F_TRANSLATION event for the T0SZ violation");
 
-    // The effective access after INSTCFG=3 is Execute → ind must be true.
-    //
-    // ARM §7.3.13: event fields must reflect the POST-STE-override access type.
-    //   ind = (effective access is instruction fetch) = true for Execute.
+    // §13.1.2: Write with INSTCFG=3 remains Write (Data) → ind=false.
     assert!(
-        ev.ind,
-        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=3 and Write access \
-         must have ind=true (effective Execute after INSTCFG override). \
-         Got ind=false — bug: raw Write.can_execute()=false used instead of \
-         effective Execute.can_execute()=true."
+        !ev.ind,
+        "RUST-1 (§13.1.2): F_TRANSLATION event from T0SZ violation with INSTCFG=3 \
+         and Write access must have ind=false (Data — writes are always Data per §13.1.2). \
+         Got ind=true."
     );
 }
 
@@ -208,16 +201,14 @@ fn rust1_t0sz_f_translation_no_instcfg_write_ind_is_false() {
     );
 }
 
-/// RUST-1: T0SZ F_TRANSLATION with INSTCFG=3 (Force Instruction) and Write — rnw must be true.
+/// RUST-1 (corrected per §13.1.2): T0SZ F_TRANSLATION with INSTCFG=3 and Write — rnw must be false.
 ///
-/// BUG-AUDIT-133: INSTCFG=3 (0b11) is Force Instruction per ARM §5.2.
-/// With INSTCFG=3 and Write → effective Execute.  Execute.can_write()=false
-/// so rnw = !can_write() = true.  But for raw Write: !Write.can_write() = false.
+/// ARM §13.1.2: INSTCFG can only change the instruction/data marking of reads.
+/// A Write must remain Write (Data) even with INSTCFG=3 (Force Instruction).
+/// Write.can_write()=true → rnw = !can_write() = false.
 ///
 /// ARM §7.3.13: rnw must reflect the EFFECTIVE (post-override) access type.
-///
-/// BEFORE FIX: rnw=false (raw Write) → test FAILS.
-/// AFTER FIX:  rnw=true  (effective Execute, !can_write() → true) → test PASSES.
+/// For a Write with INSTCFG=3, the effective type is still Write → rnw=false.
 #[test]
 fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
     let smmu = make_smmu();
@@ -225,7 +216,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
 
     let mut cfg = StreamConfig::stage1_only();
     cfg.t0sz     = 16;
-    cfg.inst_cfg = 3;  // Force Instruction (0b11): Write → Execute
+    cfg.inst_cfg = 3;  // Force Instruction (reads only per §13.1.2)
     cfg.aa64     = true;
     smmu.configure_stream(stream_id, cfg).unwrap();
     smmu.create_pasid(stream_id, pasid(0)).unwrap();
@@ -235,7 +226,7 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
         stream_id,
         pasid(0),
         violating_iova,
-        AccessType::Write, // raw Write; INSTCFG=3 → effective Execute
+        AccessType::Write, // Write stays Write per §13.1.2 even with INSTCFG=3
         SecurityState::NonSecure,
     );
 
@@ -248,14 +239,12 @@ fn rust1_t0sz_f_translation_instcfg1_write_rnw_is_true() {
         })
         .expect("RUST-1: Expected an F_TRANSLATION event");
 
-    // With INSTCFG=3: effective Execute → rnw = !Execute.can_write() = !false = true.
-    // Bug (pre-fix): raw Write → rnw = !Write.can_write() = !true = false.
+    // §13.1.2: Write with INSTCFG=3 remains Write → rnw = !Write.can_write() = false.
     assert!(
-        ev.rnw,
-        "RUST-1: F_TRANSLATION event from T0SZ violation with INSTCFG=3 and Write access \
-         must have rnw=true (effective Execute: not a write). \
-         Got rnw=false — bug: raw Write.can_write()=true used, yielding !true=false, \
-         instead of effective Execute.can_write()=false → !false=true."
+        !ev.rnw,
+        "RUST-1 (§13.1.2): F_TRANSLATION event from T0SZ violation with INSTCFG=3 \
+         and Write access must have rnw=false (Write is Data per §13.1.2). \
+         Got rnw=true."
     );
 }
 

@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 12.4
+CURRENT_SECTION = 13.1.3
 
 ## Status Legend
 
@@ -619,16 +619,16 @@ CURRENT_SECTION = 12.4
 | §12.1 | Error propagation, consumption, containment | N/A | N/A | | Guidance/informational only — no normative requirements; RAS optional (not implemented, no IDR0.RAS); SFM covered by §12.3 |
 | §12.2 | Error consumption visible through SMMU interface | ✅ | ✅ | | F_WALK_EABT/F_STE_FETCH/F_CD_FETCH all defined+wired; CMDQ_ERR+CERROR_ABT conformant; EVENTQ_ABT_ERR/PRIQ_ABT_ERR constants defined+gated (hardware-only signals, N/A for SW model); §12.2 uses "expected to" guidance language — no normative gaps |
 | §12.3 | Service Failure Mode (SFM) | ✅ | ✅ | BUG-QA-1, BUG-12.3-A | SFM_ERR bit defined; BUG-12.3-A: SFM gate added to translate() and submit_page_request() — returns ServiceFailureMode error; clear_gerror() restores operation; 4 TDD tests added (212 total); 0 clippy warnings |
-| §12.4 | RAS fault handling/reporting | ☐ | ☐ | | |
-| §12.5 | Confidential information in RAS Error Records | ☐ | ☐ | | |
-| §12.6 | Recommendations for reporting SMMU events in RAS | ☐ | ☐ | | |
-| §12.6.1 | SMMU architectural events | ☐ | ☐ | | |
-| §12.6.1.1 | Deferred error on structure fetch | ☐ | ☐ | | |
-| §12.6.1.2 | Uncorrectable error on structure fetch | ☐ | ☐ | | |
-| §12.6.1.3 | Error on Command queue fetch | ☐ | ☐ | | |
-| §12.6.2 | Common SMMU microarchitectural events | ☐ | ☐ | | |
-| §12.6.2.1 | ECC/EDC error on TLB or config cache | ☐ | ☐ | | |
-| §12.6.2.2 | Error on data payload of client transaction | ☐ | ☐ | | |
+| §12.4 | RAS fault handling/reporting | N/A | N/A | | Conditional: "When RAS facilities are implemented" — SW model does not implement RAS (no hardware error recording registers); all requirements IMPLEMENTATION DEFINED |
+| §12.5 | Confidential information in RAS Error Records | 🚫 | 🚫 | | RME-only — out of scope |
+| §12.6 | Recommendations for reporting SMMU events in RAS | N/A | N/A | | Explicitly non-normative: "This section is only a recommendation and is not normative" |
+| §12.6.1 | SMMU architectural events | N/A | N/A | | Non-normative recommendation only |
+| §12.6.1.1 | Deferred error on structure fetch | N/A | N/A | | Non-normative recommendation only |
+| §12.6.1.2 | Uncorrectable error on structure fetch | N/A | N/A | | Non-normative recommendation only |
+| §12.6.1.3 | Error on Command queue fetch | N/A | N/A | | Non-normative recommendation only |
+| §12.6.2 | Common SMMU microarchitectural events | N/A | N/A | | Non-normative recommendation only |
+| §12.6.2.1 | ECC/EDC error on TLB or config cache | N/A | N/A | | Non-normative recommendation only |
+| §12.6.2.2 | Error on data payload of client transaction | N/A | N/A | | Non-normative recommendation only |
 
 ---
 
@@ -638,7 +638,7 @@ CURRENT_SECTION = 12.4
 |---------|-------|-----|------|------|-------|
 | §13.1 | SMMU handling of attributes | ⚠️ | ⚠️ | NEW-GAP-A-D | |
 | §13.1.1 | Attribute definitions | N/A | N/A | | Informational |
-| §13.1.2 | Attribute support | ☐ | ☐ | | |
+| §13.1.2 | Attribute support | N/A | ⚠️ | BUG-13.1.2-A, BUG-13.1.2-B | BUG-13.1.2-A: effective_access_type() Write→Execute under INSTCFG=3 fixed (writes must stay Data per spec); BUG-13.1.2-B: GBPA bypass raw inst_cfg clamped to 0 for write accesses; 6 TDD tests added |
 | §13.1.3 | Default input attributes | ☐ | ☐ | | |
 | §13.1.4 | Replace | ⚠️ | ⚠️ | NEW-GAP | INSTCFG, PRIVCFG, NSCFG override |
 | §13.1.5 | Combine | ☐ | ☐ | | MemAttr combine rules |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-10 (Session: §12.2 ✅, §12.3 ✅ BUG-12.3-A SFM gate added to translate()/submit_page_request(), 4 TDD tests, 212 total, CURRENT_SECTION→12.4)
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A fixed ✅
+**Last updated**: 2026-04-10 (Session: §12.4–12.6.2.2 N/A/🚫; §13.1.2 ⚠️ BUG-13.1.2-A effective_access_type() + BUG-13.1.2-B GBPA inst_cfg write filter; 6 TDD tests; CURRENT_SECTION→13.1.3)
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A, BUG-13.1.2-B — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 212/212 (all suites green) | 0 clippy warnings
