@@ -1,11 +1,11 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.6.5)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.7.0)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/badge/CI-automated-brightgreen.svg)](https://github.com/jpgreninger/smmu/actions)
-[![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
+[![Tests](https://img.shields.io/badge/tests-212%20passing-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Coverage](https://img.shields.io/badge/coverage-94.30%25%20lines-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Warnings](https://img.shields.io/badge/warnings-0-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
 [![Quality](https://img.shields.io/badge/quality-%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90%E2%AD%90-brightgreen.svg)](https://github.com/jpgreninger/smmu/rust)
@@ -14,17 +14,27 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION READY v1.6.5** - 100% ARM IHI0070G.b Conformance ⚡
+## ✅ **PRODUCTION READY v1.7.0** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
-**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 211 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
+**🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 212 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (April 10, 2026)**: Version 1.6.5 — §7.3.22 F_VMS_FETCH inject gap filled (BUG-7322-01); §7.4 event queue overflow conformance verified with stall-pending drain test; §7.5/§7.5.1 GERROR fixes: DPT_ERR constant added (BUG-GERROR-01), GERROR interrupt notification implemented per §7.5.1 (BUG-GERROR-02/03), IRQ_CTRL named constants added. 211/211 tests passing, zero clippy warnings.
+**🎯 Latest Update (April 11, 2026)**: Version 1.7.0 — §13.1.5 two-stage MemAttr combining fixed; §13.2 GBPA bypass Device/NC→OSH shareability enforcement (BUG-13.2-A); §13.6.3 AtsTranslated+ATSCHK=1+EATS=0b10 stage-2-only path (BUG-13.6.3-A); §13.7 INSTCFG/PRIVCFG applied before stage-2 on split-stage ATS (BUG-13.7-A). 212/212 tests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.7.0 (April 11, 2026)
+
+**§13.1.5/§13.2/§13.6.3/§13.7 Conformance Fixes**
+
+- ✅ **§13.1.5**: Two-stage translation now correctly combines S1+S2 memory attributes (MemAttr merge) instead of defaulting to 0xFF.
+- ✅ **BUG-13.2-A (§13.2)**: GBPA bypass path now enforces Device/NC→OSH shareability override per §13.1.7 `ensure_consistent_attrs`. 3 new TDD tests in `test_section_13_2_gbpa_spec.rs`.
+- ✅ **BUG-13.6.3-A (§13.6.3)**: `AtsTranslated`+`ATSCHK=1`+`EATS=0b10` now runs `translate_stage2_only()` on the incoming IPA instead of full S1+S2 translate. 2 new TDD tests in `test_section_13_6_3_spec.rs`.
+- ✅ **BUG-13.7-A (§13.7)**: `INSTCFG`/`PRIVCFG` overrides via `effective_access_type()` now applied before `translate_stage2_only()` on split-stage ATS path. 2 new TDD tests in `test_section_13_7_spec.rs`.
+- ✅ **212/212 tests passing, zero clippy warnings**
 
 ### 🚀 Release v1.6.5 (April 10, 2026)
 

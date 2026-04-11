@@ -1,5 +1,5 @@
-//! ARM SMMU v3 §13.7 PCIe permission attribute interpretation conformance tests
-//! BUG-13.7-A: EATS=0b10 AtsTranslated + ATSCHK=1 skips INSTCFG/PRIVCFG overrides
+//! ARM SMMU v3 §13.7 PCIe/ATS permission attribute interpretation conformance tests
+//! `BUG-13.7-A`: `EATS=0b10` `AtsTranslated` + `ATSCHK=1` skips `INSTCFG`/`PRIVCFG` overrides
 
 #![allow(missing_docs)]
 #![allow(clippy::items_after_statements)]
@@ -37,17 +37,17 @@ mod tests_13_7 {
         smmu
     }
 
-    /// Set up split-stage (EATS=0b10) two-stage stream with INSTCFG=Force-Data (2).
+    /// Set up split-stage (`EATS=0b10`) two-stage stream with `INSTCFG=Force-Data` (2).
     ///
-    /// STE.INSTCFG=Force-Data means all accesses should be treated as Data
-    /// (Execute → Read; ReadExecute → Read).
+    /// `STE.INSTCFG=Force-Data` means all accesses should be treated as Data
+    /// (Execute → Read; `ReadExecute` → Read).
     ///
     /// Stage-1: VA 0x1000 → IPA 0x2000 (execute permission granted)
     /// Stage-2: IPA 0x2000 → PA 0x3000 (execute permission denied — execute-only
-    ///          privilege enforcement doesn't matter; the INSTCFG override should
+    ///          privilege enforcement doesn't matter; the `INSTCFG` override should
     ///          demote Execute→Data before stage-2 permission check)
     ///
-    /// With INSTCFG=Force-Data, an Execute AtsTranslated request must be treated
+    /// With `INSTCFG=Force-Data`, an Execute `AtsTranslated` request must be treated
     /// as a Read access for stage-2 permission checking. Since stage-2 grants
     /// read+write, a Read access must succeed.
     fn setup_split_stage_instcfg_force_data(smmu: &SMMU, stream_n: u32) {
@@ -86,18 +86,18 @@ mod tests_13_7 {
         .unwrap();
     }
 
-    /// §13.7 BUG-13.7-A: EATS=0b10 AtsTranslated + ATSCHK=1 must apply INSTCFG
+    /// §13.7 `BUG-13.7-A`: `EATS=0b10` `AtsTranslated` + `ATSCHK=1` must apply `INSTCFG`
     /// overrides BEFORE stage-2 translation.
     ///
-    /// Scenario: STE.INSTCFG=Force-Data. Device submits AtsTranslated(0x2000)
+    /// Scenario: `STE.INSTCFG=Force-Data`. Device submits `AtsTranslated(0x2000)`
     /// with Execute access. Without override: Execute hits stage-2 which has
-    /// no execute permission → PermissionViolation. With correct override:
-    /// Execute is first demoted to Read by INSTCFG=Force-Data, then stage-2
+    /// no execute permission → `PermissionViolation`. With correct override:
+    /// Execute is first demoted to Read by `INSTCFG=Force-Data`, then stage-2
     /// is checked for Read → OK (stage-2 has read-write).
     ///
-    /// BUG: The current EATS=2 ATSCHK path calls translate_stage2_only(access)
-    /// with the raw Execute access, bypassing effective_access_type(). So Execute
-    /// hits stage-2 which has no execute permission and returns PermissionViolation.
+    /// BUG: The `EATS=2` `ATSCHK` path called `translate_stage2_only(access)`
+    /// with the raw Execute access, bypassing `effective_access_type()`. So Execute
+    /// hit stage-2 which has no execute permission and returned `PermissionViolation`.
     #[test]
     fn test_13_7_a_eats2_atschk_applies_instcfg_before_stage2() {
         let smmu = make_smmu_atschk();
@@ -120,8 +120,7 @@ mod tests_13_7 {
             result.is_ok(),
             "§13.7: AtsTranslated EATS=0b10 ATSCHK=1 must apply INSTCFG=Force-Data \
              (Execute→Read) before stage-2 permission check; stage-2 has read-write \
-             so Read must succeed. Got: {:?}",
-            result
+             so Read must succeed. Got: {result:?}"
         );
 
         let data = result.unwrap();
@@ -132,7 +131,7 @@ mod tests_13_7 {
         );
     }
 
-    /// §13.7 BUG-13.7-A negative: without INSTCFG override, Execute on a
+    /// §13.7 `BUG-13.7-A` negative: without `INSTCFG` override, Execute on a
     /// read-write-only stage-2 page must fail (confirming test setup is correct).
     #[test]
     fn test_13_7_a_without_instcfg_execute_fails_on_rw_stage2() {

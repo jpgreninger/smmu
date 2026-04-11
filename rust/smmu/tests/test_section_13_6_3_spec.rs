@@ -1,5 +1,5 @@
 //! ARM SMMU v3 §13.6.3 Split-stage ATS conformance tests
-//! BUG-13.6.3-A: AtsTranslated + ATSCHK=1 + EATS=0b10 must run stage-2-only
+//! `BUG-13.6.3-A`: `AtsTranslated` + `ATSCHK=1` + `EATS=0b10` must run stage-2-only
 //! on the incoming IPA, not full stage-1+stage-2 translate.
 
 #![allow(missing_docs)]
@@ -38,13 +38,13 @@ mod tests_13_6_3 {
         smmu
     }
 
-    /// §13.6.3: Set up split-stage (EATS=0b10) two-stage stream.
+    /// §13.6.3: Set up split-stage (`EATS=0b10`) two-stage stream.
     ///
     /// Stage-1: VA 0x1000 → IPA 0x2000 (only this VA is mapped in stage-1)
     /// Stage-2: IPA 0x2000 → PA 0x3000
     ///
     /// The ATS TR would return IPA 0x2000 to the device ATC.
-    /// A subsequent AtsTranslated transaction uses 0x2000 as input (IPA).
+    /// A subsequent `AtsTranslated` transaction uses 0x2000 as input (IPA).
     fn setup_split_stage_stream(smmu: &SMMU, stream_n: u32) {
         let mut cfg = StreamConfig::builder()
             .stage1_enabled(true)
@@ -80,16 +80,16 @@ mod tests_13_6_3 {
         .unwrap();
     }
 
-    /// §13.6.3 BUG-13.6.3-A: AtsTranslated + ATSCHK=1 + EATS=0b10.
+    /// §13.6.3 `BUG-13.6.3-A`: `AtsTranslated` + `ATSCHK=1` + `EATS=0b10`.
     ///
     /// The device received IPA 0x2000 from the split-stage ATS TR completion.
-    /// When it resubmits as AtsTranslated(0x2000), the SMMU must run stage-2-only
+    /// When it resubmits as `AtsTranslated(0x2000)`, the SMMU must run stage-2-only
     /// on the IPA 0x2000, yielding PA 0x3000.
     ///
-    /// BUG: Currently ATSCHK=1 path calls self.translate(0x2000) which runs
+    /// BUG: Previously `ATSCHK=1` path called `self.translate(0x2000)` which runs
     /// stage-1+stage-2. Address 0x2000 is NOT mapped in stage-1 tables
-    /// (only 0x1000 is), so the full translate fails with PageNotMapped.
-    /// The correct behavior is to run translate_stage2_only(0x2000) → PA 0x3000.
+    /// (only 0x1000 is), so the full translate fails with `PageNotMapped`.
+    /// The correct behavior is to run `translate_stage2_only(0x2000)` → PA 0x3000.
     #[test]
     fn test_13_6_3_a_atschk_eats2_ats_translated_runs_stage2_only() {
         let smmu = make_smmu_atschk();
@@ -110,8 +110,7 @@ mod tests_13_6_3 {
         assert!(
             result.is_ok(),
             "§13.6.3: AtsTranslated + ATSCHK=1 + EATS=0b10 should run \
-             stage-2-only on IPA 0x2000 → PA 0x3000; got: {:?}",
-            result
+             stage-2-only on IPA 0x2000 → PA 0x3000; got: {result:?}"
         );
 
         let data = result.unwrap();
@@ -140,8 +139,7 @@ mod tests_13_6_3 {
 
         assert!(
             result.is_ok(),
-            "§13.6.3 sanity: two-stage translate VA 0x1000 must succeed; got: {:?}",
-            result
+            "§13.6.3 sanity: two-stage translate VA 0x1000 must succeed; got: {result:?}"
         );
         assert_eq!(
             result.unwrap().physical_address().as_u64(),
