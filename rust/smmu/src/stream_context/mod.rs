@@ -317,6 +317,34 @@ pub struct StreamContext {
     s2_record: AtomicBool,
 }
 
+/// §13.1.5 — Combine two MAIR memory-type bytes using strength ordering.
+///
+/// Returns the more restrictive (stronger) of the two MAIR attribute bytes.
+/// Strength order (strongest first):
+///   Device-nGnRnE (0x00) > Device-nGnRE (0x04) > Device-nGRE (0x08) > Device-GRE (0x0C) >
+///   Normal-iNC-oNC (0x44) > Normal-WT variants > Normal-WB (0xFF and all others).
+///
+/// The function returns the byte with the lower rank number (stronger / more restrictive).
+fn combine_mem_type(s1_attr: u8, s2_attr: u8) -> u8 {
+    fn mem_type_rank(attr: u8) -> u8 {
+        match attr {
+            0x00 => 0, // Device-nGnRnE (strongest)
+            0x04 => 1, // Device-nGnRE
+            0x08 => 2, // Device-nGRE
+            0x0C => 3, // Device-GRE
+            0x44 => 4, // Normal-iNC-oNC
+            // Normal write-through variants: inner-WT encoded with upper nibble 0x8_
+            a if (a & 0xF0) == 0x80 => 5,
+            _ => 6,    // Normal-WB and all other Normal variants (weakest)
+        }
+    }
+    if mem_type_rank(s1_attr) <= mem_type_rank(s2_attr) {
+        s1_attr
+    } else {
+        s2_attr
+    }
+}
+
 impl StreamContext {
     /// Creates a new StreamContext with default configuration
     ///
@@ -2363,8 +2391,10 @@ impl StreamContext {
         // BUG-AUDIT-49 fix: carry page_attr from the stage-2 result so that
         // gatos_translate() can return the correct ATTR/SH for device-memory pages.
         // TranslationData::new() defaults page_attr=0xFF; transfer the stage-2 value.
+        // §13.1.5 BUG-13.1.5-A fix: combine stage-1 and stage-2 MemAttr using strength ordering
+        // instead of using only s2_data.page_attr (which discarded stage-1's memory type).
         let mut result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
-        result_data.page_attr = s2_data.page_attr;
+        result_data.page_attr = combine_mem_type(stage1_result.page_attr, s2_data.page_attr);
         // Return Some(ipa_raw) even on success so the SMMU can tag the TLB entry
         // with the correct IPA for CMD_TLBI_S2_IPA selective invalidation (§4.4.3.1 / §3.17).
         (Ok(self.apply_output_attrs(result_data)), Some(ipa_raw))
@@ -2770,7 +2800,9 @@ impl StreamContext {
         }
 
         // §5.2 GAP-1: Apply STE output-attribute overrides.
-        let result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        // §13.1.5 BUG-13.1.5-A fix: combine stage-1 and stage-2 MemAttr using strength ordering.
+        let mut result_data = TranslationData::new(s2_data.physical_address(), final_perms, s2_data.security_state());
+        result_data.page_attr = combine_mem_type(stage1_result.page_attr, s2_data.page_attr);
         Ok(self.apply_output_attrs(result_data))
     }
 
