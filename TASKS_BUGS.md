@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.1.3
+CURRENT_SECTION = 13.1.4
 
 ## Status Legend
 
@@ -639,7 +639,7 @@ CURRENT_SECTION = 13.1.3
 | §13.1 | SMMU handling of attributes | ⚠️ | ⚠️ | NEW-GAP-A-D | |
 | §13.1.1 | Attribute definitions | N/A | N/A | | Informational |
 | §13.1.2 | Attribute support | N/A | ⚠️ | BUG-13.1.2-A, BUG-13.1.2-B | BUG-13.1.2-A: effective_access_type() Write→Execute under INSTCFG=3 fixed (writes must stay Data per spec); BUG-13.1.2-B: GBPA bypass raw inst_cfg clamped to 0 for write accesses; 6 TDD tests added |
-| §13.1.3 | Default input attributes | ☐ | ☐ | | |
+| §13.1.3 | Default input attributes | N/A | N/A | | SW model always receives all attributes explicitly (access_type + security_state); "interconnect can't convey attribute" precondition never applies |
 | §13.1.4 | Replace | ⚠️ | ⚠️ | NEW-GAP | INSTCFG, PRIVCFG, NSCFG override |
 | §13.1.5 | Combine | ☐ | ☐ | | MemAttr combine rules |
 | §13.1.5.1 | Combine examples | N/A | N/A | | |
@@ -759,34 +759,34 @@ The following areas are intentionally not implemented and will not be audited:
 
 ## Audit Progress Tracker
 
-| Chapter | Total Sections | ✅ Verified | ⚠️ Audited+Fixed | ☐ Not Started | 🚫 Out of Scope |
-|---------|---------------|------------|-----------------|--------------|----------------|
-| Ch. 1 About | 3 | 3 (N/A) | 0 | 0 | 0 |
-| Ch. 2 Introduction | 10 | 5 (4 N/A + 1 ✅) | 4 | 0 | 2 |
-| Ch. 3 Operation | 82 | 5 | 41 | 21 | 15 |
-| Ch. 4 Commands | 41 | 0 | 35 | 2 | 4 |
-| Ch. 5 Data Structures | 18 | 0 | 13 | 2 | 3 |
-| Ch. 6 Registers | 87 | 1 | 46 | 2 | 38 |
-| Ch. 7 Faults/Events | 28 | 0 | 23 | 1 | 5 |
-| Ch. 8 PRI | 4 | 0 | 4 | 0 | 0 |
-| Ch. 9 ATOS | 7 | 6 | 0 | 0 | 1 |
+| Chapter | Total Sections | ✅ Verified (N/A+✅) | ⚠️ Audited+Fixed | ☐ Not Started | 🚫 Out of Scope |
+|---------|---------------|---------------------|-----------------|--------------|----------------|
+| Ch. 1 About | 3 | 3 (3 N/A) | 0 | 0 | 0 |
+| Ch. 2 Introduction | 10 | 4 (3 N/A + 1 ✅) | 4 | 0 | 2 |
+| Ch. 3 Operation | 120 | 88 (48 N/A + 40 ✅) | 10 | 0 | 22 |
+| Ch. 4 Commands | 52 | 3 (3 N/A) | 47 | 0 | 2 |
+| Ch. 5 Data Structures | 19 | 3 (2 N/A + 1 ✅) | 13 | 0 | 3 |
+| Ch. 6 Registers | 87 | 41 (19 N/A + 22 ✅) | 22 | 0 | 24 |
+| Ch. 7 Faults/Events | 31 | 6 (1 N/A + 5 ✅) | 21 | 0 | 4 |
+| Ch. 8 PRI | 4 | 3 (3 ✅) | 1 | 0 | 0 |
+| Ch. 9 ATOS | 7 | 6 (6 ✅) | 0 | 0 | 1 |
 | Ch. 10 PMCG | 1 | 0 | 0 | 0 | 1 |
 | Ch. 11 Debug | 1 | 0 | 0 | 0 | 1 |
-| Ch. 12 RAS | 10 | 3 (1 N/A + 2 ✅) | 0 | 7 | 0 |
-| Ch. 13 Attrs | 28 | 0 | 15 | 13 | 0 |
-| Ch. 14 External | 3 | 2 (N/A) | 0 | 1 | 0 |
-| Ch. 15 Trans. Proc. | 2 | 1 (N/A) | 1 | 0 | 0 |
-| Ch. 16 System | 22 | 5 (N/A) | 0 | 16 | 1 |
+| Ch. 12 RAS | 13 | 12 (10 N/A + 2 ✅) | 0 | 0 | 1 |
+| Ch. 13 Attrs | 28 | 4 (4 N/A) | 13 | 11 | 0 |
+| Ch. 14 External | 3 | 2 (2 N/A) | 0 | 1 | 0 |
+| Ch. 15 Trans. Proc. | 2 | 1 (1 N/A) | 1 | 0 | 0 |
+| Ch. 16 System | 27 | 5 (5 N/A) | 0 | 21 | 1 |
 | Ch. 17 MPAM | 1 | 0 | 0 | 0 | 1 |
 | Ch. 18 MEC | 1 | 0 | 0 | 0 | 1 |
-| **TOTAL** | **349** | **29 (N/A+✅)** | **179** | **70** | **71** |
+| **TOTAL** | **410** | **181 (N/A+✅)** | **132** | **33** | **64** |
 
 **Notes on status symbols**: All ⚠️ rows indicate sections that have been audited; bugs found were filed
 and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with bugs found and fixed —
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-10 (Session: §12.4–12.6.2.2 N/A/🚫; §13.1.2 ⚠️ BUG-13.1.2-A effective_access_type() + BUG-13.1.2-B GBPA inst_cfg write filter; 6 TDD tests; CURRENT_SECTION→13.1.3)
+**Last updated**: 2026-04-10 (Session: §13.1.3 N/A — SW model always supplies all attributes; CURRENT_SECTION→13.1.4)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A, BUG-13.1.2-B — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 212/212 (all suites green) | 0 clippy warnings
