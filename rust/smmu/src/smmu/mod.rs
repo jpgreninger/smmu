@@ -4556,6 +4556,42 @@ impl SMMU {
                 return Err(TranslationError::PermissionViolation { access });
             }
 
+            // BUG-13.6.3-A fix: ARM §13.6.3 — when EATS==0b10 (split-stage ATS),
+            // an incoming AtsTranslated transaction carries an IPA (not a VA).
+            // The ATSCHK=1 re-check must therefore run stage-2-only on the IPA,
+            // NOT the full stage-1+stage-2 translate() which would treat the IPA
+            // as a VA and fail because the IPA is not mapped in stage-1 tables.
+            let stream_eats = self.streams
+                .get(&stream_id.as_u32())
+                .map_or(0u8, |r| r.value().get_eats());
+            if stream_eats == 2 {
+                // Split-stage ATS (§13.6.3): input is IPA → stage-2-only.
+                if let Some(stream_ref) = self.streams.get(&stream_id.as_u32()) {
+                    let s2_result = stream_ref.value()
+                        .translate_stage2_only(pasid, iova, access, security_state);
+                    drop(stream_ref);
+                    match s2_result {
+                        Ok(data) => {
+                            self.successful_translations.0.fetch_add(1, Ordering::Relaxed);
+                            return Ok(data);
+                        }
+                        Err(ref e) => {
+                            self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                            let pnu = self.streams.get(&stream_id.as_u32())
+                                .map_or(false, |ctx| ctx.is_access_privileged(access));
+                            self.record_translation_fault(
+                                stream_id, pasid, iova, access, security_state,
+                                e, false, 0u16, true, iova.as_u64(), pnu,
+                                security_state == SecurityState::NonSecure, ssv,
+                                false,
+                            );
+                            return Err(e.clone());
+                        }
+                    }
+                }
+                // Stream was removed concurrently — fall through.
+            }
+
             // Snapshot both the event queue length and eventq_prod before the
             // internal re-check so we can fully undo what the inner translate()
             // does if the recheck fails.

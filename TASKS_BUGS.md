@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.5
+CURRENT_SECTION = 13.7
 
 ## Status Legend
 
@@ -653,14 +653,14 @@ CURRENT_SECTION = 13.5
 | §13.4.3 | Stage 2 | ⚠️ | ✅ | | S2FWB not implemented (IDR3.FWB=0 — correctly gated); combine_mem_type() now used for two-stage attr combining (BUG-13.1.5-A fixed) |
 | §13.4.4 | Output | ⚠️ | ✅ | | Final combine: apply_output_attrs() applies STE replace_attrs+ensure_consistent_attrs; NS via security_state; Device/NC→OSH enforced |
 | §13.5 | Summary of attribute/permission configuration fields | N/A | N/A | | Reference table |
-| §13.6 | PCle and ATS attribute/permissions handling | ⚠️ | ⚠️ | | |
-| §13.6.1 | PCle memory type attributes | ☐ | ☐ | | No_snoop |
-| §13.6.1.1 | No_snoop | ☐ | ☐ | | |
-| §13.6.2 | ATS attribute overview | ☐ | ☐ | | |
-| §13.6.2.1 | Supporting No_snoop with ATS | ☐ | ☐ | | |
-| §13.6.3 | Split-stage ATS behavior | ⚠️ | ⚠️ | | EATS=0b10 |
-| §13.6.4 | Full ATS skipping stage 1 | ☐ | ☐ | | EATS=0b01 |
-| §13.6.5 | Split-stage ATS skipping stage 1 | ☐ | ☐ | | |
+| §13.6 | PCle and ATS attribute/permissions handling | ⚠️ | ✅ | BUG-13.6.3-A | Re-audited 2026-04-11: §13.6.1/13.6.2 N/A/IMPL-DEF; §13.6.3 BUG-13.6.3-A fixed; §13.6.4/13.6.5 conformant via S1DSS logic |
+| §13.6.1 | PCle memory type attributes | N/A | N/A | | Informational + IMPLEMENTATION DEFINED overrides |
+| §13.6.1.1 | No_snoop | N/A | N/A | | Downstream of SMMU — not modeled; no mandatory SMMU-internal requirement |
+| §13.6.2 | ATS attribute overview | N/A | N/A | | IMPLEMENTATION DEFINED — ATS attribute encoding not modeled |
+| §13.6.2.1 | Supporting No_snoop with ATS | N/A | N/A | | N=0 in ATS completions; no per-page control; ATS completion encoding not modeled |
+| §13.6.3 | Split-stage ATS behavior | ⚠️ | ✅ | BUG-13.6.3-A | BUG-13.6.3-A: ATSCHK=1+EATS=0b10 AtsTranslated must run stage-2-only on IPA (not full S1+S2); fixed in smmu/mod.rs ATSCHK block; ATS TR returning IPA architectural (TranslationData has no is_ipa field) |
+| §13.6.4 | Full ATS skipping stage 1 | ⚠️ | ✅ | | S1DSS=0b01 ATS TR path conformant — translate_with_type_ssv uses S1DSS block (stage-2-only or identity per §3.9) |
+| §13.6.5 | Split-stage ATS skipping stage 1 | ⚠️ | ✅ | | EATS=0b10+S1DSS=0b01 combo: S1DSS block applies identity/stage-2-only; conformant |
 | §13.7 | PCle permission attribute interpretation | ⚠️ | ⚠️ | BUG-QA-6 | E_PAGE_REQUEST perm bits |
 | §13.7.1 | Permission attributes granted in ATS Translation Completions | ☐ | ☐ | | |
 | §13.8 | Attributes for SMMU-originated accesses | ☐ | ☐ | | PTW MemAttr |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §13.4 re-audited — all 4 subsections conformant; MTCFG architectural gap noted; CURRENT_SECTION→13.5)
+**Last updated**: 2026-04-11 (Session: §13.6 audited — BUG-13.6.3-A ATSCHK+EATS=0b10 fixed; §13.6.1/2/4/5 N/A/conformant; CURRENT_SECTION→13.7)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A, BUG-13.2-A — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 223/223 (all suites green) | 0 clippy warnings
