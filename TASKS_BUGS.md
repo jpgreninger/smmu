@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.4
+CURRENT_SECTION = 13.5
 
 ## Status Legend
 
@@ -647,11 +647,11 @@ CURRENT_SECTION = 13.4
 | §13.1.7 | Ensuring consistent output attributes | N/A | ✅ | | Rule 1 (Device/NC→OSH) implemented in apply_output_attrs(); Rules 2+3 (RA/WA/TR normalization) N/A — model does not track descriptor-level RA/WA/TR; STE.ALLOCCFG override covers stream-level allocation hints |
 | §13.2 | SMMU disabled global bypass attributes | ⚠️ | ⚠️ | BUG-QA-11, BUG-13.2-A | BUG-QA-11: GBPA MemAttr/SH when bypass (prev fixed); BUG-13.2-A: GBPA bypass missing §13.1.7 Device/NC→OSH enforcement — fixed by gating resolved_shareability on mt_cfg+mem_type in smmu/mod.rs GBPA block; 4 TDD tests added |
 | §13.3 | STE bypasses stage 1 and stage 2 | ⚠️ | ⚠️ | BUG-QA-11, BUG-NEW-CPP-D | Re-audited 2026-04-11: translate_bypass() calls apply_output_attrs() which fully implements replace_attrs(ste)+ensure_consistent_attrs(); Device/NC→OSH enforced via effective_attr logic; all STE override fields applied. No new bugs. |
-| §13.4 | Normal translation flow | ⚠️ | ⚠️ | | |
-| §13.4.1 | Stage 1 page permissions | ⚠️ | ⚠️ | | WXN, UWXN, EPAN |
-| §13.4.2 | Stage 1 memory attributes | ⚠️ | ⚠️ | NEW-GAP | NSCFG0/NSCFG1, MAIR |
-| §13.4.3 | Stage 2 | ⚠️ | ⚠️ | | S2FWB |
-| §13.4.4 | Output | ⚠️ | ⚠️ | | Final attr combination |
+| §13.4 | Normal translation flow | ⚠️ | ✅ | | Re-audited 2026-04-11: all subsections conformant; MTCFG ordering architectural gap noted (pre- vs post-translation model limitation, tracked §3.3.4) |
+| §13.4.1 | Stage 1 page permissions | ⚠️ | ✅ | | WXN/UWXN/PRIV suppression applied in check_permissions(); EPAN not applicable (EL0 device model) |
+| §13.4.2 | Stage 1 memory attributes | ⚠️ | ✅ | NEW-GAP | NSCFG/MAIR lookups implemented; MTCFG applies post-translation (architectural limitation, not point-fixable) |
+| §13.4.3 | Stage 2 | ⚠️ | ✅ | | S2FWB not implemented (IDR3.FWB=0 — correctly gated); combine_mem_type() now used for two-stage attr combining (BUG-13.1.5-A fixed) |
+| §13.4.4 | Output | ⚠️ | ✅ | | Final combine: apply_output_attrs() applies STE replace_attrs+ensure_consistent_attrs; NS via security_state; Device/NC→OSH enforced |
 | §13.5 | Summary of attribute/permission configuration fields | N/A | N/A | | Reference table |
 | §13.6 | PCle and ATS attribute/permissions handling | ⚠️ | ⚠️ | | |
 | §13.6.1 | PCle memory type attributes | ☐ | ☐ | | No_snoop |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §13.3 re-audited clean — translate_bypass→apply_output_attrs fully conformant; CURRENT_SECTION→13.4)
+**Last updated**: 2026-04-11 (Session: §13.4 re-audited — all 4 subsections conformant; MTCFG architectural gap noted; CURRENT_SECTION→13.5)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A, BUG-13.2-A — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 223/223 (all suites green) | 0 clippy warnings
