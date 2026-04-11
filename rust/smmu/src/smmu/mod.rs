@@ -4566,9 +4566,15 @@ impl SMMU {
                 .map_or(0u8, |r| r.value().get_eats());
             if stream_eats == 2 {
                 // Split-stage ATS (§13.6.3): input is IPA → stage-2-only.
+                // BUG-13.7-A fix: ARM §13.7 — "the overrides configured in
+                // STE.INSTCFG and STE.PRIVCFG are applied to the Translated
+                // transaction prior to stage 2 translation and permission checking."
+                // Apply effective_access_type() (INSTCFG+PRIVCFG) before dispatching
+                // to translate_stage2_only(), so overrides are honoured.
                 if let Some(stream_ref) = self.streams.get(&stream_id.as_u32()) {
+                    let effective_access = stream_ref.value().effective_access_type(access);
                     let s2_result = stream_ref.value()
-                        .translate_stage2_only(pasid, iova, access, security_state);
+                        .translate_stage2_only(pasid, iova, effective_access, security_state);
                     drop(stream_ref);
                     match s2_result {
                         Ok(data) => {

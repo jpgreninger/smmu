@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.7
+CURRENT_SECTION = 14.1
 
 ## Status Legend
 
@@ -661,9 +661,9 @@ CURRENT_SECTION = 13.7
 | §13.6.3 | Split-stage ATS behavior | ⚠️ | ✅ | BUG-13.6.3-A | BUG-13.6.3-A: ATSCHK=1+EATS=0b10 AtsTranslated must run stage-2-only on IPA (not full S1+S2); fixed in smmu/mod.rs ATSCHK block; ATS TR returning IPA architectural (TranslationData has no is_ipa field) |
 | §13.6.4 | Full ATS skipping stage 1 | ⚠️ | ✅ | | S1DSS=0b01 ATS TR path conformant — translate_with_type_ssv uses S1DSS block (stage-2-only or identity per §3.9) |
 | §13.6.5 | Split-stage ATS skipping stage 1 | ⚠️ | ✅ | | EATS=0b10+S1DSS=0b01 combo: S1DSS block applies identity/stage-2-only; conformant |
-| §13.7 | PCle permission attribute interpretation | ⚠️ | ⚠️ | BUG-QA-6 | E_PAGE_REQUEST perm bits |
-| §13.7.1 | Permission attributes granted in ATS Translation Completions | ☐ | ☐ | | |
-| §13.8 | Attributes for SMMU-originated accesses | ☐ | ☐ | | PTW MemAttr |
+| §13.7 | PCle permission attribute interpretation | ⚠️ | ✅ | BUG-QA-6, BUG-13.7-A | Re-audited 2026-04-11: BUG-13.7-A EATS=0b10 AtsTranslated ATSCHK=1 skipped INSTCFG/PRIVCFG — fixed by applying effective_access_type() before translate_stage2_only(); ARCH-13.7.1 TC R/W/Exe/Priv computation architectural gap (no privlevel-aware PagePermissions queries) |
+| §13.7.1 | Permission attributes granted in ATS Translation Completions | N/A | N/A | | ARCH-13.7.1: TC completion R/W/Exe/Priv output computation not modeled — model returns PagePermissions (flat flags), not privilege-level-aware TC fields; INSTCFG/PRIVCFG overrides applied at access dispatch per §13.7 |
+| §13.8 | Attributes for SMMU-originated accesses | N/A | N/A | | Informational table — PTW MemAttr set via CR1 registers; no behavioral implementation requirement for this software model |
 
 ---
 
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §13.6 audited — BUG-13.6.3-A ATSCHK+EATS=0b10 fixed; §13.6.1/2/4/5 N/A/conformant; CURRENT_SECTION→13.7)
+**Last updated**: 2026-04-11 (Session: §13.7 audited — BUG-13.7-A EATS=0b10 ATSCHK INSTCFG skip fixed; §13.7.1 architectural gap noted; §13.8 N/A; CURRENT_SECTION→14.1)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A, BUG-13.2-A — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 223/223 (all suites green) | 0 clippy warnings
