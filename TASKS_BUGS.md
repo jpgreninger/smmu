@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.1.6
+CURRENT_SECTION = 13.2
 
 ## Status Legend
 
@@ -643,8 +643,8 @@ CURRENT_SECTION = 13.1.6
 | §13.1.4 | Replace | ⚠️ | ⚠️ | BUG-13.1.4-A, BUG-13.1.4-D | BUG-13.1.4-A: ATOS (gatos_translate) incorrectly applied INSTCFG/PRIVCFG overrides — fixed by adding TransactionType::Atos and bypassing effective_access_type() on ATOS path; BUG-13.1.4-D: Device/NC types must force OSH regardless of SHCFG — fixed in apply_output_attrs(); BUG-13.1.4-C/F: N/A (Far Atomic/DCP not modelled as distinct AccessTypes); 2 TDD tests added |
 | §13.1.5 | Combine | N/A | ⚠️ | BUG-13.1.5-A | BUG-13.1.5-A: translate_two_stage and translate_two_stage_with_ipa discarded stage-1 page_attr, using only stage-2 — fixed by adding combine_mem_type() implementing MAIR strength ordering; RA/WA/TR and SH combining N/A (model uses boolean/binary descriptor attrs; STE overrides handle these per §5.2); 5 TDD tests added |
 | §13.1.5.1 | Combine examples | N/A | N/A | | |
-| §13.1.6 | Stage 2 control of memory types | ☐ | ☐ | | S2FWB, S2ENDI |
-| §13.1.7 | Ensuring consistent output attributes | ☐ | ☐ | | |
+| §13.1.6 | Stage 2 control of memory types | N/A | N/A | | S2FWB not implemented; IDR3.FWB=0 advertised correctly per §6.3.4 — feature gated, no behavioral requirement when FWB=0 |
+| §13.1.7 | Ensuring consistent output attributes | N/A | ✅ | | Rule 1 (Device/NC→OSH) implemented in apply_output_attrs(); Rules 2+3 (RA/WA/TR normalization) N/A — model does not track descriptor-level RA/WA/TR; STE.ALLOCCFG override covers stream-level allocation hints |
 | §13.2 | SMMU disabled global bypass attributes | ⚠️ | ⚠️ | BUG-QA-11 | GBPA MemAttr/SH when bypass |
 | §13.3 | STE bypasses stage 1 and stage 2 | ⚠️ | ⚠️ | BUG-QA-11, BUG-NEW-CPP-D | STE bypass output attrs (memType/shareability); bypass skips streamEnabled |
 | §13.4 | Normal translation flow | ⚠️ | ⚠️ | | |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §13.1.5 Combine — BUG-13.1.5-A two-stage translation discards S1 page_attr, fixed with combine_mem_type() MAIR strength ordering; CURRENT_SECTION→13.1.6)
+**Last updated**: 2026-04-11 (Session: §13.1.6 N/A S2FWB not implemented IDR3.FWB=0; §13.1.7 N/A/✅ Device/NC→OSH already in apply_output_attrs; CURRENT_SECTION→13.2)
 **Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
 **Test status**: C++ 185/185 | Rust 219/219 (all suites green) | 0 clippy warnings
