@@ -1792,7 +1792,7 @@ impl SMMU {
         let evt_size_before = {
             self.event_queue.read().unwrap().len() // RwLock guard dropped here
         };
-        match self.translate(stream_id, pasid, iova, access, security_state) {
+        match self.translate_with_type(stream_id, pasid, iova, access, security_state, TransactionType::Atos) {
             Ok(result) => {
                 // Success path: build GATOS_PAR per ARM IHI0070G.b §6.3.40.
                 // bit  0:     FAULT = 0
@@ -4357,7 +4357,7 @@ impl SMMU {
                     self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                     return Err(TranslationError::PermissionViolation { access });
                 }
-                TransactionType::Ordinary => {
+                TransactionType::Ordinary | TransactionType::Atos => {
                     // Fall through: let translate() handle GBPA bypass.
                 }
             }
@@ -4982,7 +4982,11 @@ impl SMMU {
                             // RUST-1 fix: §7.3.13 — rnw/ind must reflect post-override
                             // access type (after INSTCFG/PRIVCFG/STRW). Compute the
                             // effective access type before dropping stream_ref.
-                            let effective_at = stream_ref.value().effective_access_type(access);
+                            let effective_at = if transaction_type == TransactionType::Atos {
+                                access
+                            } else {
+                                stream_ref.value().effective_access_type(access)
+                            };
                             // BUG-RUST-2 fix: §5.2/§7.3.1 — snapshot MEV before dropping
                             // stream_ref so the MEV deduplication guard can be applied to
                             // the F_TRANSLATION inline push block (same pattern as
@@ -5090,6 +5094,7 @@ impl SMMU {
                 // retained above for all fault address reporting paths.
                 let (r, stage2_ipa_opt) = stream_ref.value().translate_and_get_stage2_ipa(
                     pasid, lookup_iova, access, security_state,
+                    transaction_type == TransactionType::Atos,
                 );
                 (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt, s2_stall_val, s2_record_val, strw_val)
             } else {
@@ -5122,7 +5127,11 @@ impl SMMU {
                 // not the raw access type passed by the caller.
                 let (effective_access, pnu) = self.streams.get(&stream_id.as_u32())
                     .map_or((access, false), |ctx| {
-                        let eff = ctx.effective_access_type(access);
+                        let eff = if transaction_type == TransactionType::Atos {
+                            access
+                        } else {
+                            ctx.effective_access_type(access)
+                        };
                         let p = ctx.is_access_privileged(access);
                         (eff, p)
                     });
@@ -5552,7 +5561,13 @@ impl SMMU {
             // access type for pnu/rnw/ind fields in the EventEntry (ARM §7.3: "post-STE
             // override values").
             let effective_access = self.streams.get(&stream_id.as_u32())
-                .map_or(access, |ctx| ctx.effective_access_type(access));
+                .map_or(access, |ctx| {
+                    if transaction_type == TransactionType::Atos {
+                        access
+                    } else {
+                        ctx.effective_access_type(access)
+                    }
+                });
 
             // §3.12.2 / FINDING-NEW-26: Allocate STAG before recording fault so the
             // EventEntry carries the correct STAG value when is_stall==true.

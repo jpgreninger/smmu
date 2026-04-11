@@ -16,4 +16,7 @@ pub enum TransactionType {
     AtsTranslationRequest = 1,
     /// §3.9 TT: ATS Translated transaction — device presenting a pre-translated PA.
     AtsTranslated = 2,
+    /// §13.1.4 ATOS: Address Translation Operation — INSTCFG/PRIVCFG/NSCFG/MTCFG/SHCFG/ALLOCCFG
+    /// overrides are all ignored; InD and PnU are taken directly from ATOS_ADDR.
+    Atos = 3,
 }

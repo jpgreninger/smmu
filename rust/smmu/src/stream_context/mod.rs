@@ -1805,6 +1805,21 @@ impl StreamContext {
         access_type: AccessType,
         security_state: SecurityState,
     ) -> TranslationResult {
+        self.translate_internal(pasid, iova, access_type, security_state, false)
+    }
+
+    /// Internal translation entry point that accepts an `is_atos` flag.
+    ///
+    /// When `is_atos=true` (ARM §13.1.4 ATOS), the INSTCFG and PRIVCFG overrides
+    /// are skipped — InD and PnU are taken directly from the request, not the STE.
+    fn translate_internal(
+        &self,
+        pasid: PASID,
+        iova: IOVA,
+        access_type: AccessType,
+        security_state: SecurityState,
+        is_atos: bool,
+    ) -> TranslationResult {
         // BUG-R-02/R-09 fix: AccessType::None has no ARM SMMU hardware equivalent.
         // Callers must supply a real access type (Read, Write, Execute, etc.).
         // A debug_assert catches mis-use in development builds without altering
@@ -1884,6 +1899,10 @@ impl StreamContext {
             access_type
         };
 
+        // §13.1.4: For ATOS operations, INSTCFG and PRIVCFG are ignored —
+        // InD and PnU are taken directly from ATOS_ADDR (Table 13.4).
+        // Skip both blocks when is_atos=true.
+        //
         // BUG-AUDIT-133 fix: §5.2 — correct INSTCFG encoding:
         //   inst_cfg==0b11 (3): Force-Instruction — Read/Write become Execute.
         //   inst_cfg==0b10 (2): Force-Data         — Execute accesses become Read.
@@ -1893,7 +1912,10 @@ impl StreamContext {
         // BUG-2 fix: §13.1.2 — INSTCFG applies to ALL reads, privileged or not.
         // INSTCFG=3: ReadPrivileged → ExecutePrivileged (not just Read → Execute).
         // INSTCFG=2: ExecutePrivileged → ReadPrivileged (not just Execute → Read).
-        let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
+        let effective_access = if is_atos {
+            access_type
+        } else {
+            match self.inst_cfg.load(Ordering::Acquire) {
             3 => match access_type {
                 AccessType::Read => AccessType::Execute,
                 AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
@@ -1915,6 +1937,7 @@ impl StreamContext {
             },
             // 0b01 (Reserved) and 0b00 (Use Incoming) both pass through unchanged.
             _ => access_type,
+            }
         };
 
         // BUG-RUST-1 fix: §3.3.4/§13.5 — STE.PRIVCFG override applied to effective_access
@@ -1923,7 +1946,10 @@ impl StreamContext {
         // PRIVCFG=2 (Force Unprivileged): demote privileged access-type variants to unprivileged.
         // PRIVCFG=3 (Force Privileged): promote unprivileged access-type variants to privileged.
         // PRIVCFG=0/1 (Use Incoming): pass effective_access unchanged.
-        let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
+        let effective_access = if is_atos {
+            effective_access
+        } else {
+            match self.priv_cfg.load(Ordering::Acquire) {
             2 => match effective_access {
                 AccessType::ReadPrivileged             => AccessType::Read,
                 AccessType::WritePrivileged            => AccessType::Write,
@@ -1947,7 +1973,8 @@ impl StreamContext {
                 other => other,
             },
             _ => effective_access,
-        };
+            } // close match priv_cfg
+        }; // close if is_atos / else
 
         // NEW-7 fix: §5.4 CD.EPD0=1 — TTBR0 translation table walk disabled → F_TRANSLATION.
         // SW model uses a single address space per PASID (TTBR0-equivalent).
@@ -1995,6 +2022,7 @@ impl StreamContext {
         iova: IOVA,
         access_type: AccessType,
         security_state: SecurityState,
+        is_atos: bool,
     ) -> (TranslationResult, Option<u64>) {
         // GAP NEW-2: §7.3.13 — S2 and IPA fields.
         // Determine whether this is a two-stage stream so we can detect stage-2 faults.
@@ -2042,6 +2070,7 @@ impl StreamContext {
             }
 
             // Two-stage path: delegate to the specialised helper that returns the IPA.
+            // §13.1.4: For ATOS operations, INSTCFG and PRIVCFG are ignored.
             // BUG-AUDIT-133 fix: §5.2 — correct INSTCFG encoding applied before
             // permission checks inside translate_two_stage_with_ipa.
             //
@@ -2049,7 +2078,10 @@ impl StreamContext {
             // INSTCFG=3 (Force Instruction): ReadPrivileged → ExecutePrivileged.
             // INSTCFG=2 (Force Data): ExecutePrivileged → ReadPrivileged.
             // INSTCFG=1 (Reserved): behaves as 0b00 (passthrough).
-            let effective_access = match self.inst_cfg.load(Ordering::Acquire) {
+            let effective_access = if is_atos {
+                access_type
+            } else {
+                match self.inst_cfg.load(Ordering::Acquire) {
                 3 => match access_type {
                     AccessType::Read => AccessType::Execute,
                     AccessType::ReadPrivileged => AccessType::ExecutePrivileged,
@@ -2065,13 +2097,17 @@ impl StreamContext {
                 },
                 // 0b01 (Reserved) and 0b00 (Use Incoming) both pass through unchanged.
                 _ => access_type,
+                }
             };
             // BUG-3 fix: §3.3.4/§13.5 — apply STE.PRIVCFG override to effective_access
             // so that the access type flowing into translate_two_stage_with_ipa reflects
             // the PRIVCFG promotion/demotion, consistent with the translate() path.
             // PRIVCFG=2 (Force Unprivileged): demote privileged variants.
             // PRIVCFG=3 (Force Privileged): promote unprivileged variants.
-            let effective_access = match self.priv_cfg.load(Ordering::Acquire) {
+            let effective_access = if is_atos {
+                effective_access
+            } else {
+                match self.priv_cfg.load(Ordering::Acquire) {
                 2 => match effective_access {
                     AccessType::ReadPrivileged             => AccessType::Read,
                     AccessType::WritePrivileged            => AccessType::Write,
@@ -2095,6 +2131,7 @@ impl StreamContext {
                     other => other,
                 },
                 _ => effective_access,
+                }
             };
             let (result, stage2_ipa) =
                 self.translate_two_stage_with_ipa(pasid, iova, effective_access, security_state);
@@ -2103,13 +2140,13 @@ impl StreamContext {
             // BUG-1 fix: §7.3.13 — Stage-2-only: the IOVA is the IPA.
             // Any fault on a stage-2-only stream is a stage-2 fault; return Some(iova)
             // so the SMMU caller emits s2=true and ipa=<IOVA> in the EventEntry.
-            let result = self.translate(pasid, iova, access_type, security_state);
+            let result = self.translate_internal(pasid, iova, access_type, security_state, is_atos);
             let ipa_opt = if result.is_err() { Some(iova.as_u64()) } else { None };
             (result, ipa_opt)
         } else {
-            // Stage-1-only or bypass: delegate to translate() which already applies the
-            // Gap D INSTCFG override internally.  No IPA to report.
-            (self.translate(pasid, iova, access_type, security_state), None)
+            // Stage-1-only or bypass: delegate to translate_internal() with is_atos flag
+            // so INSTCFG/PRIVCFG overrides are correctly skipped for ATOS.
+            (self.translate_internal(pasid, iova, access_type, security_state, is_atos), None)
         }
     }
 
@@ -2890,12 +2927,29 @@ impl StreamContext {
         // BUG-RUST-3 fix: use Acquire ordering for all output-attribute config
         // field loads so the Release stores in update_configuration() are
         // guaranteed visible before these reads on weakly-ordered architectures.
-        let mem_type = if self.mt_cfg.load(Ordering::Acquire) {
+        let mt_cfg_enabled = self.mt_cfg.load(Ordering::Acquire);
+        let mem_type = if mt_cfg_enabled {
             self.mem_attr.load(Ordering::Acquire)
         } else {
             0u8
         };
-        let shareability = self.sh_cfg.load(Ordering::Acquire);
+        // §13.1.4: "Device or Normal-iNC-oNC memory types always OSH regardless
+        // of any SHCFG override."  Determine the effective attribute: when MTCFG
+        // overrides the memory type use that byte; otherwise use the per-page attr
+        // from the translation tables so the rule applies even without MTCFG.
+        let effective_attr = if mt_cfg_enabled {
+            mem_type
+        } else {
+            data.page_attr
+        };
+        // ARM MAIR encoding: Device types are 0x00 (nGnRnE), 0x04 (nGnRE), 0x08 (nGRE),
+        // 0x0C (GRE). Normal-iNC-oNC encodes as 0x44. All must force OSH per §13.1.4.
+        let is_device_or_nc = matches!(effective_attr, 0x00 | 0x04 | 0x08 | 0x0C | 0x44);
+        let shareability = if is_device_or_nc {
+            0b10_u8 // OSH — forced for Device and Normal-iNC-oNC
+        } else {
+            self.sh_cfg.load(Ordering::Acquire)
+        };
         let alloc_hint = self.alloc_cfg.load(Ordering::Acquire);
         let inst_cfg = self.inst_cfg.load(Ordering::Acquire);
         let priv_cfg = self.priv_cfg.load(Ordering::Acquire);
