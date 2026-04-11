@@ -4708,6 +4708,18 @@ impl SMMU {
             // CONF-GAP-13: apply GBPA output attributes to the bypass result (§6.3.22).
             let gbpa = self.gbpa_config.read().unwrap();
             let resolved_mem_type = if gbpa.mt_cfg { gbpa.mem_attr } else { 0 };
+            // BUG-13.2-A fix: §13.1.7 / §13.2 — ensure_consistent_attrs().
+            // Device memory (0x00, 0x04, 0x08, 0x0C) and Normal-iNC-oNC (0x44)
+            // must always output Outer Shareable (OSH = 0b10), regardless of
+            // GBPA.SHCFG.  Gate on mt_cfg: when MTCFG=0 the effective memory
+            // type is unknown (no page table in bypass), so sh_cfg passes through.
+            let resolved_shareability = if gbpa.mt_cfg
+                && matches!(resolved_mem_type, 0x00 | 0x04 | 0x08 | 0x0C | 0x44)
+            {
+                0b10_u8 // OSH — forced for Device and Normal-iNC-oNC per §13.1.7
+            } else {
+                gbpa.sh_cfg
+            };
             // BUG-GBPA-03: §6.3.14 ALLOCCFG — bit 3 == 0 means "use incoming allocation
             // hints" (no override). Only when bit 3 == 1 does the field carry an override.
             // In the software model "use incoming" is represented as alloc_hint == 0.
@@ -4724,7 +4736,7 @@ impl SMMU {
             )
             .with_output_attrs(
                 resolved_mem_type,
-                gbpa.sh_cfg,
+                resolved_shareability,
                 resolved_alloc,
                 effective_inst_cfg,
                 gbpa.priv_cfg,

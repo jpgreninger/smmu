@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = 13.2
+CURRENT_SECTION = 13.3
 
 ## Status Legend
 
@@ -645,7 +645,7 @@ CURRENT_SECTION = 13.2
 | §13.1.5.1 | Combine examples | N/A | N/A | | |
 | §13.1.6 | Stage 2 control of memory types | N/A | N/A | | S2FWB not implemented; IDR3.FWB=0 advertised correctly per §6.3.4 — feature gated, no behavioral requirement when FWB=0 |
 | §13.1.7 | Ensuring consistent output attributes | N/A | ✅ | | Rule 1 (Device/NC→OSH) implemented in apply_output_attrs(); Rules 2+3 (RA/WA/TR normalization) N/A — model does not track descriptor-level RA/WA/TR; STE.ALLOCCFG override covers stream-level allocation hints |
-| §13.2 | SMMU disabled global bypass attributes | ⚠️ | ⚠️ | BUG-QA-11 | GBPA MemAttr/SH when bypass |
+| §13.2 | SMMU disabled global bypass attributes | ⚠️ | ⚠️ | BUG-QA-11, BUG-13.2-A | BUG-QA-11: GBPA MemAttr/SH when bypass (prev fixed); BUG-13.2-A: GBPA bypass missing §13.1.7 Device/NC→OSH enforcement — fixed by gating resolved_shareability on mt_cfg+mem_type in smmu/mod.rs GBPA block; 4 TDD tests added |
 | §13.3 | STE bypasses stage 1 and stage 2 | ⚠️ | ⚠️ | BUG-QA-11, BUG-NEW-CPP-D | STE bypass output attrs (memType/shareability); bypass skips streamEnabled |
 | §13.4 | Normal translation flow | ⚠️ | ⚠️ | | |
 | §13.4.1 | Stage 1 page permissions | ⚠️ | ⚠️ | | WXN, UWXN, EPAN |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §13.1.6 N/A S2FWB not implemented IDR3.FWB=0; §13.1.7 N/A/✅ Device/NC→OSH already in apply_output_attrs; CURRENT_SECTION→13.2)
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A — all fixed ✅
+**Last updated**: 2026-04-11 (Session: §13.2 BUG-13.2-A GBPA bypass missing Device/NC→OSH enforce; CURRENT_SECTION→13.3)
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A, BUG-13.2-A — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 185/185 | Rust 219/219 (all suites green) | 0 clippy warnings
+**Test status**: C++ 185/185 | Rust 223/223 (all suites green) | 0 clippy warnings
