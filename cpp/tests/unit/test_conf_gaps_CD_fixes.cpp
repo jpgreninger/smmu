@@ -186,11 +186,11 @@ protected:
     std::unique_ptr<SMMU> smmu_;
 };
 
-// INSTCFG=1 (Force Instruction), page mapped RX (execute allowed).
+// INSTCFG=3 (Force Instruction per §5.2 0b11), page mapped RX (execute allowed).
 // Incoming access=Read → overridden to Execute → permission check passes.
 TEST_F(GapDInstCFGTests, GapD_InstCFG1_ReadBecomesExecute_Succeeds) {
-    // instCfg=1: Force Instruction
-    setupStage1StreamInstCFG(*smmu_, 1u);
+    // instCfg=3 (0b11): Force Instruction per ARM §5.2 bits[115:114]
+    setupStage1StreamInstCFG(*smmu_, 3u);
 
     // Map page with read + execute permissions (no write).
     PagePermissions perms;
@@ -206,11 +206,11 @@ TEST_F(GapDInstCFGTests, GapD_InstCFG1_ReadBecomesExecute_Succeeds) {
            "execute permission is set, so translation must succeed";
 }
 
-// INSTCFG=1 (Force Instruction), page mapped R (read allowed, execute denied).
+// INSTCFG=3 (Force Instruction per §5.2 0b11), page mapped R (read allowed, execute denied).
 // Incoming access=Read → overridden to Execute → permission check fails.
 TEST_F(GapDInstCFGTests, GapD_InstCFG1_ReadBecomesExecute_Denied) {
-    // instCfg=1: Force Instruction
-    setupStage1StreamInstCFG(*smmu_, 1u);
+    // instCfg=3 (0b11): Force Instruction per ARM §5.2 bits[115:114]
+    setupStage1StreamInstCFG(*smmu_, 3u);
 
     // Map page read-only (execute denied).
     PagePermissions perms;

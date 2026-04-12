@@ -1438,7 +1438,8 @@ enum class StreamTableFormat {
 enum class TransactionType : uint8_t {
     Ordinary              = 0, ///< Normal (non-ATS) upstream transaction
     AtsTranslationRequest = 1, ///< ATS TR: SMMU must perform full translation
-    AtsTranslated         = 2  ///< ATS TT: upstream device provides pre-translated PA
+    AtsTranslated         = 2, ///< ATS TT: upstream device provides pre-translated PA
+    GatosTranslation      = 3  ///< GATOS/ATOS: §13.1.4 — INSTCFG/PRIVCFG must not override access type
 };
 
 /// @brief CONF-GAP-18: CMD_SYNC completion signal type (ARM §4.7.3).

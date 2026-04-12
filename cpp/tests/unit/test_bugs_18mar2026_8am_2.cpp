@@ -172,7 +172,7 @@ TEST_F(SyndromeRnWTest, NEW2_TwoStageInstcfg1_ReadPromotedToExecute_Succeeds) {
     cfg.translationEnabled = true;
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = true;
-    cfg.instCfg            = 1u; // Force Instruction: Read -> Execute
+    cfg.instCfg            = 3u; // Force Instruction (§5.2 0b11): Read -> Execute
     cfg.t0sz               = 0;
     ASSERT_TRUE(smmu_->configureStream(SID, cfg).isOk());
     ASSERT_TRUE(smmu_->enableStream(SID).isOk());
@@ -261,7 +261,7 @@ TEST_F(SyndromeRnWTest, NEW4_EventInd_Instcfg1_ReadPromotedToExecute) {
     smmu_ = std::make_unique<SMMU>();
     enableSMMU(*smmu_);
 
-    ASSERT_TRUE(setupStage1Stream(*smmu_, SID, /*instCfg=*/1, /*privCfg=*/0));
+    ASSERT_TRUE(setupStage1Stream(*smmu_, SID, /*instCfg=*/3, /*privCfg=*/0));
 
     // No mapping — F_TRANSLATION will fire. With INSTCFG=1, Read is Execute.
     IOVA unmapped = BASE + 0x4000;
@@ -314,7 +314,7 @@ TEST_F(SyndromeRnWTest, NEW6_TlbFastPath_Instcfg1_ExecuteOnlyPage) {
     smmu_->enableCaching(true);
 
     // Stage-1-only stream with INSTCFG=1.
-    ASSERT_TRUE(setupStage1Stream(*smmu_, SID, /*instCfg=*/1, /*privCfg=*/0));
+    ASSERT_TRUE(setupStage1Stream(*smmu_, SID, /*instCfg=*/3, /*privCfg=*/0));
 
     // Execute-only page.
     PagePermissions execOnly(false, false, true);

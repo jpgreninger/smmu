@@ -94,6 +94,12 @@ public:
                        bool accessFlag = true);
     VoidResult unmapPage(StreamID streamID, PASID pasid, IOVA iova);
 
+    // Map a stage-1 page as Device memory type.
+    // §13.1.5: When two-stage is active, Device S1 memory must win over Normal S2 memory.
+    VoidResult mapPageDevice(StreamID streamID, PASID pasid, IOVA iova, PA pa,
+                             const PagePermissions& permissions,
+                             SecurityState securityState = SecurityState::NonSecure);
+
     // Map a stage-2 page as Device memory type (for S2PTW testing).
     // STE.S2PTW=1 will cause F_PERMISSION on two-stage translation through such pages.
     VoidResult mapStage2DevicePage(StreamID streamID, IOVA ipa, PA pa,
@@ -678,7 +684,8 @@ private:
     
     // Enhanced translation helpers (Task 5.2)
     TranslationResult performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                               AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
+                                               AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime,
+                                               TransactionType transactionType = TransactionType::Ordinary);
     bool isTranslationCacheable(const TranslationResult& result) const;
     void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                const TranslationResult& result, uint64_t currentTime,
@@ -689,7 +696,8 @@ private:
     TranslationResult performBothStagesTranslation(StreamID streamID, PASID pasid, IOVA iova,
                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext, const StreamConfig& config, uint64_t currentTime);
     TranslationResult performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime,
+                                                  bool isAtos = false);
     TranslationResult performStage2OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
                                                   AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime);
 

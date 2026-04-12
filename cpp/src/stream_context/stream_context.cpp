@@ -200,6 +200,24 @@ VoidResult StreamContext::mapPage(PASID pasid, IOVA iova, PA pa, const PagePermi
     return makeVoidSuccess();  // Successful page mapping
 }
 
+// Map a stage-1 page as Device memory type (§13.1.5: Device wins in two-stage combining).
+VoidResult StreamContext::mapPageDevice(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions,
+                                        SecurityState securityState) {
+    std::lock_guard<std::mutex> lock(contextMutex);
+    if (pasid > MAX_PASID) {
+        return makeVoidError(SMMUError::InvalidPASID);
+    }
+    auto it = pasidMap.find(pasid);
+    if (it == pasidMap.end()) {
+        return makeVoidError(SMMUError::PASIDNotFound);
+    }
+    std::shared_ptr<AddressSpace> addressSpace = it->second;
+    if (!addressSpace) {
+        return makeVoidError(SMMUError::InternalError);
+    }
+    return addressSpace->mapPageDevice(iova, pa, permissions, securityState);
+}
+
 // Unmap page from specific PASID address space
 // ARM SMMU v3 spec: Per-PASID page unmapping with proper cleanup
 // Map a stage-2 page as Device memory type (for S2PTW: STE.S2PTW=1 will fault on such pages).
@@ -257,9 +275,10 @@ VoidResult StreamContext::unmapPage(PASID pasid, IOVA iova) {
 
 // Perform two-stage address translation with ARM SMMU v3 semantics
 // ARM SMMU v3 spec: Stage-1 (per-PASID) + Stage-2 (shared) translation
-TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
+TranslationResult StreamContext::translate(PASID pasid, IOVA iova, AccessType accessType,
+                                           SecurityState securityState, bool isAtos) {
     std::lock_guard<std::mutex> lock(contextMutex);
-    return translateUnlocked(pasid, iova, accessType, securityState);
+    return translateUnlocked(pasid, iova, accessType, securityState, isAtos);
 }
 
 // Configure Stage-1 translation enable
@@ -1091,7 +1110,7 @@ AddressSpace* StreamContext::getPASIDAddressSpaceUnlocked(PASID pasid) {
     return it->second.get();
 }
 
-TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) {
+TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState, bool isAtos) {
     // Update translation statistics
     streamStatistics.translationCount++;
     streamStatistics.lastAccessTimestamp = getCurrentTimestamp();
@@ -1120,10 +1139,12 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
     // Gap D fix: ARM IHI0070G.b §3.2 / §13.5 — STE.INSTCFG access-type override.
     // INSTCFG must be applied to the *effective* access type before permission checks
     // so that the page-table walk uses the overridden type.
-    //   INSTCFG=1 (Force Instruction): treat Read/ReadPrivileged as Execute/ExecutePrivileged.
+    //   INSTCFG=3 (Force Instruction): treat Read/ReadPrivileged as Execute/ExecutePrivileged.
     //   INSTCFG=2 (Force Data):        treat Execute/ExecutePrivileged as Read/ReadPrivileged.
     //   INSTCFG=0 (Use incoming):      no change.
-    if (currentConfiguration.instCfg == 1u) {
+    //   INSTCFG=1 (Reserved):          no change (passthrough).
+    // BUG-13.1.4-CPP-A fix: §13.1.4 — ATOS (GATOS) must NOT apply INSTCFG or PRIVCFG.
+    if (!isAtos && currentConfiguration.instCfg == 3u) {
         if (effectiveAccessType == AccessType::Read) {
             effectiveAccessType = AccessType::Execute;
         } else if (effectiveAccessType == AccessType::ReadPrivileged) {
@@ -1150,7 +1171,8 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
     // NEW-4 fix: §3.3.4/§13.5 — STE.PRIVCFG override before permission checks.
     // PRIVCFG transforms the effective access type so that permission checks use
     // the overridden privilege level.
-    if (currentConfiguration.privCfg == 2u) {
+    // BUG-13.1.4-CPP-A fix: ATOS must also skip PRIVCFG per §13.1.4.
+    if (!isAtos && currentConfiguration.privCfg == 2u) {
         // Force Unprivileged: strip Privileged suffix
         switch (effectiveAccessType) {
             case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;      break;

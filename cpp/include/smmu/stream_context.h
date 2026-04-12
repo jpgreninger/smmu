@@ -30,12 +30,19 @@ public:
                        bool accessFlag = true);
     VoidResult unmapPage(PASID pasid, IOVA iova);
 
+    // Map a stage-1 page as Device memory type (§13.1.5: Device wins in S1+S2 combining).
+    VoidResult mapPageDevice(PASID pasid, IOVA iova, PA pa, const PagePermissions& permissions,
+                             SecurityState securityState = SecurityState::NonSecure);
+
     // Map a stage-2 page as Device memory type (for S2PTW testing).
     VoidResult mapStage2DevicePage(IOVA ipa, PA pa, const PagePermissions& permissions,
                                    SecurityState securityState = SecurityState::NonSecure);
     
     // Translation operations
-    TranslationResult translate(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState = SecurityState::NonSecure);
+    // isAtos: when true, skip INSTCFG/PRIVCFG overrides per §13.1.4 (ATOS must use raw access type)
+    TranslationResult translate(PASID pasid, IOVA iova, AccessType accessType,
+                                SecurityState securityState = SecurityState::NonSecure,
+                                bool isAtos = false);
     
     // Configuration
     void setStage1Enabled(bool enabled);
@@ -263,7 +270,7 @@ private:
 
     // Unlocked internal methods to eliminate redundant mutex acquisitions
     AddressSpace* getPASIDAddressSpaceUnlocked(PASID pasid);
-    TranslationResult translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);
+    TranslationResult translateUnlocked(PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState, bool isAtos = false);
     // BUG-19 fix: internal lock-free helper called by validateContextDescriptor()
     // (which already holds contextMutex) to avoid deadlock on the non-reentrant mutex.
     Result<bool> validateASIDConfigurationUnlocked(uint16_t asid, PASID pasid,

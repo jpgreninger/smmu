@@ -151,7 +151,7 @@ TEST(Bugs5pm2, S1Only_AddrSizeFault_INSTCFG1_IndIsTrue) {
     StreamID sid = 0xECu;
     StreamConfig cfg;
     cfg.translationEnabled = true; cfg.stage1Enabled = true; cfg.stage2Enabled = false;
-    cfg.faultMode = FaultMode::Terminate; cfg.instCfg = 1; cfg.t0sz = 0;
+    cfg.faultMode = FaultMode::Terminate; cfg.instCfg = 3; cfg.t0sz = 0; // instCfg=3: Force Instruction per §5.2
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
     ASSERT_TRUE(smmu.createStreamPASID(sid, 0).isOk());

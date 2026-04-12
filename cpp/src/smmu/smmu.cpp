@@ -306,6 +306,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 td.memType = gbpa.memAttr;
             }
             td.shareability = gbpa.shCfg;
+            // BUG-13.2-CPP fix: §13.1.7 Rule 1 — Device and Non-Cacheable memory types
+            // must use Outer Shareable (OSH=2) regardless of the configured GBPA.SHCfg.
+            if (td.memType == 0x00u) { // Device-nGnRnE (or any Device) → force OSH
+                td.shareability = 2u;
+            }
             td.allocHint    = gbpa.allocCfg;
             td.instCfg      = gbpa.instCfg;
             td.privCfg      = gbpa.privCfg;
@@ -487,38 +492,41 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // NEW-6 fix: Apply INSTCFG/PRIVCFG overrides after STRW promotion, mirroring
         // stream_context.cpp translateUnlocked() so TLB fast-path permission checks
         // use the same effective access type as the slow path.
-        if (streamCfgForTlb.instCfg == 1u) {
-            if (effectiveAccessType == AccessType::Read)
-                effectiveAccessType = AccessType::Execute;
-            else if (effectiveAccessType == AccessType::ReadPrivileged)
-                effectiveAccessType = AccessType::ExecutePrivileged;
-        } else if (streamCfgForTlb.instCfg == 2u) {
-            if (effectiveAccessType == AccessType::Execute)
-                effectiveAccessType = AccessType::Read;
-            else if (effectiveAccessType == AccessType::ExecutePrivileged)
-                effectiveAccessType = AccessType::ReadPrivileged;
-            else if (effectiveAccessType == AccessType::ReadExecute)
-                effectiveAccessType = AccessType::Read;
-            else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
-                effectiveAccessType = AccessType::ReadPrivileged;
-        }
-        if (streamCfgForTlb.privCfg == 2u) {
-            switch (effectiveAccessType) {
-                case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;        break;
-                case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;       break;
-                case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;     break;
-                case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite;   break;
-                case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
-                default: break;
+        // BUG-13.1.4-CPP-A fix: §13.1.4 — ATOS (GatosTranslation) must NOT override access type.
+        if (transactionType != TransactionType::GatosTranslation) {
+            if (streamCfgForTlb.instCfg == 3u) {
+                if (effectiveAccessType == AccessType::Read)
+                    effectiveAccessType = AccessType::Execute;
+                else if (effectiveAccessType == AccessType::ReadPrivileged)
+                    effectiveAccessType = AccessType::ExecutePrivileged;
+            } else if (streamCfgForTlb.instCfg == 2u) {
+                if (effectiveAccessType == AccessType::Execute)
+                    effectiveAccessType = AccessType::Read;
+                else if (effectiveAccessType == AccessType::ExecutePrivileged)
+                    effectiveAccessType = AccessType::ReadPrivileged;
+                else if (effectiveAccessType == AccessType::ReadExecute)
+                    effectiveAccessType = AccessType::Read;
+                else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+                    effectiveAccessType = AccessType::ReadPrivileged;
             }
-        } else if (streamCfgForTlb.privCfg == 3u) {
-            switch (effectiveAccessType) {
-                case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
-                case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
-                case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
-                case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
-                case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
-                default: break;
+            if (streamCfgForTlb.privCfg == 2u) {
+                switch (effectiveAccessType) {
+                    case AccessType::ReadPrivileged:          effectiveAccessType = AccessType::Read;        break;
+                    case AccessType::WritePrivileged:         effectiveAccessType = AccessType::Write;       break;
+                    case AccessType::ExecutePrivileged:       effectiveAccessType = AccessType::Execute;     break;
+                    case AccessType::ReadWritePrivileged:     effectiveAccessType = AccessType::ReadWrite;   break;
+                    case AccessType::ReadExecutePrivileged:   effectiveAccessType = AccessType::ReadExecute; break;
+                    default: break;
+                }
+            } else if (streamCfgForTlb.privCfg == 3u) {
+                switch (effectiveAccessType) {
+                    case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+                    case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+                    case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+                    case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+                    case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+                    default: break;
+                }
             }
         }
         IOVA pageAlignedIOVA = iova & ~PAGE_MASK;
@@ -712,7 +720,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     }
 
     // Task 5.2: Enhanced two-stage translation with comprehensive error handling
-    TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime);
+    TranslationResult result = performTwoStageTranslation(streamID, pasid, iova, accessType, securityState, streamContext, currentTime, transactionType);
 
     // Task 5.2: Cache successful translations for future lookups.
     // BUG-CPP-NEW-3 fix: ARM §3.9/§14.5 — S1DSS==0x01 bypass results must NEVER be
@@ -780,7 +788,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 default: break;
             }
         }
-        if (streamCfgSnapshot.instCfg == 1u) {
+        if (streamCfgSnapshot.instCfg == 3u) {
             if (translateEffectiveAccessType == AccessType::Read)
                 translateEffectiveAccessType = AccessType::Execute;
             else if (translateEffectiveAccessType == AccessType::ReadPrivileged)
@@ -960,7 +968,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 }
             }
             // INSTCFG override.
-            if (streamCfgSnapshot.instCfg == 1u) {
+            if (streamCfgSnapshot.instCfg == 3u) {
                 if (stallEventAccessType == AccessType::Read)
                     stallEventAccessType = AccessType::Execute;
                 else if (stallEventAccessType == AccessType::ReadPrivileged)
@@ -1421,6 +1429,18 @@ VoidResult SMMU::mapPage(StreamID streamID, PASID pasid, IOVA iova, PA pa,
     return streamIt->second->mapPage(pasid, iova, pa, permissions, securityState, accessFlag);
 }
 
+// Map a stage-1 page as Device memory type (§13.1.5: Device wins in two-stage attr combining).
+VoidResult SMMU::mapPageDevice(StreamID streamID, PASID pasid, IOVA iova, PA pa,
+                                const PagePermissions& permissions, SecurityState securityState) {
+    size_t stripe = getStreamStripe(streamID);
+    std::lock_guard<std::mutex> lock(streamLockStripes[stripe]);
+    auto streamIt = streamMap.find(streamID);
+    if (streamIt == streamMap.end()) {
+        return makeVoidError(SMMUError::StreamNotFound);
+    }
+    return streamIt->second->mapPageDevice(pasid, iova, pa, permissions, securityState);
+}
+
 // Map a stage-2 page as Device memory type (for S2PTW testing).
 VoidResult SMMU::mapStage2DevicePage(StreamID streamID, IOVA ipa, PA pa,
                                       const PagePermissions& permissions,
@@ -1827,7 +1847,8 @@ CacheStatistics SMMU::getCacheStatistics() const {
 
 // Task 5.2: Enhanced two-stage translation logic with sophisticated coordination
 TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
+                                                  AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime,
+                                                  TransactionType transactionType) {
     // ARM SMMU v3 spec: Enhanced two-stage translation coordination
     // This method provides sophisticated coordination between Stage-1 and Stage-2 translations
     // with comprehensive error handling and performance optimization
@@ -1939,40 +1960,46 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
                 break;
         }
     }
-    // Step 2: INSTCFG override (instCfg=1: Read→Execute; instCfg=2: Execute→Read).
-    if (config.instCfg == 1u) {
-        if (effectiveAccessType == AccessType::Read)
-            effectiveAccessType = AccessType::Execute;
-        else if (effectiveAccessType == AccessType::ReadPrivileged)
-            effectiveAccessType = AccessType::ExecutePrivileged;
-    } else if (config.instCfg == 2u) {
-        if (effectiveAccessType == AccessType::Execute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
-        else if (effectiveAccessType == AccessType::ReadExecute)
-            effectiveAccessType = AccessType::Read;
-        else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
-            effectiveAccessType = AccessType::ReadPrivileged;
+    // Step 2: INSTCFG override (instCfg=3: Read→Execute; instCfg=2: Execute→Read).
+    // BUG-13.1.4-CPP-A fix: §13.1.4 — ATOS (GATOS) must NOT apply INSTCFG or PRIVCFG overrides.
+    if (transactionType != TransactionType::GatosTranslation) {
+        if (config.instCfg == 3u) {
+            if (effectiveAccessType == AccessType::Read)
+                effectiveAccessType = AccessType::Execute;
+            else if (effectiveAccessType == AccessType::ReadPrivileged)
+                effectiveAccessType = AccessType::ExecutePrivileged;
+        } else if (config.instCfg == 2u) {
+            if (effectiveAccessType == AccessType::Execute)
+                effectiveAccessType = AccessType::Read;
+            else if (effectiveAccessType == AccessType::ExecutePrivileged)
+                effectiveAccessType = AccessType::ReadPrivileged;
+            else if (effectiveAccessType == AccessType::ReadExecute)
+                effectiveAccessType = AccessType::Read;
+            else if (effectiveAccessType == AccessType::ReadExecutePrivileged)
+                effectiveAccessType = AccessType::ReadPrivileged;
+        }
     }
     // Step 3: PRIVCFG override (privCfg=2: demote Privileged; privCfg=3: promote).
-    if (config.privCfg == 2u) {
-        switch (effectiveAccessType) {
-            case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
-            case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
-            case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
-            case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
-            case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
-            default: break;
-        }
-    } else if (config.privCfg == 3u) {
-        switch (effectiveAccessType) {
-            case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
-            case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
-            case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
-            case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
-            case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
-            default: break;
+    // Skipped for GATOS transactions per §13.1.4.
+    if (transactionType != TransactionType::GatosTranslation) {
+        if (config.privCfg == 2u) {
+            switch (effectiveAccessType) {
+                case AccessType::ReadPrivileged:        effectiveAccessType = AccessType::Read;        break;
+                case AccessType::WritePrivileged:       effectiveAccessType = AccessType::Write;       break;
+                case AccessType::ExecutePrivileged:     effectiveAccessType = AccessType::Execute;     break;
+                case AccessType::ReadWritePrivileged:   effectiveAccessType = AccessType::ReadWrite;   break;
+                case AccessType::ReadExecutePrivileged: effectiveAccessType = AccessType::ReadExecute; break;
+                default: break;
+            }
+        } else if (config.privCfg == 3u) {
+            switch (effectiveAccessType) {
+                case AccessType::Read:        effectiveAccessType = AccessType::ReadPrivileged;          break;
+                case AccessType::Write:       effectiveAccessType = AccessType::WritePrivileged;         break;
+                case AccessType::Execute:     effectiveAccessType = AccessType::ExecutePrivileged;       break;
+                case AccessType::ReadWrite:   effectiveAccessType = AccessType::ReadWritePrivileged;     break;
+                case AccessType::ReadExecute: effectiveAccessType = AccessType::ReadExecutePrivileged;   break;
+                default: break;
+            }
         }
     }
 
@@ -2209,7 +2236,8 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
         result = performBothStagesTranslation(streamID, pasid, lookupIova, effectiveAccessType, securityState, streamContext, config, currentTime);
     } else if (config.stage1Enabled && !config.stage2Enabled) {
         // Stage-1 only: IOVA -> PA directly
-        result = performStage1OnlyTranslation(streamID, pasid, lookupIova, effectiveAccessType, securityState, streamContext, currentTime);
+        result = performStage1OnlyTranslation(streamID, pasid, lookupIova, effectiveAccessType, securityState, streamContext, currentTime,
+                                              transactionType == TransactionType::GatosTranslation);
     } else if (!config.stage1Enabled && config.stage2Enabled) {
         // ARM §3.9: Stage-2-only stream — stage 1 is absent. A non-zero PASID has
         // no stage-1 context to consume it; abort with C_BAD_SUBSTREAMID.
@@ -2719,14 +2747,23 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
     // stored in the TLBEntry.ipa field for selective TLBI_S2_IPA invalidation.
     // BUG-AUDIT-49 fix: propagate the stage-2 page's memory-type attribute so
     // gatosTranslate() can report the correct GATOS_PAR ATTR/SH (§9.1.4 / §6.3.40).
+    // BUG-13.1.5-CPP fix: §13.1.5 strength ordering — Device (0x00) wins over Normal (0xFF).
+    // When combining S1+S2 memory attributes, Device memory is the strongest restriction.
+    auto combinePageAttr = [](uint8_t s1Attr, uint8_t s2Attr) -> uint8_t {
+        // Device-nGnRnE (0x00) is the strongest; it wins over any Normal attribute.
+        if (s1Attr == 0x00u || s2Attr == 0x00u) return 0x00u;
+        // For Normal memory types, S2 takes precedence (outer stage dominates).
+        return s2Attr;
+    };
     TranslationData twoStageResult(stage2Data.physicalAddress, finalPermissions, stage2Data.securityState);
     twoStageResult.ipa      = intermediatePA;
-    twoStageResult.pageAttr = stage2Data.pageAttr;
+    twoStageResult.pageAttr = combinePageAttr(stage1Data.pageAttr, stage2Data.pageAttr);
     return makeSuccess<TranslationData>(twoStageResult);
 }
 
 TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pasid, IOVA iova,
-                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime) {
+                                                    AccessType accessType, SecurityState securityState, StreamContext* streamContext, uint64_t currentTime,
+                                                    bool isAtos) {
     // ARM SMMU v3 spec: Stage-1 only translation IOVA -> PA
 
     // BUG-CPP-2 fix: effectiveAccessType (STRW->INSTCFG->PRIVCFG) is now computed
@@ -2735,7 +2772,7 @@ TranslationResult SMMU::performStage1OnlyTranslation(StreamID streamID, PASID pa
     // Use accessType directly as the already-effective access type throughout.
     const AccessType effectiveAccessType = accessType;
 
-    TranslationResult result = streamContext->translate(pasid, iova, effectiveAccessType, securityState);
+    TranslationResult result = streamContext->translate(pasid, iova, effectiveAccessType, securityState, isAtos);
 
     // Record fault if translation failed
     if (result.isError()) {
@@ -3719,7 +3756,10 @@ uint64_t SMMU::gatosTranslate(StreamID streamID, PASID pasid, IOVA iova,
         std::lock_guard<std::recursive_mutex> lk(queueMutex);
         evtSizeBefore = eventQueue.size();
     }
-    TranslationResult result = translate(streamID, pasid, iova, accessType, securityState);
+    // BUG-13.1.4-CPP-A fix: §13.1.4 — ATOS must not apply INSTCFG/PRIVCFG overrides.
+    // Pass GatosTranslation so performTwoStageTranslation() skips those override steps.
+    TranslationResult result = translate(streamID, pasid, iova, accessType, securityState,
+                                         TransactionType::GatosTranslation);
     if (result.isError()) {
         // GAP-L fix: ARM §9.1.4 / §6.3.40 — GATOS_PAR fault syndrome.
         // Determine FAULTCODE and REASON from the most recent event appended

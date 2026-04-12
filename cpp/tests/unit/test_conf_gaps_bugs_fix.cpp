@@ -244,7 +244,7 @@ TEST(BugCpp5, INSTCFG1_TranslationFault_IndIsTrue) {
     cfg.stage1Enabled      = true;
     cfg.stage2Enabled      = false;
     cfg.faultMode          = FaultMode::Terminate;
-    cfg.instCfg            = 1;    // override: Read → Execute
+    cfg.instCfg            = 3;    // Force Instruction per §5.2 (0b11): Read → Execute
     cfg.t0sz               = 0;
     ASSERT_TRUE(smmu.configureStream(sid, cfg).isOk());
     ASSERT_TRUE(smmu.enableStream(sid).isOk());
