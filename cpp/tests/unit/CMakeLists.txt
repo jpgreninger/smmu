@@ -178,8 +178,12 @@ set(UNIT_TEST_SOURCES
     test_bug_audit_113.cpp
     test_cpp_audit_p1_instcfg.cpp
     test_cpp_audit_p1_memattr.cpp
+    test_cpp_audit_p1_memattr_sc.cpp
     test_cpp_audit_p1_gbpa_osh.cpp
     test_cpp_audit_p1_atos_bypass.cpp
+    test_cpp_audit_p2_sec7_mev_stall.cpp
+    test_cpp_audit_p2_sec7_gerror.cpp
+    test_cpp_audit_p2_sec8.cpp
     ../test_thread_safety.cpp
 )
 

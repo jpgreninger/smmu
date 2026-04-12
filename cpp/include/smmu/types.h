@@ -1467,6 +1467,8 @@ static constexpr uint32_t GERROR_MSI_PRIQ_ABT_ERR   = (1u << 6); ///< bit 6: MSI
 static constexpr uint32_t GERROR_MSI_GERROR_ABT_ERR = (1u << 7); ///< bit 7: MSI write abort for GERROR
 static constexpr uint32_t GERROR_SFM_ERR            = (1u << 8); ///< bit 8: Service Fault Mapping error
 static constexpr uint32_t GERROR_CMDQP_ERR          = (1u << 9); ///< bit 9: Command queue paused error
+/// §7.5 BUG-GERROR-DPT-CPP fix: ARM §6.3.17 bit 10 — DPT lookup fault (§3.24.4)
+static constexpr uint32_t GERROR_DPT_ERR            = (1u << 10); ///< bit 10: DPT lookup fault
 // Backward-compat aliases for renamed constants:
 static constexpr uint32_t GERROR_CMDQ_ABT_ERR   = GERROR_MSI_CMDQ_ABT_ERR;  ///< alias: use GERROR_MSI_CMDQ_ABT_ERR
 static constexpr uint32_t GERROR_MSI_ABT_ERR    = GERROR_MSI_EVENTQ_ABT_ERR; ///< alias: use GERROR_MSI_EVENTQ_ABT_ERR

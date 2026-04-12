@@ -3993,6 +3993,18 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
         }
     }
 
+    // BUG-SEC8-SECURE-PRI-CPP fix: ARM §8.2 — PRI requests from Secure streams
+    // must be discarded with ResponseCode=0b1111 (Failure).  The SMMU must not
+    // enqueue PPRs from Secure streams into the PRI queue.
+    if (request.securityState == SecurityState::Secure) {
+        if (request.isLastRequest) {
+            priAutoFailures_.push_back(PRIAutoFailure(
+                request.streamID, request.pasid, request.prgIndex,
+                getCurrentTimestamp(), 0xFu, false));
+        }
+        return;
+    }
+
     // BUG-QA-5: §8.1 — check overflow-active state BEFORE checking queue capacity.
     // Overflow is "active" when PRIQ_PROD.OVFLG (bit 31) differs from
     // PRIQ_CONS.OVACKFLG (bit 31).  While active, new PPRs are inhibited even if
@@ -5742,10 +5754,14 @@ void SMMU::generateEvent(EventType type, StreamID streamID, PASID pasid, IOVA ad
     // MEV merging applies only within the event queue (not across queue drains).
     // mevEnabled was snapshotted above under the stripe lock (before queueMutex was
     // acquired) to preserve the stripe_lock → queueMutex lock order.
-    if (mevEnabled) {
+    // §7.3.1 BUG-7.3.1-CPP fix: stall events carry a unique STAG and must never
+    // be merged by MEV dedup logic.  Gate the entire MEV block on !isStall, and
+    // also skip any existing stall event in the inner loop so that a stall entry
+    // already in the queue does not suppress a new non-stall event of the same type.
+    if (mevEnabled && !isStall) {
         for (const auto& existing : eventQueue) {
-            if (existing.type == type && existing.streamID == streamID && existing.pasid == pasid) {
-                return; // suppress duplicate
+            if (!existing.stall && existing.type == type && existing.streamID == streamID && existing.pasid == pasid) {
+                return; // suppress duplicate non-stall event
             }
         }
     }

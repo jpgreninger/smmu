@@ -95,8 +95,11 @@ TEST(New31Spec, PermissionFault_Produces_F_PERMISSION) {
 
 // ─── FINDING-NEW-32: E_PAGE_REQUEST must preserve the request's security state ─
 
-// A Secure PRI request must generate an E_PAGE_REQUEST event with SecurityState::Secure.
-TEST(New32Spec, SecurePRIRequest_Generates_SecureEvent) {
+// ARM §8.2: A PPR received from a Secure stream is discarded and is not recorded
+// into the PRI queue.  A Secure PPR must NOT generate an E_PAGE_REQUEST event.
+// (Previously this test incorrectly expected a Secure E_PAGE_REQUEST event; ARM §8.2
+// §27525 states Secure PPRs are silently discarded with ResponseCode=0b1111.)
+TEST(New32Spec, SecurePRIRequest_IsDiscarded_NotEnqueued) {
     auto smmu = std::make_unique<SMMU>();
     smmu->enable();
     basicStream(*smmu, N32_STREAM);
@@ -112,15 +115,13 @@ TEST(New32Spec, SecurePRIRequest_Generates_SecureEvent) {
 
     smmu->submitPageRequest(request);
 
-    // Find the E_PAGE_REQUEST event
+    // ARM §8.2: Secure PPR must be discarded — no E_PAGE_REQUEST event.
     const auto& events = smmu->getEventQueue();
     auto it = std::find_if(events.begin(), events.end(), [](const EventEntry& e) {
         return e.type == EventType::E_PAGE_REQUEST;
     });
-    ASSERT_NE(it, events.end())
-        << "FINDING-NEW-32: an E_PAGE_REQUEST event must be emitted after submitPageRequest()";
-    EXPECT_EQ(it->securityState, SecurityState::Secure)
-        << "§7.3.19 / FINDING-NEW-32: E_PAGE_REQUEST event must carry the request's security state (Secure)";
+    EXPECT_EQ(it, events.end())
+        << "§8.2: Secure PPR must be discarded and must NOT generate an E_PAGE_REQUEST event";
 }
 
 // A NonSecure PRI request must generate an E_PAGE_REQUEST event with SecurityState::NonSecure.

@@ -1407,10 +1407,20 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             return makeTranslationError(SMMUError::PagePermissionViolation);
         }
 
-        // Stage-2 success - return final physical address with intersected permissions
-        return makeSuccess(applyOutputAttrs(TranslationData(stage2Result.getValue().physicalAddress,
-                                                            intersected,
-                                                            stage2Result.getValue().securityState)));
+        // Stage-2 success - return final physical address with intersected permissions.
+        // BUG-13.1.5-CPP fix: combine S1+S2 pageAttr per §13.1.5 strength ordering.
+        // Device (0x00) is strongest and wins over Normal (0xFF) from either stage.
+        TranslationData twoStageTd(stage2Result.getValue().physicalAddress,
+                                   intersected,
+                                   stage2Result.getValue().securityState);
+        {
+            uint8_t s1pa = (stage1Enabled && stage1Result.isOk())
+                               ? stage1Result.getValue().pageAttr
+                               : 0xFFu;
+            uint8_t s2pa = stage2Result.getValue().pageAttr;
+            twoStageTd.pageAttr = (s1pa == 0x00u || s2pa == 0x00u) ? 0x00u : s2pa;
+        }
+        return makeSuccess(applyOutputAttrs(twoStageTd));
     }
 
     // Only Stage-1 enabled: return the Stage-1 result directly.
