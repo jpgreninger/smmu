@@ -1,6 +1,6 @@
 ## Build System
 
-**IMPORTANT**: Always build in the `build/` subdirectory for out-of-source builds. Never build in the source root.
+**IMPORTANT**: Always build in the `cpp/build/` subdirectory for out-of-source builds. Never build in the source root.
 
 ### Main Build Commands
 ```bash
