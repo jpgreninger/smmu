@@ -1204,6 +1204,18 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         data.instCfg      = currentConfiguration.instCfg;
         data.privCfg      = currentConfiguration.privCfg;
         data.nsCfgOut     = currentConfiguration.nsCfg;
+        // BUG-13.1.7-CPP fix: ARM §13.1.7 Rule 1 — Device and Non-Cacheable memory
+        // types must always use Outer Shareable (OSH=2) regardless of STE.SHCfg.
+        // When mtCfg=true, the STE memAttr override is authoritative;
+        // when mtCfg=false, the page-level attribute (data.pageAttr) governs.
+        {
+            bool effectiveDevice = currentConfiguration.mtCfg
+                ? (currentConfiguration.memAttr == 0x00u)
+                : (data.pageAttr == 0x00u);
+            if (effectiveDevice) {
+                data.shareability = 2u;  // OSH
+            }
+        }
         return data;
     };
 
@@ -1440,6 +1452,9 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         TranslationData s1data(intermediatePA,
                                stage1Result.getValue().permissions,
                                stage1Result.getValue().securityState);
+        // BUG-13.1.7-CPP fix: propagate per-page memory type so that applyOutputAttrs
+        // can enforce ARM §13.1.7 Rule 1 (Device/NC → OSH) via data.pageAttr check.
+        s1data.pageAttr = stage1Result.getValue().pageAttr;
         // BUG-8 fix: ARM §13.4.1 — for EL2 (non-VHE) and EL3 StreamWorld, AP[1]
         // is ignored (treated as 1).  The output PRIV attribute must reflect the
         // effective access privilege, not the raw page-descriptor AP[1] bit.

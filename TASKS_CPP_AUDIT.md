@@ -108,15 +108,15 @@ additional re-audit passes that C++ did not. Low risk but should be spot-checked
 These were marked `N/A` for C++ in TASKS_BUGS.md but C++ has relevant implementation.
 Each needs either a documented rationale confirming N/A, or reclassification + audit.
 
-| Section | Why Flagged | C++ Code Evidence |
-|---------|-------------|-------------------|
-| §3.4.3 | Marked "C++ not applicable" but C++ has OAS checks in `stream_context.cpp`. BUG-AUDIT-114/115/123 were Rust-only fixes — did C++ already have correct OAS checks, or were they silently skipped? | `cpp/src/stream_context/stream_context.cpp` OAS/IPS validation |
-| §3.13.4–3.13.5 | Marked N/A for C++. C++ has `ha`/`hd` member fields and `setHA()`/`setHD()` methods. BUG-AUDIT-129/130 (S2HA requires S2HD guard, two-stage HTTU update) may apply. | `cpp/src/stream_context/stream_context.cpp:31–32, 355–361` |
-| §7.3.1 | Marked N/A for C++. C++ has MEV dedup logic. Stall-guard missing? | `cpp/src/stream_context/stream_context.cpp` generateEvent/MEV |
-| §8.1.1 | Marked N/A for C++. C++ has `priqProd`/`priqCons`. Recovery procedure may be relevant. | `cpp/src/stream_context/stream_context.cpp:96–97` |
-| §13.1.2 | Marked N/A for C++. C++ has INSTCFG override at `stream_context.cpp:1126`. Write→Data clamping needed. | `cpp/src/stream_context/stream_context.cpp:1126–1135` |
-| §13.1.5 | Marked N/A for C++. C++ has two-stage translation. Attribute combining gap is real. | `cpp/src/stream_context/stream_context.cpp:1354–1391` |
-| §13.1.7 | Marked N/A for C++. C++ has `applyOutputAttrs` lambda. Device/NC→OSH not enforced there. | `cpp/src/stream_context/stream_context.cpp:1177–1185` |
+| Section | Why Flagged | C++ Status | Final Disposition |
+|---------|-------------|-----------|-------------------|
+| §3.4.3 | Marked "C++ not applicable" but C++ has OAS checks in `stream_context.cpp`. BUG-AUDIT-114/115/123 were Rust-only fixes — did C++ already have correct OAS checks, or were they silently skipped? | ✅ | **RESOLVED BY PRIORITY 3**: P3 spot-check §3.4/§3.4.1 audit confirmed C++ `AddressSpace::translatePage()` enforces address-size faults correctly. Regression tests added in `test_cpp_audit_p3_spotcheck.cpp` (`P3OasIps.*` tests). No code change required. Cross-ref: P3 sprint. |
+| §3.13.4–3.13.5 | Marked N/A for C++. C++ has `ha`/`hd` member fields and `setHA()`/`setHD()` methods. BUG-AUDIT-129/130 (S2HA requires S2HD guard, two-stage HTTU update) may apply. | ✅ | **RESOLVED BY PRIORITY 3**: BUG-AUDIT-130-CPP fixed in P3 sprint — stage-2 `updateAccessFlags()` call added in both `performBothStagesTranslation()` (smmu.cpp) and `translateUnlocked()` (stream_context.cpp) for `s2ha`/`s2affd` paths. TDD tests: `test_cpp_audit_p3_spotcheck.cpp` (`P3Httu.*`). |
+| §7.3.1 | Marked N/A for C++. C++ has MEV dedup logic. Stall-guard missing? | ✅ | **RESOLVED BY PRIORITY 2**: BUG-7.3.1-CPP fixed in P2 sprint — added `!isStall` outer gate and `!existing.stall` inner guard to MEV dedup block in `generateEvent()`. TDD test: `test_cpp_audit_p2_sec7_mev_stall.cpp`. |
+| §8.1.1 | Marked N/A for C++. C++ has `priqProd`/`priqCons`. Recovery procedure may be relevant. | ✅ | **RESOLVED BY PRIORITY 2**: P2 §8 sprint audited PRI queue `priqProd`/`priqCons` modulus, PRIQ_ABT_ERR gate, and Secure stream discard. BUG-SEC8-SECURE-PRI-CPP fixed (Secure stream PRI discard). TDD tests: `test_cpp_audit_p2_sec8.cpp`. |
+| §13.1.2 | Marked N/A for C++. C++ has INSTCFG override at `stream_context.cpp:1126`. Write→Data clamping needed. | ✅ | **RESOLVED BY PRIORITY 1**: BUG-13.1.2-CPP-A confirmed NO FIX NEEDED — C++ already does not convert Write→Execute in INSTCFG path (stream_context.cpp:1153 explicitly handles writes as Data). The Rust bug was Rust-only. See P1 row for full details. |
+| §13.1.5 | Marked N/A for C++. C++ has two-stage translation. Attribute combining gap is real. | ✅ | **RESOLVED BY PRIORITY 1**: BUG-13.1.5-CPP fixed — `combinePageAttr()` lambda added to `performBothStagesTranslation()` (smmu.cpp:2749) and two-stage result block in `translateUnlocked()` (stream_context.cpp:~1411). TDD tests: `test_cpp_audit_p1_memattr.cpp`, `test_cpp_audit_p1_memattr_sc.cpp`. |
+| §13.1.7 | Marked N/A for C++. C++ has `applyOutputAttrs` lambda. Device/NC→OSH not enforced there. | ✅ | **BUG-13.1.7-CPP FIXED (this sprint)**: Three-part fix: (1) Added `TLBEntry::pageAttr` field (types.h) + propagation in `cacheTranslation()` (smmu.cpp:~2341). (2) `applyOutputAttrs` lambda (stream_context.cpp:1200): added Device→OSH guard using effective type (`mtCfg ? memAttr==0x00 : data.pageAttr==0x00`). (3) TLB fast path (smmu.cpp:~552): same guard using `entry.pageAttr`. Also fixed `pageAttr` propagation from stage-1 result into `s1data` (stream_context.cpp:~1455). TDD tests: `test_cpp_audit_p4_na_justification.cpp` (5 tests — slow-path mtCfg=false/true, TLB-hit path, regression guards). |
 
 ---
 
@@ -146,4 +146,4 @@ At audit completion, **C++ had 185 tests** and **Rust had 223 tests**. The 38-te
 corresponds almost entirely to the §7/§8/§13 sprint that targeted Rust only. Every fix
 in this audit must follow the TDD workflow: failing test first, then implementation.
 
-**Last updated**: 2026-04-12 (Priority 3 §3.4/§3.5/§3.13/§3.17/§3.18/§3.19/§3.21/§5.2 complete: BUG-AUDIT-130-CPP FIXED [stage-2 HTTU update in performBothStagesTranslation+translateUnlocked], BUG-DORMANT-CPP FIXED [STATUSR.DORMANT set in disable()/cleared in enable()], all other P3 sections verified conformant with regression tests. Test count: 194/194 passing (13 new P3 tests added).)
+**Last updated**: 2026-04-12 (Priority 4 complete: BUG-13.1.7-CPP FIXED [Device/NC→OSH enforcement in applyOutputAttrs and TLB fast path; TLBEntry::pageAttr field added; pageAttr propagation fixed in s1data path]. 6 of 7 P4 items resolved by earlier sprints (P1/P2/P3), documented with cross-references. All 5 new P4 TDD tests pass. Test count: 187/187 test executables passing (5 new P4 test cases in test_cpp_audit_p4_na_justification). **AUDIT COMPLETE — all priorities resolved.**)

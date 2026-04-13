@@ -1359,16 +1359,21 @@ struct TLBEntry {
     /// Entries tagged with EL1_EL0 are evicted by CMD_TLBI_NSNH_ALL / CMD_TLBI_NH_ALL;
     /// EL2 and EL2_E2H entries are preserved.
     StreamWorld strw; ///< stream world tag; defaults to EL1_EL0
+    /// @brief BUG-13.1.7-CPP: Per-page MAIR attribute byte from translation tables.
+    /// 0x00 = Device-nGnRnE; 0xFF = Normal WB/WA (default).
+    /// Mirrors TranslationData::pageAttr so the TLB fast path can enforce
+    /// ARM §13.1.7 Rule 1 (Device/NC memory must use OSH) on cache hits.
+    uint8_t pageAttr; ///< page-level memory type; 0x00=Device, 0xFF=Normal
 
     TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0),
                  securityState(SecurityState::NonSecure), valid(false), timestamp(0),
-                 asid(0), vmid(0), ipa(0), strw(StreamWorld::EL1_EL0) {
+                 asid(0), vmid(0), ipa(0), strw(StreamWorld::EL1_EL0), pageAttr(0xFFu) {
     }
 
     TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState)
         : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms),
           securityState(secState), valid(true), timestamp(0), asid(0), vmid(0), ipa(0),
-          strw(StreamWorld::EL1_EL0) {
+          strw(StreamWorld::EL1_EL0), pageAttr(0xFFu) {
     }
 };
 

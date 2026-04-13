@@ -554,6 +554,18 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     data.instCfg      = streamCfgForTlb.instCfg;
                     data.privCfg      = streamCfgForTlb.privCfg;
                     data.nsCfgOut     = streamCfgForTlb.nsCfg;
+                    // BUG-13.1.7-CPP fix: ARM §13.1.7 Rule 1 — Device and Non-Cacheable
+                    // memory types must always use Outer Shareable (OSH=2) regardless of
+                    // STE.SHCfg.  When mtCfg=true, the STE override is authoritative;
+                    // when mtCfg=false, the page-level attribute (cached in TLBEntry) is used.
+                    {
+                        bool effectiveDevice = streamCfgForTlb.mtCfg
+                            ? (streamCfgForTlb.memAttr == 0x00u)
+                            : (entry.pageAttr == 0x00u);
+                        if (effectiveDevice) {
+                            data.shareability = 2u;  // OSH
+                        }
+                    }
                     // BUG-8 fix: ARM §13.4.1 — for EL2 (non-VHE) and EL3 StreamWorld,
                     // AP[1] is ignored (treated as 1), so the output PRIV attribute must
                     // reflect the effective privilege level of the transaction, not the
@@ -2336,6 +2348,9 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     // For single-stage results data.ipa==0 (default), correctly marking the
     // entry as non-IPA-addressable.
     entry.ipa = data.ipa & ~static_cast<uint64_t>(PAGE_SIZE - 1u); // page-align
+    // BUG-13.1.7-CPP fix: propagate page-level memory type so the TLB fast path
+    // can enforce ARM §13.1.7 Rule 1 (Device/NC memory must use OSH) on cache hits.
+    entry.pageAttr = data.pageAttr;
 
     // ARM SMMU v3 spec: Insert into TLB with LRU eviction if needed
     tlbCache->insert(entry);
