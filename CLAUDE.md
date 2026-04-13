@@ -10,7 +10,7 @@ This is also a Rust SMMU project. Language is Rust with Cargo. Always run `cargo
 
 ## C++ Requirements
 
-**IMPORTANT**: Always build in the `build/` subdirectory. Never build in the source root
+**IMPORTANT**: Always build in the `cpp/build/` subdirectory. Never build in the source root
 For C++ conventions, coding standard, and build commands, read cpp-reqs.md
 
 ## Development Workflows
