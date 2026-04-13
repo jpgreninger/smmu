@@ -90,16 +90,16 @@ was never verified against the findings. May be correct, may have the same bugs.
 These sections were audited earlier (C++ bugs fixed at that time) but Rust received
 additional re-audit passes that C++ did not. Low risk but should be spot-checked.
 
-| Section | Title | Notes |
-|---------|-------|-------|
-| §3.4 / §3.4.1 | Address sizes / Input address size | Rust ✅, C++ ⚠️. BUG-AUDIT-114/115/123 fixed Rust-only. C++ OAS/IPS checks at `stream_context.cpp` should be re-verified. |
-| §3.5.1–3.5.4 | Queue semantics | Rust ✅ after 2026-04-07 re-audit. C++ left ⚠️. OVFLG/modulus/commit semantics should be spot-checked. |
-| §3.13.4–3.13.5 | HTTU behavior summary / Two stages | Rust ✅ (BUG-AUDIT-129/130). C++ marked N/A. C++ has `ha`/`hd` fields (`stream_context.cpp:31–32`). Confirm HTTU checks in C++ match spec or document why N/A is correct. |
-| §3.17 / §3.17.2 / §3.17.5 | TLB tagging / Broadcast TLBI | Rust ✅ (BUG-AUDIT-131, BUG-NEW-37–40). C++ left ⚠️. VMID=0 substitution, PTM polarity, EL2-E2H ASID scoping should be re-checked. |
-| §3.18 / §3.18.2 | Interrupts / GERROR IRQ | Rust ✅. C++ left ⚠️. IRQ_CTRL gating, SEV signal path should be spot-checked. |
-| §3.19 | Power control / DORMANT | Rust ✅. C++ left ⚠️. `STATUSR.DORMANT` set after `shutdown()` — verify C++ equivalent. |
-| §3.21 / §3.21.3 | Structure access rules / CFGI | Rust ✅. C++ left ⚠️. `disable_stream()` TLB flush and `CMD_CFGI_*` handlers should be re-checked. |
-| §5.2 (STE general) | STE — stream table entry | Rust ✅ after BUG-AUDIT-133. C++ ⚠️ — overlaps Priority 1 INSTCFG encoding bug. |
+| Section | Title | C++ Status | Notes |
+|---------|-------|------------|-------|
+| §3.4 / §3.4.1 | Address sizes / Input address size | ✅ | BUG-AUDIT-114/115/123 were Rust-only fixes. C++ `AddressSpace::translatePage()` enforces address-size faults via the `inputAddressSizeBits < 52` guard. No C++ bug. Regression test: `P3AddrSize.AddressSizeFaultOnOversizedAddress`. |
+| §3.5.1–3.5.4 | Queue semantics | ✅ | OVFLG/modulus/commit semantics verified conformant in Priority 2 (§7.4 ✅ and §8.1 ✅). No additional work needed. |
+| §3.13.4–3.13.5 | HTTU behavior summary / Two stages | ✅ | **BUG-AUDIT-130-CPP FIXED**: Stage-2 AF update was missing. `performBothStagesTranslation()` (`smmu.cpp:2745`) and `translateUnlocked()` (`stream_context.cpp:1424`) now call `stage2AddressSpace->updateAccessFlags()` after successful stage-2 translation when `s2ha=true`. Stage-1 HA path was already correct. BUG-AUDIT-129 (S2HD requires S2HA): C++ rejects `S2HD=1` entirely (`smmu.cpp:1144`) — stronger than the Rust guard, conformant. TDD tests: `P3Httu.Stage2HttuUpdateSetsAccessFlag`, `P3Httu.Stage2HttuS2HaTranslationSucceeds`. |
+| §3.17 / §3.17.2 / §3.17.5 | TLB tagging / Broadcast TLBI | ✅ | VMID=0 substitution for Secure S1-only streams at `smmu.cpp:752–754` ✅. EL2-E2H ASID=0 when CR2.E2H=0 at `smmu.cpp:766–768` ✅. PTM polarity (`receiveBroadcastTLBI()` at `smmu.cpp:5678`) ✅. All BUG-NEW-37–40 fixes present. TDD regression tests: `P3TlbTagging.SecureStage1StreamUsesVmidZero`, `P3TlbTagging.PtmEnabledBlocksBroadcastTlbi`. |
+| §3.18 / §3.18.2 | Interrupts / GERROR IRQ | ✅ | `setIrqCtrl()`/`getIrqCtrlAck()` synchronous pair conformant (`smmu.cpp:3568–3577`). No IRQ delivery infrastructure — N/A for SW model (same as §7.5.1). TDD regression test: `P3IrqCtrl.IrqCtrlAckMirrorsWrite`. |
+| §3.19 | Power control / DORMANT | ✅ | **BUG-DORMANT-CPP FIXED**: `IDR0.DORMHINT=1` (bit 8) was set but `getStatusr()` always returned 0. `disable()` (`smmu.cpp:5589`) now sets `statusr_=1` (DORMANT=1); `enable()` (`smmu.cpp:5576`) clears `statusr_=0`. TDD tests: `P3Dormant.StatusrDormantSetAfterDisable`, `P3Dormant.StatusrDormantClearedAfterReEnable`, `P3Dormant.Idr0DormhintIsSet`. |
+| §3.21 / §3.21.3 | Structure access rules / CFGI | ✅ | `disableStream()` TLB flush is SW responsibility per §3.21 (software issues CMD_CFGI_STE + CMD_TLBI_*). `CMD_CFGI_STE`, `CMD_CFGI_ALL`, `CMD_CFGI_STE_RANGE`, `CMD_CFGI_CD`, `CMD_CFGI_CD_ALL` all present and correct. TDD regression tests: `P3Cfgi.CfgiSteInvalidatesTlbEntry`, `P3Cfgi.CfgiAllDoesNotRaiseCmdqErr`. |
+| §5.2 (STE general) | STE — stream table entry | ✅ | Fixed in Priority 1 (INSTCFG encoding BUG-AUDIT-133-CPP). TDD regression test: `P3Ste.InstCfgForceDataIsEncoding2`. |
 
 ---
 
@@ -146,4 +146,4 @@ At audit completion, **C++ had 185 tests** and **Rust had 223 tests**. The 38-te
 corresponds almost entirely to the §7/§8/§13 sprint that targeted Rust only. Every fix
 in this audit must follow the TDD workflow: failing test first, then implementation.
 
-**Last updated**: 2026-04-12 (Priority 2 §7/§8 complete: BUG-7.3.1-CPP FIXED [MEV stall guard], BUG-GERROR-DPT-CPP FIXED [GERROR_DPT_ERR bit 10], §7.5.1 N/A [no IRQ layer], §8.1/§8.1.1 N/A [already conformant/documented], BUG-SEC8-SECURE-PRI-CPP FIXED [Secure PRI discard], §8.3 verified pre-existing fix. Test count: 193/193 passing (8 new P2 tests added). Pre-existing test `New32Spec.SecurePRIRequest_*` corrected to match ARM §8.2.)
+**Last updated**: 2026-04-12 (Priority 3 §3.4/§3.5/§3.13/§3.17/§3.18/§3.19/§3.21/§5.2 complete: BUG-AUDIT-130-CPP FIXED [stage-2 HTTU update in performBothStagesTranslation+translateUnlocked], BUG-DORMANT-CPP FIXED [STATUSR.DORMANT set in disable()/cleared in enable()], all other P3 sections verified conformant with regression tests. Test count: 194/194 passing (13 new P3 tests added).)

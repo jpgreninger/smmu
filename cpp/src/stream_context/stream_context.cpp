@@ -1420,6 +1420,18 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
             uint8_t s2pa = stage2Result.getValue().pageAttr;
             twoStageTd.pageAttr = (s1pa == 0x00u || s2pa == 0x00u) ? 0x00u : s2pa;
         }
+
+        // BUG-AUDIT-130 fix: ARM §3.13 / §3.13.4 — When S2HA=1, the SMMU must update
+        // the stage-2 access flag on a successful translation, mirroring the stage-1 HA
+        // update path above.  translatePage() is const and only gates AF faults; it does
+        // not write AF.  The write must be done here after stage-2 translation succeeds.
+        if (currentConfiguration.s2ha || currentConfiguration.s2affd) {
+            stage2AddressSpace->updateAccessFlags(intermediatePA,
+                                                  currentConfiguration.s2ha,
+                                                  /*hd=*/false,  // S2HD always rejected (HTTU=0b01)
+                                                  effectiveAccessType);
+        }
+
         return makeSuccess(applyOutputAttrs(twoStageTd));
     }
 

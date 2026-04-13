@@ -2742,6 +2742,18 @@ TranslationResult SMMU::performBothStagesTranslation(StreamID streamID, PASID pa
         return makeTranslationError(SMMUError::PagePermissionViolation);
     }
 
+    // BUG-AUDIT-130 fix: ARM §3.13 / §3.13.4 — When S2HA=1, the SMMU must update
+    // the stage-2 access flag on a successful translation.  translatePage() is const;
+    // the AF write must be done here after stage-2 translation succeeds and before
+    // the result is returned.  This mirrors the stage-1 HA path in
+    // StreamContext::translateUnlocked() (lines 1316-1321).
+    if ((config.s2ha || config.s2affd) && stage2AddressSpace) {
+        stage2AddressSpace->updateAccessFlags(intermediatePA,
+                                              config.s2ha,
+                                              /*hd=*/false,  // S2HD always rejected (HTTU=0b01)
+                                              effectiveAccessType);
+    }
+
     // Create successful final translation result.
     // CONF-GAP-7: tag the result with the IPA (stage-1 output) so it can be
     // stored in the TLBEntry.ipa field for selective TLBI_S2_IPA invalidation.
@@ -5574,6 +5586,9 @@ void SMMU::enable() {
     smmuen_.store(true, std::memory_order_release);
     // CONF-GAP-9: sync CR0ACK to match updated CR0
     cr0ack_.store(newVal, std::memory_order_release);
+    // BUG-DORMANT-CPP fix: Clear STATUSR.DORMANT (bit 0) when SMMU is re-enabled.
+    // The SMMU is no longer dormant once SMMUEN=1.
+    statusr_.store(0u, std::memory_order_release);
 }
 
 void SMMU::disable() {
@@ -5586,6 +5601,11 @@ void SMMU::disable() {
     smmuen_.store(false, std::memory_order_release);
     // CONF-GAP-9: sync CR0ACK to match updated CR0
     cr0ack_.store(newVal, std::memory_order_release);
+    // BUG-DORMANT-CPP fix: ARM §3.19 / §6.3.47 — STATUSR.DORMANT (bit 0) must be 1
+    // when the SMMU has entered the dormant state.  IDR0.DORMHINT=1 advertises that
+    // this SMMU implements dormancy; disable() is the entry point to the dormant state
+    // (SMMUEN cleared → SMMU no longer servicing transactions).
+    statusr_.store(1u, std::memory_order_release);
 }
 
 bool SMMU::isEnabled() const {

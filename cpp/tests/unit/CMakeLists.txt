@@ -184,6 +184,7 @@ set(UNIT_TEST_SOURCES
     test_cpp_audit_p2_sec7_mev_stall.cpp
     test_cpp_audit_p2_sec7_gerror.cpp
     test_cpp_audit_p2_sec8.cpp
+    test_cpp_audit_p3_spotcheck.cpp
     ../test_thread_safety.cpp
 )
 
