@@ -75,8 +75,8 @@ CURRENT_SECTION = COMPLETE
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.4 | Address sizes (overview) | ⚠️ | ✅ | NEW-GAP-C, AUDIT-47 | T0SZ range, IPS/PS |
-| §3.4.1 | Input address size and Virtual Address size | ⚠️ | ✅ | AUDIT-47 | T0SZ [16,39] enforcement; T0SZ magnitude check correct for single-TTBR0 model (EPD1/upper-half not modelled). |
+| §3.4 | Address sizes (overview) | ✅ | ✅ | NEW-GAP-C, AUDIT-47 | T0SZ range, IPS/PS. C++ `AddressSpace::translatePage()` enforces address-size faults; confirmed by BUG-AUDIT-114/115/123 (Rust-only). C++ TDD: `P3AddrSize.*` in `test_cpp_audit_p3_spotcheck.cpp`. |
+| §3.4.1 | Input address size and Virtual Address size | ✅ | ✅ | AUDIT-47 | T0SZ [16,39] enforcement; T0SZ magnitude check correct for single-TTBR0 model (EPD1/upper-half not modelled). C++ re-verified 2026-04-12 with `P3AddrSize.AddressSizeFaultOnOversizedAddress`. |
 | §3.4.2 | Address alignment checks | N/A | N/A | | §3.4.2 states SMMU does NOT check address alignment. No implementation needed. |
 | §3.4.3 | Address sizes of SMMU-originated accesses | N/A | ✅ | BUG-AUDIT-114, BUG-AUDIT-115, BUG-AUDIT-123 | BUG-AUDIT-114: stage-1-only PA > OAS silently truncates per §3.4 line 1635 — fixed. BUG-AUDIT-115: CD.TTB0/TTB1 out-of-IPS → C_BAD_CD — fixed. BUG-AUDIT-123: IPS=52/OAS=52 range checks skipped (< 52 guard); changed to <= 52 so 2^52 limit enforced — fixed. 5 new tests, 210/210 pass. Modeling gaps (BUG-AUDIT-116/117/118/119) require PA pointer fields not present in model — documented N/A. C++ not applicable. |
 
@@ -162,8 +162,8 @@ CURRENT_SECTION = COMPLETE
 | §3.13.3 | Dirty state hardware update | N/A | N/A | BUG-AUDIT-36 ✅, BUG-AUDIT-40 ✅ | HTTU=0b01: HD/S2HD always rejected at configure time; dirty-state HTTU unreachable by design |
 | §3.13.3.1 | Direct Permission Scheme | N/A | N/A | | HTTU<0b10 — DBM path structurally unreachable; SMMU never touches permission bits in update_access_flags |
 | §3.13.3.2 | Indirect Permission Scheme | N/A | N/A | | HTTU<0b10 — CD.HD/STE.S2HD always rejected; no DBM field in Indirect Scheme descriptors |
-| §3.13.4 | HTTU behavior summary | N/A | ✅ | BUG-AUDIT-129 ✅, BUG-AUDIT-130 ✅ | HD=1 requires HA=1 (and S2HD=1 requires S2HA=1) enforced in validate(); translate_two_stage() S2 HTTU update added; CMD_SYNC/TLB visibility satisfied structurally; speculative S2-dirty-on-S1-PTW-walk permitted behavior not modeled (flat-table model has no intermediate walk entries) |
-| §3.13.5 | HTTU with two stages | N/A | ✅ | | Flat-model: S1 and final-S2 descriptor updates correct; intermediate S2 PTW-walk descriptors structurally inapplicable (no multi-level walk); "S2 must allow writes for S1 PTE update" is out of scope for flat model |
+| §3.13.4 | HTTU behavior summary | ✅ | ✅ | BUG-AUDIT-129 ✅, BUG-AUDIT-130 ✅, BUG-AUDIT-130-CPP ✅ | HD=1 requires HA=1 (and S2HD=1 requires S2HA=1) enforced in validate(); translate_two_stage() S2 HTTU update added; CMD_SYNC/TLB visibility satisfied structurally. C++ BUG-AUDIT-130-CPP: stage-2 `updateAccessFlags()` call added in `performBothStagesTranslation()` (smmu.cpp:2745) and `translateUnlocked()` (stream_context.cpp:1424) for s2ha/s2affd paths. TDD: `P3Httu.*` in `test_cpp_audit_p3_spotcheck.cpp`. |
+| §3.13.5 | HTTU with two stages | ✅ | ✅ | | Flat-model: S1 and final-S2 descriptor updates correct; intermediate S2 PTW-walk descriptors structurally inapplicable (no multi-level walk). C++ verified conformant 2026-04-12 (covered by BUG-AUDIT-130-CPP fix above). |
 | §3.13.6 | Access flag in Table descriptors | N/A | N/A | | IDR0.HTTU=0b01 → HAFT explicitly not supported (§6.3.1); flat model has no Table descriptors; CD.HAFT/STE.S2HAFT structurally inapplicable |
 | §3.13.7 | ATS, PRI and translation table flag update | 🚫 | 🚫 | | PCIe ATS TR→TC path not implemented; GATOS (ARM ATOS) is separate and not covered here; STE.EATS gates ATS acceptance but no ATS TR processing path exists |
 | §3.13.7.1 | Hardware flag update for ATS and PRI | 🚫 | 🚫 | | ATS TR path out of scope; GATOS handles HTTU via normal translate path |
@@ -203,10 +203,10 @@ CURRENT_SECTION = COMPLETE
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.18 | Interrupts and notifications | ⚠️ | ✅ | | GERROR/GERRORN toggle protocol correct; MSI/wired simulated (no real HW writes); interrupt notification ordering satisfied structurally |
+| §3.18 | Interrupts and notifications | ✅ | ✅ | | GERROR/GERRORN toggle protocol correct; MSI/wired simulated (no real HW writes); interrupt notification ordering satisfied structurally. C++ verified 2026-04-12; TDD: `P3IrqCtrl.IrqCtrlAckMirrorsWrite`. |
 | §3.18.1 | MSI synchronization | N/A | ✅ | | CMD_SYNC ensures MSI completion; SW model has no actual MSI writes; ordering satisfied structurally |
-| §3.18.2 | Interrupt sources | ⚠️ | ✅ | BUG-QA-7 ✅, AUDIT-55 ✅, AUDIT-65 ✅ | SEV gated on IDR0.SEV; CS=0b11 → CERROR_ILL; CS=0b10 with SEV=0 → SIG_NONE (deliberate safe fallback per AUDIT-65) |
-| §3.19 | Power control | ⚠️ | ✅ | AUDIT-53 ✅ | DORMHINT=1 in IDR0; STATUSR.DORMANT set after shutdown(); power-off preconditions are SW responsibility per spec |
+| §3.18.2 | Interrupt sources | ✅ | ✅ | BUG-QA-7 ✅, AUDIT-55 ✅, AUDIT-65 ✅ | SEV gated on IDR0.SEV; CS=0b11 → CERROR_ILL; CS=0b10 with SEV=0 → SIG_NONE (deliberate safe fallback per AUDIT-65). C++ `setIrqCtrl()`/`getIrqCtrlAck()` conformant (smmu.cpp:3568-3577). |
+| §3.19 | Power control | ✅ | ✅ | AUDIT-53 ✅, BUG-DORMANT-CPP ✅ | DORMHINT=1 in IDR0; STATUSR.DORMANT set after shutdown()/disable(); power-off preconditions are SW responsibility per spec. C++ BUG-DORMANT-CPP: `disable()` now sets `statusr_=1`, `enable()` clears to 0. TDD: `P3Dormant.*` in `test_cpp_audit_p3_spotcheck.cpp`. |
 | §3.19.1 | Dormant state | N/A | ✅ | | Stalled-transaction abort on dormancy is SW precondition per §3.19.1; shutdown() clears streams/queue; DORMANT bit set |
 
 ### §3.20–3.21 TLB Conflicts and Structure Update Procedures
@@ -337,7 +337,7 @@ CURRENT_SECTION = COMPLETE
 |---------|-------|-----|------|------|-------|
 | §5.1 | L1STD, Level 1 Stream Table Descriptor | ⚠️ | ⚠️ | | Flat-model: no in-memory L1STD structure; L1STD.V=0/Span=0/invalid L2 all map to missing DashMap entry → C_BAD_STREAMID (equivalent outcome). Span=0 enforcement, reserved Span 12-31, and Span-vs-SPLIT check not separately validated but semantically covered by DashMap absence fault. |
 | §5.1.1 | General properties of L1STD | ⚠️ | ⚠️ | | SW write constraints not enforced by SMMU HW (per spec); CFGI_STE invalidation covers caching requirement. Flat-model justification same as §5.1. |
-| §5.2 | STE, Stream Table Entry | ⚠️ | ✅ | AUDIT-01,36,40,42–48,58,88,91, BUG-AUDIT-133 ✅ | BUG-AUDIT-133: INSTCFG=0b01 (Reserved) incorrectly forced Instruction semantics; fixed to passthrough. INSTCFG=0b11 now correctly forces Instruction. All 4 encoding cases verified by TDD tests. |
+| §5.2 | STE, Stream Table Entry | ✅ | ✅ | AUDIT-01,36,40,42–48,58,88,91, BUG-AUDIT-133-CPP ✅ | BUG-AUDIT-133-CPP: C++ had `instCfg==1u` (0b01=Reserved) as Force-Instruction — fixed to `instCfg==3u` (0b11=Force Instruction per spec) at 5 sites. `instCfg==2u` (0b10=Force Data) was already correct. TDD: `test_cpp_audit_p1_instcfg.cpp`. |
 | §5.2.1 | General properties of STE | ⚠️ | ⚠️ | AUDIT-36,42,43,46, AUDIT-58 | Config validation, S2AA64, HD; S2TG granule check |
 | §5.2.2 | Validity of STE | ⚠️ | ⚠️ | AUDIT-44,45, CONF-GAP-16, BUG-CPP-3/RUST-2, BUG-NEW-39, BUG-A/B/C | S1CDMax, S2T0SZ, EATS validity; STRW EL2/EL3; S2P/Hyp gates |
 | §5.2 (STRW) | STE.STRW validity rules | ⚠️ | ⚠️ | BUG-CPP-3/RUST-2, AUDIT-79 | EL2/EL3 promotion, illegal checks |
@@ -538,7 +538,7 @@ CURRENT_SECTION = COMPLETE
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
 | §7.3 | Event records (overview, common fields) | ⚠️ | ⚠️ | AUDIT-92, BUG-NEW-RUST-1/2, AUDIT-90 | SSV field computation (transaction vs capability); rnw/ind/pnu fixed |
-| §7.3.1 | Event record merging | N/A | ✅ | BUG-7.3.1-01 ✅ | Stall events (Stall==1) never merged per §7.3.1; fixed missing `!event.stall` guard in MEV dedup predicate. MEV builder method added. 3 TDD tests. |
+| §7.3.1 | Event record merging | ✅ | ✅ | BUG-7.3.1-01 ✅, BUG-7.3.1-CPP ✅ | Stall events (Stall==1) never merged per §7.3.1. C++ BUG-7.3.1-CPP: added `!isStall` outer gate and `!existing.stall` inner guard to MEV dedup block in `generateEvent()` (smmu.cpp:5754). TDD: `test_cpp_audit_p2_sec7_mev_stall.cpp` (2 tests). |
 | §7.3.2 | F_UUT | ⚠️ | ⚠️ | AUDIT-92 | SSV, STALL=0 |
 | §7.3.3 | C_BAD_STREAMID | ⚠️ | ⚠️ | CONF-GAP, AUDIT-82, BUG-NEW-RUST-1/2 | Out-of-range SID; GERROR/RECINVSID gating |
 | §7.3.4 | F_STE_FETCH | ⚠️ | ⚠️ | NEW-AUDIT-05 | class=2 (TTE), SSV |
@@ -559,15 +559,15 @@ CURRENT_SECTION = COMPLETE
 | §7.3.19 | E_PAGE_REQUEST | ⚠️ | ⚠️ | BUG-QA-6, BUG-NEW-7 | Permission bits; E_PAGE_REQUEST emit timing |
 | §7.3.20 | F_VMS_FETCH | 🚫 | ⚠️ | BUG-7322-01 ✅ | VMS fetch not simulated; inject_vms_fetch_abort() added for completeness |
 | §7.3.21 | IMPDEF_EVENTn | 🚫 | 🚫 | | IMPL DEF |
-| §7.3.22 | Event queue record priorities | ☐ | ✅ | BUG-7322-01 ✅ | Priority ordering enforced by structural early-returns; F_VMS_FETCH inject added |
+| §7.3.22 | Event queue record priorities | ✅ | ✅ | BUG-7322-01 ✅ | Priority ordering enforced by structural early-returns; F_VMS_FETCH inject added. C++ verified 2026-04-12: config-class faults (C_BAD_STREAMID, C_BAD_STE, etc.) structurally precede translation-class faults by code ordering. No bug found. |
 
 ### §7.4–7.5 Overflow and Global Errors
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §7.4 | Event queue overflow | ⚠️ | ✅ | BUG-QA-1/3, RUST-2 (22Mar) | All 5 §7.4 requirements conformant; stale doc comment fixed; debug_assert added to enqueue_event; get_events() stall-drain test added |
-| §7.5 | Global error recording | ⚠️ | ✅ | AUDIT-93, BUG-GERROR-01 ✅ | Toggle/active/CMDQ_ERR gate all conformant; GERROR_DPT_ERR bit 10 added; IRQ_CTRL named constants added |
-| §7.5.1 | GERROR interrupt notification | ⚠️ | ✅ | BUG-GERROR-02/03 ✅ | gerror_irq_pending flag added; signal_gerror() now gates on GERROR_IRQEN; MSI_GERROR_ABT_ERR excluded per spec |
+| §7.4 | Event queue overflow | ✅ | ✅ | BUG-QA-1/3, RUST-2 (22Mar) | All 5 §7.4 requirements conformant; stale doc comment fixed; debug_assert added to enqueue_event; get_events() stall-drain test added. C++ verified 2026-04-12: `generateEvent()` (smmu.cpp:5770-5793) correctly handles OVFLG toggle, stall-drain, non-stall discard, stall redirect. Already covered by `test_event_queue_stall_overflow_spec.cpp`. |
+| §7.5 | Global error recording | ✅ | ✅ | AUDIT-93, BUG-GERROR-01 ✅, BUG-GERROR-DPT-CPP ✅ | Toggle/active/CMDQ_ERR gate all conformant; GERROR_DPT_ERR bit 10 added; IRQ_CTRL named constants added. C++ BUG-GERROR-DPT-CPP: added `GERROR_DPT_ERR=(1u<<10)` to types.h. TDD: `test_cpp_audit_p2_sec7_gerror.cpp` (4 tests). |
+| §7.5.1 | GERROR interrupt notification | N/A | ✅ | BUG-GERROR-02/03 ✅ | gerror_irq_pending flag added; signal_gerror() now gates on GERROR_IRQEN; MSI_GERROR_ABT_ERR excluded per spec. C++ N/A: no IRQ callback infrastructure in SW model; `signalGerror()` uses pure register-toggle semantics appropriate for simulation. TDD: `test_cpp_audit_p2_sec7_gerror.cpp` (IrqGatingIsNaForSoftwareModel). |
 
 ---
 
@@ -575,10 +575,10 @@ CURRENT_SECTION = COMPLETE
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §8.1 | PRI queue overflow | ⚠️ | ⚠️ | BUG-QA-4/5, BUG-NEW-21/22 | OVFLG, inhibit new PPRs; priq_emitted CAS; E_PAGE_REQUEST emit |
-| §8.1.1 | Recovery procedure | N/A | ✅ | BUG-8-1-1-01 ✅ | recover_priq_overflow(): classify complete/incomplete PRGs, clear queue, acknowledge OVFLG; 3 TDD tests added |
-| §8.2 | Miscellaneous | ⚠️ | ✅ | BUG-QA-2, BUG-PRIQEN-ASYMMETRY, BUG-NEW-15, BUG-8-2-01/02 ✅ | PRIQ_ABT_ERR gate + Secure stream discard (ResponseCode=0b1111); 6 TDD tests; FINDING-NEW-32 test updated to spec |
-| §8.3 | PRG Response Message codes | ⚠️ | ✅ | BUG-NEW-A (27Mar) ✅ | Resp=0b11 → CERROR_ILL; all 3 valid codes (0b00/01/10) accept+consume entry; 5 TDD tests added |
+| §8.1 | PRI queue overflow | ✅ | ⚠️ | BUG-QA-4/5, BUG-NEW-21/22 | OVFLG, inhibit new PPRs; priq_emitted CAS; E_PAGE_REQUEST emit. C++ verified 2026-04-12: `submitPageRequest()` (smmu.cpp:3996-4028) checks overflow-active state, inhibits new PPRs, toggles OVFLG only on first overflow, emits auto-failure for isLastRequest=true. All §8.1 requirements met. TDD: `test_cpp_audit_p2_sec8.cpp`. |
+| §8.1.1 | Recovery procedure | N/A | ✅ | BUG-8-1-1-01 ✅ | recover_priq_overflow(): classify complete/incomplete PRGs, clear queue, acknowledge OVFLG; 3 TDD tests added. C++ N/A: uses simple deque without explicit recovery function — OVFLG/OVACKFLG mechanism handles overflow state correctly via `setPriqConsOvackflg()`. |
+| §8.2 | Miscellaneous | ✅ | ✅ | BUG-QA-2, BUG-PRIQEN-ASYMMETRY, BUG-NEW-15, BUG-8-2-01/02 ✅, BUG-SEC8-SECURE-PRI-CPP ✅ | PRIQ_ABT_ERR gate + Secure stream discard. C++ BUG-SEC8-SECURE-PRI-CPP: added Secure stream discard in `submitPageRequest()` (smmu.cpp:3993) — Secure PPRs now generate ResponseCode=0b1111 auto-failure and are not enqueued. TDD: `test_cpp_audit_p2_sec8.cpp` (6 tests). |
+| §8.3 | PRG Response Message codes | ✅ | ✅ | BUG-NEW-A (27Mar) ✅ | Resp=0b11 → CERROR_ILL; all 3 valid codes (0b00/01/10) accept+consume entry; 5 TDD tests added. C++ verified 2026-04-12 (pre-existing BUG-NEW-A fix). TDD: `test_cpp_audit_p2_sec8.cpp::PriRespResp0b11RaisesCerrorIll`. |
 
 ---
 
@@ -638,20 +638,20 @@ CURRENT_SECTION = COMPLETE
 |---------|-------|-----|------|------|-------|
 | §13.1 | SMMU handling of attributes | ⚠️ | ⚠️ | NEW-GAP-A-D | |
 | §13.1.1 | Attribute definitions | N/A | N/A | | Informational |
-| §13.1.2 | Attribute support | N/A | ⚠️ | BUG-13.1.2-A, BUG-13.1.2-B | BUG-13.1.2-A: effective_access_type() Write→Execute under INSTCFG=3 fixed (writes must stay Data per spec); BUG-13.1.2-B: GBPA bypass raw inst_cfg clamped to 0 for write accesses; 6 TDD tests added |
+| §13.1.2 | Attribute support | ✅ | ⚠️ | BUG-13.1.2-A, BUG-13.1.2-B | BUG-13.1.2-A: effective_access_type() Write→Execute under INSTCFG=3 fixed (writes must stay Data per spec); BUG-13.1.2-B: GBPA bypass raw inst_cfg clamped to 0 for write accesses; 6 TDD tests added. C++ confirmed NO BUG: INSTCFG path (stream_context.cpp:1153) already does not convert Write→Execute — the Rust bug was Rust-only. |
 | §13.1.3 | Default input attributes | N/A | N/A | | SW model always receives all attributes explicitly (access_type + security_state); "interconnect can't convey attribute" precondition never applies |
-| §13.1.4 | Replace | ⚠️ | ⚠️ | BUG-13.1.4-A, BUG-13.1.4-D | BUG-13.1.4-A: ATOS (gatos_translate) incorrectly applied INSTCFG/PRIVCFG overrides — fixed by adding TransactionType::Atos and bypassing effective_access_type() on ATOS path; BUG-13.1.4-D: Device/NC types must force OSH regardless of SHCFG — fixed in apply_output_attrs(); BUG-13.1.4-C/F: N/A (Far Atomic/DCP not modelled as distinct AccessTypes); 2 TDD tests added |
-| §13.1.5 | Combine | N/A | ⚠️ | BUG-13.1.5-A | BUG-13.1.5-A: translate_two_stage and translate_two_stage_with_ipa discarded stage-1 page_attr, using only stage-2 — fixed by adding combine_mem_type() implementing MAIR strength ordering; RA/WA/TR and SH combining N/A (model uses boolean/binary descriptor attrs; STE overrides handle these per §5.2); 5 TDD tests added |
+| §13.1.4 | Replace | ✅ | ⚠️ | BUG-13.1.4-A, BUG-13.1.4-D, BUG-13.1.4-CPP-A ✅ | BUG-13.1.4-A: ATOS (gatos_translate) incorrectly applied INSTCFG/PRIVCFG overrides — fixed by adding TransactionType::Atos and bypassing effective_access_type() on ATOS path; BUG-13.1.4-D: Device/NC types must force OSH regardless of SHCFG; BUG-13.1.4-C/F: N/A. C++ BUG-13.1.4-CPP-A: added `TransactionType::GatosTranslation` (0b11); INSTCFG/PRIVCFG blocks guarded with `transactionType != GatosTranslation` at smmu.cpp:490,783,963,1943 and stream_context.cpp:1147,1174. TDD: `test_cpp_audit_p1_atos_bypass.cpp`. |
+| §13.1.5 | Combine | ✅ | ⚠️ | BUG-13.1.5-A, BUG-13.1.5-CPP ✅ | BUG-13.1.5-A: translate_two_stage discarded stage-1 page_attr — fixed by combine_mem_type(). C++ BUG-13.1.5-CPP: `combinePageAttr()` lambda added to `performBothStagesTranslation()` (smmu.cpp:2749) and two-stage block in `translateUnlocked()` (stream_context.cpp:~1411). TDD: `test_cpp_audit_p1_memattr.cpp`, `test_cpp_audit_p1_memattr_sc.cpp`. |
 | §13.1.5.1 | Combine examples | N/A | N/A | | |
 | §13.1.6 | Stage 2 control of memory types | N/A | N/A | | S2FWB not implemented; IDR3.FWB=0 advertised correctly per §6.3.4 — feature gated, no behavioral requirement when FWB=0 |
-| §13.1.7 | Ensuring consistent output attributes | N/A | ✅ | | Rule 1 (Device/NC→OSH) implemented in apply_output_attrs(); Rules 2+3 (RA/WA/TR normalization) N/A — model does not track descriptor-level RA/WA/TR; STE.ALLOCCFG override covers stream-level allocation hints |
-| §13.2 | SMMU disabled global bypass attributes | ⚠️ | ⚠️ | BUG-QA-11, BUG-13.2-A | BUG-QA-11: GBPA MemAttr/SH when bypass (prev fixed); BUG-13.2-A: GBPA bypass missing §13.1.7 Device/NC→OSH enforcement — fixed by gating resolved_shareability on mt_cfg+mem_type in smmu/mod.rs GBPA block; 4 TDD tests added |
-| §13.3 | STE bypasses stage 1 and stage 2 | ⚠️ | ⚠️ | BUG-QA-11, BUG-NEW-CPP-D | Re-audited 2026-04-11: translate_bypass() calls apply_output_attrs() which fully implements replace_attrs(ste)+ensure_consistent_attrs(); Device/NC→OSH enforced via effective_attr logic; all STE override fields applied. No new bugs. |
-| §13.4 | Normal translation flow | ⚠️ | ✅ | | Re-audited 2026-04-11: all subsections conformant; MTCFG ordering architectural gap noted (pre- vs post-translation model limitation, tracked §3.3.4) |
-| §13.4.1 | Stage 1 page permissions | ⚠️ | ✅ | | WXN/UWXN/PRIV suppression applied in check_permissions(); EPAN not applicable (EL0 device model) |
-| §13.4.2 | Stage 1 memory attributes | ⚠️ | ✅ | NEW-GAP | NSCFG/MAIR lookups implemented; MTCFG applies post-translation (architectural limitation, not point-fixable) |
-| §13.4.3 | Stage 2 | ⚠️ | ✅ | | S2FWB not implemented (IDR3.FWB=0 — correctly gated); combine_mem_type() now used for two-stage attr combining (BUG-13.1.5-A fixed) |
-| §13.4.4 | Output | ⚠️ | ✅ | | Final combine: apply_output_attrs() applies STE replace_attrs+ensure_consistent_attrs; NS via security_state; Device/NC→OSH enforced |
+| §13.1.7 | Ensuring consistent output attributes | ✅ | ✅ | BUG-13.1.7-CPP ✅ | Rule 1 (Device/NC→OSH): Rust implemented in apply_output_attrs(); Rules 2+3 N/A. C++ BUG-13.1.7-CPP: (1) Added `TLBEntry::pageAttr` field (types.h) + propagation in `cacheTranslation()` (smmu.cpp:~2341); (2) `applyOutputAttrs` lambda (stream_context.cpp:1200): Device→OSH guard using `mtCfg ? memAttr==0x00 : data.pageAttr==0x00`; (3) TLB fast path (smmu.cpp:~552): same guard using `entry.pageAttr`; (4) fixed `pageAttr` propagation from stage-1 result into s1data. TDD: `test_cpp_audit_p4_na_justification.cpp` (5 tests). |
+| §13.2 | SMMU disabled global bypass attributes | ✅ | ⚠️ | BUG-QA-11, BUG-13.2-A, BUG-13.2-CPP ✅ | BUG-QA-11: GBPA MemAttr/SH when bypass; BUG-13.2-A: GBPA bypass missing Device/NC→OSH enforcement. C++ BUG-13.2-CPP: `if (td.memType == 0x00u) td.shareability = 2u` added at smmu.cpp:309 after setting `td.shareability = gbpa.shCfg`. TDD: `test_cpp_audit_p1_gbpa_osh.cpp`. |
+| §13.3 | STE bypasses stage 1 and stage 2 | ✅ | ⚠️ | BUG-QA-11, BUG-NEW-CPP-D | Re-audited 2026-04-11 (Rust): translate_bypass() calls apply_output_attrs(); Device/NC→OSH enforced. C++ verified 2026-04-12: bypass path (stream_context.cpp:1219) calls `applyOutputAttrs()` which includes BUG-13.1.7-CPP fix. No additional C++ bug. |
+| §13.4 | Normal translation flow | ✅ | ✅ | | Re-audited 2026-04-11: all subsections conformant; MTCFG ordering architectural gap noted (pre- vs post-translation model limitation, tracked §3.3.4). C++ verified 2026-04-12. |
+| §13.4.1 | Stage 1 page permissions | ✅ | ✅ | | WXN/UWXN/PRIV suppression applied in check_permissions(); EPAN not applicable (EL0 device model). C++ verified 2026-04-12. |
+| §13.4.2 | Stage 1 memory attributes | ✅ | ✅ | NEW-GAP | NSCFG/MAIR lookups implemented; MTCFG applies post-translation (architectural limitation, not point-fixable). C++ verified 2026-04-12. |
+| §13.4.3 | Stage 2 | ✅ | ✅ | | S2FWB not implemented (IDR3.FWB=0 — correctly gated); BUG-13.1.5-CPP fix provides combine_mem_type() equivalent for C++. |
+| §13.4.4 | Output | ✅ | ✅ | | Final combine: apply_output_attrs() applies STE replace_attrs+ensure_consistent_attrs; NS via security_state; Device/NC→OSH enforced. C++ BUG-13.1.7-CPP fix ensures same enforcement in applyOutputAttrs and TLB fast path. |
 | §13.5 | Summary of attribute/permission configuration fields | N/A | N/A | | Reference table |
 | §13.6 | PCle and ATS attribute/permissions handling | ⚠️ | ✅ | BUG-13.6.3-A | Re-audited 2026-04-11: §13.6.1/13.6.2 N/A/IMPL-DEF; §13.6.3 BUG-13.6.3-A fixed; §13.6.4/13.6.5 conformant via S1DSS logic |
 | §13.6.1 | PCle memory type attributes | N/A | N/A | | Informational + IMPLEMENTATION DEFINED overrides |
@@ -786,7 +786,7 @@ and fixed. No currently OPEN bugs remain. The ⚠️ symbol means "audited with 
 re-audit recommended to confirm full coverage." ✅ is reserved for sections with zero bugs ever found
 and confirmed clean.
 
-**Last updated**: 2026-04-11 (Session: §14.1-§16.8 bulk audit — Ch.14/15/16 all N/A or 🚫; 0 ☐ remaining; audit COMPLETE; 210/410 audited, 132 ⚠️ fixed, 68 🚫 out-of-scope)
-**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-127 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D, BUG-13.1.5-A, BUG-13.2-A — all fixed ✅
+**Last updated**: 2026-04-12 (C++ re-audit complete: BUG-AUDIT-133-CPP [§5.2 INSTCFG encoding], BUG-13.1.2-CPP-A [N/A — no Rust bug in C++], BUG-13.1.4-CPP-A [§13.1.4 ATOS bypass], BUG-13.1.5-CPP [§13.1.5 two-stage MemAttr], BUG-13.2-CPP [§13.2 GBPA Device→OSH], BUG-7.3.1-CPP [§7.3.1 MEV stall guard], BUG-GERROR-DPT-CPP [§7.5 GERROR_DPT_ERR], BUG-SEC8-SECURE-PRI-CPP [§8.2 Secure stream discard], BUG-AUDIT-130-CPP [§3.13.4 stage-2 HTTU update], BUG-DORMANT-CPP [§3.19 STATUSR.DORMANT], BUG-13.1.7-CPP [§13.1.7 Device/NC→OSH in applyOutputAttrs+TLB fast path] — all fixed ✅. §3.4/§3.4.1/§3.18/§3.18.2/§7.3.22/§7.4/§8.1/§8.3/§13.1.2/§13.3–§13.4.4 verified conformant. C++ and Rust now have parity on all audited sections.)
+**Current bug count**: BUG-AUDIT-01 through BUG-AUDIT-130 — all fixed ✅; BUG-12.3-A, BUG-13.1.2-A/B, BUG-13.1.4-A/D/CPP-A, BUG-13.1.5-A/CPP, BUG-13.1.7-CPP, BUG-13.2-A/CPP — all fixed ✅; BUG-7.3.1-CPP, BUG-GERROR-DPT-CPP, BUG-SEC8-SECURE-PRI-CPP, BUG-AUDIT-130-CPP/133-CPP, BUG-DORMANT-CPP — all fixed ✅
 **Additional named batches fixed**: CONF-GAP series, BUG-QA series, BUG-NEW series, BUG-CPP/RUST series
-**Test status**: C++ 185/185 | Rust 223/223 (all suites green) | 0 clippy warnings
+**Test status**: C++ 187/187 | Rust 223/223 (all suites green) | 0 clippy warnings
