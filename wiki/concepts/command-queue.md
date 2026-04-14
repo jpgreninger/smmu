@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, command-queue, circular-buffer, software-interface, commands, ecmdq, cmd-sync, cmd-consumption]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Command Queue

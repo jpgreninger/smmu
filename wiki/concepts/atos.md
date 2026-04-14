@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, atos, vatos, address-translation, debug, software-lookup]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Address Translation Operations (ATOS)

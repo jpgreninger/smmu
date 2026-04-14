@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, attributes, memory-type, shareability, cacheability, ns, instcfg, privcfg, mtcfg, shcfg]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Attribute Transformation

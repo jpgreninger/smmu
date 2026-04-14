@@ -76,7 +76,7 @@ External aborts on SMMU-originated structure reads are reported as:
 - `F_VMS_FETCH` — VMS fetch abort
 - `F_WALK_EABT` — translation table walk abort
 
-See [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) §16.7.4 for the full downstream abort event table.
+See [../synthesis/smmu-system-implementation.md](../synthesis/smmu-system-implementation.md) §16.7.4 for the full downstream abort event table.
 
 ---
 

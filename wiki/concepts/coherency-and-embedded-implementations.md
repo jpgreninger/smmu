@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, coherency, embedded, httu, memory-types, cohacc, implementation-defined]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Coherency and Embedded Implementations
