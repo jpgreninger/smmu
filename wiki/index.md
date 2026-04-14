@@ -10,7 +10,7 @@ _Last updated: 2026-04-14 | Pages: 39_
 ## Entities
 | Page | Type | Summary |
 |------|------|---------|
-| [[entities/arm-limited]](entities/arm-limited) | org | Semiconductor IP company; author of the SMMUv3 specification |
+| [entities/arm-limited](entities/arm-limited) | org | Semiconductor IP company; author of the SMMUv3 specification |
 
 ## Concepts
 | Page                                   | Summary                                                                                                    |
