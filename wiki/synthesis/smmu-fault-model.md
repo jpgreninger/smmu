@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, fault, terminate, stall, event, model, correctness]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # SMMU Fault Model
