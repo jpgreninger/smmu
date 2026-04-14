@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, command-queue, circular-buffer, software-interface, commands, ecmdq, cmd-sync, cmd-consumption]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Command Queue
@@ -168,11 +168,11 @@ A queue is enabled when `SMMU_(*_)CR0.CMDQEN` is set. Before enabling:
 
 ## Related Concepts
 
-- [concepts/event-queue.md](concepts/event-queue.md) — output counterpart; SMMU-to-software
-- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — most common command type
-- [concepts/fault-models.md](concepts/fault-models.md) — `CMD_RESUME` and `CMD_STALL_TERM` interact with stall model
-- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — command queue setup is part of initialization sequence
+- [event-queue.md](event-queue.md) — output counterpart; SMMU-to-software
+- [tlb-invalidation.md](tlb-invalidation.md) — most common command type
+- [fault-models.md](fault-models.md) — `CMD_RESUME` and `CMD_STALL_TERM` interact with stall model
+- [smmu-initialization.md](smmu-initialization.md) — command queue setup is part of initialization sequence
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.5 Command and Event queues; §3.5.1 SMMU circular queues; §3.5.6 Enhanced Command queue; §4 Commands; §4.7.3 CMD_SYNC
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.5 Command and Event queues; §3.5.1 SMMU circular queues; §3.5.6 Enhanced Command queue; §4 Commands; §4.7.3 CMD_SYNC

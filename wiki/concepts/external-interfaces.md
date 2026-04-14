@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, external-interface, ingress, egress, sec-sid, streamid, coherency, amba, pcie, httu]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # External Interfaces
@@ -26,7 +26,7 @@ Every transaction arriving at the SMMU carries the following sideband signals in
 | `SEC_SID` | Security state qualifier for the StreamID: Non-secure (0b00), Secure (0b01), Realm (0b10) in RME DA; 1-bit (0=Non-secure, 1=Secure) in non-RME implementations. Determines which Stream table (NS/S/Realm) is used for lookup. If the SMMU supports only Non-secure state, SEC_SID may be absent and is treated as Non-secure. |
 | `AT` field | Transaction type: Untranslated (0b00), Translation Request (0b01), Translated (0b10). Controls ATS bypass behavior. |
 | `NS` | Input Non-secure attribute; relevant for Secure and Realm streams determining output PA space. |
-| Memory attributes | Memory type, Shareability, Cacheability, and allocation hints from the upstream device. All are optional and can be overridden per STE configuration. See [concepts/attribute-transformation.md](concepts/attribute-transformation.md). |
+| Memory attributes | Memory type, Shareability, Cacheability, and allocation hints from the upstream device. All are optional and can be overridden per STE configuration. See [attribute-transformation.md](attribute-transformation.md). |
 
 ### Internal StreamID for SMMU MSIs
 
@@ -44,7 +44,7 @@ The interconnect port type between the SMMU and the downstream memory system det
 
 The SMMU does **not** translate outgoing coherency or broadcast DVM invalidation traffic from client devices. Therefore, no DVM-capable interconnect is required between the SMMU and client devices. Client devices may connect via an IO-coherent port.
 
-See [concepts/coherency-and-embedded-implementations.md](concepts/coherency-and-embedded-implementations.md) for the full coherency model including COHACC, HTTU atomicity rules, and client-side coherency behavior.
+See [coherency-and-embedded-implementations.md](coherency-and-embedded-implementations.md) for the full coherency model including COHACC, HTTU atomicity rules, and client-side coherency behavior.
 
 ---
 
@@ -52,7 +52,7 @@ See [concepts/coherency-and-embedded-implementations.md](concepts/coherency-and-
 
 An SMMU implementation may provide a separate interface to support ATS and PRI protocol with a compatible PCIe Root Complex. **This interface is outside the scope of the SMMUv3 specification.** The specification governs the SMMU's internal handling of Translation Requests, Translation Completions, and PRI messages; the physical ATS/PRI bus protocol between Root Complex and endpoint is defined by the PCIe specification.
 
-See [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) for the SMMU-side ATS and PRI semantics.
+See [pcie-ats-pri.md](pcie-ats-pri.md) for the SMMU-side ATS and PRI semantics.
 
 ---
 
@@ -82,14 +82,14 @@ See [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementati
 
 ## Related Concepts
 
-- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — StreamID and SubstreamID semantics; SEC_SID interaction with Stream table selection
-- [concepts/security-states.md](concepts/security-states.md) — SEC_SID encoding (NS/Secure/Realm/Root); which programming interface controls a stream
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — AT field handling; Translation Request/Translated/Untranslated transaction types; ATS interface semantics
-- [concepts/coherency-and-embedded-implementations.md](concepts/coherency-and-embedded-implementations.md) — COHACC flag; HTTU atomicity and coherency port requirements; client coherency model
-- [concepts/attribute-transformation.md](concepts/attribute-transformation.md) — input memory attribute override rules (Chapter 13)
-- [concepts/httu.md](concepts/httu.md) — HTTU atomic update mechanism and its port coherency dependency
-- [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) — system integration requirements including downstream abort handling (§16.4, §16.7)
+- [streamid-substreamid.md](streamid-substreamid.md) — StreamID and SubstreamID semantics; SEC_SID interaction with Stream table selection
+- [security-states.md](security-states.md) — SEC_SID encoding (NS/Secure/Realm/Root); which programming interface controls a stream
+- [pcie-ats-pri.md](pcie-ats-pri.md) — AT field handling; Translation Request/Translated/Untranslated transaction types; ATS interface semantics
+- [coherency-and-embedded-implementations.md](coherency-and-embedded-implementations.md) — COHACC flag; HTTU atomicity and coherency port requirements; client coherency model
+- [attribute-transformation.md](attribute-transformation.md) — input memory attribute override rules (Chapter 13)
+- [httu.md](httu.md) — HTTU atomic update mechanism and its port coherency dependency
+- [../synthesis/smmu-system-implementation.md](../synthesis/smmu-system-implementation.md) — system integration requirements including downstream abort handling (§16.4, §16.7)
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §14.1 Data path ingress/egress ports; §14.2 ATS Interface; §14.3 SMMU-originated transactions; §3.10.1 SEC_SID; §3.13 HTTU coherency requirements
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §14.1 Data path ingress/egress ports; §14.2 ATS Interface; §14.3 SMMU-originated transactions; §3.10.1 SEC_SID; §3.13 HTTU coherency requirements

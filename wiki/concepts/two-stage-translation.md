@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, translation, virtualization, stage1, stage2, mmu, address-size, ias, oas, vas, uas, tbi, lpa2]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Two-Stage Translation
@@ -13,8 +13,8 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 
 The SMMU supports two independent and optionally-combined stages of address translation:
 
-- **Stage 1:** Translates the incoming Virtual Address (VA) to an Intermediate Physical Address (IPA). Configured per-stream (via the [concepts/context-descriptor.md](concepts/context-descriptor.md)) and optionally per-substream.
-- **Stage 2:** Translates the IPA to a Physical Address (PA). Configured per-stream via the [concepts/stream-table-entry.md](concepts/stream-table-entry.md).
+- **Stage 1:** Translates the incoming Virtual Address (VA) to an Intermediate Physical Address (IPA). Configured per-stream (via the [context-descriptor.md](context-descriptor.md)) and optionally per-substream.
+- **Stage 2:** Translates the IPA to a Physical Address (PA). Configured per-stream via the [stream-table-entry.md](stream-table-entry.md).
 
 When both are enabled the configuration is called **nested**. When only one is enabled the other behaves as bypass (address passes through unmodified). An SMMU must support at least one stage; the absent stage is equivalent to permanent bypass.
 
@@ -30,7 +30,7 @@ An incoming transaction is processed in the following logical order:
 6. **Stage 2 translation:** The IPA is walked using `STE.S2TTB`. Output is a PA.
 7. **Output:** The final PA, with memory attributes, is forwarded into the system.
 
-Any step may generate a fault; behavior on fault depends on the [concepts/fault-models.md](concepts/fault-models.md) configuration.
+Any step may generate a fault; behavior on fault depends on the [fault-models.md](fault-models.md) configuration.
 
 ## §3.4 Address Sizes
 
@@ -150,12 +150,12 @@ SMMU translation table formats are identical to Armv8-A PE formats (VMSAv8-32 LP
 
 ## Related Concepts
 
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — contains stage 2 config and pointer to stage 1 config
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — contains stage 1 config (TTB0/TTB1, ASID, fault behavior flags)
-- [concepts/fault-models.md](concepts/fault-models.md) — governs what happens when translation fails
-- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — how TLB entries tagged with ASID/VMID are invalidated
-- [concepts/httu.md](concepts/httu.md) — hardware update of access flag/dirty state during walks
+- [stream-table-entry.md](stream-table-entry.md) — contains stage 2 config and pointer to stage 1 config
+- [context-descriptor.md](context-descriptor.md) — contains stage 1 config (TTB0/TTB1, ASID, fault behavior flags)
+- [fault-models.md](fault-models.md) — governs what happens when translation fails
+- [tlb-invalidation.md](tlb-invalidation.md) — how TLB entries tagged with ASID/VMID are invalidated
+- [httu.md](httu.md) — hardware update of access flag/dirty state during walks
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3 Data structures and translation procedure; §3.4 Address sizes; §3.3.3 Configuration and Translation lookup
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3 Data structures and translation procedure; §3.4 Address sizes; §3.3.3 Configuration and Translation lookup

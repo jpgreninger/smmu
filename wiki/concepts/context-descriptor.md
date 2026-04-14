@@ -4,19 +4,19 @@ type: concept
 tags: [smmu, cd, context-descriptor, stage1, translation, data-structure]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Context Descriptor (CD)
 
 ## Definition
 
-A Context Descriptor (CD) is the stage 1 translation configuration structure for an SMMU stream or substream. It is pointed to by the [concepts/stream-table-entry.md](concepts/stream-table-entry.md) via `STE.S1ContextPtr` and optionally indexed by SubstreamID. Each CD is a 64-byte (512-bit) structure that contains:
+A Context Descriptor (CD) is the stage 1 translation configuration structure for an SMMU stream or substream. It is pointed to by the [stream-table-entry.md](stream-table-entry.md) via `STE.S1ContextPtr` and optionally indexed by SubstreamID. Each CD is a 64-byte (512-bit) structure that contains:
 
 - Stage 1 translation table base pointers (`CD.TTB0`, `CD.TTB1`).
 - ASID for TLB tagging, and ASET selecting shared vs. non-shared ASID.
 - Translation table format, granule, address size, and input range configuration.
-- Fault behavior flags (`CD.S`, `CD.R`, `CD.A`) controlling the [concepts/fault-models.md](concepts/fault-models.md) for stage 1.
+- Fault behavior flags (`CD.S`, `CD.R`, `CD.A`) controlling the [fault-models.md](fault-models.md) for stage 1.
 - HTTU controls (`CD.HA`, `CD.HD`, `CD.HAFT`) for stage 1 access flag and dirty state updates.
 - WXN/UWXN/PAN/EPAN permission modifiers.
 - TBI0/TBI1 (Top Byte Ignore) configuration.
@@ -496,15 +496,15 @@ The three fault flag bits `{A, R, S}` control behavior for Translation-related f
 
 ## Related Concepts
 
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE contains `S1ContextPtr` pointing to CD
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — CD governs stage 1 of the translation
-- [concepts/fault-models.md](concepts/fault-models.md) — CD.{S, R, A} flags configure stage 1 fault behavior
-- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — SubstreamID selects the CD within a CD table
-- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — ASID/ASET from CD used to tag and invalidate TLB entries
-- [concepts/httu.md](concepts/httu.md) — CD.HA/HD/HAFT control stage 1 HTTU behavior
-- [concepts/permission-indirections.md](concepts/permission-indirections.md) — CD.PIE, CD.PIIP, CD.PIIU for stage 1 indirect permissions
-- [concepts/mpam.md](concepts/mpam.md) — CD.PARTID/PMG when STE.S1MPAM==1
+- [stream-table-entry.md](stream-table-entry.md) — STE contains `S1ContextPtr` pointing to CD
+- [two-stage-translation.md](two-stage-translation.md) — CD governs stage 1 of the translation
+- [fault-models.md](fault-models.md) — CD.{S, R, A} flags configure stage 1 fault behavior
+- [streamid-substreamid.md](streamid-substreamid.md) — SubstreamID selects the CD within a CD table
+- [tlb-invalidation.md](tlb-invalidation.md) — ASID/ASET from CD used to tag and invalidate TLB entries
+- [httu.md](httu.md) — CD.HA/HD/HAFT control stage 1 HTTU behavior
+- [permission-indirections.md](permission-indirections.md) — CD.PIE, CD.PIIP, CD.PIIU for stage 1 indirect permissions
+- [mpam.md](mpam.md) — CD.PARTID/PMG when STE.S1MPAM==1
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.2 StreamIDs to Context Descriptors; §5.3 L1CD format; §5.4 CD data structure format; §5.4.1 CD notes; §5.4.1.1 EPDx behavior; §5.4.2 Validity of CD; §5.5 Fault configuration bits; §3.4.1 Input address size
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.2 StreamIDs to Context Descriptors; §5.3 L1CD format; §5.4 CD data structure format; §5.4.1 CD notes; §5.4.1.1 EPDx behavior; §5.4.2 Validity of CD; §5.5 Fault configuration bits; §3.4.1 Input address size

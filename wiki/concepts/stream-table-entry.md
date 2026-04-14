@@ -4,18 +4,18 @@ type: concept
 tags: [smmu, ste, stream-table, configuration, data-structure]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Stream Table Entry (STE)
 
 ## Definition
 
-A Stream Table Entry (STE) is the per-stream configuration structure in the SMMU. It is located by indexing the Stream table with the incoming transaction's [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md). Each STE describes:
+A Stream Table Entry (STE) is the per-stream configuration structure in the SMMU. It is located by indexing the Stream table with the incoming transaction's [streamid-substreamid.md](streamid-substreamid.md). Each STE describes:
 
 - Whether the stream is disabled, bypassed, or subject to stage 1 and/or stage 2 translation.
 - The stage 2 translation table base pointer (`STE.S2TTB`) and VMID (`STE.S2VMID`).
-- A pointer (`STE.S1ContextPtr`) to the [concepts/context-descriptor.md](concepts/context-descriptor.md) or CD table for stage 1 config.
+- A pointer (`STE.S1ContextPtr`) to the [context-descriptor.md](context-descriptor.md) or CD table for stage 1 config.
 - Security and attribute override configuration.
 - Fault behavior configuration for stage 2 (`STE.S2R`, `STE.S2S`).
 - ATS/PCIe integration flags (`STE.EATS`).
@@ -580,7 +580,7 @@ Equivalent to `VTCR_EL2.TL0/TL1`. Enable stage 2 TopLevel 0/1 permission checks.
 
 ### VMSPtr, bits [375:332] — VMS Pointer (SMMUv3.2+)
 
-PA pointer to the [concepts/virtual-machine-structure.md](concepts/virtual-machine-structure.md). Active when `Config == 0b111` and `S1MPAM == 1` and `SMMU_(*_)MPAMIDR.PARTID_MAX != 0`. Address above OAS → C_BAD_STE. RES0 prior to SMMUv3.2. Address bits [11:0] and [63:55] taken as zero.
+PA pointer to the [virtual-machine-structure.md](virtual-machine-structure.md). Active when `Config == 0b111` and `S1MPAM == 1` and `SMMU_(*_)MPAMIDR.PARTID_MAX != 0`. Address above OAS → C_BAD_STE. RES0 prior to SMMUv3.2. Address bits [11:0] and [63:55] taken as zero.
 
 ## STE.Config Encoding (Summary)
 
@@ -637,22 +637,22 @@ An STE is ILLEGAL when any of the following hold (transaction treated as C_BAD_S
 
 ## Related Concepts
 
-- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — key used to index the stream table
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — translation pipeline STE feeds into
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — stage 1 config pointed to by STE
-- [concepts/fault-models.md](concepts/fault-models.md) — STE.S2S, STE.S2R, STE.S1STALLD govern stage fault behavior
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — STE.EATS controls ATS behavior per stream
-- [concepts/security-states.md](concepts/security-states.md) — Secure STEs live in a separate Secure stream table
-- [concepts/virtual-machine-structure.md](concepts/virtual-machine-structure.md) — VMSPtr references the VMS structure
-- [concepts/httu.md](concepts/httu.md) — STE.S2HA/S2HD/S2HAFT control stage 2 HTTU
-- [concepts/destructive-reads.md](concepts/destructive-reads.md) — STE.DRE/DCP enable or inhibit these transaction classes
-- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPC applied to Realm stream PA outputs
-- [concepts/device-permission-table.md](concepts/device-permission-table.md) — STE.EATS==0b11 enables DPT checks; DPT_VMATCH controls matching
-- [concepts/permission-indirections.md](concepts/permission-indirections.md) — S1PIE, S2PIE, S2POE, S2POI fields
-- [concepts/mpam.md](concepts/mpam.md) — STE.PARTID, STE.PMG, STE.S1MPAM, STE.MPAM_NS
-- [concepts/mec.md](concepts/mec.md) — STE.MECID for Realm streams (RME DA)
-- [concepts/attribute-transformation.md](concepts/attribute-transformation.md) — Chapter 13 governs MemAttr/MTCFG/ALLOCCFG/SHCFG combination
+- [streamid-substreamid.md](streamid-substreamid.md) — key used to index the stream table
+- [two-stage-translation.md](two-stage-translation.md) — translation pipeline STE feeds into
+- [context-descriptor.md](context-descriptor.md) — stage 1 config pointed to by STE
+- [fault-models.md](fault-models.md) — STE.S2S, STE.S2R, STE.S1STALLD govern stage fault behavior
+- [pcie-ats-pri.md](pcie-ats-pri.md) — STE.EATS controls ATS behavior per stream
+- [security-states.md](security-states.md) — Secure STEs live in a separate Secure stream table
+- [virtual-machine-structure.md](virtual-machine-structure.md) — VMSPtr references the VMS structure
+- [httu.md](httu.md) — STE.S2HA/S2HD/S2HAFT control stage 2 HTTU
+- [destructive-reads.md](destructive-reads.md) — STE.DRE/DCP enable or inhibit these transaction classes
+- [granule-protection-check.md](granule-protection-check.md) — GPC applied to Realm stream PA outputs
+- [device-permission-table.md](device-permission-table.md) — STE.EATS==0b11 enables DPT checks; DPT_VMATCH controls matching
+- [permission-indirections.md](permission-indirections.md) — S1PIE, S2PIE, S2POE, S2POI fields
+- [mpam.md](mpam.md) — STE.PARTID, STE.PMG, STE.S1MPAM, STE.MPAM_NS
+- [mec.md](mec.md) — STE.MECID for Realm streams (RME DA)
+- [attribute-transformation.md](attribute-transformation.md) — Chapter 13 governs MemAttr/MTCFG/ALLOCCFG/SHCFG combination
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors; §3.3.3 Configuration and Translation lookup; §5.2 STE data structure format; §5.2.1 General properties of the STE; §3.12 Fault models
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors; §3.3.3 Configuration and Translation lookup; §5.2 STE data structure format; §5.2.1 General properties of the STE; §3.12 Fault models

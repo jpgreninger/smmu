@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, security, non-secure, secure, realm, root, rme, trustzone]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Security States
@@ -121,20 +121,20 @@ Implementations may provide an **IMPLEMENTATION DEFINED** number of extra hardwa
 
 - A complete model must implement the full SEC_SID disambiguation: physical StreamID value N refers to up to four distinct streams across security states when all states are supported.
 - Secure stage 2 (SEL2) adds significant complexity: two IPA spaces with separate translation tables (`STE.S_S2TTB` and `STE.S2TTB`), and PA space determined by `S2SW`, `S2SA`, `S2NSW`, `S2NSA` fields.
-- Realm state requires Granule Protection Checks (GPT lookups) on all transaction PA outputs — see [concepts/granule-protection-check.md](concepts/granule-protection-check.md).
+- Realm state requires Granule Protection Checks (GPT lookups) on all transaction PA outputs — see [granule-protection-check.md](granule-protection-check.md).
 - RME DA introduces MECID (Memory Encryption Context ID) on Realm streams; the `STE.MECID` field must be tracked.
 - The Root register page does not process stream traffic; it configures GPT and other cross-state controls.
 
 ## Related Concepts
 
-- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPC checks applied to Realm-state transactions
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — each security state has independent translation pipeline
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — Secure and Realm STEs are in separate stream tables
-- [concepts/command-queue.md](concepts/command-queue.md) — separate Command queues per security state
-- [concepts/event-queue.md](concepts/event-queue.md) — events routed to the queue matching the stream's security state
-- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — separate enable sequences per security state
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — T/TE/XT bits in PCIe map to Realm security state
+- [granule-protection-check.md](granule-protection-check.md) — GPC checks applied to Realm-state transactions
+- [two-stage-translation.md](two-stage-translation.md) — each security state has independent translation pipeline
+- [stream-table-entry.md](stream-table-entry.md) — Secure and Realm STEs are in separate stream tables
+- [command-queue.md](command-queue.md) — separate Command queues per security state
+- [event-queue.md](event-queue.md) — events routed to the queue matching the stream's security state
+- [smmu-initialization.md](smmu-initialization.md) — separate enable sequences per security state
+- [pcie-ats-pri.md](pcie-ats-pri.md) — T/TE/XT bits in PCIe map to Realm security state
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.10 Security states support; §3.10.1 StreamID Security state (SEC_SID); §3.10.2 Support for Secure state; §3.10.2.2 Secure EL2; §3.10.3 Support for Realm state; §2.6 SMMU for RME features; §2.7 SMMU for RME DA features
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.10 Security states support; §3.10.1 StreamID Security state (SEC_SID); §3.10.2 Support for Secure state; §3.10.2.2 Secure EL2; §3.10.3 Support for Realm state; §2.6 SMMU for RME features; §2.7 SMMU for RME DA features

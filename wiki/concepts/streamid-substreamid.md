@@ -4,16 +4,16 @@ type: concept
 tags: [smmu, streamid, substreamid, pasid, stream, identification]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # StreamID and SubstreamID
 
 ## Definition
 
-**StreamID** is the sideband identifier that accompanies every client device transaction into the SMMU. It identifies the originating device (or logical source) and is used to index the Stream table to locate the [concepts/stream-table-entry.md](concepts/stream-table-entry.md).
+**StreamID** is the sideband identifier that accompanies every client device transaction into the SMMU. It identifies the originating device (or logical source) and is used to index the Stream table to locate the [stream-table-entry.md](stream-table-entry.md).
 
-**SubstreamID** is an optional secondary identifier that selects among multiple stage 1 translation contexts ([concepts/context-descriptor.md](concepts/context-descriptor.md)) for a given stream. It is equivalent to a PCIe PASID (Process Address Space ID) and maps to the SubstreamID 1:1 in PCIe systems.
+**SubstreamID** is an optional secondary identifier that selects among multiple stage 1 translation contexts ([context-descriptor.md](context-descriptor.md)) for a given stream. It is equivalent to a PCIe PASID (Process Address Space ID) and maps to the SubstreamID 1:1 in PCIe systems.
 
 ## StreamID Properties
 
@@ -46,7 +46,7 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
    - Use SubstreamID to index into the CD table (flat or 2-level, per `STE.S1Fmt`).
    - Range-check SubstreamID against `STE.S1CDMax`. If out of range → C_BAD_SUBSTREAMID.
 2. If SubstreamID is not supplied (`SSV == 0`) and substreams are configured:
-   - Behavior governed by `STE.S1DSS` (see [concepts/stream-table-entry.md](concepts/stream-table-entry.md)).
+   - Behavior governed by `STE.S1DSS` (see [stream-table-entry.md](stream-table-entry.md)).
 
 ## PCIe Mapping
 
@@ -65,11 +65,11 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 
 ## Related Concepts
 
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE located by StreamID
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD selected by SubstreamID
-- [concepts/security-states.md](concepts/security-states.md) — SEC_SID qualifies StreamID for Secure/NS/Realm disambiguation
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — PASID/SubstreamID mapping in PCIe ATS context
+- [stream-table-entry.md](stream-table-entry.md) — STE located by StreamID
+- [context-descriptor.md](context-descriptor.md) — CD selected by SubstreamID
+- [security-states.md](security-states.md) — SEC_SID qualifies StreamID for Secure/NS/Realm disambiguation
+- [pcie-ats-pri.md](pcie-ats-pri.md) — PASID/SubstreamID mapping in PCIe ATS context
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.2 Stream numbering; §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.2 Stream numbering; §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors

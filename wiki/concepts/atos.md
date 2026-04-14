@@ -83,4 +83,4 @@ There are no ATOS-specific changes from the introduction of F_PERMISSION fields 
 
 ## Sources That Use This Concept
 
-- [[wiki/sources/ihi0070g-b-smmuv3-architecture-spec.md]](wiki/sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 9 Address Translation Operations; §3.9 ATOS facility; `SMMU_IDR0.ATOS` and `SMMU_IDR0.VATOS` field descriptions; §13.1 attribute override tables
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 9 Address Translation Operations; §3.9 ATOS facility; `SMMU_IDR0.ATOS` and `SMMU_IDR0.VATOS` field descriptions; §13.1 attribute override tables

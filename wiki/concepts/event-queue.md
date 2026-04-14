@@ -4,14 +4,14 @@ type: concept
 tags: [smmu, event-queue, circular-buffer, faults, events, software-interface, stall, mev, event-merging]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Event Queue
 
 ## Definition
 
-The Event queue is the SMMU-to-software interface for reporting faults, errors, and other asynchronous events related to incoming transaction processing. It is a memory-based circular buffer where the SMMU is the producer and software is the consumer. It is the output counterpart to the [concepts/command-queue.md](concepts/command-queue.md).
+The Event queue is the SMMU-to-software interface for reporting faults, errors, and other asynchronous events related to incoming transaction processing. It is a memory-based circular buffer where the SMMU is the producer and software is the consumer. It is the output counterpart to the [command-queue.md](command-queue.md).
 
 There is one Event queue per Security state:
 - Non-secure: `SMMU_EVENTQ_*` registers.
@@ -22,7 +22,7 @@ Events from a stream are written to the Event queue associated with the stream's
 
 ## Circular Buffer Mechanics
 
-Same mirrored circular buffer mechanics as the [concepts/command-queue.md](concepts/command-queue.md), with roles reversed:
+Same mirrored circular buffer mechanics as the [command-queue.md](command-queue.md), with roles reversed:
 - SMMU updates `PROD.WR` after writing a new event record.
 - Software updates `CONS.RD` after consuming an event record.
 - Empty/full semantics are identical (wrap bit differentiates empty from full).
@@ -210,7 +210,7 @@ Key event types (§7.3):
 | F_PERMISSION | Permission fault | Permission check failed |
 | F_TLB_CONFLICT | TLB conflict | Conflicting TLB entries detected |
 
-Configuration errors (C_*) always terminate with abort. Translation-related faults (F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION) may stall or terminate depending on [concepts/fault-models.md](concepts/fault-models.md) configuration.
+Configuration errors (C_*) always terminate with abort. Translation-related faults (F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION) may stall or terminate depending on [fault-models.md](fault-models.md) configuration.
 
 ## Model Implementation Notes
 
@@ -221,10 +221,10 @@ Configuration errors (C_*) always terminate with abort. Translation-related faul
 
 ## Related Concepts
 
-- [concepts/command-queue.md](concepts/command-queue.md) — input counterpart (software-to-SMMU)
-- [concepts/fault-models.md](concepts/fault-models.md) — fault models determine whether events carry Stall==1 or Stall==0
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — translation faults are the primary event source
+- [command-queue.md](command-queue.md) — input counterpart (software-to-SMMU)
+- [fault-models.md](fault-models.md) — fault models determine whether events carry Stall==1 or Stall==0
+- [two-stage-translation.md](two-stage-translation.md) — translation faults are the primary event source
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.5 Command and Event queues; §3.5.3 Event queue behavior; §3.5.4 Definition of event record write "Commit"; §3.5.5 Event merging; §7.2 Event queue recorded faults; §7.3 Event records
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.5 Command and Event queues; §3.5.3 Event queue behavior; §3.5.4 Definition of event record write "Commit"; §3.5.5 Event merging; §7.2 Event queue recorded faults; §7.3 Event records

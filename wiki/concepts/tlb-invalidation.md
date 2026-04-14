@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, tlb, invalidation, commands, broadcast, asid, vmid, bbml, tlbinxs, aset, vmid-wildcard]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # TLB Invalidation
@@ -60,7 +60,7 @@ For the "both active" step, the SMMU may hold entries tagged with either the old
 
 ## Command-Based Invalidation
 
-TLB invalidation is primarily performed by issuing commands to the [concepts/command-queue.md](concepts/command-queue.md). Key command families:
+TLB invalidation is primarily performed by issuing commands to the [command-queue.md](command-queue.md). Key command families:
 
 ### Stage 1 TLB Invalidation
 
@@ -314,16 +314,16 @@ Configuration and TLB invalidation completion rules differ; see §3.21.3.
 
 ## Related Concepts
 
-- [concepts/command-queue.md](concepts/command-queue.md) — all invalidation commands are issued via the Command queue; §3.21.2 queue access rules
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — TLB entries cache the results of translation walks
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — configuration cache invalidation uses STE-scoped commands; §3.21.3 update procedures
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — ASID from CD tags TLB entries; ASET from CD; CD cache has its own invalidation
-- [concepts/httu.md](concepts/httu.md) — access flag/dirty state updates interact with TLB invalidation rules; HTTU completion is part of §3.21.1
-- [concepts/speculative-accesses.md](concepts/speculative-accesses.md) — speculative prefetch of structures governed by §3.21.3 completion rules
-- [concepts/coherency-and-embedded-implementations.md](concepts/coherency-and-embedded-implementations.md) — coherency requirements for SMMU walks; COHACC; config caches not snooped
-- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPT broadcast maintenance §3.17.7
-- [concepts/security-states.md](concepts/security-states.md) — StreamWorld determines ASID/VMID/ASET tagging and which broadcast namespace applies
+- [command-queue.md](command-queue.md) — all invalidation commands are issued via the Command queue; §3.21.2 queue access rules
+- [two-stage-translation.md](two-stage-translation.md) — TLB entries cache the results of translation walks
+- [stream-table-entry.md](stream-table-entry.md) — configuration cache invalidation uses STE-scoped commands; §3.21.3 update procedures
+- [context-descriptor.md](context-descriptor.md) — ASID from CD tags TLB entries; ASET from CD; CD cache has its own invalidation
+- [httu.md](httu.md) — access flag/dirty state updates interact with TLB invalidation rules; HTTU completion is part of §3.21.1
+- [speculative-accesses.md](speculative-accesses.md) — speculative prefetch of structures governed by §3.21.3 completion rules
+- [coherency-and-embedded-implementations.md](coherency-and-embedded-implementations.md) — coherency requirements for SMMU walks; COHACC; config caches not snooped
+- [granule-protection-check.md](granule-protection-check.md) — GPT broadcast maintenance §3.17.7
+- [security-states.md](security-states.md) — StreamWorld determines ASID/VMID/ASET tagging and which broadcast namespace applies
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.17 TLB tagging table, ASET semantics, broadcast maintenance, E2H, VMID wildcards, GPT broadcast, TLBInXS; §3.20.1–2 TLB/config conflict detection; §3.21.1 Translation tables and TLB invalidation completion; §3.21.1.1–3 BBML levels; §3.21.2 Queue access rules; §3.21.3 Config invalidation completion and structure update procedures; §4.3–4.4 invalidation command reference
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.17 TLB tagging table, ASET semantics, broadcast maintenance, E2H, VMID wildcards, GPT broadcast, TLBInXS; §3.20.1–2 TLB/config conflict detection; §3.21.1 Translation tables and TLB invalidation completion; §3.21.1.1–3 BBML levels; §3.21.2 Queue access rules; §3.21.3 Config invalidation completion and structure update procedures; §4.3–4.4 invalidation command reference

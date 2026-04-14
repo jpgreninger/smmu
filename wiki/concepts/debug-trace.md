@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, debug, trace, implementation-defined, security]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Debug and Trace
@@ -21,7 +21,7 @@ The following constraints are normative regardless of what debug features are im
 2. **Realm isolation:** A Non-secure or Secure debug agent must not be able to access any facilities related to Realm transaction handling.
 3. **Root isolation:** Any agent not associated with Root state must not be able to access any facilities related to Root state.
 
-These constraints mirror the general Security state isolation model throughout the SMMU architecture (see [concepts/security-states.md](concepts/security-states.md)).
+These constraints mirror the general Security state isolation model throughout the SMMU architecture (see [security-states.md](security-states.md)).
 
 ## Recommended Debug Mechanism
 
@@ -40,14 +40,14 @@ Implementations targeting functional safety or high-assurance environments typic
 
 ## Relationship to Performance Monitors
 
-The [concepts/performance-monitors.md](concepts/performance-monitors.md) (Chapter 10) provide a standardized interface for counting architectural events. Debug/trace facilities (Chapter 11) are complementary but architecturally separate. A PMCG-based capture mechanism (`SMMU_PMCG_CAPR`) can provide limited diagnostic visibility through the standardized interface.
+The [performance-monitors.md](performance-monitors.md) (Chapter 10) provide a standardized interface for counting architectural events. Debug/trace facilities (Chapter 11) are complementary but architecturally separate. A PMCG-based capture mechanism (`SMMU_PMCG_CAPR`) can provide limited diagnostic visibility through the standardized interface.
 
 ## Related Concepts
 
-- [concepts/security-states.md](concepts/security-states.md) — Security state isolation constraints apply equally to debug access
-- [concepts/performance-monitors.md](concepts/performance-monitors.md) — Standardized event counting; complement to implementation-defined debug
-- [concepts/ras.md](concepts/ras.md) — RAS error records provide additional diagnostic visibility for faults
+- [security-states.md](security-states.md) — Security state isolation constraints apply equally to debug access
+- [performance-monitors.md](performance-monitors.md) — Standardized event counting; complement to implementation-defined debug
+- [ras.md](ras.md) — RAS error records provide additional diagnostic visibility for faults
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 11 Debug/Trace
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 11 Debug/Trace

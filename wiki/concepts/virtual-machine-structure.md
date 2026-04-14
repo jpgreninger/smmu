@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, vms, virtualization, vmid, smmuv3.2, configuration, mpam, partid-map, f-vms-fetch]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Virtual Machine Structure (VMS)
@@ -101,10 +101,10 @@ The VMS is pointed to from an STE via `STE.VMSPtr` (PA). If `STE.VMSPtr` points 
 
 ## Related Concepts
 
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE.VMSPtr points to the VMS
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — VMS holds per-VM stage 2 configuration
-- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — VMS invalidation is distinct from TLB invalidation
+- [stream-table-entry.md](stream-table-entry.md) — STE.VMSPtr points to the VMS
+- [two-stage-translation.md](two-stage-translation.md) — VMS holds per-VM stage 2 configuration
+- [tlb-invalidation.md](tlb-invalidation.md) — VMS invalidation is distinct from TLB invalidation
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §5.6 VMS data structure; §3.3 Data structures; §4.3.5 CMD_CFGI_VMS_PIDM; §2.4 SMMUv3.2 features
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §5.6 VMS data structure; §3.3 Data structures; §4.3.5 CMD_CFGI_VMS_PIDM; §2.4 SMMUv3.2 features

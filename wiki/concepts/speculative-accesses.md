@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, speculative, httu, translation-request, atos, implementation-defined]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Speculative Accesses
@@ -72,12 +72,12 @@ An implementation is permitted to speculatively fetch any reachable configuratio
 
 ## Related Concepts
 
-- [concepts/httu.md](concepts/httu.md) — Access flag and dirty state updates apply identically to successful speculative reads
-- [concepts/fault-models.md](concepts/fault-models.md) — Speculative faults terminate silently; no event recorded, no stall
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — ATS Translation Requests are always non-speculative; PRI and ATS interactions
-- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — §3.21.1 governs interaction of speculative walks with in-progress invalidations
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — Speculative STE prefetch rules from §3.21.3
+- [httu.md](httu.md) — Access flag and dirty state updates apply identically to successful speculative reads
+- [fault-models.md](fault-models.md) — Speculative faults terminate silently; no event recorded, no stall
+- [pcie-ats-pri.md](pcie-ats-pri.md) — ATS Translation Requests are always non-speculative; PRI and ATS interactions
+- [tlb-invalidation.md](tlb-invalidation.md) — §3.21.1 governs interaction of speculative walks with in-progress invalidations
+- [stream-table-entry.md](stream-table-entry.md) — Speculative STE prefetch rules from §3.21.3
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.14 Speculative accesses; §3.21.1 Translation tables and TLB invalidation completion; §3.21.3 Configuration structures
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.14 Speculative accesses; §3.21.1 Translation tables and TLB invalidation completion; §3.21.3 Configuration structures

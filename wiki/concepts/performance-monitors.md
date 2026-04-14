@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, pmu, performance, monitoring, pmcg, events, counters]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Performance Monitors Extension (PMCG)
@@ -107,13 +107,13 @@ PMCGs that generate MSI writes can independently carry MPAM PARTID and PMG. Conf
 
 ## Related Concepts
 
-- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — StreamID filtering targets specific device streams
-- [concepts/security-states.md](concepts/security-states.md) — Secure, Realm, Root observation controls
-- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — PMCG pages are at IMPLEMENTATION DEFINED base addresses; no central discovery
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — Events 6 and 7 count ATS-specific activity
-- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — Events 2 and 4 count GPT accesses
-- [concepts/device-permission-table.md](concepts/device-permission-table.md) — Events 2 and 4 count DPT lookups
+- [streamid-substreamid.md](streamid-substreamid.md) — StreamID filtering targets specific device streams
+- [security-states.md](security-states.md) — Secure, Realm, Root observation controls
+- [smmu-initialization.md](smmu-initialization.md) — PMCG pages are at IMPLEMENTATION DEFINED base addresses; no central discovery
+- [pcie-ats-pri.md](pcie-ats-pri.md) — Events 6 and 7 count ATS-specific activity
+- [granule-protection-check.md](granule-protection-check.md) — Events 2 and 4 count GPT accesses
+- [device-permission-table.md](device-permission-table.md) — Events 2 and 4 count DPT lookups
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 10 Performance Monitors Extension; §10.1–10.6; register descriptions §10.5.2
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 10 Performance Monitors Extension; §10.1–10.6; register descriptions §10.5.2

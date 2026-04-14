@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, smmuv3.4, security, permission, the, assuredonly, protected, feat_the]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Translation Hardening (THE)
@@ -48,13 +48,13 @@ When `SMMU_IDR3.THE == 1`, the SMMU applies AssuredOnly permission checks at sta
 
 ## Related Concepts
 
-- [concepts/permission-indirections.md](concepts/permission-indirections.md) — S1PIE/S2PIE/S2POE permission remapping (also SMMUv3.4); THE is a distinct feature
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — AssuredOnly checks operate within the stage 2 permission check phase
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — `CD.PnCH` field enables Protected attribute
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — `STE.AssuredOnly` field enables AssuredOnly checks
-- [concepts/fault-models.md](concepts/fault-models.md) — F_PERMISSION with `AssuredOnly == 1` is the fault raised on check failure
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — ATS Translation Request and Translated transaction interactions
+- [permission-indirections.md](permission-indirections.md) — S1PIE/S2PIE/S2POE permission remapping (also SMMUv3.4); THE is a distinct feature
+- [two-stage-translation.md](two-stage-translation.md) — AssuredOnly checks operate within the stage 2 permission check phase
+- [context-descriptor.md](context-descriptor.md) — `CD.PnCH` field enables Protected attribute
+- [stream-table-entry.md](stream-table-entry.md) — `STE.AssuredOnly` field enables AssuredOnly checks
+- [fault-models.md](fault-models.md) — F_PERMISSION with `AssuredOnly == 1` is the fault raised on check failure
+- [pcie-ats-pri.md](pcie-ats-pri.md) — ATS Translation Request and Translated transaction interactions
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.27 Translation Hardening; §3.27.1 Protected attribute; §3.27.2 AssuredOnly permission checks; §2.8 SMMUv3.4 features; `SMMU_IDR3.THE` register field description
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.27 Translation Hardening; §3.27.1 Protected attribute; §3.27.2 AssuredOnly permission checks; §2.8 SMMUv3.4 features; `SMMU_IDR3.THE` register field description

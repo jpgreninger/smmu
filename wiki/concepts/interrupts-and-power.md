@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, interrupts, msi, wired, power, dormant, irq]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Interrupts and Power
@@ -142,13 +142,13 @@ Both the Dormant implementation (by the SMMU) and the Dormant optimization (by s
 
 ## Related Concepts
 
-- [concepts/command-queue.md](concepts/command-queue.md) — CMD_SYNC completion is an interrupt source; MSI synchronization via CMD_SYNC fence
-- [concepts/event-queue.md](concepts/event-queue.md) — Event queue empty→non-empty transition triggers interrupt
-- [concepts/fault-models.md](concepts/fault-models.md) — Fault events placed in event queue; interrupt signals queue non-empty
-- [concepts/security-states.md](concepts/security-states.md) — Separate interrupt sources per security state (NS/Secure/Realm); Root page interrupt sources
-- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — Full re-initialization required after power-off; SMMU_CR0ACK handshake
-- [synthesis/smmu-register-map.md](synthesis/smmu-register-map.md) — IRQ_CFG register locations; GERROR register; STATUSR register; Root page interrupt sources
+- [command-queue.md](command-queue.md) — CMD_SYNC completion is an interrupt source; MSI synchronization via CMD_SYNC fence
+- [event-queue.md](event-queue.md) — Event queue empty→non-empty transition triggers interrupt
+- [fault-models.md](fault-models.md) — Fault events placed in event queue; interrupt signals queue non-empty
+- [security-states.md](security-states.md) — Separate interrupt sources per security state (NS/Secure/Realm); Root page interrupt sources
+- [smmu-initialization.md](smmu-initialization.md) — Full re-initialization required after power-off; SMMU_CR0ACK handshake
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — IRQ_CFG register locations; GERROR register; STATUSR register; Root page interrupt sources
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.18 Interrupts and notifications; §3.18.1 MSI synchronization; §3.18.2 Interrupt sources; §3.19 Power control; §3.19.1 Dormant state
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.18 Interrupts and notifications; §3.18.1 MSI synchronization; §3.18.2 Interrupt sources; §3.19 Power control; §3.19.1 Dormant state

@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, dpt, rme, realm, device-permission, pa-space, smmuv3.4, dpt-tlb, device-access-fault, dpt-lookup-fault]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Device Permission Table (DPT)
@@ -13,7 +13,7 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 
 The Device Permission Table (DPT) is an in-memory structure (added in SMMU-for-RME DA, indicated by `SMMU_R_IDR3.DPT == 1`) that gates device DMA access at a PA-space granularity. It associates physical address ranges with permitted device access rights, specifically controlling which PA space (Realm vs Non-secure) a device is permitted to access.
 
-The DPT is distinct from the Granule Protection Table (GPT) ([concepts/granule-protection-check.md](concepts/granule-protection-check.md)). GPT controls physical memory ownership at the granule level for all agents (PEs and devices); DPT is an additional per-device PA-space gate specifically for the SMMU's Realm-state ATS flow.
+The DPT is distinct from the Granule Protection Table (GPT) ([granule-protection-check.md](granule-protection-check.md)). GPT controls physical memory ownership at the granule level for all agents (PEs and devices); DPT is an additional per-device PA-space gate specifically for the SMMU's Realm-state ATS flow.
 
 DPT support is optional (`SMMU_R_IDR3.DPT`). Support is strongly recommended for RME DA systems.
 
@@ -250,11 +250,11 @@ Note: TLB maintenance is **not** required for Invalid→Valid transitions.
 
 ## Related Concepts
 
-- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPT provides physical memory ownership; DPT gates device ATS access
-- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — DPT applies to ATS Translated transactions (EATS == 0b11)
-- [concepts/security-states.md](concepts/security-states.md) — DPT is primarily relevant to Realm-state streams
-- [concepts/command-queue.md](concepts/command-queue.md) — CMD_DPTI_ALL and CMD_DPTI_PA for DPT cache maintenance
+- [granule-protection-check.md](granule-protection-check.md) — GPT provides physical memory ownership; DPT gates device ATS access
+- [pcie-ats-pri.md](pcie-ats-pri.md) — DPT applies to ATS Translated transactions (EATS == 0b11)
+- [security-states.md](security-states.md) — DPT is primarily relevant to Realm-state streams
+- [command-queue.md](command-queue.md) — CMD_DPTI_ALL and CMD_DPTI_PA for DPT cache maintenance
 
 ## Sources That Use This Concept
 
-- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.24 Device Permission Table; §3.24.1–3.24.7; §4.6 DPT maintenance commands; §2.7 SMMU for RME DA features
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.24 Device Permission Table; §3.24.1–3.24.7; §4.6 DPT maintenance commands; §2.7 SMMU for RME DA features
