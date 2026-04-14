@@ -14,7 +14,7 @@ Specification knowledge lives in the smmu-vault wiki (Obsidian vault). When a ta
 
 1. **Hot index.** Read `log.md`. Contains active threads and key numbers
 1. **Master index.** Read `index.md`. Check "Recently Active" section
-2. **Grep fallback.** Search `wiki/**/*.md` by keyword if the page isn't indexed
+2. **Grep fallback.** Search `wiki/**/*.md` by keyword if the page isn't indexed. In addtion, read "Related Concepts" to find all implementation areas and impacts
 3. **Page limit** NEVER read more than 8 wiki pages per query
 
 ## C++ Requirements
