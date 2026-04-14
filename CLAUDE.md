@@ -8,7 +8,7 @@ This is a comprehensive ARM SMMU (System Memory Management Unit) v3 implementati
 
 This is also a Rust SMMU project. Language is Rust with Cargo. Always run `cargo test` and `cargo clippy` before committing. Documentation is in Markdown.
 
-Specification knowledge lives in the smm-vault wiki (Obsidian vault). When a task needs specification context (fields, errors, states, diagrams, functionality, translation), follow this retrieval protocol:
+Specification knowledge lives in the smmu-vault wiki (Obsidian vault). When a task needs specification context (fields, errors, states, diagrams, functionality, translation, implementation, procedures), follow this retrieval protocol:
 
 **Wiki path:** `wiki`
 
