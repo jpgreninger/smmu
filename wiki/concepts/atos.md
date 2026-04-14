@@ -74,12 +74,12 @@ There are no ATOS-specific changes from the introduction of F_PERMISSION fields 
 
 ## Related Concepts
 
-- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — ATOS performs end-to-end or partial stage lookups
-- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE locates the stream configuration for an ATOS lookup
-- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD provides stage 1 configuration during ATOS
-- [concepts/fault-models.md](concepts/fault-models.md) — ATOS does not trigger fault events or stall; reports status via PAR
-- [concepts/security-states.md](concepts/security-states.md) — Separate GATOS / S_GATOS register groups per security state
-- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — ATOS availability gated on `SMMU_IDR0.ATOS`
+- [two-stage-translation.md](two-stage-translation.md) — ATOS performs end-to-end or partial stage lookups
+- [stream-table-entry.md](stream-table-entry.md) — STE locates the stream configuration for an ATOS lookup
+- [context-descriptor.md](context-descriptor.md) — CD provides stage 1 configuration during ATOS
+- [fault-models.md](fault-models.md) — ATOS does not trigger fault events or stall; reports status via PAR
+- [security-states.md](security-states.md) — Separate GATOS / S_GATOS register groups per security state
+- [smmu-initialization.md](smmu-initialization.md) — ATOS availability gated on `SMMU_IDR0.ATOS`
 
 ## Sources That Use This Concept
 
