@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, security, non-secure, secure, realm, root, rme, model]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # SMMU Security States
@@ -130,11 +130,11 @@ SMMU-for-RME DA introduces MECID tagging for Realm streams:
 
 ### Granule Protection Checks (GPC)
 
-All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [../synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md](synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md).
+All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [../synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md](../synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md).
 
 ### DPT (RME DA)
 
-Realm streams with ATS and `STE.EATS == 0b11` are subject to DPT checks. See [../concepts/device-permission-table.md](concepts/device-permission-table.md).
+Realm streams with ATS and `STE.EATS == 0b11` are subject to DPT checks. See [../concepts/device-permission-table.md](../concepts/device-permission-table.md).
 
 ## Root State
 
@@ -158,7 +158,7 @@ When multiple security states are present:
 
 ## Initialization Per Security State
 
-Each state requires its own initialization sequence (see [../concepts/smmu-initialization.md](concepts/smmu-initialization.md)):
+Each state requires its own initialization sequence (see [../concepts/smmu-initialization.md](../concepts/smmu-initialization.md)):
 - Secure: initialized by Secure EL1/EL3 using `SMMU_S_*` registers. `SMMU_S_INIT.INV_ALL` available.
 - Realm: initialized by Realm management software.
 - Non-secure: initialized by NS kernel. Cannot rely on `SMMU_S_INIT`.
@@ -178,8 +178,8 @@ Each state requires its own initialization sequence (see [../concepts/smmu-initi
 
 ## Related Pages
 
-- [../concepts/security-states.md](concepts/security-states.md) — concept-level description
-- [../concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPC for Realm
-- [../concepts/device-permission-table.md](concepts/device-permission-table.md) — DPT for Realm ATS
-- [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — PCIe T/XT/TE bits and Realm state mapping
-- [../synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md) — pipeline with security state gates
+- [../concepts/security-states.md](../concepts/security-states.md) — concept-level description
+- [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — GPC for Realm
+- [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — DPT for Realm ATS
+- [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — PCIe T/XT/TE bits and Realm state mapping
+- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — pipeline with security state gates

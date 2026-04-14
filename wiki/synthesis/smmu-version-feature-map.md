@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, version, features, smmuv3, compatibility, model]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # SMMU Version Feature Map
@@ -144,15 +144,15 @@ A model should:
 
 ## Related Pages
 
-- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §2.2–2.8 feature tables
-- [../concepts/security-states.md](concepts/security-states.md) — security state features by version
-- [../concepts/permission-indirections.md](concepts/permission-indirections.md) — SMMUv3.4 features
-- [../concepts/translation-hardening.md](concepts/translation-hardening.md) — THE/AssuredOnly (SMMUv3.4)
-- [../concepts/httu.md](concepts/httu.md) — HTTU features across versions
-- [../concepts/granule-protection-check.md](concepts/granule-protection-check.md) — SMMUv3.3+ RME feature
-- [../concepts/device-permission-table.md](concepts/device-permission-table.md) — RME DA feature
-- [../concepts/mpam.md](concepts/mpam.md) — MPAM (SMMUv3.2+)
-- [../concepts/mec.md](concepts/mec.md) — MEC (RME DA)
-- [../concepts/atos.md](concepts/atos.md) — ATOS/VATOS (optional, SMMUv3.0+)
-- [../concepts/performance-monitors.md](concepts/performance-monitors.md) — PMCG (optional, all versions)
-- [../synthesis/smmu-register-map.md](synthesis/smmu-register-map.md) — full register map with IDR feature bits
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §2.2–2.8 feature tables
+- [../concepts/security-states.md](../concepts/security-states.md) — security state features by version
+- [../concepts/permission-indirections.md](../concepts/permission-indirections.md) — SMMUv3.4 features
+- [../concepts/translation-hardening.md](../concepts/translation-hardening.md) — THE/AssuredOnly (SMMUv3.4)
+- [../concepts/httu.md](../concepts/httu.md) — HTTU features across versions
+- [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — SMMUv3.3+ RME feature
+- [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — RME DA feature
+- [../concepts/mpam.md](../concepts/mpam.md) — MPAM (SMMUv3.2+)
+- [../concepts/mec.md](../concepts/mec.md) — MEC (RME DA)
+- [../concepts/atos.md](../concepts/atos.md) — ATOS/VATOS (optional, SMMUv3.0+)
+- [../concepts/performance-monitors.md](../concepts/performance-monitors.md) — PMCG (optional, all versions)
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — full register map with IDR feature bits
