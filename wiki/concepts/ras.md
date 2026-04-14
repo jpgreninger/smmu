@@ -99,12 +99,12 @@ On platforms with `FEAT_RME`, the RAS System Architecture requirements on **Conf
 
 ## Related Concepts
 
-- [[concepts/fault-models]] — Translation faults (SMMU architectural faults) are distinct from RAS hardware errors, though both may use Event queue entries
-- [[concepts/event-queue]] — F_WALK_EABT, F_STE_FETCH, F_CD_FETCH are reported here
-- [[concepts/command-queue]] — `GERROR.CMDQ_ERR` / `CERROR_ABT` reported on command fetch error
-- [[concepts/security-states]] — Separate RAS interfaces may exist per Security state; Realm confidentiality requirements apply
-- [[concepts/smmu-initialization]] — SFM entry requires system reset to exit
+- [concepts/fault-models.md](concepts/fault-models.md) — Translation faults (SMMU architectural faults) are distinct from RAS hardware errors, though both may use Event queue entries
+- [concepts/event-queue.md](concepts/event-queue.md) — F_WALK_EABT, F_STE_FETCH, F_CD_FETCH are reported here
+- [concepts/command-queue.md](concepts/command-queue.md) — `GERROR.CMDQ_ERR` / `CERROR_ABT` reported on command fetch error
+- [concepts/security-states.md](concepts/security-states.md) — Separate RAS interfaces may exist per Security state; Realm confidentiality requirements apply
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — SFM entry requires system reset to exit
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 12 Reliability, Availability and Serviceability; §12.1–12.6; SFM specification
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 12 Reliability, Availability and Serviceability; §12.1–12.6; SFM specification

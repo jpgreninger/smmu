@@ -42,14 +42,14 @@ When HTTU (Hardware Translation Table Update) is enabled, the SMMU must perform 
 - **Local monitors (LDREX/STREX or similar):** The SMMU must access translation tables via a **fully-coherent port** to the memory system to use local monitor exclusive sequences.
 - **Armv8.1 LSE atomics:** Alternatively, the SMMU may use Large System Extension atomic instructions (e.g., `STSET`), which do not require a fully-coherent port but must still be visible across the Inner Shareability domain.
 
-If HTTU is enabled and the SMMU does not have a fully-coherent port and LSE atomics are not supported, HTTU behavior is UNPREDICTABLE. SMMU_IDR0.HTTU encodes the supported HTTU modes (see [[concepts/httu]]).
+If HTTU is enabled and the SMMU does not have a fully-coherent port and LSE atomics are not supported, HTTU behavior is UNPREDICTABLE. SMMU_IDR0.HTTU encodes the supported HTTU modes (see [concepts/httu.md](concepts/httu.md)).
 
 ### SMMU Configuration Caches
 
 SMMU implementations may cache STE, CD, translation table entries, and other configuration. These caches:
 - Are **not** required to be snooped by PE cache maintenance operations.
 - Must be invalidated explicitly via CMD_CFGI_* commands after software modifies configuration.
-- May prefetch structures speculatively (subject to §3.21.3 bounds); see [[concepts/speculative-accesses]].
+- May prefetch structures speculatively (subject to §3.21.3 bounds); see [concepts/speculative-accesses.md](concepts/speculative-accesses.md).
 
 ---
 
@@ -63,15 +63,15 @@ Client device coherency is **separate** from SMMU structure coherency (COHACC) a
 - Snoop requests from the coherent fabric bypass the SMMU — the SMMU does not intercept or translate snoop requests.
 - The client may be a StreamID-bearing device or a NoStreamID device.
 - GPC (Granule Protection Check) still applies to the physical address output.
-- The DPT W bit (Device Permission Table writable) may be treated as 1 for fully-coherent clients (IMPL DEFINED). See [[concepts/device-permission-table]].
+- The DPT W bit (Device Permission Table writable) may be treated as 1 for fully-coherent clients (IMPL DEFINED). See [concepts/device-permission-table.md](concepts/device-permission-table.md).
 
-**Non-coherent clients:** The client device's DMA accesses are Non-cacheable from the PE perspective. Standard CMO requirements apply for software managing shared buffers. CMOs initiated from a client device are supported by the SMMU (see CMO support in [[synthesis/smmu-system-implementation]]).
+**Non-coherent clients:** The client device's DMA accesses are Non-cacheable from the PE perspective. Standard CMO requirements apply for software managing shared buffers. CMOs initiated from a client device are supported by the SMMU (see CMO support in [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md)).
 
 **COHACC does not describe client coherency.** COHACC describes how the SMMU itself accesses its own structures, not how client DMA is treated.
 
 ### TLB Maintenance from Clients
 
-TLB maintenance operations issued by client devices are **not** propagated by the SMMU to the PE TLB or vice versa. Client-initiated TLB maintenance affects only the client's own ATC (Address Translation Cache). The SMMU CMD_TLBI_* commands are the mechanism for the software-managed invalidation path. See [[concepts/tlb-invalidation]].
+TLB maintenance operations issued by client devices are **not** propagated by the SMMU to the PE TLB or vice versa. Client-initiated TLB maintenance affects only the client's own ATC (Address Translation Cache). The SMMU CMD_TLBI_* commands are the mechanism for the software-managed invalidation path. See [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md).
 
 ---
 
@@ -141,14 +141,14 @@ As with command queue fields, any unstored STE field must be RAZ/WI. Any field t
 
 ## Related Concepts
 
-- [[concepts/httu]] — HTTU atomicity depends on coherency port availability; SMMU must have fully-coherent or LSE-capable access to translation tables
-- [[concepts/speculative-accesses]] — Speculative prefetch of structures governed by §3.21.3; COHACC affects how prefetches are issued
-- [[concepts/tlb-invalidation]] — Invalidation commands required regardless of COHACC; config caches are not snooped
-- [[concepts/stream-table-entry]] — STE field storage reduction rules for embedded implementations
-- [[concepts/command-queue]] — Command queue storage reduction and RAZ/WI rules for embedded implementations
-- [[concepts/event-queue]] — Event queue WI rules for embedded implementations
-- [[synthesis/smmu-system-implementation]] — Full system integration requirements; CMO support; caching architecture
+- [concepts/httu.md](concepts/httu.md) — HTTU atomicity depends on coherency port availability; SMMU must have fully-coherent or LSE-capable access to translation tables
+- [concepts/speculative-accesses.md](concepts/speculative-accesses.md) — Speculative prefetch of structures governed by §3.21.3; COHACC affects how prefetches are issued
+- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — Invalidation commands required regardless of COHACC; config caches are not snooped
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE field storage reduction rules for embedded implementations
+- [concepts/command-queue.md](concepts/command-queue.md) — Command queue storage reduction and RAZ/WI rules for embedded implementations
+- [concepts/event-queue.md](concepts/event-queue.md) — Event queue WI rules for embedded implementations
+- [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) — Full system integration requirements; CMO support; caching architecture
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.15 Coherency considerations; §3.15.1 Client device coherency; §3.15.1.1 Fully-coherent clients; §3.16 Embedded implementations; §3.16.1.1–3 Embedded storage field requirements
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.15 Coherency considerations; §3.15.1 Client device coherency; §3.15.1.1 Fully-coherent clients; §3.16 Embedded implementations; §3.16.1.1–3 Embedded storage field requirements

@@ -80,11 +80,11 @@ This feature allows software and hypervisors to use stage 2 MemAttr encodings wi
 
 ## Related Concepts
 
-- [[concepts/two-stage-translation]] — Stage 2 MemAttr encodings are part of stage 2 translation table descriptor fields; S2FWB is a stage 2 control
-- [[concepts/context-descriptor]] — CD.MAIR0/MAIR1 fields must not use the reserved 0xF0 encoding
-- [[concepts/attribute-transformation]] — Stage 2 MemAttr feeds into the attribute transformation path; MTE_PERM modifies the MemAttr before transformation
-- [[concepts/httu]] — SMMU HTTU walks are Tag Unchecked; no tag faults from HTTU atomic updates
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — Stage 2 MemAttr encodings are part of stage 2 translation table descriptor fields; S2FWB is a stage 2 control
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD.MAIR0/MAIR1 fields must not use the reserved 0xF0 encoding
+- [concepts/attribute-transformation.md](concepts/attribute-transformation.md) — Stage 2 MemAttr feeds into the attribute transformation path; MTE_PERM modifies the MemAttr before transformation
+- [concepts/httu.md](concepts/httu.md) — SMMU HTTU walks are Tag Unchecked; no tag faults from HTTU atomic updates
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.23 Memory Tagging Extension; §3.23.1 FEAT_MTE_PERM stage 2 MemAttr reinterpretation
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.23 Memory Tagging Extension; §3.23.1 FEAT_MTE_PERM stage 2 MemAttr reinterpretation

@@ -189,10 +189,10 @@ When HTTU for dirty state is supported (`SMMU_IDR0.HTTU == 0b10`):
 
 ## Related Concepts
 
-- [[concepts/two-stage-translation]] — HTTU interacts differently at stage 1 and stage 2
-- [[concepts/fault-models]] — F_ACCESS is the fault raised when AF=0 and HTTU is not enabled
-- [[concepts/tlb-invalidation]] — TLB invalidation required after software updates AF/dirty
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — HTTU interacts differently at stage 1 and stage 2
+- [concepts/fault-models.md](concepts/fault-models.md) — F_ACCESS is the fault raised when AF=0 and HTTU is not enabled
+- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — TLB invalidation required after software updates AF/dirty
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.13 Translation tables and Access flag/Dirty state; §3.13.1–3.13.8; §2.2 SMMUv3.0 features (HTTU); §2.8 SMMUv3.4 features (HAFT)
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.13 Translation tables and Access flag/Dirty state; §3.13.1–3.13.8; §2.2 SMMUv3.0 features (HTTU); §2.8 SMMUv3.4 features (HAFT)

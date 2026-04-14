@@ -197,7 +197,7 @@ These must be configured before enabling queues.
 
 ## Related Pages
 
-- [[concepts/command-queue]] — Command queue concept page
-- [[concepts/event-queue]] — Event queue concept page
-- [[concepts/fault-models]] — interaction with stall events and CMD_RESUME
-- [[concepts/smmu-initialization]] — queue initialization sequence
+- [concepts/command-queue.md](concepts/command-queue.md) — Command queue concept page
+- [concepts/event-queue.md](concepts/event-queue.md) — Event queue concept page
+- [concepts/fault-models.md](concepts/fault-models.md) — interaction with stall events and CMD_RESUME
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — queue initialization sequence

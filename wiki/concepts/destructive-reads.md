@@ -71,12 +71,12 @@ The output interconnect architecture may impose constraints on which memory type
 
 ## Related Concepts
 
-- [[concepts/attribute-transformation]] — memory type and Shareability determination; AMBA AXI5 output attribute rules (§16.7.5)
-- [[concepts/stream-table-entry]] — `STE.DRE` and `STE.DCP` fields; `STE.Config`, `STE.S1DSS`, `STE.INSTCFG`, `STE.PRIVCFG`
-- [[concepts/httu]] — dirty state promotion; DR requires Write permission that does NOT promote dirty state
-- [[concepts/speculative-accesses]] — NW-DCP is issued speculatively; DR and RCI are not speculative
-- [[synthesis/smmu-system-implementation]] — §16.7.2 Non-data transfer transactions
+- [concepts/attribute-transformation.md](concepts/attribute-transformation.md) — memory type and Shareability determination; AMBA AXI5 output attribute rules (§16.7.5)
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — `STE.DRE` and `STE.DCP` fields; `STE.Config`, `STE.S1DSS`, `STE.INSTCFG`, `STE.PRIVCFG`
+- [concepts/httu.md](concepts/httu.md) — dirty state promotion; DR requires Write permission that does NOT promote dirty state
+- [concepts/speculative-accesses.md](concepts/speculative-accesses.md) — NW-DCP is issued speculatively; DR and RCI are not speculative
+- [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) — §16.7.2 Non-data transfer transactions
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.22 Destructive reads and directed cache prefetch transactions; §3.22.1–3; §16.7.2; §16.7.5
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.22 Destructive reads and directed cache prefetch transactions; §3.22.1–3; §16.7.2; §16.7.5

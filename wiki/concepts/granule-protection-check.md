@@ -149,7 +149,7 @@ For `SMMU_ROOT_IDR0.RGPTM == 1`:
 
 ## DPT vs GPT
 
-The Device Permission Table (DPT) ([[concepts/device-permission-table]]) is a separate RME DA feature that gates device DMA access at per-device PA-space granularity. GPT operates at the physical memory side for all agents. In ATS with DPT (`STE.EATS == 0b11`), DPT check is applied first; GPC is then applied to the output PA.
+The Device Permission Table (DPT) ([concepts/device-permission-table.md](concepts/device-permission-table.md)) is a separate RME DA feature that gates device DMA access at per-device PA-space granularity. GPT operates at the physical memory side for all agents. In ATS with DPT (`STE.EATS == 0b11`), DPT check is applied first; GPC is then applied to the output PA.
 
 ## Model Implementation Notes
 
@@ -162,11 +162,11 @@ The Device Permission Table (DPT) ([[concepts/device-permission-table]]) is a se
 
 ## Related Concepts
 
-- [[concepts/security-states]] — GPCs apply to Realm and all states where RME is implemented
-- [[concepts/two-stage-translation]] — GPC is applied to the PA output of translation
-- [[concepts/device-permission-table]] — DPT is a complementary per-device PA-space check
-- [[concepts/pcie-ats-pri]] — Translated transactions from Realm streams subject to GPC
+- [concepts/security-states.md](concepts/security-states.md) — GPCs apply to Realm and all states where RME is implemented
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — GPC is applied to the PA output of translation
+- [concepts/device-permission-table.md](concepts/device-permission-table.md) — DPT is a complementary per-device PA-space check
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — Translated transactions from Realm streams subject to GPC
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.25 Granule Protection Checks; §3.10.3 Support for Realm state; §2.6 SMMU for RME features; §6.3.110 SMMU_ROOT_IDR0
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.25 Granule Protection Checks; §3.10.3 Support for Realm state; §2.6 SMMU for RME features; §6.3.110 SMMU_ROOT_IDR0

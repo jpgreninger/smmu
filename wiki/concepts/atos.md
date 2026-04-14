@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, atos, vatos, address-translation, debug, software-lookup]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [ihi0070g-b-smmuv3-architecture-spec]
+sources: [ihi0070g-b-smmuv3-architecture-spec.md]
 ---
 
 # Address Translation Operations (ATOS)
@@ -74,13 +74,13 @@ There are no ATOS-specific changes from the introduction of F_PERMISSION fields 
 
 ## Related Concepts
 
-- [[concepts/two-stage-translation]] — ATOS performs end-to-end or partial stage lookups
-- [[concepts/stream-table-entry]] — STE locates the stream configuration for an ATOS lookup
-- [[concepts/context-descriptor]] — CD provides stage 1 configuration during ATOS
-- [[concepts/fault-models]] — ATOS does not trigger fault events or stall; reports status via PAR
-- [[concepts/security-states]] — Separate GATOS / S_GATOS register groups per security state
-- [[concepts/smmu-initialization]] — ATOS availability gated on `SMMU_IDR0.ATOS`
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — ATOS performs end-to-end or partial stage lookups
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE locates the stream configuration for an ATOS lookup
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD provides stage 1 configuration during ATOS
+- [concepts/fault-models.md](concepts/fault-models.md) — ATOS does not trigger fault events or stall; reports status via PAR
+- [concepts/security-states.md](concepts/security-states.md) — Separate GATOS / S_GATOS register groups per security state
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — ATOS availability gated on `SMMU_IDR0.ATOS`
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 9 Address Translation Operations; §3.9 ATOS facility; `SMMU_IDR0.ATOS` and `SMMU_IDR0.VATOS` field descriptions; §13.1 attribute override tables
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 9 Address Translation Operations; §3.9 ATOS facility; `SMMU_IDR0.ATOS` and `SMMU_IDR0.VATOS` field descriptions; §13.1 attribute override tables

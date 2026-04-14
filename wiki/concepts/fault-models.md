@@ -129,7 +129,7 @@ For PCIe devices, transactions **cannot safely be stalled** (PCIe protocol does 
 - **ATS (Address Translation Service):** An endpoint ascertains whether a page can be accessed without causing an SMMU fault before accessing it. The SMMU responds with a Translation Completion.
 - **PRI (Page Request Interface):** If an ATS response indicates that a fault would occur, PRI provides a mechanism for the page fault to be resolved. The endpoint issues a Page Request; software maps the page; the SMMU grants access.
 
-See [[concepts/pcie-ats-pri]] for full ATS/PRI coverage.
+See [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) for full ATS/PRI coverage.
 
 ## §3.12.4.1 Page-In Request Event (E_PAGE_REQUEST)
 
@@ -183,12 +183,12 @@ The SMMU treats every transaction as independent. The fault behavior of one tran
 
 ## Related Concepts
 
-- [[concepts/event-queue]] — events are the reporting mechanism for all fault conditions
-- [[concepts/two-stage-translation]] — faults arise during the translation pipeline
-- [[concepts/context-descriptor]] — CD.{S, R, A} configure stage 1 fault behavior
-- [[concepts/stream-table-entry]] — STE.{S2S, S2R, S1STALLD} configure stage 2 and stream-level fault behavior
-- [[concepts/command-queue]] — CMD_RESUME, CMD_STALL_TERM resolve stalled transactions
+- [concepts/event-queue.md](concepts/event-queue.md) — events are the reporting mechanism for all fault conditions
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — faults arise during the translation pipeline
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD.{S, R, A} configure stage 1 fault behavior
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE.{S2S, S2R, S1STALLD} configure stage 2 and stream-level fault behavior
+- [concepts/command-queue.md](concepts/command-queue.md) — CMD_RESUME, CMD_STALL_TERM resolve stalled transactions
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.12 Fault models, recording and reporting; §3.12.1 Terminate model; §3.12.2 Stall model; §5.5 Fault configuration (A, R, S bits)
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.12 Fault models, recording and reporting; §3.12.1 Terminate model; §3.12.2 Stall model; §5.5 Fault configuration (A, R, S bits)

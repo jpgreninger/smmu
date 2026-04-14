@@ -177,11 +177,11 @@ Far Atomics are treated as both a data read and a write for permission-checking 
 
 ## Relationship to Other Wiki Pages
 
-- [[concepts/tlb-invalidation]] — Invalidation command details; combined cache invalidation semantics
-- [[concepts/smmu-initialization]] — CR0/CR0ACK sequence; initialization prerequisites
-- [[concepts/attribute-transformation]] — Detailed attribute override and combine rules (Chapter 13)
-- [[concepts/fault-models]] — CMO fault recording; F_UUT; stall behavior
-- [[concepts/pcie-ats-pri]] — PCIe-specific integration requirements; stall prohibition; TDISP
-- [[concepts/security-states]] — RME DA StreamID/DeviceID integration rules
-- [[synthesis/smmu-fault-model]] — Full fault detection and reporting
-- [[synthesis/smmu-queue-mechanics]] — Queue implementation constraints
+- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — Invalidation command details; combined cache invalidation semantics
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — CR0/CR0ACK sequence; initialization prerequisites
+- [concepts/attribute-transformation.md](concepts/attribute-transformation.md) — Detailed attribute override and combine rules (Chapter 13)
+- [concepts/fault-models.md](concepts/fault-models.md) — CMO fault recording; F_UUT; stall behavior
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — PCIe-specific integration requirements; stall prohibition; TDISP
+- [concepts/security-states.md](concepts/security-states.md) — RME DA StreamID/DeviceID integration rules
+- [synthesis/smmu-fault-model.md](synthesis/smmu-fault-model.md) — Full fault detection and reporting
+- [synthesis/smmu-queue-mechanics.md](synthesis/smmu-queue-mechanics.md) — Queue implementation constraints

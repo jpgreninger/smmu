@@ -121,12 +121,12 @@ The SMMU is not required to invalidate caches when `SMMUEN` changes. Therefore:
 
 ## Related Concepts
 
-- [[concepts/command-queue]] — must be initialized and enabled before issuing invalidation commands
-- [[concepts/event-queue]] — must be initialized before enabling translation
-- [[concepts/tlb-invalidation]] — invalidation commands required before SMMUEN=1
-- [[concepts/security-states]] — each security state has independent initialization sequence
-- [[concepts/stream-table-entry]] — stream table must be populated before enabling translation
+- [concepts/command-queue.md](concepts/command-queue.md) — must be initialized and enabled before issuing invalidation commands
+- [concepts/event-queue.md](concepts/event-queue.md) — must be initialized before enabling translation
+- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — invalidation commands required before SMMUEN=1
+- [concepts/security-states.md](concepts/security-states.md) — each security state has independent initialization sequence
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — stream table must be populated before enabling translation
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.11 Reset, Enable and initialization; §6.3.9 SMMU_CR0; §6.3.10 SMMU_CR0ACK; §6.3.62 SMMU_S_INIT
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.11 Reset, Enable and initialization; §6.3.9 SMMU_CR0; §6.3.10 SMMU_CR0ACK; §6.3.62 SMMU_S_INIT

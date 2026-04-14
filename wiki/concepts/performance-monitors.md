@@ -107,13 +107,13 @@ PMCGs that generate MSI writes can independently carry MPAM PARTID and PMG. Conf
 
 ## Related Concepts
 
-- [[concepts/streamid-substreamid]] — StreamID filtering targets specific device streams
-- [[concepts/security-states]] — Secure, Realm, Root observation controls
-- [[concepts/smmu-initialization]] — PMCG pages are at IMPLEMENTATION DEFINED base addresses; no central discovery
-- [[concepts/pcie-ats-pri]] — Events 6 and 7 count ATS-specific activity
-- [[concepts/granule-protection-check]] — Events 2 and 4 count GPT accesses
-- [[concepts/device-permission-table]] — Events 2 and 4 count DPT lookups
+- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — StreamID filtering targets specific device streams
+- [concepts/security-states.md](concepts/security-states.md) — Secure, Realm, Root observation controls
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — PMCG pages are at IMPLEMENTATION DEFINED base addresses; no central discovery
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — Events 6 and 7 count ATS-specific activity
+- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — Events 2 and 4 count GPT accesses
+- [concepts/device-permission-table.md](concepts/device-permission-table.md) — Events 2 and 4 count DPT lookups
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 10 Performance Monitors Extension; §10.1–10.6; register descriptions §10.5.2
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 10 Performance Monitors Extension; §10.1–10.6; register descriptions §10.5.2

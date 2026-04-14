@@ -90,7 +90,7 @@ Related feature: `SMMU_IDR3.THE == 1` (optional in SMMUv3.4, `FEAT_THE`):
 - Introduces a **Protected** attribute on translation table descriptors.
 - **AssuredOnly permission checks** (§3.27.2): when a descriptor has the Protected attribute, additional permission checks are performed to enforce "assured-only" access policies.
 - This is step 1 in the stage 2 permission computation order.
-- See `[[concepts/translation-hardening]]`.
+- See `[concepts/translation-hardening.md](concepts/translation-hardening.md)`.
 
 ## Model Implementation Notes
 
@@ -102,11 +102,11 @@ Related feature: `SMMU_IDR3.THE == 1` (optional in SMMUv3.4, `FEAT_THE`):
 
 ## Related Concepts
 
-- [[concepts/two-stage-translation]] — permission indirections modify the permission output of each translation stage
-- [[concepts/context-descriptor]] — S1PIE configuration is held in the CD
-- [[concepts/stream-table-entry]] — S2PIE and S2POE configuration is in the STE
-- [[concepts/fault-models]] — F_PERMISSION faults arise from permission check failures
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — permission indirections modify the permission output of each translation stage
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — S1PIE configuration is held in the CD
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — S2PIE and S2POE configuration is in the STE
+- [concepts/fault-models.md](concepts/fault-models.md) — F_PERMISSION faults arise from permission check failures
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.26 Permission Indirections; §3.27 Translation Hardening; §2.8 SMMUv3.4 features
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.26 Permission Indirections; §3.27 Translation Hardening; §2.8 SMMUv3.4 features

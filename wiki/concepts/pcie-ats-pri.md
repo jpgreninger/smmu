@@ -68,7 +68,7 @@ For split-stage ATS (`EATS == 0b10`): only stage 2 translation is returned. The 
 When a Translated transaction (AT=0b10) arrives:
 1. If `ATSCHK == 0`: passes through SMMU without translation or checking.
 2. If `ATSCHK == 1`: SMMU checks the STE, verifies `EATS != 0b00`, applies overrides, records faults.
-3. For Realm streams: always subject to GPC ([[concepts/granule-protection-check]]) and DPT checks if `EATS == 0b11`.
+3. For Realm streams: always subject to GPC ([concepts/granule-protection-check.md](concepts/granule-protection-check.md)) and DPT checks if `EATS == 0b11`.
 
 ## ATC Invalidation (CMD_ATC_INV)
 
@@ -202,13 +202,13 @@ When `SMMU_R_IDR3.XT == 1` (TDISP XT Extensions supported):
 
 ## Related Concepts
 
-- [[concepts/streamid-substreamid]] — StreamID from RequesterID; SubstreamID from PASID
-- [[concepts/stream-table-entry]] — STE.EATS controls ATS behavior
-- [[concepts/security-states]] — T/XT bits determine SEC_SID for Realm streams
-- [[concepts/granule-protection-check]] — Translated transactions subject to GPC for Realm streams
-- [[concepts/device-permission-table]] — DPT check for EATS == 0b11
-- [[concepts/command-queue]] — CMD_ATC_INV, CMD_PRI_RESP commands
+- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — StreamID from RequesterID; SubstreamID from PASID
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE.EATS controls ATS behavior
+- [concepts/security-states.md](concepts/security-states.md) — T/XT bits determine SEC_SID for Realm streams
+- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — Translated transactions subject to GPC for Realm streams
+- [concepts/device-permission-table.md](concepts/device-permission-table.md) — DPT check for EATS == 0b11
+- [concepts/command-queue.md](concepts/command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP commands
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — §3.9 Support for PCI Express, PASIDs, PRI, and ATS; §3.9.1 ATS Interface; §3.9.2 Changing ATS configuration; §3.9.3 SMMU interactions with CXL; §3.9.4 PCIe fields T, TE and XT; §4.5 ATS and PRI commands
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.9 Support for PCI Express, PASIDs, PRI, and ATS; §3.9.1 ATS Interface; §3.9.2 Changing ATS configuration; §3.9.3 SMMU interactions with CXL; §3.9.4 PCIe fields T, TE and XT; §4.5 ATS and PRI commands

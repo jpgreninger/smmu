@@ -45,7 +45,7 @@ PARTID and PMG are determined in order:
    - `STE.S1MPAM == 0`: from STE.
    - `STE.S1MPAM == 1`: `PARTID = VMS.PARTID_MAP[CD.PARTID]`, `PMG = CD.PMG`.
 
-In nested configurations with `STE.S1MPAM == 1`, `CD.PARTID` is a **virtual PARTID** that is remapped to a physical PARTID via the `VMS.PARTID_MAP` table (see [[concepts/virtual-machine-structure]]). This enables hypervisor-controlled physical PARTID assignment while the guest controls virtual PARTIDs.
+In nested configurations with `STE.S1MPAM == 1`, `CD.PARTID` is a **virtual PARTID** that is remapped to a physical PARTID via the `VMS.PARTID_MAP` table (see [concepts/virtual-machine-structure.md](concepts/virtual-machine-structure.md)). This enables hypervisor-controlled physical PARTID assignment while the guest controls virtual PARTIDs.
 
 `STE.S1MPAM == 0` provides backward compatibility for software unaware of MPAM.
 
@@ -89,13 +89,13 @@ PMCGs that support MSIs may independently carry MPAM attributes for their MSI wr
 
 ## Related Concepts
 
-- [[concepts/virtual-machine-structure]] — VMS.PARTID_MAP enables hypervisor-controlled virtual-to-physical PARTID translation
-- [[concepts/stream-table-entry]] — STE.{PARTID, PMG, S1MPAM, MPAM_NS} fields
-- [[concepts/context-descriptor]] — CD.{PARTID, PMG} fields for stage 1 MPAM
-- [[concepts/security-states]] — PARTID spaces are Security-state qualified; Realm and Root spaces added with RME
-- [[concepts/pcie-ats-pri]] — ATS Translated transactions have special PARTID/PMG rules
-- [[concepts/performance-monitors]] — PMCGs can filter events by PARTID/PMG; independently support MPAM for MSIs
+- [concepts/virtual-machine-structure.md](concepts/virtual-machine-structure.md) — VMS.PARTID_MAP enables hypervisor-controlled virtual-to-physical PARTID translation
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE.{PARTID, PMG, S1MPAM, MPAM_NS} fields
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD.{PARTID, PMG} fields for stage 1 MPAM
+- [concepts/security-states.md](concepts/security-states.md) — PARTID spaces are Security-state qualified; Realm and Root spaces added with RME
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — ATS Translated transactions have special PARTID/PMG rules
+- [concepts/performance-monitors.md](concepts/performance-monitors.md) — PMCGs can filter events by PARTID/PMG; independently support MPAM for MSIs
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 17 Memory System Resource Partitioning and Monitoring; §17.1–17.7
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 17 Memory System Resource Partitioning and Monitoring; §17.1–17.7

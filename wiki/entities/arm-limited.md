@@ -19,15 +19,15 @@ Arm Limited is a semiconductor IP company headquartered in Cambridge, England (C
 
 ## What We Know
 
-- Arm is the author and publisher of the SMMUv3 architecture specification ([[sources/ihi0070g-b-smmuv3-architecture-spec]]).
+- Arm is the author and publisher of the SMMUv3 architecture specification ([sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)).
 - Arm defines the A-profile architecture (Armv8-A, Armv9-A), of which the SMMU is a companion component.
 - The SMMU architecture is versioned alongside Armv8.x-A feature sets; each SMMUv3.x release adds features corresponding to new A-profile PE capabilities.
 
 ## Role in Sources
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — sole author; specification governs all compliant SMMU implementations
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — sole author; specification governs all compliant SMMU implementations
 
 ## Related
 
-- [[concepts/two-stage-translation]]
-- [[concepts/security-states]]
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md)
+- [concepts/security-states.md](concepts/security-states.md)

@@ -103,13 +103,13 @@ All SMMU-originated transactions (structure fetches, translation table walks, qu
 
 ## Related Concepts
 
-- [[concepts/two-stage-translation]] — Two-stage combine operation; stage 2 can override stage 1 attributes via FWB
-- [[concepts/stream-table-entry]] — STE contains MTCFG, SHCFG, ALLOCCFG, INSTCFG, PRIVCFG, NSCFG override fields
-- [[concepts/context-descriptor]] — CD contains MAIR/AMAIR for interpreting translation table descriptor attribute indices
-- [[concepts/security-states]] — NS output attribute determines Secure vs Non-secure PA space; SIF check
-- [[concepts/atos]] — ATOS ignores most STE attribute overrides; uses ATOS_ADDR fields for INST/PRIV
-- [[concepts/pcie-ats-pri]] — ATS Translated transactions: NS from NSCFG; MT/SH/ALLOC ignored
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — Two-stage combine operation; stage 2 can override stage 1 attributes via FWB
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE contains MTCFG, SHCFG, ALLOCCFG, INSTCFG, PRIVCFG, NSCFG override fields
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — CD contains MAIR/AMAIR for interpreting translation table descriptor attribute indices
+- [concepts/security-states.md](concepts/security-states.md) — NS output attribute determines Secure vs Non-secure PA space; SIF check
+- [concepts/atos.md](concepts/atos.md) — ATOS ignores most STE attribute overrides; uses ATOS_ADDR fields for INST/PRIV
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — ATS Translated transactions: NS from NSCFG; MT/SH/ALLOC ignored
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 13 Attribute Transformation; §13.1–13.7; Tables 13.4, 13.5; §13.1.5 combine examples; §13.1.6 FWB
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 13 Attribute Transformation; §13.1–13.7; Tables 13.4, 13.5; §13.1.5 combine examples; §13.1.6 FWB

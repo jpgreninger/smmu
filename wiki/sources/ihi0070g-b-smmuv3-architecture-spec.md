@@ -35,27 +35,27 @@ This specification is the primary reference for functional and performance model
 
 ## Key Entities
 
-- [[entities/arm-limited]] — publisher and architect of the specification
+- [entities/arm-limited.md](entities/arm-limited.md) — publisher and architect of the specification
 
 ## Key Concepts
 
-- [[concepts/two-stage-translation]] — VA→IPA (stage 1) and IPA→PA (stage 2); independently enableable
-- [[concepts/stream-table-entry]] — per-device configuration structure; indexed by StreamID
-- [[concepts/context-descriptor]] — stage 1 translation configuration; indexed by SubstreamID
-- [[concepts/streamid-substreamid]] — device/process identification for SMMU lookup
-- [[concepts/command-queue]] — software-to-SMMU command interface (circular buffer)
-- [[concepts/event-queue]] — SMMU-to-software fault/event reporting interface (circular buffer)
-- [[concepts/fault-models]] — Terminate and Stall models for translation-related faults
-- [[concepts/security-states]] — Non-secure, Secure, Realm, and Root security state support
-- [[concepts/granule-protection-check]] — RME-era physical address space check against GPT
-- [[concepts/pcie-ats-pri]] — PCIe Address Translation Services and Page Request Interface
-- [[concepts/virtual-machine-structure]] — per-VM configuration structure (VMS), added SMMUv3.2
-- [[concepts/httu]] — Hardware Translation Table Update (access flag and dirty state)
-- [[concepts/tlb-invalidation]] — commands and broadcast mechanisms for TLB maintenance
-- [[concepts/smmu-initialization]] — reset, enable sequence, and configuration prerequisites
-- [[concepts/device-permission-table]] — DPT, a PA-space gating table for RME DA (SMMUv3.4+)
-- [[concepts/translation-hardening]] — THE/AssuredOnly permission checks (SMMUv3.4)
-- [[concepts/permission-indirections]] — S1PIE/S2PIE/S2POE stage permission remapping (SMMUv3.4)
+- [concepts/two-stage-translation.md](concepts/two-stage-translation.md) — VA→IPA (stage 1) and IPA→PA (stage 2); independently enableable
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — per-device configuration structure; indexed by StreamID
+- [concepts/context-descriptor.md](concepts/context-descriptor.md) — stage 1 translation configuration; indexed by SubstreamID
+- [concepts/streamid-substreamid.md](concepts/streamid-substreamid.md) — device/process identification for SMMU lookup
+- [concepts/command-queue.md](concepts/command-queue.md) — software-to-SMMU command interface (circular buffer)
+- [concepts/event-queue.md](concepts/event-queue.md) — SMMU-to-software fault/event reporting interface (circular buffer)
+- [concepts/fault-models.md](concepts/fault-models.md) — Terminate and Stall models for translation-related faults
+- [concepts/security-states.md](concepts/security-states.md) — Non-secure, Secure, Realm, and Root security state support
+- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — RME-era physical address space check against GPT
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — PCIe Address Translation Services and Page Request Interface
+- [concepts/virtual-machine-structure.md](concepts/virtual-machine-structure.md) — per-VM configuration structure (VMS), added SMMUv3.2
+- [concepts/httu.md](concepts/httu.md) — Hardware Translation Table Update (access flag and dirty state)
+- [concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — commands and broadcast mechanisms for TLB maintenance
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — reset, enable sequence, and configuration prerequisites
+- [concepts/device-permission-table.md](concepts/device-permission-table.md) — DPT, a PA-space gating table for RME DA (SMMUv3.4+)
+- [concepts/translation-hardening.md](concepts/translation-hardening.md) — THE/AssuredOnly permission checks (SMMUv3.4)
+- [concepts/permission-indirections.md](concepts/permission-indirections.md) — S1PIE/S2PIE/S2POE stage permission remapping (SMMUv3.4)
 
 ## Tensions & Open Questions
 
@@ -67,19 +67,19 @@ This specification is the primary reference for functional and performance model
 
 ## Related Pages
 
-- [[synthesis/smmu-translation-pipeline]]
-- [[synthesis/smmu-queue-mechanics]]
-- [[synthesis/smmu-fault-model]]
-- [[synthesis/smmu-security-states]]
-- [[synthesis/smmu-pcie-ats-integration]]
-- [[synthesis/smmu-version-feature-map]]
-- [[synthesis/smmu-register-map]]
-- [[synthesis/smmu-system-implementation]]
-- [[concepts/atos]]
-- [[concepts/performance-monitors]]
-- [[concepts/debug-trace]]
-- [[concepts/ras]]
-- [[concepts/attribute-transformation]]
-- [[concepts/mpam]]
-- [[concepts/mec]]
-- [[concepts/translation-hardening]]
+- [synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md)
+- [synthesis/smmu-queue-mechanics.md](synthesis/smmu-queue-mechanics.md)
+- [synthesis/smmu-fault-model.md](synthesis/smmu-fault-model.md)
+- [synthesis/smmu-security-states.md](synthesis/smmu-security-states.md)
+- [synthesis/smmu-pcie-ats-integration.md](synthesis/smmu-pcie-ats-integration.md)
+- [synthesis/smmu-version-feature-map.md](synthesis/smmu-version-feature-map.md)
+- [synthesis/smmu-register-map.md](synthesis/smmu-register-map.md)
+- [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md)
+- [concepts/atos.md](concepts/atos.md)
+- [concepts/performance-monitors.md](concepts/performance-monitors.md)
+- [concepts/debug-trace.md](concepts/debug-trace.md)
+- [concepts/ras.md](concepts/ras.md)
+- [concepts/attribute-transformation.md](concepts/attribute-transformation.md)
+- [concepts/mpam.md](concepts/mpam.md)
+- [concepts/mec.md](concepts/mec.md)
+- [concepts/translation-hardening.md](concepts/translation-hardening.md)

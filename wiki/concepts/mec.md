@@ -56,12 +56,12 @@ If an SMMU **without** the Realm programming interface is integrated in a system
 
 ## Related Concepts
 
-- [[concepts/security-states]] — MEC applies only to the Realm security state (RME DA); Non-secure/Secure/Root use MECID=0
-- [[concepts/granule-protection-check]] — GPC/GPT govern PA-space ownership; MEC adds encryption context within Realm PA space
-- [[concepts/stream-table-entry]] — `STE.MECID` field provides per-stream MECID for Realm accesses
-- [[concepts/fault-models]] — `F_TRANSLATION` is raised on `AMEC == 1` descriptor encounter when MEC does not support Alternative MECID
-- [[concepts/device-permission-table]] — DPT gates RME DA device access; MEC adds encryption context layered on top
+- [concepts/security-states.md](concepts/security-states.md) — MEC applies only to the Realm security state (RME DA); Non-secure/Secure/Root use MECID=0
+- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — GPC/GPT govern PA-space ownership; MEC adds encryption context within Realm PA space
+- [concepts/stream-table-entry.md](concepts/stream-table-entry.md) — `STE.MECID` field provides per-stream MECID for Realm accesses
+- [concepts/fault-models.md](concepts/fault-models.md) — `F_TRANSLATION` is raised on `AMEC == 1` descriptor encounter when MEC does not support Alternative MECID
+- [concepts/device-permission-table.md](concepts/device-permission-table.md) — DPT gates RME DA device access; MEC adds encryption context layered on top
 
 ## Sources That Use This Concept
 
-- [[sources/ihi0070g-b-smmuv3-architecture-spec]] — Chapter 18 Support for Memory Encryption Contexts; `SMMU_R_IDR3.MEC`; `SMMU_R_MECIDR`; `SMMU_R_GMECID`; `STE.MECID` field descriptions
+- [sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md) — Chapter 18 Support for Memory Encryption Contexts; `SMMU_R_IDR3.MEC`; `SMMU_R_MECIDR`; `SMMU_R_GMECID`; `STE.MECID` field descriptions

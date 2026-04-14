@@ -144,7 +144,7 @@ The Secure register block mirrors the Non-secure block starting at offset 0x8000
 Accessible only from Root PA space. Contains:
 - `SMMU_ROOT_IDR0`, `SMMU_ROOT_IIDR`: Root capability discovery.
 - `SMMU_ROOT_CR0{,ACK}`: Root enable/acknowledge.
-- `SMMU_ROOT_GPT_BASE{,_CFG}`, `SMMU_ROOT_GPT_BASE2`: Granule Protection Table base address and configuration (see [[concepts/granule-protection-check]]).
+- `SMMU_ROOT_GPT_BASE{,_CFG}`, `SMMU_ROOT_GPT_BASE2`: Granule Protection Table base address and configuration (see [concepts/granule-protection-check.md](concepts/granule-protection-check.md)).
 - `SMMU_ROOT_GPF_FAR`, `SMMU_ROOT_GPT_CFG_FAR`: GPC fault address records.
 - `SMMU_ROOT_TLBI{,_CTRL}`: Optional Root-level TLB invalidation.
 - `SMMU_ROOT_GPT_BASE_UPDATE`: Atomic GPT base pointer update control.
@@ -188,13 +188,13 @@ Accessible from Realm and Root PA spaces. Contain Realm-state equivalents of all
 
 ## Related Pages
 
-- [[concepts/smmu-initialization]] — CR0/CR0ACK handshake and initialization sequence
-- [[concepts/command-queue]] — CMDQ_BASE, PROD, CONS register usage
-- [[concepts/event-queue]] — EVENTQ register usage; Page 1 PROD/CONS
-- [[concepts/pcie-ats-pri]] — PRIQ register usage; GATOS for ATS debugging
-- [[concepts/security-states]] — Secure register block (0x8000), Root Control Page, Realm Pages
-- [[concepts/granule-protection-check]] — Root Control Page GPT registers
-- [[concepts/atos]] — GATOS/VATOS register groups
-- [[concepts/mpam]] — MPAMIDR, GMPAM, GBPMPAM registers
-- [[concepts/mec]] — SMMU_R_MECIDR, SMMU_R_GMECID
-- [[synthesis/smmu-version-feature-map]] — IDR0/IDR3 feature bits by version
+- [concepts/smmu-initialization.md](concepts/smmu-initialization.md) — CR0/CR0ACK handshake and initialization sequence
+- [concepts/command-queue.md](concepts/command-queue.md) — CMDQ_BASE, PROD, CONS register usage
+- [concepts/event-queue.md](concepts/event-queue.md) — EVENTQ register usage; Page 1 PROD/CONS
+- [concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — PRIQ register usage; GATOS for ATS debugging
+- [concepts/security-states.md](concepts/security-states.md) — Secure register block (0x8000), Root Control Page, Realm Pages
+- [concepts/granule-protection-check.md](concepts/granule-protection-check.md) — Root Control Page GPT registers
+- [concepts/atos.md](concepts/atos.md) — GATOS/VATOS register groups
+- [concepts/mpam.md](concepts/mpam.md) — MPAMIDR, GMPAM, GBPMPAM registers
+- [concepts/mec.md](concepts/mec.md) — SMMU_R_MECIDR, SMMU_R_GMECID
+- [synthesis/smmu-version-feature-map.md](synthesis/smmu-version-feature-map.md) — IDR0/IDR3 feature bits by version
