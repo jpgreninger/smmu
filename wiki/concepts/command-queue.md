@@ -1,9 +1,9 @@
 ---
 title: "Command Queue"
 type: concept
-tags: [smmu, command-queue, circular-buffer, software-interface, commands]
+tags: [smmu, command-queue, circular-buffer, software-interface, commands, ecmdq, cmd-sync, cmd-consumption]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -68,15 +68,88 @@ Permitted behaviors on inconsistent state: SMMU may consume entries at UNKNOWN l
 
 Note: A `CMD_SYNC` on the main `SMMU_(*_)CMDQ` does not synchronize ECMDQ queues.
 
-## Enhanced Command Queue (ECMDQ)
+## §4.8 Command Consumption Summary
 
-SMMUs may implement multiple Command queues per security state (Enhanced Command queue interface):
-- Up to 256 Command queue control pages, each with up to 256 ECMDQs.
-- Discovered via `SMMU_IDR1.ECMDQ` / `SMMU_IDR6.CMDQ_CONTROL_PAGE_LOG2NUMP`.
-- Each ECMDQ has its own `BASE`, `PROD`, `CONS` registers (16 bytes each within the control page).
-- Commands may be consumed in parallel across queues; no guaranteed total order between queues.
-- `CMD_SYNC` in an ECMDQ synchronizes only commands previously consumed on that ECMDQ.
-- If `SMMU_IDR0.SEV == 1`, the SMMU triggers a WFE wake-up event when any ECMDQ becomes non-full.
+| Command Type | What "consumed" means |
+|-------------|----------------------|
+| TLB invalidation: `CMD_TLBI_*`, `CMD_ATC_INV` | Consumption provides no guarantee. |
+| Configuration invalidation: `CMD_CFGI_*` | Consumption provides no guarantee. |
+| Prefetch: `CMD_PREFETCH_*` | Consumption provides no guarantee. |
+| PRI responses: `CMD_PRI_RESP` | Consumption provides no guarantee. |
+| Stall resume/termination: `CMD_RESUME`, `CMD_STALL_TERM` | Individual completion guarantees for the stall operation have been met. |
+| Synchronization: `CMD_SYNC` | All completion guarantees of `CMD_SYNC` have been met (all effects of prior commands on the same queue are complete). |
+
+Note: For all commands except `CMD_RESUME`, `CMD_STALL_TERM`, and `CMD_SYNC`, consumption of the command itself provides no ordering guarantee. Completion guarantees require a subsequent `CMD_SYNC`.
+
+## §3.5.6 Enhanced Command Queue (ECMDQ)
+
+SMMUs may implement multiple Command queues per security state. This is advertised in `SMMU_IDR1.ECMDQ` (Non-secure) and `SMMU_S_IDR0.ECMDQ` (Secure).
+
+**Components:**
+- Up to 256 Command queue control pages.
+- Each control page contains up to 256 ECMDQ interfaces.
+- Presence of Enhanced Command queues does **not** remove the `SMMU_(*_)CMDQ_*` interface.
+
+**ECMDQ register layout per queue (16 bytes per ECMDQ):**
+
+| Offset | Register | Size | Description |
+|--------|----------|------|-------------|
+| `0x00` | `SMMU_ECMDQ_BASEn` | 64-bit | Queue base address and size |
+| `0x08` | `SMMU_ECMDQ_PRODn` | 32-bit | Queue producer write index + `EN` bit + `ERRACK` bit |
+| `0x0C` | `SMMU_ECMDQ_CONSn` | 32-bit | Queue consumer read index + `ENACK` bit + `ERR` bit + `ERR_REASON` |
+
+Number of control pages for Non-secure state: `SMMU_IDR6.CMDQ_CONTROL_PAGE_LOG2NUMP`. Secure: `SMMU_S_IDR6.CMDQ_CONTROL_PAGE_LOG2NUMP`.
+
+Control page registers: `SMMU_CMDQ_CONTROL_PAGE_BASEn`, `SMMU_CMDQ_CONTROL_PAGE_CFGn`, `SMMU_CMDQ_CONTROL_PAGE_STATUSn`.
+
+### §3.5.6.1 ECMDQ Behavior
+
+- The SMMU accesses ECMDQ queues using attributes from `SMMU_(*_)CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC}` and MPAM attributes from `SMMU_(*_)GMPAM`.
+- If any ECMDQ is enabled such that `CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC}` could be used for its accesses → these CR1 fields become **read-only**.
+- Empty/full/non-empty semantics are identical to the main Command queue.
+- The SMMU consumes from a queue when it is non-empty.
+- `CMD_SYNC` consumed from an ECMDQ guarantees effects of all commands previously consumed on **that ECMDQ** are complete, including event reporting for affected configuration/translation entries.
+- The main `SMMU_(*_)CMDQ` CMD_SYNC is **independent** of ECMDQ state — a main CMD_SYNC does not synchronize ECMDQ commands.
+- The SMMU may consume from multiple queues **in parallel** (round-robin, weighted, or other schedule).
+- **No total order** is guaranteed across different queues.
+- If `SMMU_IDR0.SEV == 1`: SMMU triggers a WFE wake-up event when any ECMDQ becomes non-full.
+
+### §3.5.6.2 ECMDQ Enable/Disable
+
+**Enabled** when: `SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 1`.  
+**Disabled** when: `SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 0`.
+
+Same guarantees apply as for `SMMU_(*_)CR0.CMDQEN` / `SMMU_(*_)CR0ACK.CMDQEN` — the enabled/disabled state is reflected in ENACK after an IMPLEMENTATION DEFINED delay.
+
+In the transition from enabled to disabled: once the SMMU sets `SMMU_ECMDQ_CONSn.ENACK = 0`, it is guaranteed that:
+- Errors have been reported.
+- Consumption of commands has stopped.
+- `SMMU_ECMDQ_CONSn.{ERR_REASON, ERR, RD_WRAP, RD}` are stable.
+
+Note: The SMMU updates `ENACK` even if `SMMU_ECMDQ_PRODn.ERRACK != SMMU_ECMDQ_CONSn.ERR`.
+
+### §3.5.6.3 ECMDQ Errors
+
+When the SMMU encounters an error while fetching or processing a command:
+- **Toggles** `SMMU_ECMDQ_CONSn.ERR` (toggle protocol, not set/clear).
+- Updates `SMMU_ECMDQ_CONSn.ERR_REASON` with the error reason code.
+- Updates `SMMU_ECMDQ_CONSn.RD` and `SMMU_ECMDQ_CONSn.RD_WRAP` to point at the failing command.
+
+If `SMMU_ECMDQ_PRODn.ERRACK != SMMU_ECMDQ_CONSn.ERR` → the SMMU does **not** consume commands from that ECMDQ.
+
+**Recovery:** Disable the ECMDQ, make `ERRACK` consistent with `ERR`, then re-enable. This restores predictable behavior.
+
+ECMDQ errors are **additionally** reported in:
+- `SMMU_GERROR.CMDQP_ERR` for Non-secure state.
+- `SMMU_S_GERROR.CMDQP_ERR` for Secure state.
+
+ECMDQ errors operate **independently** of `SMMU_(*_)GERROR.CMDQ_ERR` (main Command queue errors).
+
+When `SMMU_(*_)GERROR.CMDQP_ERR` is activated → GERROR interrupt is triggered in the same manner as other GERROR conditions.
+
+Ordering guarantee: if `SMMU_(*_)GERROR.CMDQP_ERR` activation is observable → the `SMMU_ECMDQ_CONSn.ERR` field indicating the reason is observable.
+
+If a CMD_SYNC MSI write (issued via a Command queue control page) experiences an External abort → reported in `SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR`.
 
 ## Initialization and Enabling
 

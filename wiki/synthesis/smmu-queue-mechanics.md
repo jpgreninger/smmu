@@ -3,7 +3,7 @@ title: "SMMU Queue Mechanics"
 type: synthesis
 tags: [smmu, queue, circular-buffer, command-queue, event-queue, pri-queue, model]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -157,6 +157,26 @@ On reaching disabled state: errors reported, consumption stopped, `CONS.{ERR_REA
 - Round-robin or weighted round-robin scheduling is IMPLEMENTATION DEFINED.
 - `CMD_SYNC` on an ECMDQ synchronizes only commands on that specific ECMDQ.
 - `CMD_SYNC` on the main `SMMU_(*_)CMDQ` does NOT synchronize ECMDQ commands.
+
+### ECMDQ Error Protocol (§3.5.6.3)
+
+ECMDQ errors use a **toggle protocol**, not a set/clear protocol:
+
+1. On encountering a fetch or processing error, the SMMU:
+   - **Toggles** `SMMU_ECMDQ_CONS<n>.ERR` (0→1 or 1→0).
+   - Writes the error reason to `SMMU_ECMDQ_CONS<n>.ERR_REASON`.
+   - Sets `SMMU_ECMDQ_CONS<n>.RD` and `RD_WRAP` to point at the failing command.
+2. While `SMMU_ECMDQ_PROD<n>.ERRACK != SMMU_ECMDQ_CONS<n>.ERR`, the SMMU **stops consuming** from that queue.
+3. **Recovery procedure:**
+   a. Disable the ECMDQ (`EN=0`, wait for `ENACK=0`).
+   b. Read and record `ERR_REASON`, `RD`, `RD_WRAP`.
+   c. Write `ERRACK` to match the current `ERR` value.
+   d. Optionally re-position `PROD` past the offending command.
+   e. Re-enable the ECMDQ.
+
+ECMDQ errors are additionally reported in `SMMU_GERROR.CMDQP_ERR` (Non-secure) or `SMMU_S_GERROR.CMDQP_ERR` (Secure) — independent of the main `SMMU_GERROR.CMDQ_ERR`. The ordering guarantee: `CMDQP_ERR` becoming observable implies the corresponding `SMMU_ECMDQ_CONS<n>.ERR` is already observable.
+
+If a `CMD_SYNC` MSI write (via a Command queue control page) experiences an External abort → reported in `SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR`.
 
 ### ECMDQ Non-full WFE
 

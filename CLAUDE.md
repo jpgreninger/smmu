@@ -8,6 +8,15 @@ This is a comprehensive ARM SMMU (System Memory Management Unit) v3 implementati
 
 This is also a Rust SMMU project. Language is Rust with Cargo. Always run `cargo test` and `cargo clippy` before committing. Documentation is in Markdown.
 
+Specification knowledge lives in the smm-vault wiki (Obsidian vault). When a task needs specification context (fields, errors, states, diagrams, functionality, translation), follow this retrieval protocol:
+
+**Wiki path:** `wiki`
+
+1. **Hot index.** Read `log.md`. Contains active threads and key numbers
+1. **Master index.** Read `index.md`. Check "Recently Active" section
+2. **Grep fallback.** Search `wiki/**/*.md` by keyword if the page isn't indexed
+3. **Page limit** NEVER read more than 8 wiki pages per query
+
 ## C++ Requirements
 
 **IMPORTANT**: Always build in the `cpp/build/` subdirectory. Never build in the source root

@@ -1,9 +1,9 @@
 ---
 title: "Fault Models"
 type: concept
-tags: [smmu, fault, terminate, stall, translation-fault, fault-model]
+tags: [smmu, fault, terminate, stall, translation-fault, fault-model, paging, virtual-memory, e-page-request]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -92,6 +92,82 @@ The SMMU records which stage the fault occurred at:
 - Stage 2 fault: fault in the stage 2 translation tables, OR a stage 2 fault during a stage 1 table walk (the walk addresses are IPAs), OR a stage 2 fault while fetching a CD from IPA space.
 
 This distinction is critical for hypervisor software: a stage 2 fault during a stage 1 walk is reported as a stage 2 fault so the hypervisor can simulate the correct PE external abort type to the guest VM.
+
+## §3.12.3 Stall Termination — Client Device Considerations
+
+When a stalled transaction is terminated (via `CMD_RESUME(Terminate)` or `CMD_STALL_TERM`), the transaction is **marked and guaranteed to terminate at some point in the future**, unless translations change such that an early-retry succeeds in the meantime. The SMMU does not guarantee when a terminated-stall is finally completed.
+
+**Critical safety note:** A race condition can arise if software must reconfigure translations after terminating a stalled transaction. Example scenario:
+1. A write transaction to an unmapped address causes a stall fault.
+2. Software issues `CMD_RESUME(Terminate)` to terminate it.
+3. Later, software creates a legitimate mapping at that address.
+4. If the original write transaction retries and now succeeds (due to the new mapping), **data corruption may result** because the application expected the transaction to have been terminated.
+
+The system or client devices **must provide a mechanism** allowing software to wait for all previously outstanding transactions to complete before changing translation configuration in a way that might allow them to proceed. This mechanism might be:
+- An explicit signal from the client device indicating all outstanding transactions have completed.
+- An interconnect ordering guarantee that prior transactions are visible.
+- Another implementation-defined mechanism.
+
+## §3.12.4 Virtual Memory Paging with SMMU
+
+The SMMU architecture supports three models of usage with respect to translation-related faults that occur during translation of client device accesses:
+
+### Model 1 — Always Error (Terminate)
+A fault due to a device access is always treated as an error (e.g., a programming error) and is terminated. Software configures the Terminate model and aborts all faulting transactions.
+
+### Model 2a — Stall + Resume (Non-PCIe Paging)
+A fault due to a device access might be permanent (programming error) or temporary (due to page state in a virtual memory system). The **Stall model** is used:
+- The device transaction is stalled.
+- The fault is reported to software.
+- After the virtual memory system resolves the cause (e.g., pages in the faulting page), software issues `CMD_RESUME` to retry the transaction.
+- If the virtual memory system determines the access was invalid, software issues `CMD_RESUME(Terminate)` or `CMD_STALL_TERM`.
+
+**Requirement:** This model can only be used with a device and interconnect capable of supporting stalls.
+
+### Model 2b — PCIe ATS/PRI
+For PCIe devices, transactions **cannot safely be stalled** (PCIe protocol does not allow holding transactions indefinitely). The PCIe specification provides two mechanisms:
+- **ATS (Address Translation Service):** An endpoint ascertains whether a page can be accessed without causing an SMMU fault before accessing it. The SMMU responds with a Translation Completion.
+- **PRI (Page Request Interface):** If an ATS response indicates that a fault would occur, PRI provides a mechanism for the page fault to be resolved. The endpoint issues a Page Request; software maps the page; the SMMU grants access.
+
+See [[concepts/pcie-ats-pri]] for full ATS/PRI coverage.
+
+## §3.12.4.1 Page-In Request Event (E_PAGE_REQUEST)
+
+When non-PCIe devices use the Stall fault model to access paged virtual memory spaces, the stall fault record itself is the notification to software that a page miss occurred and software intervention is required.
+
+An **optional** hint event record `E_PAGE_REQUEST` can be provided by an implementation to request that software initiates costly page-in operations early. An implementation may provide an **IMPLEMENTATION DEFINED** mechanism to convey this message from client devices.
+
+`E_PAGE_REQUEST` properties:
+- **Is a hint only** — it can be ignored or dropped by the SMMU or software with no consequence.
+- **Can be issued speculatively** by a device — software must not rely on it reflecting actual access intent.
+- **Requires no response** from software.
+
+The distinction from a stall record: a stall fault record arises from a **non-speculative** transaction. A speculative transaction generates no software-visible record. `E_PAGE_REQUEST` allows a software-visible record that lets software make an early start on fetching pages from secondary storage, hiding latency before the actual (non-speculative) transaction stalls.
+
+Note: Because writes cannot be emitted speculatively (see §3.14), stall fault records never arise from speculative transactions. The `E_PAGE_REQUEST` hint specifically exists to fill this gap.
+
+## §3.12.5 Fault Configuration Combinations with Two Stages
+
+When both stage 1 and stage 2 are active and Terminate/Stall are configured differently at each stage, the resulting transaction behavior depends on **which stage** the fault occurred at.
+
+For Translation-related faults (those subject to Terminate/Stall configuration):
+
+| Stage 1 config | Stage 2 config | Fault at | Transaction result | Event parameters | Hypervisor behavior |
+|:---------------|:---------------|:---------|:-------------------|:-----------------|:--------------------|
+| Terminate | Terminate | Stage 1 | Terminated | VA | Event passed to guest as stage 1-only event. |
+| Terminate | Terminate | Stage 2 | Terminated | VA, IPA | Hypervisor might log IPA for debug. May pass event to guest if terminated (see note 1). |
+| Terminate | Stall | Stage 1 | Terminated | VA | Event passed to guest as S1-only event. |
+| Terminate | Stall | Stage 2 | Stalled | VA, IPA | Hypervisor may terminate with `CMD_RESUME(Terminate)` and log IPA; or correct S2 translation and `CMD_RESUME(Retry)`. May pass event to guest if terminated (note 1). |
+| Stall | Terminate | Stage 1 | Stalled | VA | Event passed to guest as S1-only event with stall. Guest must `CMD_RESUME(Retry/Terminate)`. |
+| Stall | Terminate | Stage 2 | Terminated | VA, IPA | Hypervisor might log IPA for debug. May pass event to guest if terminated (note 1). |
+| Stall | Stall | Stage 1 | Stalled | VA | Event passed to guest as S1-only event with stall. Guest must `CMD_RESUME(Retry/Terminate)`. |
+| Stall | Stall | Stage 2 | Stalled | VA, IPA | Hypervisor may terminate with `CMD_RESUME(Terminate)` and log IPA; or correct S2 translation and `CMD_RESUME(Retry)`. May pass event to guest if terminated (note 1). |
+
+**Note 1 — Stage 2 fault and guest notification:** Anything terminated at stage 2 is equivalent to a stage 1 external abort from the guest's perspective. A successful stage 1 translation that outputs an IPA leading to a stage 2 fault would not ordinarily be reported through the guest's SMMU interface (the stage 1 translation succeeded; the error arises outside the stage 1 domain). Arm expects that a stage 1 translation table walk that faults at stage 2 is reported to the guest as **F_WALK_EABT** by the hypervisor.
+
+**Note:** When both stage 1 and stage 2 are enabled, a CD or stage 1 translation table descriptor fetch might cause a stage 2 Translation-related fault, and might therefore stall the transaction. This is the same behavior as a faulting IPA for the transaction address: the stage 2 fault can be resolved and the transaction restarted.
+
+All other fault types (configuration errors, structure faults such as F_BAD_STE, F_BAD_CD) always abort the transaction regardless of Terminate/Stall configuration.
 
 ## Transaction Independence
 

@@ -1,9 +1,9 @@
 ---
 title: "SMMU Initialization"
 type: concept
-tags: [smmu, initialization, reset, enable, configuration, software]
+tags: [smmu, initialization, reset, enable, configuration, software, smmu-s-init, smmuen, cr0ack, realm, gpcen]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -36,14 +36,53 @@ Arm recommends the following steps (§3.11):
 **Pre-conditions before setting SMMUEN:**
 - `SMMU_STRTAB_BASE` and `SMMU_CR1` table attributes must be configured first to avoid incoming traffic attempting a lookup through uninitialized pointers.
 
-## Secure State Initialization
+## §3.11 SMMU_S_INIT — Secure Initialization Shortcut
 
 When `SMMU_S_IDR1.SECURE_IMPL == 1`:
 - Secure software must fully initialize the Secure interface before handover to Non-secure software.
 - Same sequence as Non-secure but using `SMMU_S_*` registers.
-- `SMMU_S_INIT.INV_ALL` provides a shortcut: write 1, poll until 0 to invalidate all SMMU caches without using the Command queue. Arm expects this to be used by Secure software.
-- Non-secure software cannot rely on `SMMU_S_INIT` access; it may be available from reset (IMPLEMENTATION DEFINED) but may be revoked by Secure software.
-- Non-secure invalidation must use `CMD_TLBI_EL2_ALL` and `CMD_TLBI_NSNH_ALL` commands.
+- **`SMMU_S_INIT.INV_ALL`** provides a shortcut — invalidates all SMMU caches and TLBs (all configuration and translation caches, all translation regimes and Security states) **without using the Command queue**.
+
+**`SMMU_S_INIT.INV_ALL` procedure:**
+1. Write `SMMU_S_INIT.INV_ALL = 1`.
+2. Poll `SMMU_S_INIT.INV_ALL` until it reads as 0 → invalidation complete.
+
+**Behavior details:**
+- Write of 1 causes a global invalidation of all cache/TLB entries present before the write. When the invalidation completes, `INV_ALL` resets to 0.
+- If an invalidation was already underway before the write, the existing operation is completed and then `INV_ALL` resets to 0.
+- Invalidation completion is **not** required to wait for outstanding transactions to complete.
+- Affects **locked** configuration and translation cache entries (if implementation supports locking).
+- Also invalidates any **GPT information** cached in TLBs (GPT may be cached in TLBs).
+
+**CONSTRAINED UNPREDICTABLE conditions for INV_ALL:**
+- Writing INV_ALL=1 when any `SMMU_(*_)CR0.SMMUEN == 1`, or an update of any `SMMUEN` to 1 is in progress, or `SMMU_ROOT_CR0.ACCESSEN == 1`, or an update of ACCESSEN to 1 is in progress: CONSTRAINED UNPREDICTABLE — the write is either IGNORED or the invalidation occurs and completes normally.
+- An update of `SMMUEN` to 1 while an `INV_ALL` operation is underway: CONSTRAINED UNPREDICTABLE effect on the invalidation.
+
+**Realm/RME constraint:** If `SMMU_ROOT_IDR0.REALM_IMPL == 1`, then `SMMU_S_INIT.INV_ALL` has **no effect** if `SMMU_ROOT_CR0.GPCEN == 1`. Root firmware is responsible for writing INV_ALL **before** enabling granule protection checks.
+
+**Non-secure access to SMMU_S_INIT:**
+- `SMMU_S_INIT` is normally Secure-only. Exception: the system may provide an IMPLEMENTATION DEFINED mechanism allowing Non-secure software to access it at reset.
+- Arm expects Secure software to **disable** this Non-secure access mechanism after SMMU initialization.
+- Arm **strongly recommends** that `SMMU_S_INIT` be exposed for Non-secure initialization software when `SMMU_S_IDR1.SECURE_IMPL == 1` but no Secure software exists.
+- Non-secure software **must not rely** on `SMMU_S_INIT` access — it is not guaranteed. Non-secure initialization must use `CMD_TLBI_EL2_ALL` and `CMD_TLBI_NSNH_ALL` commands instead.
+
+## Realm State Initialization
+
+When `SMMU_ROOT_IDR0.REALM_IMPL == 1`:
+- The Realm SMMU interface (`SMMU_R_*` registers) is present.
+- Realm initialization sequence is the same as Non-secure/Secure but uses `SMMU_R_*` registers.
+- **No separate `SMMU_R_INIT`** register exists — the equivalent of `SMMU_S_INIT.INV_ALL` for the Realm state is performed by Root firmware before enabling GPCs (`SMMU_ROOT_CR0.GPCEN`).
+- `SMMU_R_CR0.ATSCHK` is RES1 — ATS checking is always required for Realm streams.
+- `SMMU_R_GBPA.ABORT` is RES1 — non-translated Realm traffic is always aborted (no bypass).
+- Realm streams use `SMMU_R_CR0.SMMUEN` and `SMMU_R_CR0ACK.SMMUEN` for the same enable/ACK handshake.
+
+## SMMU_S_INIT vs SMMU_S_CR0 SMMUEN/CR0ACK Ordering
+
+`SMMU_S_INIT.INV_ALL` must only be used when `SMMU_S_CR0.SMMUEN == 0` (or in other permitted CONSTRAINED UNPREDICTABLE conditions described above). The typical Secure init flow:
+1. Write `SMMU_S_INIT.INV_ALL = 1`.
+2. Poll until `INV_ALL == 0`.
+3. Configure structures (`SMMU_S_STRTAB_BASE`, queues, etc.).
+4. Enable: `SMMU_S_CR0.SMMUEN = 1`, poll `SMMU_S_CR0ACK.SMMUEN`.
 
 ## SMMU_CR0ACK — Update Procedure
 

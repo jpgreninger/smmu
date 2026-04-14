@@ -1,9 +1,9 @@
 ---
 title: "Virtual Machine Structure (VMS)"
 type: concept
-tags: [smmu, vms, virtualization, vmid, smmuv3.2, configuration]
+tags: [smmu, vms, virtualization, vmid, smmuv3.2, configuration, mpam, partid-map, f-vms-fetch]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -15,39 +15,89 @@ The Virtual Machine Structure (VMS) is an in-memory data structure introduced in
 
 VMS presence is indicated by `SMMU_IDR0.VMS == 1` (optional, SMMUv3.2+).
 
-## VMS Contents
+## §5.6 VMS Structure
 
-The VMS contains per-VM configuration such as:
-- VMID-scoped settings that would otherwise be duplicated in every STE of a given VM.
-- Configuration relevant to the stage 2 translation regime for a VM.
+**Size:** 4 KB (4096 bytes), 4 KB-aligned.
 
-(Full field list is in §5.6 VMS data structure format.)
+**Current defined fields:**
 
-## VMS Location
+| Field | Bits | Description |
+|-------|------|-------------|
+| `PARTID_MAP` | `[511:0]` | Array of 32 × 16-bit little-endian physical PARTIDs, indexed by virtual `CD.PARTID`. Maps virtual CD PARTID values to physical PARTID values. |
+| Reserved | `[32767:512]` | RES0. Reserved for future per-VM functionality. |
 
-The VMS is pointed to from an STE via `STE.VMSPtr`. The pointer is a PA.
+### PARTID_MAP Detail
 
-If `STE.VMSPtr` points to an address out of range of the OAS, a C_BAD_STE event is generated.
+The 32-entry PARTID_MAP array maps virtual PARTID values (from `CD.PARTID` for CDs located through an STE referencing this VMS) to physical PARTID values used for MPAM.
 
-## VMS Fetching
+**Determining the appropriate `PARTID_MAX` for range checking:**
+- Non-secure stream: `SMMU_MPAMIDR.PARTID_MAX`.
+- Secure stream with `SMMU_S_MPAMIDR.HAS_MPAM_NS == 0` or `STE.MPAM_NS == 0`: `SMMU_S_MPAMIDR.PARTID_MAX`.
+- Secure stream with `SMMU_S_MPAMIDR.HAS_MPAM_NS == 1` and `STE.MPAM_NS == 1`: `SMMU_MPAMIDR.PARTID_MAX`.
 
-The VMS is fetched from memory when the SMMU processes a transaction for a stream whose STE has a VMS pointer. Like STEs and CDs, the VMS may be cached by the SMMU.
+If an entry is configured with a value greater than the supported PARTID size, an **UNKNOWN PARTID** is used.
 
-## VMS Caching and Invalidation
+Note: There is no equivalent PARTID_MAP for PMG values — PMG does not need to be mapped from virtual to physical.
 
-- The SMMU may cache VMS entries.
-- Invalidation command: `CMD_CFGI_VMS_PIDM(SSec, VMID)` — invalidates the VMS cache entry for the specified VMID.
-- Part of the standard configuration invalidation flow when per-VM configuration changes.
+Note: The number 32 derives from the MPAM PE limit in the A-profile architecture.
 
-## Relationship to STE
+## §5.6.1 VMS Presence and Fetching
 
-A VMS is associated with a VMID, which may be shared across multiple STEs. When multiple STEs share the same VMID, they may all point to the same VMS. Updating the VMS changes behavior for all streams associated with that VMID.
+The VMS is supported by a Security state when **all** of the following are true:
+- `SMMU_IDR3.MPAM == 1`
+- `SMMU_IDR0.S1P == 1`
+- `SMMU_IDR0.S2P == 1`
+
+**Additionally for Non-secure state:**
+- `SMMU_MPAMIDR.PARTID_MAX != 0`
+
+**Additionally for Secure state:**
+- `SMMU_S_IDR1.SEL2 == 1`, and at least one of:
+  - `SMMU_S_MPAMIDR.PARTID_MAX != 0`
+  - `SMMU_MPAMIDR.PARTID_MAX != 0` and `SMMU_S_MPAMIDR.HAS_MPAM_NS == 1`
+
+**Additionally for Realm state:** at least one of:
+- `SMMU_R_MPAMIDR.PARTID_MAX != 0`
+- `SMMU_MPAMIDR.PARTID_MAX != 0` and `SMMU_R_MPAMIDR.HAS_MPAM_NS == 1`
+
+VMS is not always enabled even when supported — see `STE.VMSPtr` for when the VMS is enabled.
+
+**VMS fetch attributes:** same memory attributes and Security state as those used to fetch STEs in the corresponding Security state (`SMMU_CR1` and `SMMU_STRTAB_BASE`).
+
+**Speculative VMS access:** If VMS is enabled for a stream, the SMMU is permitted (but not required) to access the VMS even when processing a transaction that does not require VMS information. If such a speculative access experiences an External abort → treated as if the VMS was required, reported as **F_VMS_FETCH**.
+
+Example: A nested configuration with `STE.S1MPAM == 1` enables VMS. A transaction that bypasses stage 1 due to `STE.S1DSS == 0b01` does not require VMS information, but the SMMU may still access it; an error would be reported as F_VMS_FETCH. Also possible for non-client (PRI queue overflow) transactions.
+
+## §5.6.2 VMS Caching and Invalidation
+
+`PARTID_MAP` contents may be cached as:
+1. **A configuration cache entry indexed by StreamID** — invalidated by any operation affecting the StreamID (CMD_CFGI_STE scope or wider).
+2. **A separate configuration cache for PARTID_MAP contents, indexed by VMID** — invalidated by CMD_CFGI_VMS_PIDM.
+
+`PARTID_MAP` is **not** cached in a TLB.
+
+Because PARTID_MAP may be cached by both StreamID and VMID, a change requires invalidation by **both** StreamID and VMID:
+
+- `CMD_CFGI_STE` / `CMD_CFGI_STE_RANGE`: invalidate StreamID-indexed VMS information for matching streams.
+- `CMD_CFGI_ALL`: invalidates all VMS information regardless of indexing method.
+- `CMD_CFGI_VMS_PIDM(VMID)`: invalidates any separate VMID-indexed PARTID_MAP cache.
+
+Note: `STE.VMSPtr` does not interact with `SMMU_(*_)CR0.VMW`. If STEs with different VMIDs point to the same VMS, information may be cached multiple times and invalidation requires operations for each VMID.
+
+## VMS Location and Consistency
+
+The VMS is pointed to from an STE via `STE.VMSPtr` (PA). If `STE.VMSPtr` points to an address out of OAS range → **C_BAD_STE**.
+
+**Multiple STEs sharing a VMS:**
+- Multiple STEs can point to the same VMS to avoid configuration duplication.
+- Multiple STEs within a Security state with the same VMID **must** point to the same VMS. Using different VMS pointers for STEs sharing a VMID is UNPREDICTABLE (the SMMU may use any of the pointers).
 
 ## Model Implementation Notes
 
-- VMS support is optional; a model must check `SMMU_IDR0.VMS` before implementing VMS fetch logic.
-- VMS adds an additional memory access in the configuration lookup path; a performance model should account for this latency.
-- VMS cache invalidation (`CMD_CFGI_VMS_PIDM`) is a separate invalidation scope from STE and CD invalidation.
+- VMS support is optional; check `SMMU_IDR3.MPAM`, `SMMU_IDR0.S1P/S2P`, and per-state MPAMIDR conditions before implementing VMS fetch logic.
+- VMS adds an additional memory access in the configuration lookup path; performance model should account for this latency.
+- Two cache invalidation scopes: StreamID (CMD_CFGI_STE family) and VMID (CMD_CFGI_VMS_PIDM). Both must be issued when updating PARTID_MAP.
+- F_VMS_FETCH event must be generated on External abort during VMS access (even for speculative access).
 
 ## Related Concepts
 

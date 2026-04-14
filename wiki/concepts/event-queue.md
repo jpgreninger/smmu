@@ -1,9 +1,9 @@
 ---
 title: "Event Queue"
 type: concept
-tags: [smmu, event-queue, circular-buffer, faults, events, software-interface]
+tags: [smmu, event-queue, circular-buffer, faults, events, software-interface, stall, mev, event-merging]
 created: 2026-04-07
-updated: 2026-04-07
+updated: 2026-04-14
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -33,6 +33,73 @@ Same mirrored circular buffer mechanics as the [[concepts/command-queue]], with 
 - Software must not assume a new event is present without first reading PROD.
 - Interrupt ordering: the SMMU updates PROD no later than when it asserts the queue interrupt. However, software must not assume new entries are present on interrupt arrival without reading PROD — a prior interrupt handler may have already consumed all entries.
 
+## §7.2.1 Event Writability Conditions
+
+Events are delivered into an Event queue only when the queue is **writable**. The Event queue is writable when **all** of the following are true:
+
+1. The queue is enabled: `SMMU_(*_)CR0.EVENTQEN == 1` for the Security state of the queue.
+2. The queue is not full (see §7.4 Event queue overflow).
+3. No unacknowledged `SMMU_(*_)GERROR.EVENTQ_ABT_ERR` condition exists for the queue.
+
+### Behavior When Queue Is Not Writable
+
+- **Non-stall events:** Silently discarded. A queue overflow condition is triggered when events are discarded because the queue is full (see §7.4).
+- **Stall events:** Never discarded. A stalled transaction that cannot record its event because the queue is unwritable has one of the following behaviors:
+  1. **Invalidation+CMD_SYNC path:** If the stalled transaction is affected by a configuration or translation invalidation and a subsequent `CMD_SYNC`, the transaction must be retried after the queue becomes writable (non-full, enabled, no abort). The retry either:
+     - Succeeds (no event recorded for the original fault), or
+     - Generates a new fault (reflecting new configuration), which attempts to write a new event to the now-writable queue.
+  2. **Permitted early retry:** A transaction not affected by an invalidation/CMD_SYNC is **permitted but not required** to be retried when the queue becomes writable.
+  3. **Retry while still unwritable:** If the transaction retries while the queue is still unwritable:
+     - If the retry translates successfully, the original event is **permitted but not required** to be recorded.
+     - If the retry faults again and stalls again: the new stall event is recorded when the queue becomes writable.
+     - If the retry faults and terminates: the terminate event recording is **lost** (no record).
+  4. **No retry path:** If the transaction is not retried, the original fault event record is recorded when the queue becomes writable.
+
+### Early Retry Permit
+
+An event is permitted (but not required) to be recorded for a stalled transaction when the stalled transaction **early-retried** and translated successfully before the SMMU attempted to write out the event record (see §3.12.2.2 Early retry of Stalled transactions). Since the transaction has completed without software intervention, there is no benefit in recording the original stall.
+
+### Terminated Transaction Events
+
+Events from **terminated** faulting transactions commit to being recorded when the queue is writable. When `EVENTQEN` transitions to 0:
+- Committed events are written out and guaranteed visible by the time the update completes.
+- All uncommitted events from terminated faulting transactions are discarded.
+- If Event queue writes aborted, the condition is visible in `GERROR` by the time the `EVENTQEN` update completes.
+
+Some events may be recorded when `SMMU_(*_)CR0.SMMUEN == 0` (where explicitly stated in event definitions). The remainder require translation to be enabled. Note: `SMMUEN == 0` does **not** imply `EVENTQEN == 0`.
+
+## §7.2.2 Event Queue External Abort
+
+An external abort while writing to the Event queue activates `SMMU_(*_)GERROR.EVENTQ_ABT_ERR`. Whether the interconnect can report transaction aborts is **IMPLEMENTATION DEFINED**.
+
+When `EVENTQ_ABT_ERR` is triggered, one or more events may have been lost, including stall fault event records.
+
+The SMMU only writes to the Event queue when the queue is enabled and writable.
+
+### Synchronous External Abort
+- Queue entry validity semantics are maintained: all entries up to `SMMU_(*_)EVENTQ_PROD` are valid, successfully-written records.
+- All outstanding queue writes complete before the error is flagged in `GERROR.EVENTQ_ABT_ERR`.
+- Records written at and beyond the aborting queue location are not visible to software, even if successfully written — they are lost.
+- **The PROD index is not incremented** for entries that caused a synchronous abort.
+- In the scenario where a write to an empty Event queue aborts synchronously, PROD is not incremented, the queue remains empty, and the queue non-empty IRQ is not triggered.
+- Software can consume and process all valid entries in the Event queue normally.
+
+### Asynchronous External Abort
+- Queue validity semantics are **broken**. The PROD index may be incremented for entries that caused an asynchronous abort.
+- Software must assume all Event queue entries are **invalid** upon receiving the Global Error.
+- Arm **strongly recommends** that the queue be made empty — either by re-initialization or by consuming/discarding all (invalid) entries.
+- An IRQ for `SMMU_(*_)GERROR.EVENTQ_ABT_ERR` may arrive in any order relative to the Event queue non-empty IRQ.
+
+If the stall model is implemented and enabled, software must terminate all stalling transactions present in the SMMU using `CMD_STALL_TERM` or by transitioning `SMMU_(*_)CR0.SMMUEN` through 0.
+
+## §7.2.3 Security State Queue Independence
+
+If Secure state is implemented, the Secure Event queue receives events relating to Secure streams; the Non-secure Event queue receives events from Non-secure streams.
+
+Event queues for different Security states are **independent**:
+- Non-secure faults/errors do **not** cause Secure event records.
+- Secure faults/errors do **not** cause Non-secure event records.
+
 ## Event Write Commit Semantics
 
 Event record generation is a multi-step process:
@@ -59,11 +126,65 @@ There is no requirement for an event to be visible in the Event queue before the
 - An event for a terminated transaction may appear in the Event queue before or after the abort reaches the client device.
 - `CMD_SYNC` enforces visibility of events for terminated transactions, but only up to previously-consumed commands.
 
-## Event Merging
+## §7.3 Event Record Format
+
+All event records are **32 bytes** in size. All event records are **little-endian**. Event records are recorded into the Event queue appropriate to the Security status of the StreamID causing the event.
+
+### Common Fields (§7.3)
+
+All event record types share the following common fields:
+
+| Field | Description |
+|-------|-------------|
+| `StreamID` | The StreamID of the requester that issued the transaction that led to the event. |
+| `RnW` | Read/Write nature of the transaction: `0` = Write, `1` = Read. For CMOs, ATS TR, and transactions, see §16.7.2, §3.9.1, §13.1.1 respectively. |
+| `PnU` | Privileged/Unprivileged (post-STE override): `0` = Unprivileged, `1` = Privileged. |
+| `InD` | Instruction/Data (post-STE override): `0` = Data, `1` = Instruction. |
+| `InputAddr` | The 64-bit input address to the SMMU for the transaction. Includes sign-extension as described in §3.4.1. TBI does not affect `InputAddr` — bits[63:56] are included as supplied to the SMMU. May be a VA, IPA, or PA depending on context (e.g., F_TRANSLATION at stage 1 → `InputAddr` is a VA). |
+| `SSV` | SubstreamID validity: `0` = no SubstreamID present (SubstreamID field unknown), `1` = SubstreamID field valid. |
+| `SubstreamID` | The SubstreamID provided with the transaction (valid only when `SSV == 1`). |
+| `S2` | Stage of fault: `0` = Stage 1 fault, `1` = Stage 2 fault. |
+| `CLASS` | Class of operation that caused the fault: `0b00` = CD (CD fetch), `0b01` = TTD (stage 1 translation table fetch), `0b10` = IN (input address caused fault), `0b11` = Reserved. |
+| `NSIPA` | Non-secure IPA. Zero unless the event is recorded on the Secure event queue and `S2 == 1`, in which case this bit equals the NS bit output from stage 1 for the faulting access. In the case of a stage 2 fault on a Secure stream, indicates whether the translation attempt used `STE.S2TTB` (NS=0) or `STE.S_S2TTB` (NS=1). |
+| `GPCF` | Granule Protection Check Fault: `0` = external abort did not arise from a GPC fault; `1` = event arose from a GPC fault (see §3.25.3). |
+
+Some events (F_STE_FETCH, F_CD_FETCH, F_VMS_FETCH, F_WALK_EABT) additionally contain a **fetch address** field: the address of the specific structure or descriptor (STE, CD, VMS, or TTD) that an aborting transaction was originally initiated to access. This address is as calculated by the stream table, CD table, VMS, or translation table walk.
+
+Portions of event records not explicitly defined are RES0.
+
+Arm recommends that software treats receipt of any event type that is not defined in the architecture as a non-fatal occurrence.
+
+## §7.3.1 Event Record Merging
+
+Events originating from a stream are **permitted** to be merged when `STE.MEV == 0` has not been set to disable merging. A merged event record is a single record written to the Event queue representing more than one occurrence of an event.
+
+Two or more events are **permitted but not required** to be merged when:
+- The events are identical (or differ only as explicitly stated in event record definitions), **and**
+- If the event type has a `Stall` field: `Stall == 0`. **Events with `Stall == 1` are never merged.**
+- The events are not separated by a significant amount of time.
+
+**Note:** The merging feature is intended to rate-limit events occurring at an unusually high frequency. Arm strongly recommends that an implementation writes separate records for events that do not occur in quick succession.
+
+### STE.MEV Control
+
+`STE.MEV == 0` disables merging for events from a particular stream. This is useful for debug visibility where one transaction maps to one fault event record. However, `STE.MEV` can only control merging for events generated **after a valid STE is located**.
+
+**The following four events may occur before an STE is located, and therefore may always be merged regardless of STE.MEV:**
+
+| Event | Reason |
+|-------|--------|
+| `F_UUT` | Unsupported upstream transaction — occurs before STE lookup |
+| `C_BAD_STREAMID` | StreamID out of range — STE not yet located |
+| `F_STE_FETCH` | External abort fetching the STE itself |
+| `C_BAD_STE` | STE is invalid/illegal — STE was fetched but is bad |
+
+Hardware implementations are **required** to respect `STE.MEV == 0` (other than these four events). Arm recommends that software expects event records might be merged even when `STE.MEV == 0` (e.g., a hypervisor might override merging).
+
+## Event Merging (Summary)
 
 Implementations may merge duplicate event records to reduce queue fill rate:
 - Merging is only permitted when all fields are identical (except those explicitly excluded per §7.3) and `Stall == 0` (stall events are never merged).
-- If an implementation supports merging, it must implement `STE.MEV` to enable/disable merging per stream.
+- `STE.MEV == 0` disables merging per stream (except for F_UUT, C_BAD_STREAMID, F_STE_FETCH, C_BAD_STE).
 - Software SMMU emulations are not required to honor `STE.MEV`.
 
 ## Event Record Types
