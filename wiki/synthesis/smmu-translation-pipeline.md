@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, translation, pipeline, model, functional, ats, translation-procedure]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
 ---
 
 # SMMU Translation Pipeline
@@ -59,7 +59,7 @@ Decode `STE.Config[2:0]`:
 
 Check for ATS-related faults (if AT != Untranslated):
 - If `STE.EATS == 0b00` and AT == Translation Request → **F_BAD_ATS_TREQ**, abort.
-- If AT == Translated and `ATSCHK == 1`: apply Translated transaction checks (see [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md)).
+- If AT == Translated and `ATSCHK == 1`: apply Translated transaction checks (see [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md)).
 
 ### Step 4: SubstreamID Handling (if stage 1 enabled)
 
@@ -134,7 +134,7 @@ Applies when `STE.Config` includes stage 2.
 
 Each fault above either:
 - **Always terminates** with abort (configuration errors, F_WALK_EABT, GPC, F_TLB_CONFLICT, bypassed F_ADDR_SIZE).
-- **Is configurable** (Translation-related faults during translation walks at either stage): behavior determined by CD.{S,R,A} for stage 1 and STE.{S2S,S2R} for stage 2. See [../concepts/fault-models.md](../concepts/fault-models.md).
+- **Is configurable** (Translation-related faults during translation walks at either stage): behavior determined by CD.{S,R,A} for stage 1 and STE.{S2S,S2R} for stage 2. See [../concepts/fault-models.md](concepts/fault-models.md).
 
 ## TLB and Configuration Cache Interaction
 
@@ -170,9 +170,9 @@ The six flowcharts and their corresponding pipeline steps are:
 | Figure 15.1 | Top-level translation procedure | Step 0–3 above |
 | Figure 15.2 | Stage 1 translation | Step 4–7 above |
 | Figure 15.3 | Stage 2 translation | Step 8 above |
-| Figure 15.4 | ATS Translation Request handling | Step 3 + [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) §3.9 |
-| Figure 15.5 | Translated transaction (ATSCHK) handling | [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) §ATSCHK |
-| Figure 15.6 | SMMU-originated transaction flow | [../concepts/external-interfaces.md](../concepts/external-interfaces.md) §14.3 |
+| Figure 15.4 | ATS Translation Request handling | Step 3 + [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) §3.9 |
+| Figure 15.5 | Translated transaction (ATSCHK) handling | [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) §ATSCHK |
+| Figure 15.6 | SMMU-originated transaction flow | [../concepts/external-interfaces.md](concepts/external-interfaces.md) §14.3 |
 
 ### §15.2 ATS Translation Request Response Categories
 
@@ -193,14 +193,14 @@ This design means the endpoint ATC can cache "no permission" entries, enabling t
 
 ## Related Pages
 
-- [../concepts/two-stage-translation.md](../concepts/two-stage-translation.md) — complete address size and translation semantics
-- [../concepts/stream-table-entry.md](../concepts/stream-table-entry.md) — STE structure and Config encoding
-- [../concepts/context-descriptor.md](../concepts/context-descriptor.md) — CD structure and stage 1 parameters
-- [../concepts/fault-models.md](../concepts/fault-models.md) — fault behavior at each translation step
-- [../concepts/tlb-invalidation.md](../concepts/tlb-invalidation.md) — cache maintenance
-- [../concepts/security-states.md](../concepts/security-states.md) — SEC_SID governs which tables/queues are used
-- [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — Step 10 detail
-- [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — AT field handling, ATS response semantics (§3.9.1.2), ATSCHK
-- [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — SMMU-originated transactions (§14.3); Chapter 14 ingress/egress port
-- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — detailed fault model subsystem reference
-- [../synthesis/smmu-security-states.md](../synthesis/smmu-security-states.md) — security state pipeline variations
+- [../concepts/two-stage-translation.md](concepts/two-stage-translation.md) — complete address size and translation semantics
+- [../concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE structure and Config encoding
+- [../concepts/context-descriptor.md](concepts/context-descriptor.md) — CD structure and stage 1 parameters
+- [../concepts/fault-models.md](concepts/fault-models.md) — fault behavior at each translation step
+- [../concepts/tlb-invalidation.md](concepts/tlb-invalidation.md) — cache maintenance
+- [../concepts/security-states.md](concepts/security-states.md) — SEC_SID governs which tables/queues are used
+- [../concepts/granule-protection-check.md](concepts/granule-protection-check.md) — Step 10 detail
+- [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — AT field handling, ATS response semantics (§3.9.1.2), ATSCHK
+- [../concepts/external-interfaces.md](concepts/external-interfaces.md) — SMMU-originated transactions (§14.3); Chapter 14 ingress/egress port
+- [../synthesis/smmu-fault-model.md](synthesis/smmu-fault-model.md) — detailed fault model subsystem reference
+- [../synthesis/smmu-security-states.md](synthesis/smmu-security-states.md) — security state pipeline variations

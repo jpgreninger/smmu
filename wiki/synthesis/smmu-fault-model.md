@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, fault, terminate, stall, event, model, correctness]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
 ---
 
 # SMMU Fault Model
@@ -236,9 +236,9 @@ A GERROR interrupt fires when any error becomes active, **except** `MSI_GERROR_A
 
 ## Related Pages
 
-- [../concepts/fault-models.md](../concepts/fault-models.md) — concept-level description
-- [../concepts/event-queue.md](../concepts/event-queue.md) — event queue mechanics and visibility semantics
-- [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_RESUME, CMD_STALL_TERM, CMD_SYNC
-- [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — GERROR as one of 13 interrupt sources; MSI synchronization
-- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — where faults are generated
-- [../synthesis/smmu-queue-mechanics.md](../synthesis/smmu-queue-mechanics.md) — queue-level implementation
+- [../concepts/fault-models.md](concepts/fault-models.md) — concept-level description
+- [../concepts/event-queue.md](concepts/event-queue.md) — event queue mechanics and visibility semantics
+- [../concepts/command-queue.md](concepts/command-queue.md) — CMD_RESUME, CMD_STALL_TERM, CMD_SYNC
+- [../concepts/interrupts-and-power.md](concepts/interrupts-and-power.md) — GERROR as one of 13 interrupt sources; MSI synchronization
+- [../synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md) — where faults are generated
+- [../synthesis/smmu-queue-mechanics.md](synthesis/smmu-queue-mechanics.md) — queue-level implementation

@@ -4,7 +4,7 @@ type: synthesis
 tags: [smmu, pcie, ats, pri, translated, split-stage, dpt, cxl, model]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md](sources/ihi0070g-b-smmuv3-architecture-spec.md)
 ---
 
 # SMMU PCIe ATS Integration
@@ -160,10 +160,10 @@ To clear ATSCHK=0:
 
 ## Related Pages
 
-- [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — concept-level reference
-- [../concepts/security-states.md](../concepts/security-states.md) — SEC_SID from T/XT bits
-- [../concepts/stream-table-entry.md](../concepts/stream-table-entry.md) — STE.EATS encoding
-- [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — applied to Translated transactions
-- [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — EATS=0b11 DPT check
-- [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP
-- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — ATS in translation pipeline
+- [../concepts/pcie-ats-pri.md](concepts/pcie-ats-pri.md) — concept-level reference
+- [../concepts/security-states.md](concepts/security-states.md) — SEC_SID from T/XT bits
+- [../concepts/stream-table-entry.md](concepts/stream-table-entry.md) — STE.EATS encoding
+- [../concepts/granule-protection-check.md](concepts/granule-protection-check.md) — applied to Translated transactions
+- [../concepts/device-permission-table.md](concepts/device-permission-table.md) — EATS=0b11 DPT check
+- [../concepts/command-queue.md](concepts/command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP
+- [../synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md) — ATS in translation pipeline
