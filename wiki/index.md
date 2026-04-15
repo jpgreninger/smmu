@@ -4,7 +4,7 @@ _Last updated: 2026-04-15 | Pages: 40_
 
 # Memory Map
 
-![Graph view of ihi0070g-b-smmuv3-architecture-spec.md][smmu_graph_view.png]
+![Graph view of ihi0070g-b-smmuv3-architecture-spec.md](smmu_graph_view.png)
 
 ## Sources
 | Page | Summary | Date | Tags |
