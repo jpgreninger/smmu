@@ -3,8 +3,8 @@ title: "SMMU Queue Mechanics"
 type: synthesis
 tags: [smmu, queue, circular-buffer, command-queue, event-queue, pri-queue, model]
 created: 2026-04-07
-updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-15
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU Queue Mechanics
@@ -201,3 +201,4 @@ These must be configured before enabling queues.
 - [../concepts/event-queue.md](../concepts/event-queue.md) — Event queue concept page
 - [../concepts/fault-models.md](../concepts/fault-models.md) — interaction with stall events and CMD_RESUME
 - [../concepts/smmu-initialization.md](../concepts/smmu-initialization.md) — queue initialization sequence
+- [smmu-pcie-ats-integration.md](smmu-pcie-ats-integration.md) — PRI queue integration: PPR format, PRG mechanics, overflow toggle, auto-response, PRIQ_ABT_ERR

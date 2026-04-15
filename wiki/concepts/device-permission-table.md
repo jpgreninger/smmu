@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, dpt, rme, realm, device-permission, pa-space, smmuv3.4, dpt-tlb, device-access-fault, dpt-lookup-fault]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Device Permission Table (DPT)

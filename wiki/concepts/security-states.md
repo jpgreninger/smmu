@@ -3,8 +3,8 @@ title: "Security States"
 type: concept
 tags: [smmu, security, non-secure, secure, realm, root, rme, trustzone]
 created: 2026-04-07
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-15
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Security States
@@ -134,6 +134,7 @@ Implementations may provide an **IMPLEMENTATION DEFINED** number of extra hardwa
 - [event-queue.md](event-queue.md) — events routed to the queue matching the stream's security state
 - [smmu-initialization.md](smmu-initialization.md) — separate enable sequences per security state
 - [pcie-ats-pri.md](pcie-ats-pri.md) — T/TE/XT bits in PCIe map to Realm security state
+- [../synthesis/smmu-security-states.md](../synthesis/smmu-security-states.md) — implementation-level reference: independent queue/table layout, RME/Realm init, multi-state checklist
 
 ## Sources That Use This Concept
 

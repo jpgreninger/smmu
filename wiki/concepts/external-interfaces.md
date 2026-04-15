@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, external-interface, ingress, egress, sec-sid, streamid, coherency, amba, pcie, httu]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # External Interfaces

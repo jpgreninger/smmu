@@ -3,8 +3,8 @@ title: "PCIe ATS and PRI"
 type: concept
 tags: [smmu, pcie, ats, pri, pasid, address-translation, cxl, rme, prg, overflow]
 created: 2026-04-07
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # PCIe ATS and PRI
@@ -68,7 +68,7 @@ For split-stage ATS (`EATS == 0b10`): only stage 2 translation is returned. The 
 When a Translated transaction (AT=0b10) arrives:
 1. If `ATSCHK == 0`: passes through SMMU without translation or checking.
 2. If `ATSCHK == 1`: SMMU checks the STE, verifies `EATS != 0b00`, applies overrides, records faults.
-3. For Realm streams: always subject to GPC ([granule-protection-check.md](granule-protection-check.md)) and DPT checks if `EATS == 0b11`.
+3. For Realm streams: always subject to GPC ([granule-protection-check](granule-protection-check)) and DPT checks if `EATS == 0b11`.
 
 ## ATC Invalidation (CMD_ATC_INV)
 
@@ -208,6 +208,7 @@ When `SMMU_R_IDR3.XT == 1` (TDISP XT Extensions supported):
 - [granule-protection-check.md](granule-protection-check.md) — Translated transactions subject to GPC for Realm streams
 - [device-permission-table.md](device-permission-table.md) — DPT check for EATS == 0b11
 - [command-queue.md](command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP commands
+- [smmu-pcie-ats-integration.md](smmu-pcie-ats-integration.md) — implementation-level reference: EATS dispatch table, full ATS/split-stage flows, PRI queue mechanics (PPR format, PRG, overflow), ATS configuration procedures, security state routing, CXL interactions
 
 ## Sources That Use This Concept
 

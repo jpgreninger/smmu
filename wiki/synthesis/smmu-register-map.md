@@ -3,8 +3,8 @@ title: "SMMU Register Map and Memory Layout"
 type: synthesis
 tags: [smmu, registers, memory-map, page0, page1, secure, realm, root, vatos, ecmdq]
 created: 2026-04-13
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU Register Map and Memory Layout
@@ -197,4 +197,6 @@ Accessible from Realm and Root PA spaces. Contain Realm-state equivalents of all
 - [../concepts/atos.md](../concepts/atos.md) — GATOS/VATOS register groups
 - [../concepts/mpam.md](../concepts/mpam.md) — MPAMIDR, GMPAM, GBPMPAM registers
 - [../concepts/mec.md](../concepts/mec.md) — SMMU_R_MECIDR, SMMU_R_GMECID
-- [../synthesis/smmu-version-feature-map.md](../synthesis/smmu-version-feature-map.md) — IDR0/IDR3 feature bits by version
+- [../concepts/ras.md](../concepts/ras.md) — SMMU_ERR* RAS register group (Ch. 12); error classification and SFM registers
+- [../concepts/debug-trace.md](../concepts/debug-trace.md) — Ch. 11 IMPLEMENTATION DEFINED debug registers; Security state isolation constraints on debug access
+- [smmu-version-feature-map.md](smmu-version-feature-map.md) — IDR0/IDR3 feature bits by version

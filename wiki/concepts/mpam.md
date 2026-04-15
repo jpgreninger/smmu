@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, mpam, partid, pmg, partitioning, monitoring, smmuv3.2, qos]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Memory System Resource Partitioning and Monitoring (MPAM)
@@ -45,7 +45,7 @@ PARTID and PMG are determined in order:
    - `STE.S1MPAM == 0`: from STE.
    - `STE.S1MPAM == 1`: `PARTID = VMS.PARTID_MAP[CD.PARTID]`, `PMG = CD.PMG`.
 
-In nested configurations with `STE.S1MPAM == 1`, `CD.PARTID` is a **virtual PARTID** that is remapped to a physical PARTID via the `VMS.PARTID_MAP` table (see [virtual-machine-structure.md](virtual-machine-structure.md)). This enables hypervisor-controlled physical PARTID assignment while the guest controls virtual PARTIDs.
+In nested configurations with `STE.S1MPAM == 1`, `CD.PARTID` is a **virtual PARTID** that is remapped to a physical PARTID via the `VMS.PARTID_MAP` table (see [virtual-machine-structure](virtual-machine-structure)). This enables hypervisor-controlled physical PARTID assignment while the guest controls virtual PARTIDs.
 
 `STE.S1MPAM == 0` provides backward compatibility for software unaware of MPAM.
 

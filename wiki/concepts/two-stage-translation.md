@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, translation, virtualization, stage1, stage2, mmu, address-size, ias, oas, vas, uas, tbi, lpa2]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Two-Stage Translation

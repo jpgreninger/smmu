@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, tlb, invalidation, commands, broadcast, asid, vmid, bbml, tlbinxs, aset, vmid-wildcard]
 created: 2026-04-07
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # TLB Invalidation

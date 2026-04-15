@@ -3,8 +3,8 @@ title: "SMMU Version Feature Map"
 type: synthesis
 tags: [smmu, version, features, smmuv3, compatibility, model]
 created: 2026-04-07
-updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU Version Feature Map
@@ -63,7 +63,7 @@ All SMMUv3.0 features plus:
 | 53-bit VA (LVA/VAX) | SMMUv3.1-VAX | `SMMU_IDR5.VAX == 0b01` | Optional |
 | Stage 2 Unprivileged Execute-never (XNX) | SMMUv3.1-XNX | `SMMU_IDR3.XNX` | Optional; **mandatory from SMMUv3.1** if S2P |
 | Page-Based Hardware Attributes (PBHA) | SMMUv3.1-TTPBHA | `SMMU_IDR3.PBHA` | Optional |
-| Cache stash / destructive read support | — | — | Optional |
+| Cache stash / destructive read support (§3.22) | — | `STE.DRE`, `STE.DCP` | Optional; see [../concepts/destructive-reads.md](../concepts/destructive-reads.md) |
 | PMCG error status | — | — | — |
 
 Mandatory changes in SMMUv3.1:
@@ -113,7 +113,7 @@ All SMMUv3.3 features plus:
 | 128-bit descriptors (D128) | SMMUv3.4-D128 | `SMMU_IDR5.D128` | Yes |
 | Attribute Index Enhancement (AIE) | SMMUv3.4-AIE | `SMMU_IDR3.AIE` | Yes |
 | Table descriptor Access flag (HAFT) | SMMUv3.4-HAFT | `SMMU_IDR0.HTTU` (ext.) | Yes |
-| MTE MemAttr NoTagAccess (stage 2) | SMMUv3.4-MTE_PERM | `SMMU_IDR3.MTEPERM` | **Mandatory** |
+| MTE MemAttr NoTagAccess (stage 2) | SMMUv3.4-MTE_PERM | `SMMU_IDR3.MTEPERM` | **Mandatory**; see [../concepts/memory-tagging-extension.md](../concepts/memory-tagging-extension.md) |
 | PASID TLP prefix on ATS Translated txns | SMMUv3.4-PASIDTT | `SMMU_IDR3.PASIDTT` | Yes |
 | XS (Extra Shareability TLBInXS) | — | `SMMU_IDR3.XS` | Yes |
 
@@ -155,4 +155,10 @@ A model should:
 - [../concepts/mec.md](../concepts/mec.md) — MEC (RME DA)
 - [../concepts/atos.md](../concepts/atos.md) — ATOS/VATOS (optional, SMMUv3.0+)
 - [../concepts/performance-monitors.md](../concepts/performance-monitors.md) — PMCG (optional, all versions)
-- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — full register map with IDR feature bits
+- [smmu-register-map.md](smmu-register-map.md) — full register map with IDR feature bits
+- [../concepts/destructive-reads.md](../concepts/destructive-reads.md) — SMMUv3.1+ DRE/DCP transaction classes (§3.22)
+- [../concepts/memory-tagging-extension.md](../concepts/memory-tagging-extension.md) — FEAT_MTE_PERM mandatory in SMMUv3.4 (§3.23)
+- [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — ingress sideband signals (StreamID, SEC_SID, AT, NS) apply across all versions
+- [../concepts/speculative-accesses.md](../concepts/speculative-accesses.md) — speculative structure prefetch model (§3.14, all versions)
+- [../concepts/coherency-and-embedded-implementations.md](../concepts/coherency-and-embedded-implementations.md) — COHACC, embedded preset structures (§3.15–3.16)
+- [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — 13 interrupt sources, MSI synchronization, Dormant state (§3.18–3.19)

@@ -3,8 +3,8 @@ title: "SMMU Fault Model"
 type: synthesis
 tags: [smmu, fault, terminate, stall, event, model, correctness]
 created: 2026-04-07
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU Fault Model
@@ -240,5 +240,6 @@ A GERROR interrupt fires when any error becomes active, **except** `MSI_GERROR_A
 - [../concepts/event-queue.md](../concepts/event-queue.md) — event queue mechanics and visibility semantics
 - [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_RESUME, CMD_STALL_TERM, CMD_SYNC
 - [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — GERROR as one of 13 interrupt sources; MSI synchronization
-- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — where faults are generated
-- [../synthesis/smmu-queue-mechanics.md](../synthesis/smmu-queue-mechanics.md) — queue-level implementation
+- [../concepts/ras.md](../concepts/ras.md) — RAS error records (SMMU_ERR*) back some GERROR conditions; SFM interaction with fault reporting
+- [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — where faults are generated
+- [smmu-queue-mechanics.md](smmu-queue-mechanics.md) — queue-level implementation

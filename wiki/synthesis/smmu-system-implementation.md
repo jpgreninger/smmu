@@ -3,8 +3,8 @@ title: "SMMU System and Implementation Considerations"
 type: synthesis
 tags: [smmu, implementation, caching, system-integration, pcie, amba, cmo, mpam, far-atomics]
 created: 2026-04-13
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU System and Implementation Considerations
@@ -183,5 +183,6 @@ Far Atomics are treated as both a data read and a write for permission-checking 
 - [../concepts/fault-models.md](../concepts/fault-models.md) — CMO fault recording; F_UUT; stall behavior
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — PCIe-specific integration requirements; stall prohibition; TDISP
 - [../concepts/security-states.md](../concepts/security-states.md) — RME DA StreamID/DeviceID integration rules
-- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — Full fault detection and reporting
-- [../synthesis/smmu-queue-mechanics.md](../synthesis/smmu-queue-mechanics.md) — Queue implementation constraints
+- [../concepts/ras.md](../concepts/ras.md) — RAS/SFM system-level requirements; error node integration; SFM entry conditions (Ch. 12)
+- [smmu-fault-model.md](smmu-fault-model.md) — Full fault detection and reporting
+- [smmu-queue-mechanics.md](smmu-queue-mechanics.md) — Queue implementation constraints

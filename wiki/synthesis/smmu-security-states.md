@@ -3,8 +3,8 @@ title: "SMMU Security States"
 type: synthesis
 tags: [smmu, security, non-secure, secure, realm, root, rme, model]
 created: 2026-04-07
-updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU Security States
@@ -130,7 +130,7 @@ SMMU-for-RME DA introduces MECID tagging for Realm streams:
 
 ### Granule Protection Checks (GPC)
 
-All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [../synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md](../synthesis/smmu-translation-pipeline]] Step 10 and [[../concepts/granule-protection-check.md).
+All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [smmu-translation-pipeline](smmu-translation-pipeline) Step 10 and [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md).
 
 ### DPT (RME DA)
 
@@ -182,4 +182,5 @@ Each state requires its own initialization sequence (see [../concepts/smmu-initi
 - [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — GPC for Realm
 - [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — DPT for Realm ATS
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — PCIe T/XT/TE bits and Realm state mapping
-- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — pipeline with security state gates
+- [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — pipeline with security state gates
+- [smmu-version-feature-map.md](smmu-version-feature-map.md) — per-version availability of Secure/Realm/Root state features

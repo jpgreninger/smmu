@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, mec, encryption, realm, rme-da, mecid, feat_mec, smmuv3.4]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Memory Encryption Contexts (MEC)

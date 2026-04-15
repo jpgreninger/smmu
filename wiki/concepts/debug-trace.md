@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, debug, trace, implementation-defined, security]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Debug and Trace

@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, permission, indirection, overlay, s1pie, s2pie, s2poe, smmuv3.4, armv8.9, pir, por, piindex, poindex, indirect-permission-scheme]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Permission Indirections (S1PIE / S2PIE / S2POE)

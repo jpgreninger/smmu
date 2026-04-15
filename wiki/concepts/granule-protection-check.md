@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, gpc, gpt, rme, realm, security, physical-address, gpf, gpt-lookup-error, nostreamid, speculative]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Granule Protection Check (GPC)

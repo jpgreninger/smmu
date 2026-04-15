@@ -3,8 +3,8 @@ title: "SMMU PCIe ATS Integration"
 type: synthesis
 tags: [smmu, pcie, ats, pri, translated, split-stage, dpt, cxl, model]
 created: 2026-04-07
-updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # SMMU PCIe ATS Integration
@@ -76,12 +76,58 @@ When a mapping changes (page unmapped, permissions changed):
 
 ## PRI Queue Flow
 
-1. Endpoint sends Page Request message (PCI PRI) for a VA/IPA it cannot resolve.
-2. SMMU delivers the page request to the PRI queue (`SMMU_PRIQ_*`).
-3. Software reads the PRI queue entry.
-4. Software resolves the mapping (maps the page, pins it, etc.).
-5. Software issues `CMD_PRI_RESP(StreamID, SubstreamID, SSV, PRGIndex, Resp)` to respond to the endpoint.
-6. SMMU forwards the PRI Response Message to the endpoint via the Root Complex.
+### PPR Message Format (Chapter 8)
+
+Each PRI Page Request (PPR) entry in `SMMU_PRIQ_*` carries:
+
+| Field | Description |
+|-------|-------------|
+| StreamID | Identifies the endpoint stream |
+| SSV / SubstreamID | Whether a PASID TLP prefix is present; PASID value if present |
+| `PRGIndex[8:0]` | Page Request Group index — groups related PPRs |
+| `Last` | Set on the final PPR in a PRG; software must not issue `CMD_PRI_RESP` before `Last==1` is seen |
+| `W, R, X, Priv` | Requested access permissions |
+
+**Stop Markers:** A PPR with `LWR == 0b100` and `SSV==1` is a Stop PASID Marker. A PPR with `LWR == 0b100` and `SSV==0` is a normal Page Request, not a Stop Marker. The SMMU does not generate responses to Stop Markers.
+
+### Page Request Groups (PRGs)
+
+- Multiple PPRs sharing the same `PRGIndex` form a PRG. PRG members may interleave in the queue; order is not guaranteed except that `Last==1` is not reordered with respect to prior entries.
+- Software issues one `CMD_PRI_RESP(StreamID, SubstreamID, SSV, PRGIndex, Resp)` after processing all PPRs in a PRG (including the `Last==1` entry).
+
+### PRI Overflow (OVFLG/OVACKFLG Toggle)
+
+When the PRI queue fills: SMMU toggles `SMMU_PRIQ_PROD.OVFLG` and auto-responds to incoming PPRs with `Last==1`. Software acknowledges by writing `SMMU_PRIQ_CONS.OVACKFLG` to match `OVFLG` (best done simultaneously with advancing `CONS.RD` after draining the queue).
+
+**Overflow recovery:**
+1. Process the entire queue from `CONS.RD` to `PROD.WR`, issuing `CMD_PRI_RESP` for each PRG where a `Last==1` entry is found.
+2. Ignore truncated groups — any PRG without a visible `Last==1` was auto-responded to before overflow; discard the partial group.
+3. Advance `CONS.RD` and set `OVACKFLG = OVFLG` in a single write.
+
+### Auto-Response Rules
+
+On overflow or when PRI is unavailable, the SMMU sends automatic PRG Responses governed by `STE.PPAR` and `SMMU_IDR3.PPS`:
+
+| Condition | PASID prefix | ResponseCode |
+|-----------|-------------|-------------|
+| `PPS==1` | Yes (always) | 0b0001 (Success) |
+| `PPS==0`, `PPAR==0`, no PASID | No | 0b0001 (Success) |
+| `PPS==0`, `PPAR==0`, PASID present | No | 0b0001 |
+| `PPS==0`, `PPAR==1`, PASID present | Yes | 0b0001 |
+| STE inaccessible / Secure stream | — | 0b1111 (Failure) |
+| `PRIQEN==0` or `PRIQ_ABT_ERR` active | — | 0b1111 (Failure) |
+
+### PRIQ_ABT_ERR
+
+An external abort on a PRI queue write activates `SMMU_GERROR.PRIQ_ABT_ERR`. While active: new PPRs receive auto-responses with `ResponseCode == 0b1111`. Synchronous abort: an automatic `0b1111` response is also generated for the failing entry. Recovery follows the GERROR toggle handshake (§7.5).
+
+### §8.3 PRG Response Code Summary
+
+| Code | Meaning |
+|------|---------|
+| 0b0000 | Response Invalid (never used by SMMU) |
+| 0b0001 | Success |
+| 0b1111 | Response Failure |
 
 ## Enabled/Disabled Summary
 
@@ -166,4 +212,5 @@ To clear ATSCHK=0:
 - [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — applied to Translated transactions
 - [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — EATS=0b11 DPT check
 - [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP
-- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — ATS in translation pipeline
+- [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — ingress sideband (SEC_SID, AT, NS, SubstreamID/SSV) carries ATS transaction type; port coherency requirements apply to ATS flows
+- [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — ATS in translation pipeline

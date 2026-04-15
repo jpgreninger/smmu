@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, ras, reliability, errors, sfm, ecc, poison, fault-handling]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Reliability, Availability, and Serviceability (RAS)

@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, fault, terminate, stall, translation-fault, fault-model, paging, virtual-memory, e-page-request]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Fault Models
@@ -188,6 +188,7 @@ The SMMU treats every transaction as independent. The fault behavior of one tran
 - [context-descriptor.md](context-descriptor.md) — CD.{S, R, A} configure stage 1 fault behavior
 - [stream-table-entry.md](stream-table-entry.md) — STE.{S2S, S2R, S1STALLD} configure stage 2 and stream-level fault behavior
 - [command-queue.md](command-queue.md) — CMD_RESUME, CMD_STALL_TERM resolve stalled transactions
+- [interrupts-and-power.md](interrupts-and-power.md) — fault events trigger interrupt sources; MSI synchronization fences govern when fault events become visible to software
 
 ## Sources That Use This Concept
 

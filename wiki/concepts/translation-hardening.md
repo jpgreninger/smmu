@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, smmuv3.4, security, permission, the, assuredonly, protected, feat_the]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Translation Hardening (THE)

@@ -5,6 +5,30 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-15] lint | Cross-reference repair: F1–F2 from fourth lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/performance-monitors.md`, `wiki/index.md`, `wiki/log.md`
+- Notes: Fourth lint pass. No broken wikilinks, no contradictions. Two fixes: F1: corrected index header from `Pages: 39` to `Pages: 40` and date to 2026-04-15 (actual count is 30 concepts + 8 synthesis + 1 entity + 1 source = 40; header was last updated when page count was 39). F2: added `[[concepts/debug-trace]]` to `performance-monitors` Related Concepts — PMCG and debug/trace are complementary Chapter 10/11 facilities; `debug-trace` inbound link count: 2→3. Only remaining near-orphan: `entities/arm-limited` at 1 link (expected). Wiki page count: 40.
+
+## [2026-04-15] lint | Cross-reference repair: F1–F5 from third lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/security-states.md`, `wiki/concepts/context-descriptor.md`, `wiki/concepts/attribute-transformation.md`, `wiki/synthesis/smmu-queue-mechanics.md`, `wiki/synthesis/smmu-translation-pipeline.md`, `wiki/synthesis/smmu-security-states.md`, `wiki/log.md`
+- Notes: Third lint pass. No broken wikilinks, no contradictions, no missing pages. Applied six cross-reference fixes across five issues: F1: added `[[synthesis/smmu-security-states]]` to `security-states` Related Concepts (was mentioned in prose only, no wikilink); F2: added `[[concepts/memory-tagging-extension]]` to `context-descriptor` Related section (CD.MAIR 0xF0 reserved encoding interaction); F3: added `[[concepts/memory-tagging-extension]]` to `attribute-transformation` Related Concepts (FEAT_MTE_PERM stage 2 MemAttr reinterpretation in the attribute combine path); F4: added `[[synthesis/smmu-pcie-ats-integration]]` to `smmu-queue-mechanics` Related Pages (PRI queue details); F5: added `[[synthesis/smmu-version-feature-map]]` to both `smmu-translation-pipeline` and `smmu-security-states` Related Pages (version-gated features). Resulting inbound link counts: `memory-tagging-extension` 2→4, `smmu-version-feature-map` 2→4, `smmu-pcie-ats-integration` 2→3, `smmu-security-states` 2→3. Only remaining near-orphan: `entities/arm-limited` at 1 link (expected — sole-source entity node). Wiki page count: 39 (no new pages).
+
+## [2026-04-14] lint | Cross-reference repair: F1–F3 from second lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/pcie-ats-pri.md`, `wiki/synthesis/smmu-fault-model.md`, `wiki/synthesis/smmu-register-map.md`, `wiki/synthesis/smmu-system-implementation.md`, `wiki/log.md`
+- Notes: Applied three fixes from second lint pass. F1: added `[[synthesis/smmu-pcie-ats-integration]]` to `pcie-ats-pri` Related Concepts — resolves last near-orphan (synthesis page was only reachable from `pcie-ats-pri` but not linked back). F2: added `[[concepts/ras]]` to `smmu-fault-model` (GERROR/SFM interaction), `smmu-register-map` (SMMU_ERR* register group), and `smmu-system-implementation` (SFM system-level requirements). F3: added `[[concepts/debug-trace]]` to `smmu-register-map` (Ch. 11 IMPLEMENTATION DEFINED debug registers). `concepts/ras` inbound link count: 2→5. `concepts/debug-trace` inbound link count: 1→2. `synthesis/smmu-pcie-ats-integration` inbound link count: 1→2.
+
+## [2026-04-14] lint | Full wiki health check and cross-reference repair
+
+- Files created: none
+- Files modified: `wiki/concepts/stream-table-entry.md`, `wiki/concepts/streamid-substreamid.md`, `wiki/concepts/httu.md`, `wiki/concepts/coherency-and-embedded-implementations.md`, `wiki/concepts/fault-models.md`, `wiki/synthesis/smmu-version-feature-map.md`, `wiki/synthesis/smmu-pcie-ats-integration.md`, `wiki/synthesis/smmu-security-states.md`, `wiki/log.md`
+- Notes: Lint pass covering all 39 pages. No broken wikilinks, no contradictions found. Fixed: (A) orphan `concepts/memory-tagging-extension` — added wikilinks from `stream-table-entry` (STE.S2FWB/FEAT_MTE_PERM interaction) and `smmu-version-feature-map` (MTE_PERM mandatory row); (B) missing cross-refs — `httu`→`destructive-reads` (§3.13.8 DR/CMO exception), `coherency-and-embedded-implementations`→`external-interfaces` (port coherency model), `fault-models`→`interrupts-and-power` (fault events→interrupt sources), `smmu-pcie-ats-integration`→`external-interfaces` (ATS ingress sideband); (C) expanded `smmu-pcie-ats-integration` PRI section with full Chapter 8 content (PPR format, PRG mechanics, OVFLG/OVACKFLG overflow toggle, auto-response table, PRIQ_ABT_ERR, §8.3 response codes); (D) `smmu-version-feature-map` Related Pages extended with 6 newer concept pages (`destructive-reads`, `memory-tagging-extension`, `external-interfaces`, `speculative-accesses`, `coherency-and-embedded-implementations`, `interrupts-and-power`) and inline links in SMMUv3.1 DRE/DCP row and SMMUv3.4 MTE_PERM row; (E) `streamid-substreamid`→`external-interfaces` (SEC_SID as physical sideband signal). Updated `updated` dates on 5 stale pages (`streamid-substreamid`, `smmu-pcie-ats-integration`, `smmu-security-states`, `smmu-version-feature-map`, and indirectly `httu`/`coherency`/`fault-models`/`stream-table-entry` via prior session edits). Wiki page count: 39 (no new pages).
+
 ## [2026-04-14] edit | Synthesis update: ECMDQ ERR toggle protocol added to smmu-queue-mechanics
 
 - Files created: none
@@ -39,7 +63,7 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 - Files created: `wiki/concepts/translation-hardening.md`, `wiki/concepts/atos.md`, `wiki/concepts/performance-monitors.md`, `wiki/concepts/debug-trace.md`, `wiki/concepts/ras.md`, `wiki/concepts/attribute-transformation.md`, `wiki/concepts/mpam.md`, `wiki/concepts/mec.md`, `wiki/synthesis/smmu-register-map.md`, `wiki/synthesis/smmu-system-implementation.md`
 - Files modified: `wiki/index.md`, `wiki/log.md`, `wiki/sources/ihi0070g-b-smmuv3-architecture-spec.md`, `wiki/synthesis/smmu-version-feature-map.md`
-- Notes: Filled all identified coverage gaps. Added concept pages for: ATOS/VATOS (Ch. 9), PMCG performance monitors (Ch. 10), debug/trace (Ch. 11), RAS/SFM (Ch. 12), attribute transformation (Ch. 13), MPAM (Ch. 17), MEC (Ch. 18), and translation hardening/THE (§3.27, SMMUv3.4). Added synthesis pages for the full register map (Ch. 6) and system/implementation considerations (Ch. 16). Fixed broken wikilink `[concepts/translation-hardening.md]` in source page. Updated source page Related Pages, version feature map cross-references, and index. Wiki now covers all 18 chapters of IHI 0070 G.b. Total pages: 33.
+- Notes: Filled all identified coverage gaps. Added concept pages for: ATOS/VATOS (Ch. 9), PMCG performance monitors (Ch. 10), debug/trace (Ch. 11), RAS/SFM (Ch. 12), attribute transformation (Ch. 13), MPAM (Ch. 17), MEC (Ch. 18), and translation hardening/THE (§3.27, SMMUv3.4). Added synthesis pages for the full register map (Ch. 6) and system/implementation considerations (Ch. 16). Fixed broken wikilink `[[concepts/translation-hardening]]` in source page. Updated source page Related Pages, version feature map cross-references, and index. Wiki now covers all 18 chapters of IHI 0070 G.b. Total pages: 33.
 
 ## [2026-04-07] ingest | Arm SMMUv3 Architecture Specification (IHI 0070 G.b)
 

@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, interrupts, msi, wired, power, dormant, irq]
 created: 2026-04-13
 updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Interrupts and Power

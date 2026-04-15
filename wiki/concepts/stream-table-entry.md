@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, ste, stream-table, configuration, data-structure]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Stream Table Entry (STE)
@@ -652,6 +652,7 @@ An STE is ILLEGAL when any of the following hold (transaction treated as C_BAD_S
 - [mpam.md](mpam.md) — STE.PARTID, STE.PMG, STE.S1MPAM, STE.MPAM_NS
 - [mec.md](mec.md) — STE.MECID for Realm streams (RME DA)
 - [attribute-transformation.md](attribute-transformation.md) — Chapter 13 governs MemAttr/MTCFG/ALLOCCFG/SHCFG combination
+- [memory-tagging-extension.md](memory-tagging-extension.md) — CD.MAIR must not use reserved 0xF0 MTE encoding; STE.S2FWB interacts with FEAT_MTE_PERM MemAttr reinterpretation (§3.23, §3.23.1)
 
 ## Sources That Use This Concept
 

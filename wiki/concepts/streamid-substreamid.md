@@ -3,8 +3,8 @@ title: "StreamID and SubstreamID"
 type: concept
 tags: [smmu, streamid, substreamid, pasid, stream, identification]
 created: 2026-04-07
-updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-14
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # StreamID and SubstreamID
@@ -69,6 +69,7 @@ sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
 - [context-descriptor.md](context-descriptor.md) — CD selected by SubstreamID
 - [security-states.md](security-states.md) — SEC_SID qualifies StreamID for Secure/NS/Realm disambiguation
 - [pcie-ats-pri.md](pcie-ats-pri.md) — PASID/SubstreamID mapping in PCIe ATS context
+- [external-interfaces.md](external-interfaces.md) — StreamID, SubstreamID/SSV, and SEC_SID are ingress sideband signals defined in Ch. 14; SEC_SID is a physical port signal, not part of the memory-mapped StreamID value
 
 ## Sources That Use This Concept
 

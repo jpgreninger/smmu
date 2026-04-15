@@ -5,7 +5,7 @@ entity-type: org
 tags: [arm, semiconductor, ip, architecture]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Arm Limited

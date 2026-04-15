@@ -4,7 +4,7 @@ type: concept
 tags: [smmu, httu, access-flag, dirty-state, translation-table, hardware-update, dbm, dps, ips, haft, ats-pri]
 created: 2026-04-07
 updated: 2026-04-14
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Hardware Translation Table Update (HTTU)
@@ -192,6 +192,7 @@ When HTTU for dirty state is supported (`SMMU_IDR0.HTTU == 0b10`):
 - [two-stage-translation.md](two-stage-translation.md) — HTTU interacts differently at stage 1 and stage 2
 - [fault-models.md](fault-models.md) — F_ACCESS is the fault raised when AF=0 and HTTU is not enabled
 - [tlb-invalidation.md](tlb-invalidation.md) — TLB invalidation required after software updates AF/dirty
+- [destructive-reads.md](destructive-reads.md) — §3.13.8: HTTU dirty state update is NOT performed for CMO, DR, or DH transactions; AF update still occurs
 
 ## Sources That Use This Concept
 

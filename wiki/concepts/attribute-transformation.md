@@ -3,8 +3,8 @@ title: "Attribute Transformation"
 type: concept
 tags: [smmu, attributes, memory-type, shareability, cacheability, ns, instcfg, privcfg, mtcfg, shcfg]
 created: 2026-04-13
-updated: 2026-04-13
-sources: [../sources/ihi0070g-b-smmuv3-architecture-spec.md]
+updated: 2026-04-15
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Attribute Transformation
@@ -109,6 +109,7 @@ All SMMU-originated transactions (structure fetches, translation table walks, qu
 - [security-states.md](security-states.md) — NS output attribute determines Secure vs Non-secure PA space; SIF check
 - [atos.md](atos.md) — ATOS ignores most STE attribute overrides; uses ATOS_ADDR fields for INST/PRIV
 - [pcie-ats-pri.md](pcie-ats-pri.md) — ATS Translated transactions: NS from NSCFG; MT/SH/ALLOC ignored
+- [memory-tagging-extension.md](memory-tagging-extension.md) — FEAT_MTE_PERM reinterprets stage 2 MemAttr field when S2FWB==0/1; interacts with the attribute combine path (§3.23.1)
 
 ## Sources That Use This Concept
 

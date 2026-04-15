@@ -4,7 +4,7 @@ type: source
 tags: [smmu, arm, iommu, virtualization, security, rme, pcie, architecture-spec]
 created: 2026-04-07
 updated: 2026-04-07
-sources: [ihi0070g-b-smmuv3-architecture-spec.md]
+sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
 # Arm SMMUv3 Architecture Specification (IHI 0070 G.b)
@@ -13,7 +13,7 @@ sources: [ihi0070g-b-smmuv3-architecture-spec.md]
 **Author(s):** Arm Limited
 **Date:** 2025-04-30 (version G.b)
 **Document number:** ARM IHI 0070 G.b
-**Original file:** `../../IHI0070G_b-System_Memory_Management_Unit_Architecture_Specification.md`
+**Original file:** `raw/IHI0070G_b-System_Memory_Management_Unit_Architecture_Specification.md`
 
 ## Summary
 
