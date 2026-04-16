@@ -2,13 +2,13 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel across Rust and C++ before waiting for the 5-hour window to reset the tokens. From my experience, the lack of memory in AI and the context window size causes the AI to partially fix things per pass or causes partial implementations due to it's inability to remember other sections of the 717 page spec that may modify the implementation of the SMMU in the area that it's currently working on. This requires multiple passes through the spec to guarantee that the implementation is correct. Thank you for your patience
 
-## ✅ **PRODUCTION RELEASE v1.7.1 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.7.4 (C++ + Rust)** - 100% ARM IHI0070G.b Conformance ✅
 
 A comprehensive, production-ready software model of the ARM System Memory Management Unit (SMMU) version 3, implemented in strict C++11 compliance and Rust for development, simulation, and testing environments. Both implementations deliver hardware-exceeding performance through extensive optimizations.
 
-**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.0% lines / 91.5% branches (185 tests), Rust 94.30% lines / 93.59% functions (212 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
+**🏆 Quality Status**: Production Ready (5/5 stars both implementations) | **📊 Test Coverage**: C++ 88.0% lines / 91.5% branches (195 tests), Rust 94.30% lines / 93.59% functions (212 tests) | **⚡ Performance**: C++ 86-101ns, Rust 31-74ns (optimized)
 
-**Latest Update (April 12, 2026)**: v1.7.1 — Comprehensive C++ conformance audit against Rust reference implementation: Priority 1 fixes (§3.4 address size enforcement, §7.3.1 MEV stall mode, §7.5 GERROR signaling, §8.2 secure stream PRI discard); Priority 2 fixes (§7/§8 GERROR/PRI test coverage); Priority 3 fixes (STATUSR.DORMANT dormancy signaling in disable path, stage-2 HTTU hardware access flag updates); Priority 4 fix (§13.1.7 Device/NC→OSH enforcement in applyOutputAttrs and TLB fast path). C++ tests: 185/185 passing, Rust tests: 212/212 passing, zero clippy warnings.
+**Latest Update (April 15, 2026)**: v1.7.4 — Wiki documentation updates: comprehensive graph view, audited wiki links and pages, updated ARM SMMU v3 specification coverage. C++ tests: 195/195 passing, Rust tests: 212/212 passing, zero clippy warnings.
 
 ## Production Features
 
