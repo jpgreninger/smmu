@@ -130,7 +130,7 @@ SMMU-for-RME DA introduces MECID tagging for Realm streams:
 
 ### Granule Protection Checks (GPC)
 
-All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [smmu-translation-pipeline](smmu-translation-pipeline) Step 10 and [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md).
+All Realm stream transactions (and some Non-secure with `RME_IMPL`) are subject to GPC at the PA output. See [smmu-translation-pipeline.md](smmu-translation-pipeline.md) Step 10 and [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md).
 
 ### DPT (RME DA)
 

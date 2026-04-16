@@ -197,7 +197,8 @@ These must be configured before enabling queues.
 
 ## Related Pages
 
-- [../concepts/command-queue.md](../concepts/command-queue.md) — Command queue concept page
+- [../concepts/command-queue.md](../concepts/command-queue.md) — Command queue concept page; ECMDQ mechanics
+- [../concepts/command-formats.md](../concepts/command-formats.md) — Complete command encoding reference (§4.1–§4.8): opcode table, CFGI/TLBI/ATS/DPTI/SYNC formats, CMD_SYNC guarantees table
 - [../concepts/event-queue.md](../concepts/event-queue.md) — Event queue concept page
 - [../concepts/fault-models.md](../concepts/fault-models.md) — interaction with stall events and CMD_RESUME
 - [../concepts/smmu-initialization.md](../concepts/smmu-initialization.md) — queue initialization sequence

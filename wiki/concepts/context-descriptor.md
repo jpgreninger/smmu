@@ -11,12 +11,12 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 
 ## Definition
 
-A Context Descriptor (CD) is the stage 1 translation configuration structure for an SMMU stream or substream. It is pointed to by the [stream-table-entry](stream-table-entry) via `STE.S1ContextPtr` and optionally indexed by SubstreamID. Each CD is a 64-byte (512-bit) structure that contains:
+A Context Descriptor (CD) is the stage 1 translation configuration structure for an SMMU stream or substream. It is pointed to by the [stream-table-entry.md](stream-table-entry.md) via `STE.S1ContextPtr` and optionally indexed by SubstreamID. Each CD is a 64-byte (512-bit) structure that contains:
 
 - Stage 1 translation table base pointers (`CD.TTB0`, `CD.TTB1`).
 - ASID for TLB tagging, and ASET selecting shared vs. non-shared ASID.
 - Translation table format, granule, address size, and input range configuration.
-- Fault behavior flags (`CD.S`, `CD.R`, `CD.A`) controlling the [fault-models](fault-models) for stage 1.
+- Fault behavior flags (`CD.S`, `CD.R`, `CD.A`) controlling the [fault-models.md](fault-models.md) for stage 1.
 - HTTU controls (`CD.HA`, `CD.HD`, `CD.HAFT`) for stage 1 access flag and dirty state updates.
 - WXN/UWXN/PAN/EPAN permission modifiers.
 - TBI0/TBI1 (Top Byte Ignore) configuration.
@@ -39,13 +39,38 @@ For substream configurations, `STE.S1ContextPtr` may point to:
 
 ## L1CD — Level 1 Context Descriptor (§5.3)
 
-An 8-byte structure used when `STE.S1Fmt != 0b00` (2-level CD table). Contains:
-- **V, bit [0]:** Validity. If 0: L2Ptr is IGNORED; transaction terminated with abort; `C_BAD_SUBSTREAMID` recorded.
-- **Bits [11:1]:** Reserved, res0.
-- **L2Ptr, bits [55:12]:** Pointer to next-level CD table. Must be within IAS if stage 2 is enabled; within OAS otherwise. Bits above `SMMU_IDR5.OAS` are RES0. Address bits above/below the field are taken as zero.
-- **Bits [63:56]:** Reserved, res0.
+An **8-byte structure** used when `STE.S1Fmt != 0b00` (two-level CD table). The L1CD pointer array is indexed by upper SubstreamID bits; each L1CD points to an L2 CD table indexed by the lower SubstreamID bits.
 
-**Invalidation:** L1CD changes require CMD_CFGI_CD with Leaf==0. Changing V from 0→1 requires invalidation of L1CD only. Changing V from 1→0 requires L1CD invalidation plus all CDs in the affected SubstreamID span.
+### L1CD Format
+
+| Bits | Field | Description |
+|---|---|---|
+| [0] | V | Valid bit. `0` = L2Ptr invalid; `1` = L2Ptr valid, CDs are accessible through the next level |
+| [11:1] | — | Reserved, RES0 |
+| [55:12] | L2Ptr | Pointer to next-level CD table |
+| [63:56] | — | Reserved, RES0 |
+
+**L2Ptr constraints:**
+- Bits above `SMMU_IDR5.OAS` are RES0; address bits outside the [55:12] field range are treated as zero.
+- Must be within IAS if stage 2 is enabled for the stream causing a CD fetch through this L1CD.
+- Must be within OAS if stage 2 is not enabled.
+
+**Granule-specific alignment (from STE.S1Fmt):**
+- `S1Fmt == 0b01` (4 KB L2 tables): L2 tables are 4 KB-aligned; `L2Ptr[11:0]` treated as zero.
+- `S1Fmt == 0b10` (64 KB L2 tables): L2 tables are 64 KB-aligned; `L2Ptr[15:12]` are RES0 and `L2Ptr[11:0]` treated as zero.
+
+**V == 0 behavior:** When a CD fetch for a transaction with SubstreamID encounters an L1CD with `V == 0`, L2Ptr is IGNORED, the transaction is terminated with abort, and `C_BAD_SUBSTREAMID` is recorded.
+
+**Realm:** A Realm L1CD has the same format as a Non-secure L1CD; L1CD.L2Ptr addresses Realm physical memory.
+
+### L1CD Invalidation (§5.3.1)
+
+L1CD changes require `CMD_CFGI_CD` with `Leaf == 0` as the minimum invalidation scope:
+
+- Changing `V: 0 → 1` (activating a new L2 span): only the L1CD needs invalidation (no prior CDs were reachable).
+- Changing `V: 1 → 0` (decommissioning a SubstreamID span): the L1CD **and** all cached CDs in the affected span must be invalidated. Use multiple `CMD_CFGI_CD` with `Leaf == 0`, or `CMD_CFGI_CD_ALL`, or `CMD_CFGI_STE`, or `CMD_CFGI_ALL`.
+
+An L1CD can be cached multiple times (once per StreamID whose STE points to the same CD table). Invalidation must cover all such StreamIDs.
 
 ## CD Field Reference (§5.4)
 
@@ -483,6 +508,27 @@ The three fault flag bits `{A, R, S}` control behavior for Translation-related f
 | 1    | —    | Stall (if `STE.S1STALLD == 0` and stall model supported) |
 
 `CD.R == 1`: events may be recorded. `CD.R == 0`: events may not be recorded.
+
+## §5.4.1 CD Notes — EL2/EL3 StreamWorld Restrictions
+
+When a CD is used from a stream configured with `StreamWorld == any-EL2` or `EL3` (but **not** `any-EL2-E2H`):
+
+- Only one translation table is supported (**TTB0 only**); TTB1 is unreachable.
+- **ASID is IGNORED** — EL2 and EL3 regimes have no ASID differentiation.
+- The following fields become RES0: `TTB1`, `TBI[1]`, `TG1`, `SH1`, `OR1`, `IR1`, `T1SZ`, `HAD1`, `NSCFG1`.
+- `T0SZ` must cover the required VA input space.
+
+Since ASID is ignored in these StreamWorlds, **SubstreamIDs cannot differentiate address spaces** for `any-EL2` or `EL3` streams. All CDs referenced from STEs with these StreamWorlds represent the same single address space. CDs shared across multiple STEs in such a configuration are not expected to use SubstreamIDs (CD tables with multiple entries) in practice.
+
+**Multi-STE CD sharing restriction:** A CD must only be shared across multiple STEs when all STEs configure an **identical Exception level** (identical `StreamWorld`). Mixing one NS-EL2 STE and one NS-EL1 STE pointing to the same CD is forbidden: TTB1 would be simultaneously enabled (for NS-EL1) and unused/unreachable (for NS-EL2), creating an ILLEGAL configuration.
+
+**TLB-cacheable fields consistency:** If multiple CDs represent the same address space (same security state, StreamWorld, VMID, ASID), all must contain **identical values** for all TLB-cacheable fields. A software error causing two such CDs to differ makes TLB lookup results unpredictable. The SMMU must not allow such an error to grant access outside the security state or bypass stage 2 constraints.
+
+**Direct Permission Scheme and AP[1]:** For translation tables reached from STEs with `StreamWorld == any-EL2` or `EL3`, the AP[1] bit of AP[2:1] is ignored and treated as 1, consistent with AArch64 EL2/EL3 behavior.
+
+**TLB-cacheable CD fields requiring TLB invalidation on change:** `HAD{0,1}`, `AFFD`, `ASID+ASET`, `MAIR`, `AMAIR`, `EPD{0,1}`, `TTB{0,1}`, `T{0,1}SZ`, `OR{0,1}`, `IR{0,1}`, `SH{0,1}`, `ENDI`, `TG{0,1}`, `HA`, `HD`, `WXN`, `UWXN`, `AA64`, `TBI`, `IPS`, `NSCFG{0,1}`, `PAN`, `EPAN`, `PnCH`, `PIE`, `PIIP`, `PIIU`, `DisCH0`, `DisCH1`, `SKL0`, `SKL1`, `AIE`, `HAFT`. Fields `A`, `R`, `S` do not require TLB invalidation on change, only CD invalidation. `PARTID` and `PMG` are never cached in TLB entries and may differ between CDs with the same ASID.
+
+**CD cache identity:** A cached CD is uniquely identified by `{StreamID, SubstreamID}` including SEC_SID. A CD table shared across multiple STEs may be cached once per `{StreamID, SubstreamID}` combination. `CMD_CFGI_CD(_ALL)` must be issued for every such combination when invalidating a shared CD.
 
 ## Model Implementation Notes
 

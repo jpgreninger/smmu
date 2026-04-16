@@ -3,7 +3,7 @@ title: "SMMU System and Implementation Considerations"
 type: synthesis
 tags: [smmu, implementation, caching, system-integration, pcie, amba, cmo, mpam, far-atomics]
 created: 2026-04-13
-updated: 2026-04-14
+updated: 2026-04-15
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -163,17 +163,72 @@ Client-originated translated transactions that are aborted in the memory system 
 
 ### SMMU and AMBA Attribute Differences (§16.7.5)
 
-- System Shareable is an AMBA interconnect term; it corresponds to OSH in Arm architecture terminology.
-- Device memory is OSH per Arm architecture, but maps to AMBA System Shareable type.
-- Normal-iNC-oNC maps to Non-Cacheable System Shareable in AMBA.
-- Mapping of Armv8-A attributes to interconnect encodings is implementation-specific.
-- Arm strongly recommends supporting all architected access types for compatibility with generic driver software.
+#### §16.7.5.1.1 AMBA → Armv8 Input Conversion
+
+Incoming AMBA attributes are converted to SMMU/Armv8 architectural attributes:
+
+| AMBA attribute | Armv8 attribute | Notes |
+|---|---|---|
+| Device-Sys non-bufferable | Device-nGnRnE | |
+| Device-Sys bufferable | Device-nGnRE | |
+| Normal-Non-cacheable-Sys (bufferable or non-bufferable) | Normal-iNC-oNC-OSH | |
+| Normal-Non-cacheable {NSH,ISH,OSH} (bufferable or non-bufferable) | Normal-iNC-oNC-OSH **or** Normal-iWB-oNC-{NSH,ISH,OSH} | IMPLEMENTATION DEFINED; if iWB-oNC: RA=WA=1, Non-transient |
+| Normal-WriteThrough-{NSH,ISH,OSH} | Normal-iNC-oNC-OSH **or** Normal-iWT-oWT-{NSH,ISH,OSH} | IMPLEMENTATION DEFINED; if iWT-oWT: RA/WA from input, Non-transient |
+| Normal-WriteBack-{NSH,ISH,OSH} | Normal-iWB-oWB-{NSH,ISH,OSH} | RA/WA from input, always Non-transient |
+
+An ACE-Sys input Shareability domain is treated as OSH for the purposes of attribute combining and overriding.
+
+#### §16.7.5.2.1 Armv8 → AMBA Output Conversion
+
+SMMU/Armv8 architectural attributes are converted to AMBA attributes on output:
+
+| Armv8 attribute | AMBA attribute | Notes |
+|---|---|---|
+| Device-nGnRnE | Device-Sys non-bufferable | |
+| Device-(n)G(n)RE | Device-Sys bufferable | |
+| Normal-iNC-oNC-OSH | Normal-Non-cacheable-Sys bufferable | Architecturally, iNC-oNC-{NSH,ISH} is not possible |
+| Normal-iNC-oWT-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iNC-oWB-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWT-oNC-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWT-oWT-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWT-oWB-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWB-oNC-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWB-oWT-{NSH,ISH,OSH} | Normal-Non-cacheable-Sys bufferable | (1) |
+| Normal-iWB-oWB-{NSH,ISH,OSH} | Normal-WriteBack-{NSH,ISH,OSH} | |
+
+(1) Per §16.7.5.3: In systems requiring interoperation with Arm Cortex PE IP, any Normal memory attribute that is not iWB-oWB is transformed to iNC-oNC-OSH, output as ACE-NC-Sys. For other PE IP, these transformations are IMPLEMENTATION DEFINED.
+
+When a cacheable type is output, AMBA RA and WA attributes are generated directly from the Arm RA/WA portion. The output AxDOMAIN is made consistent with AxCACHE: Device or Non-cacheable types always use ACE-Sys (highest domain).
+
+Arm strongly recommends supporting all architected access types for compatibility with generic driver software.
 
 ### Far Atomic Operations (§16.7.6)
 
 Far Atomics are treated as both a data read and a write for permission-checking purposes. The `INST` attribute override from `STE.INSTCFG` is ignored for Far Atomics (always Data).
 
 ---
+
+## SMMU and PCIe/AMBA Transaction Equivalents (§16.8)
+
+Table 16.6 maps SMMU transaction types to their PCIe, AXI/ACE-Lite (AMBA), DTI, and LTI equivalents:
+
+| SMMU Transaction | PCIe Equivalent | AXI/ACE-Lite Signal | AXI/ACE-Lite Opcode | DTI | LTI (LATRANS) |
+|---|---|---|---|---|---|
+| Ordinary read request | Memory read request | `ARSNOOP` | ReadNoSnoop, ReadOnce | `DTI_TBU_TRANS_REQ.PERM == R` | R |
+| RCI | Not applicable | `ARSNOOP` | ReadOnceCleanInvalid | `PERM == R` | R-CMO |
+| DR (Destructive Read) | Not applicable | `ARSNOOP` | ReadOnceMakeInvalid | `PERM == R` | R-DCMO |
+| Speculative transaction | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable |
+| Far Atomic operations | FetchAdd, Swap, CAS | `AWATOP` | AtomicStore, AtomicLoad, AtomicSwap, AtomicCompare | `PERM == RW` | RW |
+| Ordinary write transaction | Memory write request | `AWSNOOP` | WriteNoSnoop, WriteUniquePtl, WriteNoSnoopFull, WriteUniqueFull, WriteZero | `PERM == W` | W |
+| W-DCP | Memory write with TLP Processing Hint (non-zero Steering Tag) | `AWSNOOP` | WriteUniquePtlStash, WriteUniqueFullStash | `PERM == W` | W-DCP |
+| NW-DCP | Zero-length Write with TLP Processing Hint (non-zero ST) | `AWSNOOP` | StashOnceShared, StashOnceUnique | `PERM == SPEC` | DCP |
+| DH (Destructive Hint) | Not applicable | `AWSNOOP` | InvalidateHint | `PERM == SPEC` | DHCMO |
+| Clean / CleanInvalidate | Not applicable | `ARSNOOP` | CleanShared, CleanInvalid, CleanSharedPersist | `PERM == R` | CMO |
+| Invalidate | Not applicable | `ARSNOOP` | MakeInvalid | `PERM == R` | DCMO |
+| Ordinary translation request | Not applicable | Not applicable | Not applicable | `DTI_TBU_TRANS_REQ.PERM` depends on request type | Not applicable |
+| Ordinary speculative translation request | Not applicable | Not applicable | Not applicable | `PERM == SPEC` | Not applicable |
+| ATS Translation Request | ATS Translation Request | Not applicable | Not applicable | `DTI_ATS_TRANS_REQ.nW` depends on request type | Not applicable |
+| ATS PRI | ATS PRI | Not applicable | Not applicable | `DTI_ATS_PAGE_REQ.{READ,WRITE}` depends on request type | Not applicable |
 
 ## Relationship to Other Wiki Pages
 

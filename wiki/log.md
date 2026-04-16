@@ -5,6 +5,35 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-15] edit | Gap-fill: High/Medium coverage gaps implemented (§3.9.1.1–3.9.1.5, §5.4.1, §13.5, §16.8)
+
+- Files created: none
+- Files modified: `wiki/concepts/pcie-ats-pri.md`, `wiki/concepts/context-descriptor.md`, `wiki/concepts/attribute-transformation.md`, `wiki/synthesis/smmu-system-implementation.md`, `wiki/index.md`, `wiki/log.md`
+- Notes: Implemented all 5 high-priority and 3 medium-priority coverage gaps from the 2026-04-15 spec coverage audit.
+  - **`pcie-ats-pri.md`** (Gaps 1–4): Added four new subsections within ATS handling:
+    - §3.9.1.1: IMPL DEFINED behaviors for Translated transactions with non-zero upper PA bits (abort+no-event vs. truncate-to-OAS).
+    - §3.9.1.2: Full per-configuration UR/CA/Success response table for Translation Requests; fault-type→ATS-response mapping table; REC_CFG_ATS / RECINVSID conditional event recording rules.
+    - §3.9.1.3: Config/scenario→outcome table; ordinary-fault→Translated-outcome table; 12-item ATSCHK event priority list; PASIDTT/EATS-based PnU/InD attribute table; Realm vs. Non-secure stream check procedures.
+    - §3.9.1.4–3.9.1.5: CERROR_ATC_INV_SYNC mechanics and UR response behavior.
+  - **`context-descriptor.md`** (Gap 5): Added §5.4.1 CD Notes section covering EL2/EL3 SubstreamID restrictions (ASID ignored, TTB1 unreachable, SubstreamIDs cannot differentiate address spaces), multi-STE CD sharing rule, AP[1] behavior, complete TLB-cacheable field list requiring TLB invalidation on change, CD cache identity (StreamID+SubstreamID tuple).
+  - **`attribute-transformation.md`** (Gap 6): Added §13.5 Summary table (7 attributes × 5 configurations: INST, PRIV, PA space per security state, MT, RA/WA/TR, SH) with spec notes on S2FWB override and ATTR_TYPES_OVR/ATTR_PERMS_OVR gating.
+  - **`smmu-system-implementation.md`** (Gap 7): Added §16.8 SMMU/PCIe/AMBA transaction equivalents table mapping all 14 SMMU transaction types to PCIe, AXI/ACE-Lite signals and opcodes, DTI PERM values, and LTI LATRANS types.
+  - `index.md`: Updated summaries for all 4 modified pages.
+
+## [2026-04-15] edit | Gap-fill: 6 medium/low priority coverage gaps implemented
+
+- Files created: `wiki/concepts/command-formats.md`
+- Files modified: `wiki/concepts/attribute-transformation.md`, `wiki/concepts/pcie-ats-pri.md`, `wiki/concepts/stream-table-entry.md`, `wiki/concepts/context-descriptor.md`, `wiki/concepts/atos.md`, `wiki/synthesis/smmu-system-implementation.md`, `wiki/concepts/command-queue.md`, `wiki/synthesis/smmu-queue-mechanics.md`, `wiki/index.md`, `wiki/log.md`
+- Notes: Implemented all 6 medium and low priority coverage gaps identified in the 2026-04-15 coverage audit against IHI0070G_b.
+  - **New page** `command-formats.md` (Medium Gap 1): Complete command encoding reference for §4.1–§4.8. Covers opcode table (prefetch 0x01/0x02, CFGI 0x03–0x08, TLBI 0x10–0x51, ATS 0x40, PRI 0x41, DPTI 0x70/0x73, stall/sync 0x44–0x46), common SSec/SSV fields, all CFGI semantics (Leaf flag, over-invalidation rules, hypervisor translation table), full TLB command list with scope/parameter table, ATS/PRI command details (CMD_ATC_INV size formula, CMD_PRI_RESP codes), DPT SIZE encoding table, CMD_RESUME action table, CMD_SYNC CS encodings and per-command-type guarantee table, §4.8 consumption summary.
+  - **`attribute-transformation.md`** (Medium Gap 2): Added §13.6–13.7 PCIe/ATS attribute/permission handling. New sections: §13.6.1 PCIe memory type (No_snoop = Normal-iNC-oNC-OSH), §13.6.2 ATS attribute overview (attribute stashing forbidden from SMMUv3.4), §13.6.3 split-stage ATS EATS=0b10 behavior, §13.6.4 full ATS skipping stage 1 (identity-mapped response), §13.6.5 split-stage skipping stage 1, §13.7 PCIe permission interpretation (NW/Exe/Priv table), §13.7.1 INSTCFG/PRIVCFG interaction pseudocode summary.
+  - **`pcie-ats-pri.md`** (Low Gap 1): Expanded §3.9.4 T/TE/XT bit handling from ~3 bullets to full sub-sections: §3.9.4.1 T bit table (Absent/T=0→NS, T=1→Realm), §3.9.4.2 TE bit (TE=1 → Realm PA in completions when SMMU_R_IDR3.XT=1), §3.9.4.3 XT bit (T|XT OR-logic for SEC_SID; XT ignored on PRI/INV).
+  - **`stream-table-entry.md`** (Low Gap 2): Added §5.1 L1STD format section (8-byte structure; Span 0-11 table; L2Ptr alignment formula N=5+(Span-1); invalidation procedure) and §5.2.2 SteIllegal() pseudocode summary (pre-computed intermediates, stage 1/2 check details, SMMUv3.0 CONSTRAINED UNPREDICTABLE vs SMMUv3.1+ ILLEGAL).
+  - **`context-descriptor.md`** (Low Gap 3): Expanded L1CD §5.3 from brief 5-line summary to full format table (V bit, L2Ptr[55:12], RES0 fields), granule-specific alignment (4K→byte-align[11:0]=0; 64K→L2Ptr[15:12] RES0), Realm L1CD note, and detailed invalidation procedure (V: 0→1 vs 1→0 cases).
+  - **`atos.md`** (Low Gap 4): Added §9.1.4 ATOS_PAR encoding section (success fields ADDR/ATTR/SH; fault fields FAULTCODE/REASON/FADDR), REASON/FADDR validity table (all ATOS_ADDR.TYPE × FAULTCODE combinations), §9.1.5 FAULTCODE table (0xFF INV_REQ through 0x25 F_VMS_FETCH, 14 codes), GPC interaction (GPC on structure fetches during ATOS → reported as external abort in PAR; GPC NOT applied to final output PA).
+  - **`smmu-system-implementation.md`** (Low Gap 5): Added §16.7.5.1.1 AMBA→Armv8 input conversion table (6 rows including Device-Sys and Normal NC/WT/WB cases with IMPL DEFINED notes) and §16.7.5.2.1 Armv8→AMBA output conversion table (11 rows; footnote about §16.7.5.3 Cortex IP interpretation).
+  - Bookkeeping: `command-queue.md` and `smmu-queue-mechanics.md` → added `[[concepts/command-formats]]` cross-references. `index.md` → page count 40→41; added command-formats row; updated summaries for stream-table-entry, context-descriptor, atos, attribute-transformation, pcie-ats-pri, smmu-system-implementation.
+
 ## [2026-04-15] lint | Cross-reference repair: F1–F2 from fourth lint pass
 
 - Files created: none

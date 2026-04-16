@@ -172,6 +172,7 @@ A queue is enabled when `SMMU_(*_)CR0.CMDQEN` is set. Before enabling:
 - [tlb-invalidation.md](tlb-invalidation.md) — most common command type
 - [fault-models.md](fault-models.md) — `CMD_RESUME` and `CMD_STALL_TERM` interact with stall model
 - [smmu-initialization.md](smmu-initialization.md) — command queue setup is part of initialization sequence
+- [command-formats.md](command-formats.md) — complete encoding reference for all command opcodes (§4.1–§4.8): opcode table, common fields, CFGI/TLBI/ATS/DPTI/SYNC details
 
 ## Sources That Use This Concept
 

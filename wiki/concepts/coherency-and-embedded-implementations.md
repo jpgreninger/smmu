@@ -42,14 +42,14 @@ When HTTU (Hardware Translation Table Update) is enabled, the SMMU must perform 
 - **Local monitors (LDREX/STREX or similar):** The SMMU must access translation tables via a **fully-coherent port** to the memory system to use local monitor exclusive sequences.
 - **Armv8.1 LSE atomics:** Alternatively, the SMMU may use Large System Extension atomic instructions (e.g., `STSET`), which do not require a fully-coherent port but must still be visible across the Inner Shareability domain.
 
-If HTTU is enabled and the SMMU does not have a fully-coherent port and LSE atomics are not supported, HTTU behavior is UNPREDICTABLE. SMMU_IDR0.HTTU encodes the supported HTTU modes (see [httu](httu)).
+If HTTU is enabled and the SMMU does not have a fully-coherent port and LSE atomics are not supported, HTTU behavior is UNPREDICTABLE. SMMU_IDR0.HTTU encodes the supported HTTU modes (see [httu.md](httu.md)).
 
 ### SMMU Configuration Caches
 
 SMMU implementations may cache STE, CD, translation table entries, and other configuration. These caches:
 - Are **not** required to be snooped by PE cache maintenance operations.
 - Must be invalidated explicitly via CMD_CFGI_* commands after software modifies configuration.
-- May prefetch structures speculatively (subject to §3.21.3 bounds); see [speculative-accesses](speculative-accesses).
+- May prefetch structures speculatively (subject to §3.21.3 bounds); see [speculative-accesses.md](speculative-accesses.md).
 
 ---
 
@@ -63,7 +63,7 @@ Client device coherency is **separate** from SMMU structure coherency (COHACC) a
 - Snoop requests from the coherent fabric bypass the SMMU — the SMMU does not intercept or translate snoop requests.
 - The client may be a StreamID-bearing device or a NoStreamID device.
 - GPC (Granule Protection Check) still applies to the physical address output.
-- The DPT W bit (Device Permission Table writable) may be treated as 1 for fully-coherent clients (IMPL DEFINED). See [device-permission-table](device-permission-table).
+- The DPT W bit (Device Permission Table writable) may be treated as 1 for fully-coherent clients (IMPL DEFINED). See [device-permission-table.md](device-permission-table.md).
 
 **Non-coherent clients:** The client device's DMA accesses are Non-cacheable from the PE perspective. Standard CMO requirements apply for software managing shared buffers. CMOs initiated from a client device are supported by the SMMU (see CMO support in [../synthesis/smmu-system-implementation](../synthesis/smmu-system-implementation)).
 
@@ -71,7 +71,7 @@ Client device coherency is **separate** from SMMU structure coherency (COHACC) a
 
 ### TLB Maintenance from Clients
 
-TLB maintenance operations issued by client devices are **not** propagated by the SMMU to the PE TLB or vice versa. Client-initiated TLB maintenance affects only the client's own ATC (Address Translation Cache). The SMMU CMD_TLBI_* commands are the mechanism for the software-managed invalidation path. See [tlb-invalidation](tlb-invalidation).
+TLB maintenance operations issued by client devices are **not** propagated by the SMMU to the PE TLB or vice versa. Client-initiated TLB maintenance affects only the client's own ATC (Address Translation Cache). The SMMU CMD_TLBI_* commands are the mechanism for the software-managed invalidation path. See [tlb-invalidation.md](tlb-invalidation.md).
 
 ---
 

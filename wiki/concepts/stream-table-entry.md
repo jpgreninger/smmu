@@ -594,6 +594,42 @@ PA pointer to the [virtual-machine-structure.md](virtual-machine-structure.md). 
 
 **Config == 0b100 (bypass):** S1* and S2* are IGNORED; only attribute override fields are used.
 
+## L1STD: Level 1 Stream Table Descriptor (§5.1)
+
+When a two-level stream table is used (`SMMU_STRTAB_BASE_CFG.FMT == 0b01`), the first level contains **Level 1 Stream Table Descriptors (L1STDs)**. Each L1STD is an **8-byte structure** that points to a second-level array of STEs.
+
+### L1STD Format
+
+| Bits | Field | Description |
+|---|---|---|
+| [4:0] | Span | Size of Level 2 array and L2Ptr validity (see table below) |
+| [5] | — | Reserved, RES0 |
+| [55:6] | L2Ptr | Pointer to Level 2 STE array base (bits above OAS are RES0) |
+| [63:56] | — | Reserved, RES0 |
+
+**Span encoding:**
+
+| Span | Meaning |
+|---|---|
+| 0 | L2Ptr is invalid; all StreamIDs in this descriptor's range are invalid |
+| 1–11 | Level 2 array contains 2^(Span−1) STEs |
+| 12–31 | Reserved (behaves as 0) |
+
+Span must be within 0 to `SMMU_STRTAB_BASE_CFG.SPLIT + 1`. The Level 2 array is **aligned to its size** by the SMMU: bits `L2Ptr[N:0]` are treated as 0, where `N = 5 + (Span − 1)`.
+
+### L1STD Behavior
+
+A StreamID selecting an L1STD with `Span == 0`, a Reserved/out-of-bounds Span, or a StreamID outside the Level 2 range described by Span, is **invalid** — the transaction is terminated with abort; `C_BAD_STREAMID` may be recorded (per `SMMU_CR2.RECINVSID`).
+
+### L1STD Invalidation
+
+- When an L1STD is changed, **non-leaf** `CMD_CFGI_STE` (Leaf=0) is the minimum required invalidation.
+- Changing `Span: 0 → non-zero` (introducing new L2 array): only the L1STD needs invalidation.
+- Changing `Span: non-zero → 0` (decommissioning): the L1STD **and** all cached STEs within the span must be invalidated (`CMD_CFGI_STE_RANGE` or `CMD_CFGI_ALL`).
+- The L1STD is fetched using attributes from `SMMU_(*_)CR1.TABLE_*`.
+
+---
+
 ## §5.2.1 STE General Properties
 
 - An STE that is successfully fetched **may be cached** by the SMMU. Any modification requires `CMD_CFGI_STE`. A failed `F_STE_FETCH` does not result in a cached entry.
@@ -627,6 +663,26 @@ An STE is ILLEGAL when any of the following hold (transaction treated as C_BAD_S
 - `DPT_VMATCH != 0b00` for Realm STE with `EATS == 0b11`.
 - VMSPtr address out of range (if VMSPtr enabled).
 
+### §5.2.2 STE Validity Pseudocode (SteIllegal()) — Key Checks
+
+The normative `SteIllegal()` pseudocode (§5.2.2) performs checks in priority order. Implementation notes:
+
+**Pre-computed intermediates:**
+- `strw_unused` — true when STRW field is irrelevant (stage 1 not implemented; NS+Hyp not supported; stage 2 enabled; bypass Config=0b100)
+- `s2vmid_ignored` — true when S2VMID does not tag TLB entries (Config=0bxx; NS without S2P; Secure without SEL2; bypass; STRW!=EL1 when strw_unused=false; Secure+stage1only)
+- `eff_idr0_stall_model` — effective stall model accounting for NSSTALLD
+
+**Stage 1 check detail:**
+- `STE.S1STALLD == 1`: ILLEGAL if NS stall model != "Stall and Terminate" (0b00), or Secure stall model != 0b00, or Realm stall model == 0b01.
+- `STE.S1CDMax`: ILLEGAL if `UInt(S1CDMax) > UInt(SMMU_IDR1.SSIDSIZE)` (when SSIDSIZE != 0).
+- Two-level CD table (`S1Fmt == 0b01 or 0b10`) with `SMMU_IDR0.CD2L == 0` → ILLEGAL.
+
+**Stage 2 address-range checks:**
+- `STES2TTBOutOfRange()`: checks S2TTB alignment and OAS; also checks 128-bit descriptor constraints when `SMMU_IDR5.D128 == 1`.
+- `STES2TOSZInvalid()`: validates S2T0SZ against IAS, granule, DS bit, and STT (Small Translation Table) support. SMMUv3.1+ always treats out-of-range T0SZ as ILLEGAL.
+
+**SMMUv3.0 compatibility:** Some checks that are CONSTRAINED UNPREDICTABLE in SMMUv3.0 (e.g., `EATS==0b01` with `S2S==1`, out-of-range S2T0SZ) are always ILLEGAL in SMMUv3.1+.
+
 ## Model Implementation Notes
 
 - The STE is the root of all per-stream configuration. A functional model must fully decode and validate the STE before any translation step.
@@ -656,4 +712,4 @@ An STE is ILLEGAL when any of the following hold (transaction treated as C_BAD_S
 
 ## Sources That Use This Concept
 
-- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors; §3.3.3 Configuration and Translation lookup; §5.2 STE data structure format; §5.2.1 General properties of the STE; §3.12 Fault models
+- [../sources/ihi0070g-b-smmuv3-architecture-spec.md](../sources/ihi0070g-b-smmuv3-architecture-spec.md) — §3.3.1 Stream table lookup; §3.3.2 StreamIDs to Context Descriptors; §3.3.3 Configuration and Translation lookup; §5.1 L1STD format; §5.2 STE data structure format; §5.2.1 General properties of the STE; §5.2.2 SteIllegal() pseudocode; §3.12 Fault models
