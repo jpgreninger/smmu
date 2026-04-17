@@ -3,7 +3,7 @@ title: "TLB Invalidation"
 type: concept
 tags: [smmu, tlb, invalidation, commands, broadcast, asid, vmid, bbml, tlbinxs, aset, vmid-wildcard]
 created: 2026-04-07
-updated: 2026-04-13
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -315,6 +315,7 @@ Configuration and TLB invalidation completion rules differ; see §3.21.3.
 ## Related Concepts
 
 - [command-queue.md](command-queue.md) — all invalidation commands are issued via the Command queue; §3.21.2 queue access rules
+- [command-formats.md](command-formats.md) — complete encoding reference for all TLBI/CFGI command opcodes, scope parameters, and guarantee table (§4.3–4.4)
 - [two-stage-translation.md](two-stage-translation.md) — TLB entries cache the results of translation walks
 - [stream-table-entry.md](stream-table-entry.md) — configuration cache invalidation uses STE-scoped commands; §3.21.3 update procedures
 - [context-descriptor.md](context-descriptor.md) — ASID from CD tags TLB entries; ASET from CD; CD cache has its own invalidation
@@ -323,6 +324,7 @@ Configuration and TLB invalidation completion rules differ; see §3.21.3.
 - [coherency-and-embedded-implementations.md](coherency-and-embedded-implementations.md) — coherency requirements for SMMU walks; COHACC; config caches not snooped
 - [granule-protection-check.md](granule-protection-check.md) — GPT broadcast maintenance §3.17.7
 - [security-states.md](security-states.md) — StreamWorld determines ASID/VMID/ASET tagging and which broadcast namespace applies
+- [virtual-machine-structure.md](virtual-machine-structure.md) — VMS cache is a distinct invalidation target; `CMD_CFGI_VMS_PIDM(VMID)` invalidates cached VMS entries (§4.3.5)
 
 ## Sources That Use This Concept
 

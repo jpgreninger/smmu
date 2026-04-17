@@ -1,6 +1,6 @@
 # Wiki Index
 
-_Last updated: 2026-04-15 | Pages: 41_
+_Last updated: 2026-04-16 | Pages: 41_
 
 # Graph View
 
@@ -60,11 +60,11 @@ _No analyses yet._
 ## Synthesis
 | Page                                     | Summary                                                                                                | Updated    |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------- |
-| [synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md)  | Step-by-step procedural description of the full SMMU transaction translation pipeline; Ch. 15 flowchart prose equivalent and ATS response categories | 2026-04-13 |
+| [synthesis/smmu-translation-pipeline.md](synthesis/smmu-translation-pipeline.md)  | Step-by-step procedural description of the full SMMU transaction translation pipeline; Ch. 15 flowchart prose equivalent and ATS response categories | 2026-04-16 |
 | [synthesis/smmu-queue-mechanics.md](synthesis/smmu-queue-mechanics.md)       | Complete implementation reference for SMMU circular buffer queues (Command, Event, PRI, ECMDQ); §3.5.6.3 ECMDQ ERR toggle protocol and ERRACK recovery | 2026-04-14 |
 | [synthesis/smmu-fault-model.md](synthesis/smmu-fault-model.md)           | Complete fault detection, event recording, stall/terminate behavior, GERROR toggle handshake, and ordering guarantees | 2026-04-13 |
-| [synthesis/smmu-security-states.md](synthesis/smmu-security-states.md)       | Multi-security-state model reference: SEC_SID, Secure EL2, Realm, Root, independent operation          | 2026-04-07 |
-| [synthesis/smmu-pcie-ats-integration.md](synthesis/smmu-pcie-ats-integration.md)  | ATS/PRI integration: transaction types, EATS dispatch, invalidation flows, CXL, security state routing | 2026-04-07 |
-| [synthesis/smmu-version-feature-map.md](synthesis/smmu-version-feature-map.md)   | Feature-by-version table for SMMUv3.0–3.4 and RME DA; SMMU_AIDR encoding; discovery bit references     | 2026-04-07 |
-| [synthesis/smmu-register-map.md](synthesis/smmu-register-map.md)          | Complete SMMU register memory map: Page 0/1, Secure, Root, Realm pages; key IDR bits                   | 2026-04-13 |
-| [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) | System integration, caching architectures, CMOs, AMBA specifics, software requirements; §16.7.5 AMBA↔Armv8 conversion tables; §16.8 SMMU/PCIe/AXI/DTI/LTI transaction equivalents table | 2026-04-15 |
+| [synthesis/smmu-security-states.md](synthesis/smmu-security-states.md)       | Multi-security-state model reference: SEC_SID, Secure EL2, Realm, Root, independent operation          | 2026-04-16 |
+| [synthesis/smmu-pcie-ats-integration.md](synthesis/smmu-pcie-ats-integration.md)  | ATS/PRI integration: transaction types, EATS dispatch, invalidation flows, CXL, security state routing | 2026-04-16 |
+| [synthesis/smmu-version-feature-map.md](synthesis/smmu-version-feature-map.md)   | Feature-by-version table for SMMUv3.0–3.4 and RME DA; SMMU_AIDR encoding; discovery bit references     | 2026-04-16 |
+| [synthesis/smmu-register-map.md](synthesis/smmu-register-map.md)          | Complete SMMU register memory map: Page 0/1, Secure, Root, Realm pages; key IDR bits                   | 2026-04-16 |
+| [synthesis/smmu-system-implementation.md](synthesis/smmu-system-implementation.md) | System integration, caching architectures, CMOs, AMBA specifics, software requirements; §16.7.5 AMBA↔Armv8 conversion tables; §16.8 SMMU/PCIe/AXI/DTI/LTI transaction equivalents table | 2026-04-16 |

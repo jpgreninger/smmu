@@ -3,7 +3,7 @@ title: "Address Translation Operations (ATOS)"
 type: concept
 tags: [smmu, atos, vatos, address-translation, debug, software-lookup]
 created: 2026-04-13
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -163,6 +163,8 @@ There are no ATOS-specific changes from the introduction of F_PERMISSION fields 
 - [fault-models.md](fault-models.md) — ATOS does not trigger fault events or stall; reports status via PAR
 - [security-states.md](security-states.md) — Separate GATOS / S_GATOS register groups per security state
 - [smmu-initialization.md](smmu-initialization.md) — ATOS availability gated on `SMMU_IDR0.ATOS`
+- [attribute-transformation.md](attribute-transformation.md) — §13.1 output attribute determination applies to ATOS results; STE attribute overrides ignored except STE.S2FWB; ATOS_ADDR fields supply INST/PRIV instead of STE.INSTCFG/PRIVCFG
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — GATOS/S_GATOS/VATOS register group locations in the memory map
 
 ## Sources That Use This Concept
 

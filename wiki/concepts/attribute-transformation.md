@@ -3,7 +3,7 @@ title: "Attribute Transformation"
 type: concept
 tags: [smmu, attributes, memory-type, shareability, cacheability, ns, instcfg, privcfg, mtcfg, shcfg]
 created: 2026-04-13
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -208,6 +208,8 @@ Changes to `STE.{INSTCFG,PRIVCFG}` must be accompanied by ATC invalidation.
 - [atos.md](atos.md) — ATOS ignores most STE attribute overrides; uses ATOS_ADDR fields for INST/PRIV
 - [pcie-ats-pri.md](pcie-ats-pri.md) — ATS Translated transactions: NS from NSCFG; T/TE/XT bit handling; split-stage ATS
 - [memory-tagging-extension.md](memory-tagging-extension.md) — FEAT_MTE_PERM reinterprets stage 2 MemAttr field when S2FWB==0/1; interacts with the attribute combine path (§3.23.1)
+- [destructive-reads.md](destructive-reads.md) — RCI/DR Shareability constraints (NSH/SH forbidden); AMBA AXI5 output attribute rules interact with §16.7.5
+- [../synthesis/smmu-pcie-ats-integration.md](../synthesis/smmu-pcie-ats-integration.md) — §13.6–13.7 ATS attribute/permission handling in the full ATS integration model
 - [../synthesis/smmu-system-implementation.md](../synthesis/smmu-system-implementation.md) — §16.7.5 AMBA↔Armv8 attribute conversion tables
 
 ## Sources That Use This Concept

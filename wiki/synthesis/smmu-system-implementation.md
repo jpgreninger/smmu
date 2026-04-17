@@ -3,7 +3,7 @@ title: "SMMU System and Implementation Considerations"
 type: synthesis
 tags: [smmu, implementation, caching, system-integration, pcie, amba, cmo, mpam, far-atomics]
 created: 2026-04-13
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -234,10 +234,15 @@ Table 16.6 maps SMMU transaction types to their PCIe, AXI/ACE-Lite (AMBA), DTI, 
 
 - [../concepts/tlb-invalidation.md](../concepts/tlb-invalidation.md) — Invalidation command details; combined cache invalidation semantics
 - [../concepts/smmu-initialization.md](../concepts/smmu-initialization.md) — CR0/CR0ACK sequence; initialization prerequisites
+- [../concepts/coherency-and-embedded-implementations.md](../concepts/coherency-and-embedded-implementations.md) — COHACC flag; HTTU atomicity constraints; embedded preset table and queue configurations
+- [../concepts/destructive-reads.md](../concepts/destructive-reads.md) — §3.22 RCI/DR/W-DCP/NW-DCP transaction classes; STE.DRE/DCP downgrade controls; AXI5 shareability constraints
+- [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — Ch. 14 ingress/egress sideband signals; port coherency requirements; SMMU-originated PCIe transactions
 - [../concepts/attribute-transformation.md](../concepts/attribute-transformation.md) — Detailed attribute override and combine rules (Chapter 13)
 - [../concepts/fault-models.md](../concepts/fault-models.md) — CMO fault recording; F_UUT; stall behavior
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — PCIe-specific integration requirements; stall prohibition; TDISP
 - [../concepts/security-states.md](../concepts/security-states.md) — RME DA StreamID/DeviceID integration rules
+- [../concepts/debug-trace.md](../concepts/debug-trace.md) — Ch. 11 IMPLEMENTATION DEFINED debug constraints; Security state isolation requirements for debug access
 - [../concepts/ras.md](../concepts/ras.md) — RAS/SFM system-level requirements; error node integration; SFM entry conditions (Ch. 12)
+- [smmu-security-states.md](smmu-security-states.md) — multi-security-state model reference: SEC_SID, Secure EL2, Realm, Root independent operation
 - [smmu-fault-model.md](smmu-fault-model.md) — Full fault detection and reporting
 - [smmu-queue-mechanics.md](smmu-queue-mechanics.md) — Queue implementation constraints

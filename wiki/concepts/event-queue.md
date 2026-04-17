@@ -3,7 +3,7 @@ title: "Event Queue"
 type: concept
 tags: [smmu, event-queue, circular-buffer, faults, events, software-interface, stall, mev, event-merging]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -224,6 +224,8 @@ Configuration errors (C_*) always terminate with abort. Translation-related faul
 - [command-queue.md](command-queue.md) — input counterpart (software-to-SMMU)
 - [fault-models.md](fault-models.md) — fault models determine whether events carry Stall==1 or Stall==0
 - [two-stage-translation.md](two-stage-translation.md) — translation faults are the primary event source
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — synthesis-level reference: GERROR toggle handshake, full event recording flow, and ordering guarantees
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — EVENTQ_BASE, EVENTQ_PROD, EVENTQ_CONS register addresses; Page 1 high-frequency polling layout
 
 ## Sources That Use This Concept
 

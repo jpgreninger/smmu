@@ -3,7 +3,7 @@ title: "Reliability, Availability, and Serviceability (RAS)"
 type: concept
 tags: [smmu, ras, reliability, errors, sfm, ecc, poison, fault-handling]
 created: 2026-04-13
-updated: 2026-04-13
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -104,6 +104,9 @@ On platforms with `FEAT_RME`, the RAS System Architecture requirements on **Conf
 - [command-queue.md](command-queue.md) — `GERROR.CMDQ_ERR` / `CERROR_ABT` reported on command fetch error
 - [security-states.md](security-states.md) — Separate RAS interfaces may exist per Security state; Realm confidentiality requirements apply
 - [smmu-initialization.md](smmu-initialization.md) — SFM entry requires system reset to exit
+- [debug-trace.md](debug-trace.md) — complementary Ch. 11 IMPLEMENTATION DEFINED debug facilities; PMCG-based diagnostic visibility; Security state isolation constraints shared with RAS
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — §7.5 GERROR toggle handshake; CMDQ_ERR and DPT_ERR recovery procedures; GERROR flag table
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — SMMU_ERR* RAS register group placement in the memory map
 
 ## Sources That Use This Concept
 

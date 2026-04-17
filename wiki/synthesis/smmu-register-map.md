@@ -3,7 +3,7 @@ title: "SMMU Register Map and Memory Layout"
 type: synthesis
 tags: [smmu, registers, memory-map, page0, page1, secure, realm, root, vatos, ecmdq]
 created: 2026-04-13
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -199,4 +199,7 @@ Accessible from Realm and Root PA spaces. Contain Realm-state equivalents of all
 - [../concepts/mec.md](../concepts/mec.md) — SMMU_R_MECIDR, SMMU_R_GMECID
 - [../concepts/ras.md](../concepts/ras.md) — SMMU_ERR* RAS register group (Ch. 12); error classification and SFM registers
 - [../concepts/debug-trace.md](../concepts/debug-trace.md) — Ch. 11 IMPLEMENTATION DEFINED debug registers; Security state isolation constraints on debug access
+- [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — MSI configuration registers (GERROR_IRQ_CFG, EVENTQ_IRQ_CFG, PRIQ_IRQ_CFG, CMDQ_ABT_IRQ_CFG); 13 interrupt sources
+- [../concepts/performance-monitors.md](../concepts/performance-monitors.md) — PMCG register groups; PMCG_BASE/PMCG_SVR discovery via IDR0.PMCG_ARCHIT
 - [smmu-version-feature-map.md](smmu-version-feature-map.md) — IDR0/IDR3 feature bits by version
+- [smmu-security-states.md](smmu-security-states.md) — per-state programming interface: independent queue/table layout, Secure EL2, Realm init, multi-state checklist

@@ -65,7 +65,7 @@ Client device coherency is **separate** from SMMU structure coherency (COHACC) a
 - GPC (Granule Protection Check) still applies to the physical address output.
 - The DPT W bit (Device Permission Table writable) may be treated as 1 for fully-coherent clients (IMPL DEFINED). See [device-permission-table.md](device-permission-table.md).
 
-**Non-coherent clients:** The client device's DMA accesses are Non-cacheable from the PE perspective. Standard CMO requirements apply for software managing shared buffers. CMOs initiated from a client device are supported by the SMMU (see CMO support in [../synthesis/smmu-system-implementation](../synthesis/smmu-system-implementation)).
+**Non-coherent clients:** The client device's DMA accesses are Non-cacheable from the PE perspective. Standard CMO requirements apply for software managing shared buffers. CMOs initiated from a client device are supported by the SMMU (see CMO support in [../synthesis/smmu-system-implementation.md](../synthesis/smmu-system-implementation.md)).
 
 **COHACC does not describe client coherency.** COHACC describes how the SMMU itself accesses its own structures, not how client DMA is treated.
 

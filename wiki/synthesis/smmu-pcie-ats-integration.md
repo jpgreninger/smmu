@@ -3,7 +3,7 @@ title: "SMMU PCIe ATS Integration"
 type: synthesis
 tags: [smmu, pcie, ats, pri, translated, split-stage, dpt, cxl, model]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -207,10 +207,15 @@ To clear ATSCHK=0:
 ## Related Pages
 
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — concept-level reference
+- [../concepts/attribute-transformation.md](../concepts/attribute-transformation.md) — §13.6 PCIe/ATS output attribute determination; §13.7 ATS permission interpretation table
+- [../concepts/fault-models.md](../concepts/fault-models.md) — stall prohibition for ATS streams; §3.12.4 ATS-PRI paging model; E_PAGE_REQUEST hint behavior
 - [../concepts/security-states.md](../concepts/security-states.md) — SEC_SID from T/XT bits
 - [../concepts/stream-table-entry.md](../concepts/stream-table-entry.md) — STE.EATS encoding
 - [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — applied to Translated transactions
 - [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — EATS=0b11 DPT check
 - [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_ATC_INV, CMD_PRI_RESP
+- [../concepts/command-formats.md](../concepts/command-formats.md) — CMD_ATC_INV size formula, CMD_PRI_RESP code encodings (§4.5)
 - [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — ingress sideband (SEC_SID, AT, NS, SubstreamID/SSV) carries ATS transaction type; port coherency requirements apply to ATS flows
 - [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — ATS in translation pipeline
+- [smmu-security-states.md](smmu-security-states.md) — per-security-state ATS routing: SEC_SID from T/XT bits; Realm vs. Non-secure stream dispatch; independent PRI queue per state
+- [smmu-queue-mechanics.md](smmu-queue-mechanics.md) — PRI queue circular buffer mechanics, PRIQ_ABT_ERR toggle protocol, and ECMDQ interactions

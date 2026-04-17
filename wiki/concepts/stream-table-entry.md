@@ -3,7 +3,7 @@ title: "Stream Table Entry (STE)"
 type: concept
 tags: [smmu, ste, stream-table, configuration, data-structure]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -705,6 +705,7 @@ The normative `SteIllegal()` pseudocode (§5.2.2) performs checks in priority or
 - [granule-protection-check.md](granule-protection-check.md) — GPC applied to Realm stream PA outputs
 - [device-permission-table.md](device-permission-table.md) — STE.EATS==0b11 enables DPT checks; DPT_VMATCH controls matching
 - [permission-indirections.md](permission-indirections.md) — S1PIE, S2PIE, S2POE, S2POI fields
+- [translation-hardening.md](translation-hardening.md) — STE.AssuredOnly enables AssuredOnly permission checks at stage 2 (SMMUv3.4 FEAT_THE)
 - [mpam.md](mpam.md) — STE.PARTID, STE.PMG, STE.S1MPAM, STE.MPAM_NS
 - [mec.md](mec.md) — STE.MECID for Realm streams (RME DA)
 - [attribute-transformation.md](attribute-transformation.md) — Chapter 13 governs MemAttr/MTCFG/ALLOCCFG/SHCFG combination

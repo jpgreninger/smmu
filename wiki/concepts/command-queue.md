@@ -3,7 +3,7 @@ title: "Command Queue"
 type: concept
 tags: [smmu, command-queue, circular-buffer, software-interface, commands, ecmdq, cmd-sync, cmd-consumption]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -173,6 +173,8 @@ A queue is enabled when `SMMU_(*_)CR0.CMDQEN` is set. Before enabling:
 - [fault-models.md](fault-models.md) — `CMD_RESUME` and `CMD_STALL_TERM` interact with stall model
 - [smmu-initialization.md](smmu-initialization.md) — command queue setup is part of initialization sequence
 - [command-formats.md](command-formats.md) — complete encoding reference for all command opcodes (§4.1–§4.8): opcode table, common fields, CFGI/TLBI/ATS/DPTI/SYNC details
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — GERROR.CMDQ_ERR flag; CMDQ_ABT_ERR recovery; fault ordering guarantees for CMD_SYNC
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — CMDQ_BASE, CMDQ_PROD, CMDQ_CONS register addresses; ECMDQ control page layout
 
 ## Sources That Use This Concept
 

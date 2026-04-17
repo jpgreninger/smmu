@@ -3,7 +3,7 @@ title: "SMMU Security States"
 type: synthesis
 tags: [smmu, security, non-secure, secure, realm, root, rme, model]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -182,5 +182,10 @@ Each state requires its own initialization sequence (see [../concepts/smmu-initi
 - [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — GPC for Realm
 - [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — DPT for Realm ATS
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — PCIe T/XT/TE bits and Realm state mapping
+- [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — separate interrupt sources per security state; per-state GERROR, MSI config registers, and Root page interrupt sources
+- [../concepts/mec.md](../concepts/mec.md) — Memory Encryption Contexts for Realm PA space (RME DA); MECID assignment per stream
 - [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — pipeline with security state gates
 - [smmu-version-feature-map.md](smmu-version-feature-map.md) — per-version availability of Secure/Realm/Root state features
+- [smmu-register-map.md](smmu-register-map.md) — per-state register pages (Non-secure Page 0/1, Secure SMMU_S_*, Root SMMU_ROOT_*, Realm SMMU_R_*)
+- [smmu-pcie-ats-integration.md](smmu-pcie-ats-integration.md) — per-state ATS/PRI routing: SEC_SID from T/XT bits, Realm vs. Non-secure PRIQ dispatch
+- [smmu-system-implementation.md](smmu-system-implementation.md) — AMBA NSE sideband signal for SEC_SID; system-level security state integration requirements

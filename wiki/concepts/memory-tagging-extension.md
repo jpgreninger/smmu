@@ -3,7 +3,7 @@ title: "Memory Tagging Extension"
 type: concept
 tags: [smmu, mte, memory-tagging, feat-mte-perm, stage2, mair]
 created: 2026-04-13
-updated: 2026-04-13
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -84,6 +84,7 @@ This feature allows software and hypervisors to use stage 2 MemAttr encodings wi
 - [context-descriptor.md](context-descriptor.md) — CD.MAIR0/MAIR1 fields must not use the reserved 0xF0 encoding
 - [attribute-transformation.md](attribute-transformation.md) — Stage 2 MemAttr feeds into the attribute transformation path; MTE_PERM modifies the MemAttr before transformation
 - [httu.md](httu.md) — SMMU HTTU walks are Tag Unchecked; no tag faults from HTTU atomic updates
+- [stream-table-entry.md](stream-table-entry.md) — STE/CD fetches are Tag Unchecked (§3.23); STE.S2FWB interacts with FEAT_MTE_PERM stage 2 MemAttr reinterpretation (§3.23.1)
 
 ## Sources That Use This Concept
 

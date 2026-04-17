@@ -3,7 +3,7 @@ title: "Permission Indirections (S1PIE / S2PIE / S2POE)"
 type: concept
 tags: [smmu, permission, indirection, overlay, s1pie, s2pie, s2poe, smmuv3.4, armv8.9, pir, por, piindex, poindex, indirect-permission-scheme]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -106,6 +106,7 @@ Related feature: `SMMU_IDR3.THE == 1` (optional in SMMUv3.4, `FEAT_THE`):
 - [context-descriptor.md](context-descriptor.md) — S1PIE configuration is held in the CD
 - [stream-table-entry.md](stream-table-entry.md) — S2PIE and S2POE configuration is in the STE
 - [fault-models.md](fault-models.md) — F_PERMISSION faults arise from permission check failures
+- [smmu-version-feature-map.md](smmu-version-feature-map.md) — S1PIE/S2PIE/S2POE version-gating: SMMU_IDR3.S1PI and S2PI discovery bits; SMMUv3.4 feature availability
 
 ## Sources That Use This Concept
 

@@ -3,7 +3,7 @@ title: "SMMU Translation Pipeline"
 type: synthesis
 tags: [smmu, translation, pipeline, model, functional, ats, translation-procedure]
 created: 2026-04-07
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -202,6 +202,9 @@ This design means the endpoint ATC can cache "no permission" entries, enabling t
 - [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — Step 10 detail
 - [../concepts/pcie-ats-pri.md](../concepts/pcie-ats-pri.md) — AT field handling, ATS response semantics (§3.9.1.2), ATSCHK
 - [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — SMMU-originated transactions (§14.3); Chapter 14 ingress/egress port
+- [../concepts/atos.md](../concepts/atos.md) — Address Translation Operations; ATOS_PAR encoding; GATOS/VATOS register groups
+- [../concepts/translation-hardening.md](../concepts/translation-hardening.md) — AssuredOnly permission checks at stage 2; Protected attribute at stage 1 (SMMUv3.4)
 - [smmu-fault-model.md](smmu-fault-model.md) — detailed fault model subsystem reference
 - [smmu-security-states.md](smmu-security-states.md) — security state pipeline variations
+- [smmu-pcie-ats-integration.md](smmu-pcie-ats-integration.md) — complete ATS/PRI dispatch model: EATS table, split-stage flows, PRI queue, security state routing
 - [smmu-version-feature-map.md](smmu-version-feature-map.md) — version-gated feature availability for pipeline steps (SMMUv3.0–3.4, RME DA)

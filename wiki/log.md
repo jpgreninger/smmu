@@ -5,6 +5,115 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-17] lint | Sixteenth lint pass — clean
+
+- Files created: none
+- Files modified: `wiki/log.md`
+- Notes: Full structural health check across all four CLAUDE.md lint dimensions.
+  - **Broken wikilinks:** 0 (clean)
+  - **Orphan pages:** 0 (clean)
+  - **Missing concept pages:** 0. Two bolded terms investigated: `IMPLEMENTATION DEFINED` is adequately covered by `concepts/debug-trace` (dedicated "IMPLEMENTATION DEFINED Scope" section) and used correctly as spec terminology throughout; `StreamID` is fully covered by `concepts/streamid-substreamid`.
+  - **Contradictions:** 0. Three apparent regex-detected discrepancies investigated: (a) `SMMU_IDR3` version — false positive; both pages consistently gate `SMMU_IDR3.BBML` to SMMUv3.2+. (b) `SMMU_AIDR 0x04` — false positive; register-map's `0x00=SMMUv3.0…0x04=SMMUv3.4` encoding is consistent with version-feature-map. (c) `behavior/features/bits` version strings — false positives from regex matching common words near different version strings.
+  - **Index completeness:** 41 filesystem pages = 41 index.md entries, exact match, no gaps.
+  - **Asymmetric cross-references:** 131 concept↔concept/synthesis pairs remain from pass 15's explicit judgment that these are semantically correct narrow→broad links. No new asymmetric pairs introduced since pass 15.
+  - **Verdict:** Wiki is structurally clean. No fixes required this pass.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F6 from fifteenth lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/fault-models.md`, `wiki/concepts/command-queue.md`, `wiki/concepts/event-queue.md`, `wiki/synthesis/smmu-fault-model.md`, `wiki/concepts/smmu-initialization.md`, `wiki/concepts/pcie-ats-pri.md`, `wiki/log.md`
+- Notes: Fifteenth lint pass. 0 broken wikilinks, 0 orphans, index correct (41 pages). 137 asymmetric pairs found; 131 judged semantically correct (narrow→broad). Six genuine bidirectional gaps fixed (7 links total):
+  - **F1** (1 link): Added `[[synthesis/smmu-queue-mechanics]]` to `fault-models` — queue-mechanics covers CMD_RESUME/CMD_STALL_TERM submission mechanics and stall abort flows; fault-models is the concept-level counterpart.
+  - **F2** (1 link): Added `[[synthesis/smmu-register-map]]` to `command-queue` — register-map covers CMDQ_BASE/PROD/CONS addresses and ECMDQ control page layout; command-queue lacked the return.
+  - **F3** (1 link): Added `[[synthesis/smmu-register-map]]` to `event-queue` — register-map covers EVENTQ registers and the Page 1 high-frequency polling layout; event-queue lacked the return.
+  - **F4** (1 link): Added `[[concepts/granule-protection-check]]` to `synthesis/smmu-fault-model` — fault-model synthesis covers GPCF recording path and GPT_ABT_ERR; GPC concept already linked to smmu-fault-model but not vice versa.
+  - **F5** (1 link): Added `[[synthesis/smmu-security-states]]` to `smmu-initialization` — security-states covers per-state init sequences, SMMU_S_INIT.INV_ALL, and Realm init via Root firmware; initialization concept lacked the return.
+  - **F6** (1 link): Added `[[synthesis/smmu-register-map]]` to `pcie-ats-pri` — register-map covers PRIQ_BASE/PROD/CONS and GATOS register layout; pcie-ats-pri lacked the return.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F2 from fourteenth lint pass
+
+- Files created: none
+- Files modified: `wiki/synthesis/smmu-version-feature-map.md`, `wiki/synthesis/smmu-fault-model.md`, `wiki/synthesis/smmu-queue-mechanics.md`, `wiki/synthesis/smmu-pcie-ats-integration.md`, `wiki/synthesis/smmu-system-implementation.md`, `wiki/synthesis/smmu-register-map.md`, `wiki/log.md`
+- Notes: Fourteenth lint pass. No broken wikilinks, no orphans, no contradictions, index correct (41 pages). Eleven links added across two fix sets:
+  - **F1** (3 links — synthesis→synthesis return links): Added `[[synthesis/smmu-security-states]]` to `smmu-version-feature-map`; `[[synthesis/smmu-system-implementation]]` to `smmu-fault-model`; `[[synthesis/smmu-system-implementation]]` to `smmu-queue-mechanics`.
+  - **F2** (8 links — synthesis pages that lacked return links to concepts citing them): Added `[[concepts/attribute-transformation]]` and `[[concepts/fault-models]]` to `smmu-pcie-ats-integration`; added `[[concepts/coherency-and-embedded-implementations]]`, `[[concepts/destructive-reads]]`, and `[[concepts/external-interfaces]]` to `smmu-system-implementation`; added `[[concepts/interrupts-and-power]]` and `[[concepts/performance-monitors]]` to `smmu-register-map`.
+
+## [2026-04-16] lint | Cross-reference repair: F1 from thirteenth lint pass
+
+- Files created: none
+- Files modified: `wiki/synthesis/smmu-security-states.md`, `wiki/log.md`
+- Notes: Thirteenth lint pass. No broken wikilinks, no orphans, no contradictions, index correct (41 pages). One fix (3 links added to one page):
+  - **F1** (3 fixes): Added `[[synthesis/smmu-register-map]]`, `[[synthesis/smmu-pcie-ats-integration]]`, and `[[synthesis/smmu-system-implementation]]` to `smmu-security-states` — the page covers per-state register blocks, per-state PRIQ/ATS routing, and AMBA NSE; all three synthesis pages already linked to `smmu-security-states` without a return link. `smmu-security-states` inbound counts: register-map 9→9 (unchanged), pcie-ats-integration 6→6 (unchanged), system-implementation 5→5 (unchanged); `smmu-security-states` outbound count +3.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F2 from twelfth lint pass
+
+- Files created: none
+- Files modified: `wiki/synthesis/smmu-version-feature-map.md`, `wiki/synthesis/smmu-pcie-ats-integration.md`, `wiki/log.md`
+- Notes: Twelfth lint pass. No broken wikilinks, no orphans, no contradictions, index correct (41 pages). Two fixes:
+  - **F1** (1 fix): Added `[[synthesis/smmu-translation-pipeline]]` to `smmu-version-feature-map` — the feature map documents version-gated pipeline steps (VMS SMMUv3.2+, GPC SMMUv3.3+, DPT SMMUv3.4); the pipeline already linked to the feature map but not vice versa. `smmu-translation-pipeline` inbound count: 4→5.
+  - **F2** (1 fix): Added `[[synthesis/smmu-queue-mechanics]]` to `smmu-pcie-ats-integration` — queue-mechanics covers PRIQ format, PRG mechanics, and PRIQ_ABT_ERR toggle protocol (the queue side of ATS/PRI); queue-mechanics already linked to ATS-integration but not vice versa. `smmu-queue-mechanics` inbound count: 5→6.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F3 from eleventh lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/atos.md`, `wiki/concepts/performance-monitors.md`, `wiki/concepts/memory-tagging-extension.md`, `wiki/log.md`
+- Notes: Eleventh lint pass. No broken wikilinks, no orphans, no contradictions, index correct (41 pages). Three fixes:
+  - **F1** (1 fix): Added `[[concepts/attribute-transformation]]` to `atos` — `atos` cites §13.1 output attribute tables (STE.S2FWB exception, MTCFG/SHCFG/ALLOCCFG ignored, normalization) but lacked link to the attribute-transformation concept page. `attribute-transformation` inbound count: 6→7.
+  - **F2** (1 fix): Added `[[concepts/mpam]]` to `performance-monitors` — the page has a dedicated PARTID/PMG Filtering section and §17.5 MPAM-for-PMCG-MSIs section; reverse link from `mpam` already existed. `mpam` inbound count: 5→6.
+  - **F3** (1 fix): Added `[[concepts/stream-table-entry]]` to `memory-tagging-extension` — the page explicitly covers STE/CD fetches as Tag Unchecked and STE.S2FWB interaction with FEAT_MTE_PERM; reverse link from `stream-table-entry` already existed. `stream-table-entry` inbound count: 22→23.
+
+## [2026-04-16] lint | Cross-reference repair: F1 from tenth lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/tlb-invalidation.md`, `wiki/log.md`
+- Notes: Tenth lint pass. No broken wikilinks, no orphans, no contradictions, index correct (41 pages). One fix:
+  - **F1** (1 fix): Added `[[concepts/virtual-machine-structure]]` to `tlb-invalidation` — the page covers VMS cache invalidation (`CMD_CFGI_VMS_PIDM`, §4.3.5) and explicitly distinguishes VMS from TLB invalidation, but lacked a link to the VMS concept page. `virtual-machine-structure` inbound count: 8→9.
+
+## [2026-04-16] lint | Cross-reference repair: F1 from ninth lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/smmu-initialization.md`, `wiki/log.md`
+- Notes: Ninth lint pass. No broken wikilinks, no contradictions, index correct (41 pages). One fix:
+  - **F1** (1 fix): Added `[[synthesis/smmu-queue-mechanics]]` to `smmu-initialization` — queue initialization is step 2 of the init sequence; the synthesis page covers full circular buffer mechanics, ECMDQ, and error handling. `smmu-queue-mechanics` inbound count: 4→5.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F3 from eighth lint pass
+
+- Files created: none
+- Files modified: `wiki/synthesis/smmu-security-states.md`, `wiki/concepts/attribute-transformation.md`, `wiki/synthesis/smmu-translation-pipeline.md`, `wiki/log.md`
+- Notes: Eighth lint pass. No broken wikilinks, no contradictions, index correct (41 pages). Three fixes:
+  - **F1** (1 fix): Added `[[concepts/mec]]` to `smmu-security-states` — Realm state synthesis page covers RME DA but lacked link to MEC (MECID assignment is a Realm-only feature). `mec` inbound count: 4→5.
+  - **F2** (1 fix): Added `[[concepts/destructive-reads]]` to `attribute-transformation` — DR/RCI Shareability constraints (NSH/SH forbidden) are governed by §16.7.5 AMBA output attribute rules covered in attribute-transformation; reverse link was missing. `destructive-reads` inbound count: 4→5.
+  - **F3** (1 fix): Added `[[concepts/atos]]` to `smmu-translation-pipeline` — ATOS is a translation-adjacent facility sharing the same register infrastructure; pipeline synthesis page lacked the link. `atos` inbound count: 4→5.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F3 from seventh lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/tlb-invalidation.md`, `wiki/synthesis/smmu-pcie-ats-integration.md`, `wiki/concepts/smmu-initialization.md`, `wiki/synthesis/smmu-security-states.md`, `wiki/synthesis/smmu-version-feature-map.md`, `wiki/index.md`, `wiki/log.md`
+- Notes: Seventh lint pass. No broken wikilinks, no contradictions, index correct (41 pages). Three cross-reference issue groups fixed:
+  - **F1** (2 fixes): Added `[[concepts/command-formats]]` to `tlb-invalidation` (TLBI/CFGI encoding reference for §4.3–4.4) and `smmu-pcie-ats-integration` (CMD_ATC_INV size formula and CMD_PRI_RESP codes from §4.5). `command-formats` inbound count: 3→5.
+  - **F2** (2 fixes): Added `[[concepts/interrupts-and-power]]` to `smmu-initialization` (MSI/interrupt config required before enabling; power-off re-init) and `smmu-security-states` (per-state interrupt sources, GERROR, Root page interrupt sources). `interrupts-and-power` inbound count: 3→5.
+  - **F3** (1 fix): Added `[[concepts/virtual-machine-structure]]` to `smmu-version-feature-map` — VMS is a SMMUv3.2+ feature documented in the feature map but the concept page had no link back from there. `virtual-machine-structure` inbound count: 3→4.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F5 from sixth lint pass
+
+- Files created: none
+- Files modified: `wiki/synthesis/smmu-translation-pipeline.md`, `wiki/concepts/attribute-transformation.md`, `wiki/concepts/fault-models.md`, `wiki/synthesis/smmu-pcie-ats-integration.md`, `wiki/synthesis/smmu-register-map.md`, `wiki/synthesis/smmu-system-implementation.md`, `wiki/concepts/stream-table-entry.md`, `wiki/concepts/pcie-ats-pri.md`, `wiki/concepts/ras.md`, `wiki/concepts/permission-indirections.md`, `wiki/index.md`, `wiki/log.md`
+- Notes: Sixth lint pass. No broken wikilinks, no contradictions, index correct (41 pages). Five cross-reference issue groups fixed:
+  - **F1** (3 fixes): Added `[[synthesis/smmu-pcie-ats-integration]]` to `smmu-translation-pipeline`, `attribute-transformation`, and `fault-models`. These pages cover ATS pipeline dispatch, §13.6–13.7 ATS attribute handling, and §3.12.4 ATS-PRI paging model respectively — all directly addressed in the synthesis page. `smmu-pcie-ats-integration` inbound count: 2→5.
+  - **F2** (3 fixes): Added `[[synthesis/smmu-security-states]]` to `smmu-pcie-ats-integration`, `smmu-register-map`, and `smmu-system-implementation`. These pages reference per-security-state ATS routing, Secure/Root/Realm register blocks, and RME DA integration rules — all covered in depth in the synthesis page. `smmu-security-states` inbound count: 3→6.
+  - **F3** (3 fixes): Added `[[concepts/translation-hardening]]` to `stream-table-entry` (STE.AssuredOnly field), `pcie-ats-pri` (AssuredOnly checks on ATS Translation Requests), and `smmu-translation-pipeline` (permission check step). `translation-hardening` inbound count: 3→6.
+  - **F4** (2 fixes): Added `[[concepts/debug-trace]]` to `ras` (complementary Ch. 11 diagnostic facilities) and `smmu-system-implementation` (Ch. 11 debug constraints at system level). `debug-trace` inbound count: 3→5.
+  - **F5** (1 fix): Added `[[synthesis/smmu-version-feature-map]]` to `permission-indirections` — asymmetric link resolved; the feature map links to `permission-indirections` for S1PIE/S2PIE/S2POE version info but the concept page didn't link back. `smmu-version-feature-map` inbound count unchanged (it's well-linked); `permission-indirections` now points to its version-gating reference.
+
+## [2026-04-16] lint | Cross-reference repair: F1–F3 from fifth lint pass
+
+- Files created: none
+- Files modified: `wiki/concepts/fault-models.md`, `wiki/concepts/event-queue.md`, `wiki/concepts/granule-protection-check.md`, `wiki/concepts/ras.md`, `wiki/concepts/interrupts-and-power.md`, `wiki/concepts/command-queue.md`, `wiki/concepts/smmu-initialization.md`, `wiki/concepts/security-states.md`, `wiki/concepts/performance-monitors.md`, `wiki/concepts/atos.md`, `wiki/synthesis/smmu-queue-mechanics.md`, `wiki/log.md`
+- Notes: Fifth lint pass. No broken wikilinks, no contradictions, index perfectly in sync (41 pages). Three cross-reference issues fixed:
+  - **F1** (6 fixes): Added `[[synthesis/smmu-fault-model]]` to `fault-models`, `event-queue`, `granule-protection-check`, `ras`, `interrupts-and-power`, and `command-queue`. These concept pages covered GERROR/fault-reporting topics directly addressed in the synthesis page but lacked the backlink. `smmu-fault-model` inbound count: 4→10.
+  - **F2** (5 fixes): Added `[[synthesis/smmu-register-map]]` to `smmu-initialization`, `security-states`, `granule-protection-check`, `performance-monitors`, and `atos`. These pages reference specific register groups (CR0/CR0ACK, Secure/Root page layout, GPF_FAR, PMCG pages, GATOS) that are documented in the register map synthesis page. `smmu-register-map` inbound count: 4→9. (`interrupts-and-power` and `ras` also received `smmu-register-map` links as part of their F1 edits.)
+  - **F3** (1 fix): Added `[[synthesis/smmu-fault-model]]` to `smmu-queue-mechanics` Related Pages — ECMDQ ERR, CMDQ_ABT_ERR, and PRIQ_ABT_ERR topics covered in both pages; the synthesis pages were not cross-linked.
+
 ## [2026-04-15] edit | Gap-fill: High/Medium coverage gaps implemented (§3.9.1.1–3.9.1.5, §5.4.1, §13.5, §16.8)
 
 - Files created: none

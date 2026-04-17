@@ -3,7 +3,7 @@ title: "SMMU Version Feature Map"
 type: synthesis
 tags: [smmu, version, features, smmuv3, compatibility, model]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -153,12 +153,15 @@ A model should:
 - [../concepts/device-permission-table.md](../concepts/device-permission-table.md) — RME DA feature
 - [../concepts/mpam.md](../concepts/mpam.md) — MPAM (SMMUv3.2+)
 - [../concepts/mec.md](../concepts/mec.md) — MEC (RME DA)
+- [../concepts/virtual-machine-structure.md](../concepts/virtual-machine-structure.md) — VMS per-VM configuration structure (SMMUv3.2+; §5.6)
 - [../concepts/atos.md](../concepts/atos.md) — ATOS/VATOS (optional, SMMUv3.0+)
 - [../concepts/performance-monitors.md](../concepts/performance-monitors.md) — PMCG (optional, all versions)
-- [smmu-register-map.md](smmu-register-map.md) — full register map with IDR feature bits
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — full register map with IDR feature bits
+- [../synthesis/smmu-translation-pipeline.md](../synthesis/smmu-translation-pipeline.md) — operational pipeline that uses version-gated features (VMS fetch SMMUv3.2+, DPT SMMUv3.4, GPC SMMUv3.3+)
 - [../concepts/destructive-reads.md](../concepts/destructive-reads.md) — SMMUv3.1+ DRE/DCP transaction classes (§3.22)
 - [../concepts/memory-tagging-extension.md](../concepts/memory-tagging-extension.md) — FEAT_MTE_PERM mandatory in SMMUv3.4 (§3.23)
 - [../concepts/external-interfaces.md](../concepts/external-interfaces.md) — ingress sideband signals (StreamID, SEC_SID, AT, NS) apply across all versions
 - [../concepts/speculative-accesses.md](../concepts/speculative-accesses.md) — speculative structure prefetch model (§3.14, all versions)
 - [../concepts/coherency-and-embedded-implementations.md](../concepts/coherency-and-embedded-implementations.md) — COHACC, embedded preset structures (§3.15–3.16)
 - [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — 13 interrupt sources, MSI synchronization, Dormant state (§3.18–3.19)
+- [smmu-security-states.md](smmu-security-states.md) — per-security-state features and version-gated independent state model

@@ -3,7 +3,7 @@ title: "Fault Models"
 type: concept
 tags: [smmu, fault, terminate, stall, translation-fault, fault-model, paging, virtual-memory, e-page-request]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -189,6 +189,9 @@ The SMMU treats every transaction as independent. The fault behavior of one tran
 - [stream-table-entry.md](stream-table-entry.md) — STE.{S2S, S2R, S1STALLD} configure stage 2 and stream-level fault behavior
 - [command-queue.md](command-queue.md) — CMD_RESUME, CMD_STALL_TERM resolve stalled transactions
 - [interrupts-and-power.md](interrupts-and-power.md) — fault events trigger interrupt sources; MSI synchronization fences govern when fault events become visible to software
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — synthesis-level reference: GERROR toggle handshake, stall/terminate behavior, event recording, and ordering guarantees
+- [../synthesis/smmu-queue-mechanics.md](../synthesis/smmu-queue-mechanics.md) — CMD_RESUME/CMD_STALL_TERM queue submission mechanics; ECMDQ error handling and stall abort flows
+- [../synthesis/smmu-pcie-ats-integration.md](../synthesis/smmu-pcie-ats-integration.md) — §3.12.4 ATS-PRI paging model: fault-model interaction with Translation Requests, PRI flows, and stall prohibition
 
 ## Sources That Use This Concept
 

@@ -3,7 +3,7 @@ title: "PCIe ATS and PRI"
 type: concept
 tags: [smmu, pcie, ats, pri, pasid, address-translation, cxl, rme, prg, overflow]
 created: 2026-04-07
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -335,7 +335,9 @@ SEC_SID = (T == 1 || XT == 1) ? Realm : Non-secure
 - [device-permission-table.md](device-permission-table.md) — DPT check for EATS == 0b11
 - [command-queue.md](command-queue.md) — Queue mechanics; CMD_ATC_INV and CMD_PRI_RESP issued from Command queue
 - [command-formats.md](command-formats.md) — CMD_ATC_INV and CMD_PRI_RESP encoding details (§4.5)
+- [translation-hardening.md](translation-hardening.md) — AssuredOnly checks apply to ATS Translation Requests; split-stage Translated transactions exempt (SMMUv3.4 FEAT_THE)
 - [../synthesis/smmu-pcie-ats-integration.md](../synthesis/smmu-pcie-ats-integration.md) — implementation-level reference: EATS dispatch table, full ATS/split-stage flows, PRI queue mechanics (PPR format, PRG, overflow), ATS configuration procedures, security state routing, CXL interactions
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — PRIQ_BASE, PRIQ_PROD, PRIQ_CONS register addresses; GATOS register layout for ATS debugging
 
 ## Sources That Use This Concept
 

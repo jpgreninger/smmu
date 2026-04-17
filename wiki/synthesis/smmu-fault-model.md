@@ -3,7 +3,7 @@ title: "SMMU Fault Model"
 type: synthesis
 tags: [smmu, fault, terminate, stall, event, model, correctness]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -237,9 +237,11 @@ A GERROR interrupt fires when any error becomes active, **except** `MSI_GERROR_A
 ## Related Pages
 
 - [../concepts/fault-models.md](../concepts/fault-models.md) — concept-level description
+- [../concepts/granule-protection-check.md](../concepts/granule-protection-check.md) — GPCF fault category; GPT_ABT_ERR reporting; GPC-fault observability and CMD_SYNC guarantee
 - [../concepts/event-queue.md](../concepts/event-queue.md) — event queue mechanics and visibility semantics
 - [../concepts/command-queue.md](../concepts/command-queue.md) — CMD_RESUME, CMD_STALL_TERM, CMD_SYNC
 - [../concepts/interrupts-and-power.md](../concepts/interrupts-and-power.md) — GERROR as one of 13 interrupt sources; MSI synchronization
 - [../concepts/ras.md](../concepts/ras.md) — RAS error records (SMMU_ERR*) back some GERROR conditions; SFM interaction with fault reporting
 - [smmu-translation-pipeline.md](smmu-translation-pipeline.md) — where faults are generated
 - [smmu-queue-mechanics.md](smmu-queue-mechanics.md) — queue-level implementation
+- [smmu-system-implementation.md](smmu-system-implementation.md) — system-level fault requirements: CMO fault recording, F_UUT conditions, SFM prerequisites

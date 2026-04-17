@@ -3,7 +3,7 @@ title: "Interrupts and Power"
 type: concept
 tags: [smmu, interrupts, msi, wired, power, dormant, irq]
 created: 2026-04-13
-updated: 2026-04-13
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -147,7 +147,8 @@ Both the Dormant implementation (by the SMMU) and the Dormant optimization (by s
 - [fault-models.md](fault-models.md) — Fault events placed in event queue; interrupt signals queue non-empty
 - [security-states.md](security-states.md) — Separate interrupt sources per security state (NS/Secure/Realm); Root page interrupt sources
 - [smmu-initialization.md](smmu-initialization.md) — Full re-initialization required after power-off; SMMU_CR0ACK handshake
-- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — IRQ_CFG register locations; GERROR register; STATUSR register; Root page interrupt sources
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — interrupt-related register placement (GERROR, GERRORN, MSI config registers)
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — GERROR toggle handshake protocol and per-flag acknowledgement procedure — IRQ_CFG register locations; GERROR register; STATUSR register; Root page interrupt sources
 
 ## Sources That Use This Concept
 

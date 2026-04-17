@@ -3,7 +3,7 @@ title: "SMMU Queue Mechanics"
 type: synthesis
 tags: [smmu, queue, circular-buffer, command-queue, event-queue, pri-queue, model]
 created: 2026-04-07
-updated: 2026-04-15
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -203,3 +203,5 @@ These must be configured before enabling queues.
 - [../concepts/fault-models.md](../concepts/fault-models.md) — interaction with stall events and CMD_RESUME
 - [../concepts/smmu-initialization.md](../concepts/smmu-initialization.md) — queue initialization sequence
 - [smmu-pcie-ats-integration.md](smmu-pcie-ats-integration.md) — PRI queue integration: PPR format, PRG mechanics, overflow toggle, auto-response, PRIQ_ABT_ERR
+- [smmu-fault-model.md](smmu-fault-model.md) — GERROR.CMDQ_ERR flag; CMDQ_ABT_ERR and PRIQ_ABT_ERR error handling; GERROR toggle handshake protocol
+- [smmu-system-implementation.md](smmu-system-implementation.md) — queue memory attribute configuration (CR1 SH/OC/IC fields); system integration constraints

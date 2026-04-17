@@ -3,7 +3,7 @@ title: "SMMU Initialization"
 type: concept
 tags: [smmu, initialization, reset, enable, configuration, software, smmu-s-init, smmuen, cr0ack, realm, gpcen]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -126,6 +126,10 @@ The SMMU is not required to invalidate caches when `SMMUEN` changes. Therefore:
 - [tlb-invalidation.md](tlb-invalidation.md) — invalidation commands required before SMMUEN=1
 - [security-states.md](security-states.md) — each security state has independent initialization sequence
 - [stream-table-entry.md](stream-table-entry.md) — stream table must be populated before enabling translation
+- [interrupts-and-power.md](interrupts-and-power.md) — MSI/interrupt configuration required before enabling; full re-initialization required after power-off; Dormant state behavior
+- [../synthesis/smmu-queue-mechanics.md](../synthesis/smmu-queue-mechanics.md) — complete queue implementation reference: circular buffer mechanics, ECMDQ, PRIQ, error handling
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — CR0/CR0ACK, STRTAB_BASE, EVENTQ/CMDQ register locations used during initialization sequence
+- [../synthesis/smmu-security-states.md](../synthesis/smmu-security-states.md) — per-state initialization sequences (Secure, Realm, Root); SMMU_S_INIT.INV_ALL; Realm init via Root firmware before GPCEN
 
 ## Sources That Use This Concept
 

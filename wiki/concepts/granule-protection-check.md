@@ -3,7 +3,7 @@ title: "Granule Protection Check (GPC)"
 type: concept
 tags: [smmu, gpc, gpt, rme, realm, security, physical-address, gpf, gpt-lookup-error, nostreamid, speculative]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-16
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -166,6 +166,8 @@ The Device Permission Table (DPT) ([device-permission-table.md](device-permissio
 - [two-stage-translation.md](two-stage-translation.md) — GPC is applied to the PA output of translation
 - [device-permission-table.md](device-permission-table.md) — DPT is a complementary per-device PA-space check
 - [pcie-ats-pri.md](pcie-ats-pri.md) — Translated transactions from Realm streams subject to GPC
+- [../synthesis/smmu-fault-model.md](../synthesis/smmu-fault-model.md) — GPCF event recording path; GERROR.GPT_ABT_ERR flag; fault ordering guarantees
+- [../synthesis/smmu-register-map.md](../synthesis/smmu-register-map.md) — Root Control Page GPT registers (GPF_FAR, GPT_CFG_FAR, SMMU_ROOT_IDR0)
 
 ## Sources That Use This Concept
 
