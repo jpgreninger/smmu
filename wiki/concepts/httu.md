@@ -20,6 +20,7 @@ HTTU capability is reported in `SMMU_IDR0.HTTU`:
 | 0b00            | No HTTU support |
 | 0b01            | Access flag hardware update only |
 | 0b10            | Access flag + Dirty state hardware update |
+| 0b11            | Access flag + Dirty state hardware update, **and** Access flag update for Table descriptors (HAFT; SMMUv3.4) |
 
 ## §3.13.1 Software Update of Flags
 

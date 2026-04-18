@@ -53,7 +53,7 @@ Each incoming transaction carries:
 ### Step 3: STE Configuration Decode
 
 Decode `STE.Config[2:0]`:
-- `0b000`: stream disabled → **F_STREAM_DISABLED**, abort.
+- `0b000`: stream disabled → transaction aborted, **no event recorded** (F_STREAM_DISABLED is **not** generated; see §7.3).
 - `0b100`: stream bypass → go to **Step 9** (apply attribute overrides, forward).
 - `0b101`, `0b110`, `0b111`: translation configured. Continue.
 

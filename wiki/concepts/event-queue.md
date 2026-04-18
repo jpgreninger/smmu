@@ -198,7 +198,7 @@ Key event types (§7.3):
 | F_STE_FETCH | STE fetch fault | External abort while fetching STE |
 | C_BAD_STE | Bad/Illegal STE | STE is invalid or ILLEGAL |
 | F_BAD_ATS_TREQ | Bad ATS Translation Request | ATS request when ATS not enabled |
-| F_STREAM_DISABLED | Stream disabled | STE.Config == 0b000 |
+| F_STREAM_DISABLED | Stream disabled | S1DSS substream mismatch (S1DSS==0b00 with no SubstreamID, or S1DSS==0b10 with SubstreamID 0); Config==0b000 aborts with no event |
 | F_TRANSL_FORBIDDEN | Translation forbidden | ATS Translated transaction not permitted |
 | C_BAD_SUBSTREAMID | Bad SubstreamID | SubstreamID out of range |
 | F_CD_FETCH | CD fetch fault | External abort while fetching CD/L1CD |

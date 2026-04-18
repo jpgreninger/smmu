@@ -24,7 +24,7 @@ These faults always abort the transaction and record an event (if queue has spac
 | F_STE_FETCH | External abort while fetching STE or L1STD from memory |
 | C_BAD_STE | STE is invalid (V=0) or ILLEGAL (illegal field combination) |
 | F_BAD_ATS_TREQ | ATS Translation Request received when `STE.EATS == 0b00` |
-| F_STREAM_DISABLED | `STE.Config == 0b000` |
+| F_STREAM_DISABLED | S1DSS substream mismatch: S1DSS==0b00 with no SubstreamID, or S1DSS==0b10 with SubstreamID 0 (note: Config==0b000 aborts with **no event**) |
 | F_TRANSL_FORBIDDEN | ATS Translated transaction forbidden (ATS disabled, Split-stage ATS protocol error, Realm→NS Instruction, DPT check fail) |
 | C_BAD_SUBSTREAMID | SubstreamID out of range given STE.S1CDMax |
 | F_CD_FETCH | External abort while fetching L1CD or CD |
@@ -96,17 +96,19 @@ An event IS NOT written (may be discarded) when:
 
 ### Event Priority for a Single Transaction
 
-If a transaction generates multiple potential events, only the highest-priority event is recorded. Priority order for the main path (non-ATS):
+If a transaction generates multiple potential events, only the highest-priority event is recorded. Priority order for the main path (non-ATS) per §7.3.22:
 
-1. F_UUT
-2. C_BAD_STREAMID
-3. F_STE_FETCH
-4. C_BAD_STE
-5. F_STREAM_DISABLED
-6. C_BAD_SUBSTREAMID
+1. C_BAD_STREAMID
+2. F_STE_FETCH
+3. C_BAD_STE
+4. F_VMS_FETCH (IMPL DEFINED position relative to items 5–6)
+5. C_BAD_SUBSTREAMID
+6. F_STREAM_DISABLED
 7. F_CD_FETCH / stage 2 faults fetching CD
 8. C_BAD_CD
 9. Translation-related faults (stage 1 or stage 2)
+
+Note: F_UUT, F_TLB_CONFLICT, and F_CFG_CONFLICT have **implementation-specific** prioritization and are not part of the fixed ordering above (§7.3.22).
 
 For ATS Translated transactions with ATSCHK=1, the priority ordering is specified in §3.9.1.3.
 
