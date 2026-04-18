@@ -101,12 +101,13 @@ If a transaction generates multiple potential events, only the highest-priority 
 1. C_BAD_STREAMID
 2. F_STE_FETCH
 3. C_BAD_STE
-4. F_VMS_FETCH (IMPL DEFINED position relative to items 5–6)
+4. F_VMS_FETCH (IMPL DEFINED position relative to all items below it, 5–10)
 5. C_BAD_SUBSTREAMID
 6. F_STREAM_DISABLED
-7. F_CD_FETCH / stage 2 faults fetching CD
-8. C_BAD_CD
-9. Translation-related faults (stage 1 or stage 2)
+7. Faults from translation (stage 2, for fetch of CD)
+8. F_CD_FETCH (external abort while fetching CD)
+9. C_BAD_CD
+10. Faults from translation (stage 1 or stage 2, for data access)
 
 Note: F_UUT, F_TLB_CONFLICT, and F_CFG_CONFLICT have **implementation-specific** prioritization and are not part of the fixed ordering above (§7.3.22).
 

@@ -109,7 +109,7 @@ The SMMU updates `PROD.WR` no earlier than when all written event data is observ
 
 - Non-stall events: may be silently dropped if queue is full.
 - Stall events: never dropped. Buffered internally until queue has space.
-- Overflow indicator is set in `SMMU_GERROR.EVENTQ_ABT` when an Event queue external abort occurs.
+- External abort during Event queue write is signaled via `SMMU_GERROR.EVENTQ_ABT_ERR` (distinct from overflow — queue overflow silently drops non-stall events with no GERROR flag).
 
 ### Interrupt Assertion
 
@@ -180,7 +180,7 @@ If a `CMD_SYNC` MSI write (via a Command queue control page) experiences an Exte
 
 ### ECMDQ Non-full WFE
 
-If `SMMU_IDR0.SEV == 1`: SMMU sends WFE wake-up event when any ECMDQ transitions from full to non-full.
+If `SMMU_IDR0.SEV == 1`: SMMU sends WFE wake-up event when any Command queue (main CMDQ or any ECMDQ) transitions from full to non-full.
 
 ### CR1 Interaction
 

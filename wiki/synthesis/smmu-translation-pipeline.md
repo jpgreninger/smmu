@@ -72,7 +72,8 @@ Check for ATS-related faults (if AT != Untranslated):
 ### Step 5: VMS Fetch (if STE.VMSPtr non-zero, SMMUv3.2+)
 
 - Fetch VMS from PA address `STE.VMSPtr`.
-- If fetch fails or VMS invalid → **C_BAD_STE**, abort.
+- If fetch causes external abort → **F_VMS_FETCH**, abort.
+- If VMS is invalid → **C_BAD_STE**, abort.
 
 ### Step 6: CD Fetch and Validation (if stage 1 enabled)
 
