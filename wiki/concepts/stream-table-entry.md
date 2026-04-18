@@ -440,7 +440,7 @@ Combined encoding `{S2HA, S2HD}`:
 
 ILLEGAL to set `S2HA` if `SMMU_IDR0.HTTU == 0b00`. ILLEGAL to set `S2HD` if `SMMU_IDR0.HTTU == 0b00 or 0b01`. ILLEGAL to set either for VMSAv8-32 LPAE stage 2.
 
-### S2S / S2R, bits [185:186] — Stage 2 Stall / Record
+### S2S, bit [185] / S2R, bit [186] — Stage 2 Stall / Record
 
 `S2S == 1`: Use Stall fault model for stage 2 translation-related faults (if supported). `S2R == 1`: Record fault events. IGNORED when `Config == 0b10x`. See §5.5 fault configuration for `{A, R, S}` semantics.
 

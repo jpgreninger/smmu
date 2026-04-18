@@ -177,14 +177,35 @@ The six flowcharts and their corresponding pipeline steps are:
 
 ### §15.2 ATS Translation Request Response Categories
 
-The specification states that Translation Request (AT == 0b01) responses fall into four mutually exclusive categories:
+The specification (§3.9.1.2) defines the following responses to Translation Requests (AT == 0b01):
 
-| Category | Condition | Response |
-|---|---|---|
-| Configuration error | ATS disabled (EATS == 0b00), or ATS configuration error (C_BAD_STREAMID, C_BAD_STE, etc.) | **Complete with Abort (CA) status** — signals misconfiguration to the Root Complex |
-| ATS disabled for Security state | Secure ATS disabled or NS ATS disabled for the stream's security state | **Unsuccessful (UR) status** |
-| Translation fault | Translation or Access fault (F_TRANSLATION, F_ACCESS, F_ADDR_SIZE) | **Successful response with R==0, W==0** — fault PA, zero permissions; endpoint flushes ATC entry |
-| Permission fault | F_PERMISSION | **Successful response with partial permissions** — actual accessible permissions returned; ATC may cache the partial entry |
+**ATS disabled — Unsupported Request (UR) status:**
+
+All cases where ATS is disabled for the stream produce UR status. F_BAD_ATS_TREQ is additionally recorded (except Config==0b000):
+
+| Condition | Event recorded |
+|---|---|
+| `SMMU_CR0.SMMUEN == 0` | F_BAD_ATS_TREQ |
+| Secure StreamID (Secure STE → effective EATS == 0b00) | F_BAD_ATS_TREQ |
+| `STE.Config == 0b000` (stream disabled) | No event |
+| `STE.Config == 0b100` (bypass; EATS forced 0b00) | F_BAD_ATS_TREQ |
+| Effective `STE.EATS == 0b00` (including EATS==0b1x when ATSCHK==0) | F_BAD_ATS_TREQ |
+
+**Structural configuration error — Completer Abort (CA) status:**
+
+| Condition | Event recorded |
+|---|---|
+| C_BAD_STREAMID | If `SMMU_CR2.REC_CFG_ATS == 1` and `RECINVSID == 1` |
+| F_STE_FETCH, C_BAD_STE, F_VMS_FETCH, F_CFG_CONFLICT, F_TLB_CONFLICT, C_BAD_SUBSTREAMID, F_STREAM_DISABLED, F_WALK_EABT, F_CD_FETCH, C_BAD_CD | If `SMMU_CR2.REC_CFG_ATS == 1` |
+| GPF on output address | No event (see §3.25.2) |
+
+**Translation fault — Success with R==0, W==0:**
+
+F_TRANSLATION, F_ACCESS, F_ADDR_SIZE (at either stage, including stage 2 faults for CD fetch or stage 1 walk). No fault event recorded in the SMMU Event queue.
+
+**Permission fault — Success with partial permissions:**
+
+F_PERMISSION: actual accessible permissions (R, W, Exe) returned from translation table. In the extreme case R==W==0. Where F_PERMISSION arises at stage 2 for a CD fetch or stage 1 walk: Success with R==W==0.
 
 This design means the endpoint ATC can cache "no permission" entries, enabling the PRI/PASID flow to later request more permissions without reconfiguring the ATC.
 
