@@ -5,6 +5,14 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22b] conformance | Wiki compliance verification pass — 2 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/tlb-invalidation.md`, `wiki/log.md`
+- Notes: Cross-validated claims across three wiki pages (streamid-substreamid.md, tlb-invalidation.md, smmu-initialization.md) — 17 PASS, 2 FAIL fixed:
+  - **PASS** (×17): SIDSIZE 0–32 bits via SMMU_IDR1.SIDSIZE (§6.3.2 line 11046), SSIDSIZE 0–20 bits via SMMU_IDR1.SSIDSIZE (§6.3.2 line 11038), StreamID[15:0]==RequesterID[15:0] (§3.2 line 1256), C_BAD_STREAMID on out-of-range StreamID (line 1276), C_BAD_SUBSTREAMID on out-of-range SubstreamID (line 6697), BBML==2 nT ignored (§3.21.1.3 line 3957), BBML==2 F_TLB_CONFLICT never reported (line 3961), BBML==2 Contiguous same rules as Level 1 (line 3975), 8-bit SMMU match required if top-8-zero (§3.17.4 line 3603), 8-bit SMMU IMPL DEFINED if top-8-nonzero (line 3604), SMMU_CR0.VMW configures VMID wildcard (§3.17.6 line 3654), INV_ALL completion not required to wait for outstanding transactions (§6.3.62 line 17093), INV_ALL affects locked entries (line 17095), SMMU_R_CR0.ATSCHK is RES1 (§3.4.4 line 2242), SMMU_R_GBPA.ABORT is RES1 (line 10513), SMMU_CR0.SMMUEN==0 at reset (§3.11), GBPA.ABORT determines bypass vs abort at reset (§3.11).
+  - **FAIL/FIXED** (×2): `tlb-invalidation.md` §3.17.6 Discovery field wrong — wiki said `SMMU_IDR0.VMID_WILDCARD==1`; spec §6.3.1 names the field `SMMU_IDR0.VMW` (bit [17]). Corrected. `tlb-invalidation.md` §3.17.7 wrong register — wiki said `SMMU_IDR0.BGPTM==1`; spec §3.17.7 (line 3668) and §6.3.27 (line 21416) consistently use `SMMU_ROOT_IDR0.BGPTM==1`. Corrected.
+
 ## [2026-04-22] conformance | Wiki compliance verification pass — 1 bug fixed
 
 - Files created: none

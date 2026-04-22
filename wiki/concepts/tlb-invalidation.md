@@ -3,7 +3,7 @@ title: "TLB Invalidation"
 type: concept
 tags: [smmu, tlb, invalidation, commands, broadcast, asid, vmid, bbml, tlbinxs, aset, vmid-wildcard]
 created: 2026-04-07
-updated: 2026-04-16
+updated: 2026-04-22
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -148,11 +148,11 @@ When `CR2.E2H==1` (EL2 Host Extensions active), the EL2 translation regime gains
 - **Lookups** still use the full VMID (no aliasing occurs; a client with VMID X is not confused with VMID Y simply because wildcarding is configured).
 - Wildcarding affects both broadcast maintenance and explicit `CMD_TLBI_*` commands.
 - `SMMU_S_CR0.VMW` provides the equivalent for the Secure command queue.
-- Discovery: `SMMU_IDR0.VMID_WILDCARD==1`.
+- Discovery: `SMMU_IDR0.VMW==1`.
 
 ### §3.17.7 GPT Broadcast (RME)
 
-For SMMU implementations with RME and `SMMU_IDR0.BGPTM==1`:
+For SMMU implementations with RME and `SMMU_ROOT_IDR0.BGPTM==1`:
 - The SMMU participates in PE EL3 `TLBI *PA* to OSH` (GPT broadcast) operations.
 - This is independent of `BTM` (standard TLB maintenance) and `PTM` (PE-side TLB maintenance).
 - GPT broadcast ensures that SMMU-cached translations that reference Granule Protection Table (GPT) information are invalidated when the GPT is updated.
