@@ -5,6 +5,13 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22d] conformance | Wiki compliance verification pass — 0 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/log.md`
+- Notes: Cross-validated 18 specific factual claims across three wiki pages (security-states.md, speculative-accesses.md, translation-hardening.md) against IHI0070G_b. All 18 PASS, 0 FAIL:
+  - **PASS** (×18): REALM_IMPL in SMMU_ROOT_IDR0 (line 1079); ROOT_IMPL in SMMU_ROOT_IDR0 (line 1048); SIF in SMMU_S_CR0 terminates NS instruction fetches (line 2617); SEL2 in SMMU_S_IDR1 for Secure EL2 (line 1001); STE.MECID field exists for Realm streams (line 7789); PCIe T=1 IDE TLP prefix → SEC_SID=Realm T=0/absent → Non-secure (line 2372); STE.NSCFG for Secure stream NS output (line 7152); Realm streams restricted to VMSAv8-64/VMSAv9-128 (line 2664); speculative write → always abort, no event (line 3300); speculative read success → HTTU AF updates same as non-speculative (line 3305); PCIe ATS TRs always non-speculative (line 3309); speculative Write TR does not mark writable-clean as writable-dirty (line 3312); SMMU_IDR3.THE for THE discovery (line 1153); CD.PnCH==1 removes Contiguous bit (bit 52 reinterpreted) in VMSAv8-64 (line 4972); RCW not supported by SMMU (line 4975); AssuredOnly failure → F_PERMISSION with AssuredOnly==1 (line 4984); ATS TR AssuredOnly failure → Success R==W==0 (line 4989); STE.EATS==0b10 Split-stage ATS ignores AssuredOnly (line 4991).
+
 ## [2026-04-22c] conformance | Wiki compliance verification pass — 1 bug fixed
 
 - Files created: none
