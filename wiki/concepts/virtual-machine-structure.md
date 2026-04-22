@@ -3,7 +3,7 @@ title: "Virtual Machine Structure (VMS)"
 type: concept
 tags: [smmu, vms, virtualization, vmid, smmuv3.2, configuration, mpam, partid-map, f-vms-fetch]
 created: 2026-04-07
-updated: 2026-04-14
+updated: 2026-04-22
 sources: [ihi0070g-b-smmuv3-architecture-spec]
 ---
 
@@ -13,7 +13,7 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 
 The Virtual Machine Structure (VMS) is an in-memory data structure introduced in SMMUv3.2 that holds per-VM configuration information, scoped by VMID. It reduces duplication of per-VM state across multiple STEs that share the same VMID (i.e., multiple devices assigned to the same VM).
 
-VMS presence is indicated by `SMMU_IDR0.VMS == 1` (optional, SMMUv3.2+).
+VMS is supported when `SMMU_IDR3.MPAM == 1`, `SMMU_IDR0.S1P == 1`, and `SMMU_IDR0.S2P == 1`, plus per-Security-state MPAMIDR conditions (see §5.6.1). There is no dedicated `SMMU_IDR0.VMS` field in the specification.
 
 ## §5.6 VMS Structure
 

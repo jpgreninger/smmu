@@ -5,6 +5,14 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22e] conformance | Wiki compliance verification pass — 1 bug fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/virtual-machine-structure.md`, `wiki/log.md`
+- Notes: Cross-validated 29 specific factual claims across three wiki pages (virtual-machine-structure.md, smmu-security-states.md, smmu-system-implementation.md) against IHI0070G_b. 28 PASS, 1 FAIL fixed:
+  - **PASS** (×28): VMS size 4 KB aligned (line 10013); PARTID_MAP bits [511:0] 32×16-bit little-endian (lines 10021-10024); Reserved bits [32767:512] RES0 (lines 10038-10041); VMS supported when IDR3.MPAM+IDR0.S1P+IDR0.S2P==1 plus MPAMIDR conditions (lines 10046-10063); VMS fetch attributes same as STE fetch via SMMU_CR1 (line 10019); speculative VMS External abort → F_VMS_FETCH (line 10067); CMD_CFGI_VMS_PIDM invalidates VMID-indexed PARTID_MAP cache (lines 5400, 10080-10090); VMSPtr out of OAS → C_BAD_STE (lines 1707, 7887); multiple STEs same VMID different VMSPtr → UNPREDICTABLE (lines 10016-10018); SECURE_IMPL indicates Secure state support (lines 2524-2531); REALM_IMPL indicates Realm programming interface (line 1079); ROOT_IMPL indicates Root programming interface + GPC (line 1048); PCIe T=0/absent → Non-secure, T=1 → Realm (lines 2365-2374); SIF aborts Secure instruction fetches to NS PA/IPA (line 2617); Realm restricted to VMSAv8-64/VMSAv9-128 (lines 1110, 8233); SMMU_R_CR0.ATSCHK RES1 (lines 2240-2242); Realm SSec==1 → CERROR_ILL (lines 2694, 5149); Secure commands may affect NS state; NS commands never affect Secure (lines 5148, 6402); DVM requires same Shareability domain (line 31704); PCIe 16-bit RequesterID range as StreamIDs (lines 1256, 31711); PCIe streams must not use Stall (line 31716); SMMU_S_INIT.INV_ALL invalidates locked entries (lines 17095, 31771); TLB_invalidate_all does NOT invalidate locked entries (line 31762); CMD_CFGI_* on locked entries IMPLEMENTATION DEFINED (line 31769); CMO faults RnW==1 (line 31854); DRE==0 Invalidate→CleanInvalidate, DRE==1 Invalidate eligible (lines 31825-31829); Clean/CleanInvalidate/CleanToPersistence require Read or Execute (line 31841); client-originated translated transaction downstream aborts not recorded by SMMU (line 31890).
+  - **FAIL/FIXED**: `virtual-machine-structure.md` Definition section — wiki claimed VMS is "indicated by `SMMU_IDR0.VMS == 1`"; no such field exists in IHI0070G_b. Spec §5.6.1 (lines 10046-10063) conditions VMS support on SMMU_IDR3.MPAM==1, SMMU_IDR0.S1P==1, SMMU_IDR0.S2P==1 plus per-state MPAMIDR conditions. Corrected to remove fabricated field reference.
+
 ## [2026-04-22d] conformance | Wiki compliance verification pass — 0 bugs fixed
 
 - Files created: none
