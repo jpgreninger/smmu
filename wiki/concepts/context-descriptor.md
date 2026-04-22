@@ -299,7 +299,7 @@ Used only when CD is reached from a Secure STE; IGNORED otherwise.
 | 0    | Hierarchical attributes enabled (APTable/PXNTable/XNTable honored). |
 | 1    | Hierarchical attributes disabled; APTable/PXNTable/XNTable bits IGNORED in table descriptors walked through TTB0. |
 
-RES0 if `SMMU_IDR3.HAD == 0`. Supported for both VMSAv8-32 LPAE and VMSAv8-64.
+IGNORED if `SMMU_IDR3.HAD == 0` (not RES0; any value may be written). Supported for both VMSAv8-32 LPAE and VMSAv8-64.
 
 (When `SMMU_IDR5.D128 == 1`: this bit is `DisCH0` — disables Contiguous bit at initial walk level for VMSAv9-128.)
 

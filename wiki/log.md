@@ -5,6 +5,14 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22f] conformance | Wiki compliance verification pass — 1 bug fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/context-descriptor.md`, `wiki/log.md`
+- Notes: Cross-validated 22 specific factual claims across three wiki pages (context-descriptor.md, command-queue.md, fault-models.md) against IHI0070G_b. 21 PASS, 1 FAIL fixed:
+  - **PASS** (×21): L1CD is 8-byte structure (line 8499); L1CD.V==0 → C_BAD_SUBSTREAMID (lines 8540-8541); L1CD.L2Ptr[55:12] pointer field (line 8511); L2Ptr must be in IAS/OAS range (line 8536); Realm L1CD same format, L2Ptr Realm PA (line 2684); V==1→0 decommission requires L1CD+CD invalidation (lines 8547-8549); L1CD shared across StreamIDs requires multi-StreamID invalidation (line 8551); CD is 64-byte structure (line 8560); ASID[63:48] IGNORED for EL2/EL3 StreamWorlds (line 9033); TLB-cacheable fields list complete (lines 9606-9640); AA64 VMSAv9-128 ILLEGAL when StreamWorld==EL2 or STE.S1PIE==0 (lines 8985-8986); HAFT RES0 when HTTU!=0b11 (line 9124); HAFT ILLEGAL if HA==0 (line 9122); PARTID/PMG never cached in TLBs (line 9647); CD cache keyed by {StreamID,SubstreamID} (line 9649); AP[1] IGNORED treated as 1 for EL2/EL3 (lines 1536, 9593); STALL_MODEL 0b00=both, 0b01=Terminate-only, 0b10=Stall-forced (lines 10618-10620); TERM_MODEL 0=CD.A selects Abort/RAZ/WI, 1=Abort only (lines 10607-10609); E_PAGE_REQUEST optional IMPL DEFINED hint (line 3048); ECMDQ EN==ENACK==1→enabled, 0→disabled (lines 1940-1942); CMDQP_ERR in SMMU_GERROR/SMMU_S_GERROR for ECMDQ errors (line 1964).
+  - **FAIL/FIXED**: `context-descriptor.md` HAD0 field — wiki said "RES0 if `SMMU_IDR3.HAD == 0`"; spec §5.4 (line 9084) says "if SMMU_IDR3.HAD == 0, this field and CD.HAD1 are IGNORED". IGNORED and RES0 are distinct spec terms: IGNORED means the value may be any and is not acted upon; RES0 requires the field to be zero. Corrected to "IGNORED if `SMMU_IDR3.HAD == 0` (not RES0; any value may be written)".
+
 ## [2026-04-22e] conformance | Wiki compliance verification pass — 1 bug fixed
 
 - Files created: none
