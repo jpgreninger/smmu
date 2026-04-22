@@ -5,6 +5,14 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22] conformance | Wiki compliance verification pass — 1 bug fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/stream-table-entry.md`, `wiki/log.md`
+- Notes: Cross-validated 10 specific factual claims in `two-stage-translation.md` and `stream-table-entry.md` against IHI0070G_b (§3.4, §5.1, §5.2). 9 PASS, 1 FAIL fixed:
+  - **PASS** (×9): IAS formula (§3.4 line 1568), GBPA bypass OAS abort no-event (§3.4 line 1576), Config=0b100 bypass F_ADDR_SIZE recorded (§3.4 line 1578), VAS VAX encoding 49/53/56-bit (§3.4.1 lines 1653-1655), stage-2-bypass IPA silently truncated (§3.4 line 1635), S2TG encoding 4K/64K/16K/Reserved (§5.2 line 7371-7377), S1Fmt 0b10 1024 CDs per 64KB L2 indexed by SubstreamID[9:0] (§5.2 line 6634), STRW 0bx1 Reserved/ILLEGAL for Non-secure STEs (§5.2 line 7049), L1STD Span 12–31 Reserved behaves-as-0 (§5.1 line 6495).
+  - **FAIL/FIXED**: `stream-table-entry.md` EATS 0b10 ILLEGAL conditions wrong — wiki said "ILLEGAL unless ... `ATSCHK==1`"; spec §5.2 lines 7001-7010 states ATSCHK==0 degrades to 0b00 behavior but does NOT make the STE ILLEGAL. ILLEGAL conditions are only Config!=0b111, S2S==1, or NS1ATS==1. Corrected in STE wiki page.
+
 ## [2026-04-17] lint | Sixteenth lint pass — clean
 
 - Files created: none

@@ -227,7 +227,7 @@ RES0 if `SMMU_IDR0.S1P == 0`. IGNORED if `Config == 0b1x0`. ILLEGAL to set to 1 
 |------|---------|
 | 0b00 | ATS disabled. Translation Requests → UR + `F_BAD_ATS_TREQ`. Translated traffic (ATSCHK==1) → abort + `F_TRANSL_FORBIDDEN`. |
 | 0b01 | Full ATS: Translation Requests serviced at all enabled stages. Translated traffic bypasses SMMU. ILLEGAL when `S2S == 1` (SMMUv3.1+; SMMUv3.0 CONSTRAINED UNPREDICTABLE when `Config != 0b11x`). |
-| 0b10 | Split-stage ATS: Translation responses return stage 1 IPA to endpoint. Subsequent Translated traffic carries IPA and undergoes stage 2. ILLEGAL unless `Config == 0b111`, `S2S == 0`, `SMMU_IDR0.NS1ATS == 0`, `ATSCHK == 1`. Treated as 0b00 if `ATSCHK == 0`. |
+| 0b10 | Split-stage ATS: Translation responses return stage 1 IPA to endpoint. Subsequent Translated traffic carries IPA and undergoes stage 2. ILLEGAL if `Config != 0b111`, `S2S == 1`, or `SMMU_IDR0.NS1ATS == 1`. If none of those conditions hold but `ATSCHK == 0`, the STE is not ILLEGAL — it simply behaves as 0b00 (per §5.2). |
 | 0b11 | Full ATS with DPT checks (RME DA). Reserved (behaves as 0b00) if `SMMU_(R_)IDR3.DPT == 0`. ILLEGAL if `DPT == 1` and `StreamWorld != EL1`. ILLEGAL if `Config == 0b11x` and `S2S == 1`. |
 
 RES0 for Secure STEs (effective value 0b00). IGNORED if `SMMU_IDR0.ATS == 0` or `Config[1:0] == 0b00`.
