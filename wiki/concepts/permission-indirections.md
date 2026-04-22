@@ -76,14 +76,6 @@ Note: `STE.S1PIE` allows a hypervisor to prevent guest configuration of permissi
 
 The encoding of each entry follows the A-profile PIR/POR format defined in `FEAT_S1PIE`/`FEAT_S2PIE`/`FEAT_S2POE` respectively.
 
-## Stage 2 Permission Indirection Inhibit (S2PII)
-
-`STE.S2PII == 1` (introduced in SMMUv3.4) prevents stage 2 permission indirections from being applied, even if configured in `STE.S2PIE`. This allows a hypervisor to selectively inhibit indirections on specific streams.
-
-## Interaction with STE.S2PII
-
-`STE.S2PII` controls whether stage 2 permission indirections are applied. With `STE.S2PII == 1`, the `SMMU_S2PII` register is not used for that stream.
-
 ## Translation Hardening (THE / AssuredOnly)
 
 Related feature: `SMMU_IDR3.THE == 1` (optional in SMMUv3.4, `FEAT_THE`):

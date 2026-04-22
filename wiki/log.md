@@ -5,6 +5,14 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22c] conformance | Wiki compliance verification pass — 1 bug fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/permission-indirections.md`, `wiki/log.md`
+- Notes: Cross-validated claims across three wiki pages (performance-monitors.md, permission-indirections.md, ras.md) against IHI0070G_b (§10.3, §3.26, §12.3). 15 PASS, 1 FAIL fixed:
+  - **PASS** (×15): PMCG event IDs 0–7 descriptions/mandatory/filterable match spec §10.3 table; event ID range 0x0000–0x007F architected, 0x0080–0xFFFF IMPL DEFINED (line 27975); RELOC_CTRS moves counters to Page 1 (lines 28215,28278); OVFCAP==1 triggers capture (line 28383-28389); SMMU_IDR3.S1PI/S2PI are the discovery fields (line 1154-1155); S2PIE=0/S2POE=1 → ILLEGAL C_BAD_STE (line 4944 table); CD.WXN is RES0 when S1PIE enabled (line 4927); SFM terminates client transactions (line 30421); SFM stops accessing queues (line 30421); SFM signals SMMU_GERROR.SFM_ERR + SMMU_S_GERROR.SFM_ERR (line 30427); SFM recovery must include system reset (line 30421); RAS event table (F_WALK_EABT, F_STE_FETCH, F_CD_FETCH, GERROR flags) accurate; RAS interrupt types match; SMMU_PMCG_CFGR.CAPTURE==1 gates SVRn (line 27950); SMMU_PMCG_SCR.SO gates Secure observation.
+  - **FAIL/FIXED**: `permission-indirections.md` — two fabricated sections removed: "Stage 2 Permission Indirection Inhibit (S2PII)" and "Interaction with STE.S2PII" claimed that `STE.S2PII == 1` is an STE inhibit bit preventing stage 2 permission indirections. No such STE field exists in IHI0070G_b §3.26 or the STE field listing (§5.2). The spec has `SMMU_S2PII` (register §6.3.17), not an STE bit.
+
 ## [2026-04-22b] conformance | Wiki compliance verification pass — 2 bugs fixed
 
 - Files created: none
