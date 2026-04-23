@@ -5,6 +5,16 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22j] conformance | Wiki compliance verification pass — 2 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/coherency-and-embedded-implementations.md`, `wiki/log.md`
+- Notes: Cross-validated specific factual claims across three wiki pages (coherency-and-embedded-implementations.md, debug-trace.md, destructive-reads.md) against IHI0070G_b. 2 bugs fixed in coherency page:
+  - **coherency-and-embedded-implementations.md BUG-1** (FIXED): COHACC==1 was described as "Inner Shareable cacheable accesses" — spec (lines 10872, 3339) says COHACC==1 = "IO-coherent access is supported." "Inner Shareable cacheable" is not the same as IO-coherent (IO-coherent does not imply a specific shareable/cacheable attribute). Corrected to IO-coherent terminology.
+  - **coherency-and-embedded-implementations.md BUG-2** (FIXED): Single-Copy Atomicity section claimed VMSAv9-128 "Requires FEAT_LSE2 in the system" — spec (line 3332) says SMMU follows PE atomicity rules for descriptor accesses; FEAT_LSE2 (spec line 4079) affects *configuration structure fetch* atomicity, not translation table descriptor atomicity. Removed the incorrect FEAT_LSE2 requirement; added note distinguishing the two atomicity concerns.
+  - **debug-trace.md** (×3 PASS): Security constraint rules 1–3 all verified; "Arm recommends" readback mechanism confirmed (spec line 30343).
+  - **destructive-reads.md** (×8 PASS): SMMUv3.0 unconditional conversion confirmed (spec line 4150); SMMUv3.1 bypass conditions (spec lines 4152–4157); §3.22.1 DRE/DCP control table (spec lines 4193–4196); RCI no-additional-requirements confirmed; DR permissions model (spec line 4213); NW-DCP no-abort behavior (spec line 4217); §3.22.3 AMBA AXI5 shareability constraints (spec line 4236).
+
 ## [2026-04-22i] conformance | Wiki compliance verification pass — 0 bugs fixed
 
 - Files created: none

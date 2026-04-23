@@ -22,16 +22,18 @@ sources: [ihi0070g-b-smmuv3-architecture-spec]
 All SMMU-accessed structures (translation tables, STEs, CDs, command queue, event queue, PRI queue) **must** be held in Normal memory as seen by the SMMU. The SMMU uses the memory type attributes defined by system configuration to access these structures.
 
 **SMMU_IDR0.COHACC** indicates whether the SMMU accesses translation table data and configuration structures as:
-- **COHACC==0:** Non-cacheable accesses — structures are accessed using Non-cacheable Normal memory attributes. Software must use appropriate invalidation commands whenever structures are modified.
-- **COHACC==1:** Inner Shareable cacheable accesses — the SMMU participates in the Inner Shareability domain coherency for structure accesses. Software still requires invalidation commands on structural change, because SMMU configuration caches are **not** required to be snooped.
+- **COHACC==0:** IO-coherent access is not supported — the SMMU does not perform coherent accesses to translation tables, configuration structures, or queues.
+- **COHACC==1:** IO-coherent access is supported — the SMMU can access translation table walks, STE/CD fetches, and command/event/PRI queue entries in an IO-coherent manner. Whether any specific access uses cacheable-shareable attributes depends on the access type configured for that structure. Software still requires invalidation commands on structural change, because SMMU configuration caches are **not** required to be snooped.
 
 Key rule: regardless of COHACC, software must issue the appropriate CMD_CFGI_* and CMD_TLBI_* commands after modifying any SMMU-managed structure. COHACC indicates the memory access type used by the SMMU when performing table walks or reading configuration; it does not eliminate the software invalidation requirement.
 
 ### Single-Copy Atomicity
 
 SMMU structure updates require single-copy atomicity:
-- **VMSAv8-64 (AArch64, 64-bit descriptors):** 64-bit single-copy atomic updates required. This is always available on Armv8-A systems via aligned 64-bit stores.
-- **VMSAv9-128 (128-bit descriptors):** 128-bit single-copy atomic updates required. Requires `FEAT_LSE2` in the system. If `FEAT_LSE2` is absent, 128-bit atomic updates are not guaranteed.
+- **VMSAv8-64 (AArch64, 64-bit descriptors):** 64-bit single-copy atomic updates required.
+- **VMSAv9-128 (128-bit descriptors):** 128-bit single-copy atomic updates required. The SMMU follows the same single-copy atomicity rules as PEs for translation table descriptor accesses (§3.15); no explicit FEAT_LSE2 requirement applies to descriptor atomicity itself.
+
+Note: FEAT_LSE2 affects a separate concern — when present in the system, it sets the single-copy atomicity size for **configuration structure fetches** (STEs, CDs, etc.) to 128-bit (§3.21.3). This is distinct from translation table descriptor atomicity.
 
 See §3.21.3 (config invalidation completion) for the full atomicity rules in the context of structure update procedures.
 
