@@ -5,6 +5,15 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22k] conformance | Wiki compliance verification pass — 0 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/log.md`, `TASKS_BUGS.md`
+- Notes: Cross-validated specific factual claims across three wiki pages (external-interfaces.md, interrupts-and-power.md, mec.md) against IHI0070G_b. 0 bugs found.
+  - **external-interfaces.md** (×9 PASS): AT field encoding (Untranslated 0b00, TR 0b01, Translated 0b10) per spec lines 610/825; SEC_SID 1-bit/2-bit encodings per §3.10.1 (spec lines 2496-2520); HTTU coherency port requirements per spec line 31540; No DVM requirement per spec lines 31542-31543; StreamID→DeviceID passthrough per spec line 31534; Internal StreamID for SMMU MSIs per spec lines 31535-31536; §14.3 PCIe address space "permitted to return any value or terminated with external abort" per spec line 31553; deadlock scenario and termination mitigation per spec line 31555; F_STE_FETCH/F_CD_FETCH/F_VMS_FETCH/F_WALK_EABT per spec §7 event records.
+  - **interrupts-and-power.md** (×12 PASS): 13 interrupt sources confirmed via spec table §3.18.2 (lines 3756-3776); "transient / edge-triggered" per spec line 3783; coalescence "must not significantly delay" per spec line 3734; MSI Fence 1 (disable via IRQ_CTRL) per spec line 3742; MSI Fence 2 (CMD_SYNC) per spec line 3743; MSI completion guarantee per spec line 3745; IRQ_CTRLACK synchronization semantics same as CR0/CR0ACK per spec line 12979; power-off preconditions per spec lines 3797-3799; stalled transactions must be aborted before power-off per spec line 3799; full reset required after power-off per spec line 3801; Dormant state 4 guarantees per spec lines 3807-3812; software Dormant shortcut procedure per spec lines 3814-3820.
+  - **mec.md** (×8 PASS): MECID=0 for Secure/Non-secure/Root PA spaces per spec line 32277; Realm PA MECID via SMMU_R_GMECID/STE.MECID per spec lines 32279; NoStreamID device MECID via IMPL DEF mechanism per spec line 32281; AMEC bit location (stage 2 bit[63] Realm EL1&0; stage 1 bit[63] Realm EL2/EL2&0) per spec lines 32287-32290; AMEC==1 → F_TRANSLATION when MEC==1 per spec line 32292; NS==1 in descriptor → AMEC is RES0, no F_TRANSLATION per spec line 32294; MEC==0 → AMEC is RES0, no F_TRANSLATION per spec line 32296; SMMU without Realm interface → MECID=0 per spec line 32283.
+
 ## [2026-04-22j] conformance | Wiki compliance verification pass — 2 bugs fixed
 
 - Files created: none
