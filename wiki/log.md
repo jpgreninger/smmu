@@ -5,6 +5,15 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22g] conformance | Wiki compliance verification pass — 0 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/log.md`
+- Notes: Cross-validated 24 specific factual claims across three wiki pages (event-queue.md, httu.md, granule-protection-check.md) against IHI0070G_b. All 24 PASS, 0 FAIL:
+  - **event-queue.md** (×10 PASS): Event records are 32 bytes, little-endian (line 26737); MEV==0 always-merged events are exactly F_UUT, C_BAD_STREAMID, F_STE_FETCH, C_BAD_STE (lines 26797-26800); stall events never merged (line 26790); hardware impls required to respect STE.MEV==0 (line 26802); PROD not incremented for synchronous abort (line 26715); asynchronous abort PROD may be incremented, all entries invalid (line 26717); CLASS 0b00=CD, 0b01=TTD, 0b10=IN, 0b11=Reserved (lines 26765-26768); NSIPA zero unless Secure queue and S2==1, then NS bit from stage 1 (line 26771); F_STREAM_DISABLED: S1DSS==0b00 with no SubstreamID or S1DSS==0b10 with SubstreamID 0 (line 26957); Config==0b000 aborts with no event (line 26963).
+  - **httu.md** (×8 PASS): HTTU encoding 0b00=none, 0b01=AF, 0b10=AF+dirty, 0b11=AF+dirty+HAFT (lines 10835-10840); CD.HAFT controls stage 1, STE.S2HAFT controls stage 2 (line 3221); SMMU never sets or clears DBM (line 3170); SMMU never clears S2AP[1] (line 3171); SMMU never sets AP[2] unless DBM==1 (line 3172); SMMU never sets S2AP[1]==1 for L1CD/CD stage 2 fetch (line 3174); speculative stage 2 dirty update permitted even if stage 1 HTTU disabled (lines 3200-3202); HTTU uses same visibility rules as A-profile FEAT_HAFDBS (line 3188).
+  - **granule-protection-check.md** (×6 PASS): GPC enabled when SMMU_ROOT_CR0.GPCEN==1 (line 4757); client-originated GPC fault not reported in Event queue (line 4764); speculative GPC: no event record generated (line 4785); RME_IMPL==0: CONSTRAINED UNPREDICTABLE whether reported (line 4787); RME_IMPL==1: GPC fault not reported (line 4789); GPCF field at bit 80 in F_STE_FETCH/F_CD_FETCH/F_VMS_FETCH/F_WALK_EABT when RME_IMPL==1 (line 4821).
+
 ## [2026-04-22f] conformance | Wiki compliance verification pass — 1 bug fixed
 
 - Files created: none
