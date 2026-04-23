@@ -273,7 +273,7 @@ The T bit appears in the PCIe IDE TLP prefix and indicates whether a transaction
 - All transactions (Untranslated, ATS Translation Requests, PRI messages, Translated) with `T=1` are presented to the SMMU with `SEC_SID = Realm`.
 - PRI requests with `T=1` are delivered to the **Realm PRI queue**.
 - ATS Translation Completions carry back a T-bit matching the T-bit in the corresponding Translation Request.
-- The SMMU ignores the T bit when `SMMU_R_IDR3.XT == 1` (see §3.9.4.3 for XT).
+- When `SMMU_R_IDR3.XT == 1`, §3.9.4.1 does not apply — see §3.9.4.3: SEC_SID is determined from T|XT (bitwise OR). Within Realm state, T further sets the input NS attribute (T=0 → Non-secure input NS; T=1 → Realm input NS). The T bit is not ignored.
 
 ### §3.9.4.2 TE bit on ATS Translation Completions
 
@@ -292,7 +292,7 @@ The **XT bit** is introduced by the TDISP XT Extensions specification and is eva
 | T | XT | SEC_SID | Interpretation |
 |---|---|---|---|
 | 0 | 0 | Non-secure | Normal Non-secure transaction |
-| 0 | 1 | Realm | Non-TEE Realm transaction (XT extends T's meaning) |
+| 0 | 1 | Realm | TEE request that must target non-TEE memory |
 | 1 | 0 | Realm | TEE-originated Realm transaction |
 | 1 | 1 | Realm | TEE-originated Realm with XT extension |
 

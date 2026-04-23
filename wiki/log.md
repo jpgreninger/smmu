@@ -5,6 +5,17 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22h] conformance | Wiki compliance verification pass — 2 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/concepts/pcie-ats-pri.md`, `wiki/log.md`
+- Notes: Cross-validated factual claims across three wiki pages (pcie-ats-pri.md, device-permission-table.md, synthesis/smmu-translation-pipeline.md) against IHI0070G_b. 2 FAIL fixed in pcie-ats-pri.md; device-permission-table.md and smmu-translation-pipeline.md all PASS:
+  - **pcie-ats-pri.md** (×2 FAIL fixed):
+    - **FAIL/FIXED §3.9.4.1–3.9.4.3 T-bit ignored claim**: Wiki line 276 stated "The SMMU ignores the T bit when `SMMU_R_IDR3.XT == 1`". Spec §3.9.4.1 (line 2353) says "This section applies only when SMMU_R_IDR3.XT is 0." Spec §3.9.4.3 (lines 2401-2418) governs when XT==1: SEC_SID = T|XT (bitwise OR); within Realm state, T further sets input NS attribute (T=0 → Non-secure, T=1 → Realm). The T bit is NOT ignored. Corrected to accurately describe SEC_SID = T|XT and NS attribute derivation.
+    - **FAIL/FIXED §3.9.4.3 XT interpretation table row T=0/XT=1**: Wiki labeled T=0,XT=1 as "Non-TEE Realm transaction (XT extends T's meaning)". Spec §3.9.4.3 table (line 2410) states this combination is "TEE request that must target non-TEE memory" — it IS a TEE request, not a Non-TEE transaction. Corrected row interpretation.
+  - **device-permission-table.md** (×8 PASS): StreamWorld EL1 requirement (line 4269); per-state optionality (lines 4280-4283); VMID matching 3×3 table (lines 4307-4311); output PA space determination (lines 4320-4325); DPT TLB caching rules and Device Access fault distinction (lines 4388-4396); DPT lookup fault priority 8-row table (lines 4619-4626); CMD_DPTI_ALL and CMD_DPTI_PA maintenance commands; §3.24.2 DPT TLB entry source controls whether Device Access fault is possible.
+  - **synthesis/smmu-translation-pipeline.md** (×4 PASS): Config=0b000 → abort with no event (spec line 6617); Config=0b000 ATS TR → UR no event recorded (spec line 2137); CA event table includes F_WALK_EABT (spec line 2158); two-level stream table C_BAD_STREAMID on invalid L1STD (spec line 6519).
+
 ## [2026-04-22g] conformance | Wiki compliance verification pass — 0 bugs fixed
 
 - Files created: none
