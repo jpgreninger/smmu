@@ -5,6 +5,20 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22l] conformance | Wiki compliance verification pass — 0 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/log.md`, `TASKS_BUGS.md`
+- Notes: Cross-validated specific factual claims across 8 wiki pages (memory-tagging-extension.md, mpam.md, synthesis/smmu-fault-model.md, synthesis/smmu-pcie-ats-integration.md, synthesis/smmu-queue-mechanics.md, synthesis/smmu-register-map.md, synthesis/smmu-version-feature-map.md, sources/ihi0070g-b-smmuv3-architecture-spec.md) against IHI0070G_b. 0 bugs found. All wiki pages now audited — wiki conformance sweep COMPLETE.
+  - **memory-tagging-extension.md** (×7 PASS): MAIR 0xF0 reserved per spec line 4240; Tag Unchecked accesses per spec line 4242; MTEPERM discovery per spec line 4247; S2FWB==0 reinterpretation 0b0100→Inner/Outer WB per spec line 4256; S2FWB==1 table 0b1111→0b0111, 0b1110→0b0110, reserved encodings unchanged per spec lines 4257-4261; no per-stream enable bit (feature is global when MTEPERM==1).
+  - **mpam.md** (×10 PASS): global bypass GBPMPAM per spec line 32099; STE bypass/stage2/stage1/nested PARTID assignment per spec lines 32105-32110; SMMU-originated L1STD/STE/queues/VMS from GMPAM.SO per spec line 32157; L1CD/CD from STE.{PARTID,PMG} per spec line 32163; GPT inherits MPAM from triggering access per spec line 32169; PARTID spaces (MPAM_NS/MPAM_SP) per spec lines 32226-32229; Realm → SMMU_R_GMPAM.MPAM_NS per spec line 32239; ATS ATSCHK==0 from SMMU_GBPMPAM per spec line 32133.
+  - **smmu-fault-model.md** (×8 PASS): F_STREAM_DISABLED trigger conditions per spec line 26958; CD.S/A/STE.S1STALLD fault config table; GERROR toggle protocol per spec line 210-212; stall events never dropped; event priority order per §7.3.22; ECMDQ CMDQP_ERR ordering per spec line 1971.
+  - **smmu-pcie-ats-integration.md** (×6 PASS): AT field dispatch; Stop Marker SSV==1, LWR==0b100 per spec line 27439; SMMU does not respond to Stop Markers per spec line 27533; PRI overflow OVFLG/OVACKFLG toggle; Realm ATSCHK RES1 per spec line 2242; split-stage flow.
+  - **smmu-queue-mechanics.md** (×7 PASS): circular buffer empty/full state detection; ECMDQ toggle error protocol per spec lines 1951-1954; CMDQP_ERR ordering per spec line 1971; OVFLG/OVACKFLG toggle per spec lines 19924-19925; CR1 locks when ECMDQ enabled; WFE SEV; CMD_SYNC scope per queue only.
+  - **smmu-register-map.md** (×12 PASS): all register offsets verified against spec table §6.2 (lines 10218-10287); Page 1 EVENTQ_PROD/CONS at 0x00A8/0x00AC per spec lines 19972/20045; PRIQ_PROD/CONS at 0x00C8/0x00CC per spec lines 20113/20183.
+  - **smmu-version-feature-map.md** (×6 PASS): AIDR 0x00-0x04 encoding per spec lines 892-896; XNX mandatory from SMMUv3.1 per spec line 1100; HAD mandatory from SMMUv3.1 per spec line 1101; MTE_PERM mandatory for SMMUv3.4 per spec line 1160.
+  - **sources/ihi0070g-b-smmuv3-architecture-spec.md** (×2 PASS): AIDR encoding claim confirmed; SMMUv3.x+1 forward feature inclusion rule confirmed.
+
 ## [2026-04-22k] conformance | Wiki compliance verification pass — 0 bugs fixed
 
 - Files created: none
