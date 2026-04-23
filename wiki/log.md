@@ -5,6 +5,15 @@ Parse with: `grep "^## \[" wiki/log.md | head -10`
 
 ---
 
+## [2026-04-22i] conformance | Wiki compliance verification pass — 0 bugs fixed
+
+- Files created: none
+- Files modified: `wiki/log.md`
+- Notes: Cross-validated specific factual claims across three wiki pages (atos.md, attribute-transformation.md, command-formats.md) against IHI0070G_b. All PASS, 0 FAIL:
+  - **atos.md** (×6 PASS): VATOS restricted to NS-EL1 StreamWorld (spec line 27563); ATOS not affected by fault config bits, does not record fault events or stall (spec line 27561); STE attribute overrides (MTCFG/SHCFG/ALLOCCFG/NSCFG) do not affect ATOS (spec line 27615/27615–27718); S2FWB affects ATOS output attributes (spec line 30848); FAULTCODE encodings 0xFF=INV_REQ, 0xFE=INV_STAGE, 0xFD=INTERNAL_ERR, 0x02–0x25 all match (spec lines 27801–27824); REASON/FADDR validity table matches spec (spec lines 27760–27800).
+  - **attribute-transformation.md** (×4 PASS): SMMUv3.4+ always outputs Data/Privileged (spec line ~30720); Combine ordering NSH<ISH<OSH, Allocate<No-allocate, Non-transient<Transient (spec lines 30819–30828); §13.1.5 Combine only applies to MT/SH/RA/WA/TR, not permission attrs; S2FWB override for Normal types confirmed (spec line 30848).
+  - **command-formats.md** (×8 PASS): CMD_CFGI_STE_RANGE Range==31 = CMD_CFGI_ALL (spec line 5328); CMD_CFGI_STE Leaf==0/1 behavior (spec lines 5272–5300); CMD_CFGI_VMS_PIDM CERROR_ILL conditions (spec line 5408); CMD_PRI_RESP Resp encodings 0b00=ResponseFailure, 0b01=InvalidRequest, 0b10=Success, 0b11=ILLEGAL (spec lines 6060–6061); CMD_SYNC CS encodings 0b00=SIG_NONE, 0b01=SIG_IRQ, 0b10=SIG_SEV, 0b11=CERROR_ILL (spec lines 6319–6337); MSH 0b00=NSH, 0b10=OSH, 0b11=ISH (spec line 6352); CMD_ATC_INV Size==52 = invalidate all (spec line 5999); CMD_RESUME/CMD_STALL_TERM Realm queue = CERROR_ILL (spec lines 6235/6265).
+
 ## [2026-04-22h] conformance | Wiki compliance verification pass — 2 bugs fixed
 
 - Files created: none
