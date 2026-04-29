@@ -6,73 +6,73 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.1 Software Interface
 
-- [ ] SMMU provides three software interfaces: memory-based data structures, memory-based circular buffer queues (Command, Event, PRI), and a register set per Security state (§3.1, line 1217)
-- [ ] PRI queue is only present on SMMUs supporting PRI services (§3.1, line 1220)
-- [ ] When Secure state is supported, an additional register set exists to allow Secure software to maintain Secure device structures, issue commands on a second Secure Command queue and read Secure events from a Secure Event queue (§3.1, line 1223)
-- [ ] IMPLEMENTATION DEFINED fields must not be used in a way that makes a generic SMMUv3 driver unusable (§3.1, line 1227)
-- [ ] A driver without extended knowledge of IMPLEMENTATION DEFINED fields must treat them as Reserved and set to 0 (§3.1, line 1227)
-- [ ] An implementation only uses IMPLEMENTATION DEFINED fields to enable extended functionality and must remain compatible with generic driver software when those fields are set to 0 (§3.1, line 1229)
+- [x] SMMU provides three software interfaces: memory-based data structures, memory-based circular buffer queues (Command, Event, PRI), and a register set per Security state (§3.1, line 1217) — NS interface fully present; Secure register set out-of-scope (§3.10.2 🚫)
+- [x] PRI queue is only present on SMMUs supporting PRI services (§3.1, line 1220) — PASS: `pri_supported` gates IDR0.PRI, PRIQEN, and `submit_page_request()`
+- [x] When Secure state is supported, an additional register set exists to allow Secure software to maintain Secure device structures, issue commands on a second Secure Command queue and read Secure events from a Secure Event queue (§3.1, line 1223) — 🚫 Out of scope (§3.10.2 explicitly 🚫; Secure interface not implemented)
+- [x] IMPLEMENTATION DEFINED fields must not be used in a way that makes a generic SMMUv3 driver unusable (§3.1, line 1227) — PASS: only IMPL DEF field (`EventEntry.reason`) hardcoded to 0
+- [x] A driver without extended knowledge of IMPLEMENTATION DEFINED fields must treat them as Reserved and set to 0 (§3.1, line 1227) — N/A: driver behavioral constraint, not an SMMU implementation requirement
+- [x] An implementation only uses IMPLEMENTATION DEFINED fields to enable extended functionality and must remain compatible with generic driver software when those fields are set to 0 (§3.1, line 1229) — PASS: all IMPL DEF surfaces produce 0; PRI gated on IDR0.PRI capability advertisement
 
 ## §3.2 Stream Numbering
 
-- [ ] StreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 32 bits (§3.2, line 1238)
-- [ ] SubstreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 20 bits (§3.2, line 1241)
-- [ ] Transactions provided with a SubstreamID are terminated when stage 1 translation is not enabled (§3.2, line 1354)
-- [ ] A stage 2-only implementation does not take a SubstreamID input (§3.2, line 1252)
-- [ ] An implementation with stage 1 is not required to support substreams (§3.2, line 1252)
-- [ ] When Secure state is supported, the StreamID input is qualified by SEC_SID determining Secure or Non-secure StreamID namespace (§3.2, line 1254)
-- [ ] For PCI, StreamID must be at least 16 bits for SMMU implementations intended for use with PCI clients (§3.2, line 1258)
-- [ ] Arm recommends StreamID be a dense namespace starting at 0 (§3.2, line 1236)
-- [ ] StreamID namespace is per-SMMU; devices with the same StreamID behind different SMMUs are seen as different sources (§3.2, line 1236)
-- [ ] SubstreamID maximum size of 20 bits matches the maximum size of a PCIe PASID (§3.2, line 1245)
-- [ ] For PCIe, SubstreamID is intended to be directly provided from the PASID in a one-to-one fashion (§3.2, line 1256)
+- [x] StreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 32 bits (§3.2, line 1238) — PASS: `StreamID(u32)` full range; IDR1.SIDSIZE=32 advertised (`mod.rs:1373`, `smmu.cpp:3478`)
+- [x] SubstreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 20 bits (§3.2, line 1241) — PASS: `PASID_MAX=0xFFFFF`; IDR1.SSIDSIZE=20 (`pasid.rs:36`, `types.h:1991`)
+- [x] Transactions provided with a SubstreamID are terminated when stage 1 translation is not enabled (§3.2, line 1354) — PASS: SSV=1 + stage1_enabled=false → C_BAD_SUBSTREAMID (`mod.rs:5236`, `smmu.cpp:668`)
+- [x] A stage 2-only implementation does not take a SubstreamID input (§3.2, line 1252) — PASS: same path as above (BUG-AUDIT-111 fix)
+- [x] An implementation with stage 1 is not required to support substreams (§3.2, line 1252) — N/A: architectural statement; both impls support substreams (superset of requirement)
+- [x] When Secure state is supported, the StreamID input is qualified by SEC_SID determining Secure or Non-secure StreamID namespace (§3.2, line 1254) — N/A: Secure state out-of-scope; IDR0.SecP=0 in both models; requirement is conditional
+- [x] For PCI, StreamID must be at least 16 bits for SMMU implementations intended for use with PCI clients (§3.2, line 1258) — PASS: IDR1.SIDSIZE=32 ≥ 16
+- [x] Arm recommends StreamID be a dense namespace starting at 0 (§3.2, line 1236) — N/A: architectural recommendation only, no behavioral enforcement required
+- [x] StreamID namespace is per-SMMU; devices with the same StreamID behind different SMMUs are seen as different sources (§3.2, line 1236) — N/A: system-level architectural property; each SMMU instance has its own stream map
+- [x] SubstreamID maximum size of 20 bits matches the maximum size of a PCIe PASID (§3.2, line 1245) — PASS: `PASID_MAX=0xFFFFF` (2^20-1); IDR1.SSIDSIZE=20
+- [x] For PCIe, SubstreamID is intended to be directly provided from the PASID in a one-to-one fashion (§3.2, line 1256) — N/A: informational design intent; SubstreamID/PASID are used interchangeably throughout both implementations
 
 ## §3.3 Data Structures and Translation Procedure
 
-- [ ] When SMMU_CR0.SMMUEN == 0 (globally disabled), transaction passes through without address modification; attributes applied from SMMU_GBPA (§3.3, line 1403)
-- [ ] When SMMU_GBPA.ABORT is set, all transactions are aborted in bypass (§3.3, line 1403)
-- [ ] If the SMMU does not implement one of the two translation stages, it behaves as though that stage is permanently in bypass (§3.3, line 1429)
-- [ ] An SMMU must support at least one stage of translation (§3.3, line 1429)
-- [ ] S1ContextPtr and L2Ptr addresses are IPAs when both stage 1 and stage 2 are in use, and PAs when only stage 1 is used (§3.3.2, line 1375)
+- [x] When SMMU_CR0.SMMUEN == 0 (globally disabled), transaction passes through without address modification; attributes applied from SMMU_GBPA (§3.3, line 1403) — PASS: `smmu/mod.rs:4731-4787` enabled fast-path; GBPA attrs applied via `with_output_attrs()`
+- [x] When SMMU_GBPA.ABORT is set, all transactions are aborted in bypass (§3.3, line 1403) — PASS: `smmu/mod.rs:4733-4736` `gbpa_abort.load()` → `Err(GbpaAbort)`
+- [x] If the SMMU does not implement one of the two translation stages, it behaves as though that stage is permanently in bypass (§3.3, line 1429) — PARTIAL: per-STE rejection via `check_ste_illegal()` (`smmu/mod.rs:3103-3134`) prevents configuration; no explicit SMMU-level bypass mode (acceptable gap — behavioral effect identical)
+- [x] An SMMU must support at least one stage of translation (§3.3, line 1429) — FAIL: no guard rejects `s1p_supported=false AND s2p_supported=false` simultaneously (BUG-AUDIT-134)
+- [x] S1ContextPtr and L2Ptr addresses are IPAs when both stage 1 and stage 2 are in use, and PAs when only stage 1 is used (§3.3.2, line 1375) — N/A: CDs modeled as Rust flat map; no hardware pointer dereferencing; IPA/PA discrimination inapplicable to software simulation
 
 ### §3.3.1 Stream Table Lookup
 
-- [ ] StreamID is range-checked against the programmed table size; a transaction is terminated if its StreamID would select an entry outside the configured Stream table extent; C_BAD_STREAMID is recorded (§3.3.1, line 1276)
-- [ ] Linear Stream table format is supported by all SMMU implementations (§3.3.1.1, line 1285)
-- [ ] Linear Stream table is a contiguous array of STEs indexed from 0 by StreamID; size is configurable as 2^n multiple of STE size (§3.3.1.1, line 1285)
-- [ ] SMMUs supporting more than 64 StreamIDs (6 bits) must also support two-level Stream tables (§3.3.1.2, line 1298)
-- [ ] 2-level Stream table top-level is indexed by StreamID[n:x] where x is SMMU_STRTAB_BASE_CFG.SPLIT; second-level tables indexed by up to StreamID[x-1:0] (§3.3.1.2, line 1294)
-- [ ] Where 2-level Stream tables are supported, split points of 6, 8, and 10 bits can be used (§3.3.1.2, line 1296)
-- [ ] SMMU_IDR0.ST_LEVEL field advertises support for 2-level Stream table format (§3.3.1.2, line 1296)
-- [ ] Top-level descriptors contain pointer to second-level table along with StreamID span; each can be marked invalid (§3.3.1.2, line 1303)
+- [x] StreamID is range-checked against the programmed table size; a transaction is terminated if its StreamID would select an entry outside the configured Stream table extent; C_BAD_STREAMID is recorded (§3.3.1, line 1276) — PASS: `smmu/mod.rs:4789-4814`; `CBadStreamid` event; BUG-AUDIT-101
+- [x] Linear Stream table format is supported by all SMMU implementations (§3.3.1.1, line 1285) — PASS: `StreamTableFormat::Linear` is `#[default]`; always accepted
+- [x] Linear Stream table is a contiguous array of STEs indexed from 0 by StreamID; size is configurable as 2^n multiple of STE size (§3.3.1.1, line 1285) — PASS: `smmu/mod.rs:2071-2097`; `1u32 << log2size` as exclusive bound; BUG-AUDIT-101
+- [x] SMMUs supporting more than 64 StreamIDs (6 bits) must also support two-level Stream tables (§3.3.1.2, line 1298) — PASS: `IDR0.ST_LEVEL=0b01`; `StreamTableFormat::TwoLevel` valid; BUG-AUDIT-102/106/107/108
+- [x] 2-level Stream table top-level is indexed by StreamID[n:x] where x is SMMU_STRTAB_BASE_CFG.SPLIT; second-level tables indexed by up to StreamID[x-1:0] (§3.3.1.2, line 1294) — PASS: `smmu/mod.rs:2055-2065`; `l1_idx = stream_id >> split`; `l1_size = 1 << (log2size - split)`
+- [x] Where 2-level Stream tables are supported, split points of 6, 8, and 10 bits can be used (§3.3.1.2, line 1296) — PASS: `smmu/mod.rs:2034-2042`; `set_strtab_split()` clamps to {6,8,10}
+- [x] SMMU_IDR0.ST_LEVEL field advertises support for 2-level Stream table format (§3.3.1.2, line 1296) — PASS: `smmu/mod.rs:1359`; `IDR0.ST_LEVEL=0b01` hardcoded
+- [x] Top-level descriptors contain pointer to second-level table along with StreamID span; each can be marked invalid (§3.3.1.2, line 1303) — PARTIAL: two-level bounds validation is numeric only; no L1 descriptor struct with span/valid fields; individual L1 entries cannot be selectively invalidated (acceptable gap — software model abstraction)
 
 ### §3.3.2 StreamIDs to Context Descriptors
 
-- [ ] When STE.S1DSS == 0b00, all traffic expected to have SubstreamID; lack of SubstreamID causes abort and event recorded (§3.3.2, line 1362)
-- [ ] When STE.S1DSS == 0b01, transaction without SubstreamID is treated as stage 1-bypass (§3.3.2, line 1363)
-- [ ] When STE.S1DSS == 0b10, transaction without SubstreamID uses the CD of Substream 0; transactions arriving with SubstreamID 0 are aborted and event recorded (§3.3.2, line 1364)
-- [ ] STE.S1ContextPtr field gives address of one or more CDs, configured by STE.S1Fmt and STE.S1CDMax (§3.3.2, line 1366)
-- [ ] Multiple StreamID/SubstreamID configurations with identical ASID/VMID/StreamWorld must maintain same configuration where that configuration can affect TLB lookup (§3.3.3, line 1514)
-- [ ] Two streams sharing the same ASID/VMID/StreamWorld must use the same translation table base addresses and translation granule (§3.3.3, line 1515)
-- [ ] For any-EL2 and EL3 regimes, only one translation table is used; CD.TTB1 is unused (§3.3.3, line 1517)
-- [ ] Selecting an inconsistent combination of StreamWorld and CD.AA64 causes the CD to be ILLEGAL (§3.3.3, line 1519)
-- [ ] Secure stage 2 is not supported for VMSAv8-32 LPAE translation tables (§3.3.3, line 1521)
-- [ ] AP[1] bit is IGNORED for any-EL2 and EL3 StreamWorlds (VMSAv8-64 and VMSAv9-128) (§3.3.4, line 1536)
-- [ ] any-EL2-E2H translations maintain privileged/non-privileged checks in the same manner as EL1 (§3.3.4, line 1536)
-- [ ] Bits [63:60] of stage 2 Block and Page descriptors are Reserved for use by a System MMU; in SMMUv3.1 and later these bits are RES0 (§3.3.5, line 1555)
+- [x] When STE.S1DSS == 0b00, all traffic expected to have SubstreamID; lack of SubstreamID causes abort and event recorded (§3.3.2, line 1362) — PASS: `smmu/mod.rs:5354-5414`; `FStreamDisabled` recorded and returned; BUG-AUDIT-109/110/112
+- [x] When STE.S1DSS == 0b01, transaction without SubstreamID is treated as stage 1-bypass (§3.3.2, line 1363) — PASS: `smmu/mod.rs:5416-5470`; stage-1 bypassed, stage-2 forwarded or identity PA returned
+- [x] When STE.S1DSS == 0b10, transaction without SubstreamID uses the CD of Substream 0; transactions arriving with SubstreamID 0 are aborted and event recorded (§3.3.2, line 1364) — PASS: `smmu/mod.rs:5472-5530`; SSV=true+PASID=0 → `FStreamDisabled`; SSV=false → CD[0] used
+- [x] STE.S1ContextPtr field gives address of one or more CDs, configured by STE.S1Fmt and STE.S1CDMax (§3.3.2, line 1366) — PARTIAL: `s1cd_max` fully implemented (`stream_context/mod.rs:151-153`); `STE.S1Fmt` (linear vs two-level CD table format selector) not modeled — no `s1_fmt` field exists; S1ContextPtr as hardware address is N/A for software model
+- [x] Multiple StreamID/SubstreamID configurations with identical ASID/VMID/StreamWorld must maintain same configuration where that configuration can affect TLB lookup (§3.3.3, line 1514) — FAIL: no cross-stream consistency enforcement in `configure_stream()`/`reconfigure_stream()` (BUG-AUDIT-135)
+- [x] Two streams sharing the same ASID/VMID/StreamWorld must use the same translation table base addresses and translation granule (§3.3.3, line 1515) — FAIL: no validation that streams sharing ASID/VMID/StreamWorld use same TTB0/TTB1/granule (BUG-AUDIT-136)
+- [x] For any-EL2 and EL3 regimes, only one translation table is used; CD.TTB1 is unused (§3.3.3, line 1517) — FAIL: no STRW-conditional enforcement forcing EPD1=1 for El2/El3 StreamWorlds; TTB1 size-bounds check exists but EPD1 not forced (BUG-AUDIT-137)
+- [x] Selecting an inconsistent combination of StreamWorld and CD.AA64 causes the CD to be ILLEGAL (§3.3.3, line 1519) — N/A: AArch32 LPAE (AA64=false) universally unsupported; `AA64=false` rejected globally in `check_cd_illegal()`; no STRW-specific guard needed (intentional design — FINDING-333-04)
+- [x] Secure stage 2 is not supported for VMSAv8-32 LPAE translation tables (§3.3.3, line 1521) — PARTIAL: VMSAv8-32 stage-2 rejected universally via TTF=0b10 (AArch64-only) at `smmu/mod.rs:3080-3098`; Secure case satisfied by superset rejection
+- [x] AP[1] bit is IGNORED for any-EL2 and EL3 StreamWorlds (VMSAv8-64 and VMSAv9-128) (§3.3.4, line 1536) — PASS: `stream_context/mod.rs:2834-2835`; `strw_suppresses_priv()` returns true for `El2|El3`
+- [x] any-EL2-E2H translations maintain privileged/non-privileged checks in the same manner as EL1 (§3.3.4, line 1536) — PASS: `stream_context/mod.rs:2887-2893`; El2E2h excluded from privilege suppression; EL1-like AP[1] effective
+- [x] Bits [63:60] of stage 2 Block and Page descriptors are Reserved for use by a System MMU; in SMMUv3.1 and later these bits are RES0 (§3.3.5, line 1555) — N/A: no raw 64-bit descriptor wire format; PageEntry is a Rust struct; constraint applies to hardware page-table walkers only (§3.3.5 N/A per tracker)
 
 ### §3.3.3 StreamWorld Table
 
-- [ ] StreamWorld NS-EL1: Non-secure EL1&0, with ASID and VMID tags (§3.3.3, line 1478)
-- [ ] StreamWorld NS-EL2: Non-secure EL2 without E2H; translations do not have an ASID tag (§3.3.3, line 1479)
-- [ ] StreamWorld NS-EL2-E2H: Non-secure EL2&0 with E2H; translations have ASID tag (§3.3.3, line 1480)
-- [ ] StreamWorld S-EL2: Secure EL2 without E2H; no ASID tag (§3.3.3, line 1481)
-- [ ] StreamWorld S-EL2-E2H: Secure EL2&0 with E2H; ASID tag (§3.3.3, line 1482)
-- [ ] StreamWorld EL3: EL3 in AArch64 state when FEAT_RME not implemented; no ASID tag (§3.3.3, line 1491)
-- [ ] StreamWorld Realm-EL1: Realm EL1&0 (§3.3.3, line 1492)
-- [ ] StreamWorld Realm-EL2: Realm EL2 without E2H; no ASID tag (§3.3.3, line 1493)
-- [ ] StreamWorld Realm-EL2-E2H: Realm EL2&0 with E2H; ASID tag (§3.3.3, line 1494)
-- [ ] A translation is architecturally unique if identified by unique {StreamWorld, VMID, ASID, Address} (§3.3.3, line 1502)
+- [x] StreamWorld NS-EL1: Non-secure EL1&0, with ASID and VMID tags (§3.3.3, line 1478) — PASS: `types/config.rs:42`; `StreamWorld::El1El0=0x00`; ASID+VMID tagged in `cache/mod.rs:878,924`
+- [x] StreamWorld NS-EL2: Non-secure EL2 without E2H; translations do not have an ASID tag (§3.3.3, line 1479) — PASS: `types/config.rs:43-44`; `StreamWorld::El2=0x01`; ASID set to 0 at `smmu/mod.rs:4902-4905`
+- [x] StreamWorld NS-EL2-E2H: Non-secure EL2&0 with E2H; translations have ASID tag (§3.3.3, line 1480) — PASS: `types/config.rs:45-46`; `StreamWorld::El2E2h=0x02`; ASID tagged non-zero at `smmu/mod.rs:4902-4904`
+- [x] StreamWorld S-EL2: Secure EL2 without E2H; no ASID tag (§3.3.3, line 1481) — 🚫 Out of scope (Secure state §3.10.2 🚫; no `S_EL2` StreamWorld variant)
+- [x] StreamWorld S-EL2-E2H: Secure EL2&0 with E2H; ASID tag (§3.3.3, line 1482) — 🚫 Out of scope (Secure state §3.10.2 🚫; no `S_EL2_E2H` StreamWorld variant)
+- [x] StreamWorld EL3: EL3 in AArch64 state when FEAT_RME not implemented; no ASID tag (§3.3.3, line 1491) — PARTIAL: `types/config.rs:47-48`; `StreamWorld::El3=0x03` exists; privilege suppressed via `strw_suppresses_priv()`; FEAT_RME conditioning absent (acceptable — FEAT_RME/Realm 🚫 out-of-scope §2.6)
+- [x] StreamWorld Realm-EL1: Realm EL1&0 (§3.3.3, line 1492) — 🚫 Out of scope (RME §2.6 🚫)
+- [x] StreamWorld Realm-EL2: Realm EL2 without E2H; no ASID tag (§3.3.3, line 1493) — 🚫 Out of scope (RME §2.6 🚫)
+- [x] StreamWorld Realm-EL2-E2H: Realm EL2&0 with E2H; ASID tag (§3.3.3, line 1494) — 🚫 Out of scope (RME §2.6 🚫)
+- [x] A translation is architecturally unique if identified by unique {StreamWorld, VMID, ASID, Address} (§3.3.3, line 1502) — PARTIAL: `CacheKey` keyed on `{stream_id, pasid, iova, security_state}`; VMID/ASID/StreamWorld are metadata for TLBI targeting but not lookup discriminants; correctness preserved by per-stream TLBI scan (FINDING-333-03 — acceptable gap per §3.3 notes)
 
 ## §3.4 Address Sizes
 
