@@ -16,11 +16,14 @@ use core::fmt;
 ///
 /// # Encoding
 ///
-/// ARM SMMU v3 uses 2-bit encoding per §3.10 SEC_SID field:
+/// Internal bit encoding used for serialization (matches PA-space identifiers
+/// from ARM §3.10, not the SEC_SID input field — §3.10.1 line 2511 designates
+/// SEC_SID=0b11 as Reserved for client transactions; Root=0b11 is the SMMU's
+/// own privileged PA space, not a valid incoming SEC_SID):
 /// - 0b00: NonSecure
 /// - 0b01: Secure
 /// - 0b10: Realm
-/// - 0b11: Root (SMMUv3.3 RME)
+/// - 0b11: Root (SMMUv3.3 RME — SMMU PA space, not a SEC_SID input value)
 ///
 /// # Example
 ///

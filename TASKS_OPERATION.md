@@ -324,15 +324,15 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.10 Security States Support
 
-- [ ] SMMU always supports Non-secure state and programming interface (§3.10, line 2479)
-- [ ] Non-secure streams can only generate transactions targeting Non-secure (NS==1) PA space (§3.10, line 2549)
-- [ ] Secure streams can generate transactions targeting both Secure (NS==0) and Non-secure (NS==1) PA spaces (§3.10, line 2549)
+- [x] SMMU always supports Non-secure state and programming interface (§3.10, line 2479) — SecurityState::NonSecure is default; no gating on NS interface
+- [x] Non-secure streams can only generate transactions targeting Non-secure (NS==1) PA space (§3.10, line 2549) — enforced by address_space/mod.rs:583 security-state equality check; test_bug_audit140_sec_sid_spec.rs
+- [x] Secure streams can generate transactions targeting both Secure (NS==0) and Non-secure (NS==1) PA spaces (§3.10, line 2549) — 🚫 Secure streams out of scope; can_access(Secure,NonSecure)=true in type model
 
 ### §3.10.1 StreamID Security State (SEC_SID)
 
-- [ ] If SMMU_S_IDR1.SECURE_IMPL==0: SEC_SID == 0 (or absent implicitly); all streams are Non-secure (§3.10.1, line 2494)
-- [ ] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499)
-- [ ] For SMMU with RME DA: SEC_SID extended to 2 bits: 0b00=Non-secure, 0b01=Secure, 0b10=Realm, 0b11=Reserved (§3.10.1, line 2511)
+- [x] If SMMU_S_IDR1.SECURE_IMPL==0: SEC_SID == 0 (or absent implicitly); all streams are Non-secure (§3.10.1, line 2494) — SECURE_IMPL permanently 0; all configs default to NonSecure
+- [x] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499) — 🚫 Secure interface out of scope
+- [x] For SMMU with RME DA: SEC_SID extended to 2 bits: 0b00=Non-secure, 0b01=Secure, 0b10=Realm, 0b11=Reserved (§3.10.1, line 2511) — 0b00/0b01/0b10 PASS; 0b11=Root is internal PA-space tag (no external SEC_SID boundary)
 
 ### §3.10.2 Support for Secure State
 
