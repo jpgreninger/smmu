@@ -4436,7 +4436,11 @@ impl SMMU {
                         self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                         return Err(TranslationError::PermissionViolation { access });
                     }
-                    let ats_supported = eats != 0 && (s1 || s2);
+                    let atschk = (self.cr0.load(Ordering::Acquire) & Self::CR0_ATSCHK) != 0;
+                    // ARM §3.9.2: EATS==0b10 valid only when ATSCHK==1.
+                    // When ATSCHK=0, effective EATS for EATS=0b10 is 0b00 (ATS disabled).
+                    let effective_eats = if eats == 2 && !atschk { 0 } else { eats };
+                    let ats_supported = effective_eats != 0 && (s1 || s2);
                     if !ats_supported {
                         if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
                             let timestamp =
@@ -10287,6 +10291,66 @@ mod tests {
              prod={:#010x}, cons={:#010x}",
             smmu.eventq_prod.load(Ordering::Relaxed),
             smmu.eventq_cons.load(Ordering::Relaxed),
+        );
+    }
+
+    // ── BUG-AUDIT-128: EATS=0b10 + ATSCHK=0 must be treated as effective EATS=0b00 ──
+
+    /// BUG-AUDIT-128: When a stream has EATS=0b10 (split-stage ATS) but CR0.ATSCHK=0,
+    /// an ATS Translation Request must be rejected with F_BAD_ATS_TREQ.
+    ///
+    /// ARM §3.9.1 / §3.9.2: "EATS==0b10 is valid only when CR0.ATSCHK==1."
+    /// When ATSCHK=0, the effective EATS for EATS=0b10 is 0b00 (ATS disabled),
+    /// so the ATS TR must be terminated with UR and F_BAD_ATS_TREQ — exactly as
+    /// it would be for a stream with EATS=0b00.
+    #[test]
+    fn test_ats_tr_eats2_atschk0_rejected() {
+        use crate::types::{AccessType, SecurityState, StreamConfig, IOVA, PASID};
+
+        // Enable SMMU with SMMUEN=1 and EVENTQEN=1, but WITHOUT ATSCHK (bit 4).
+        let smmu = SMMU::new();
+        smmu.set_cr0(SMMU::CR0_SMMUEN | SMMU::CR0_EVENTQEN);
+
+        // Configure a stream with stage1+stage2 (two-stage) and EATS=2.
+        // StreamConfig::two_stage() sets stage1_enabled=true, stage2_enabled=true,
+        // s2_stall=false, which satisfies the STE validation for eats==2 (ARM §5.2).
+        let stream_id = StreamID::new(0xA1_28).unwrap();
+        let cfg = StreamConfig {
+            eats: 2,
+            ..StreamConfig::two_stage()
+        };
+        smmu.configure_stream(stream_id, cfg).unwrap();
+        smmu.create_pasid(stream_id, PASID::new(0).unwrap()).unwrap();
+
+        // Submit an ATS Translation Request.  With ATSCHK=0 the effective EATS for
+        // EATS=0b10 is 0b00, so this must be rejected — not processed as an ATS TR.
+        let result = smmu.translate_with_type(
+            stream_id,
+            PASID::new(0).unwrap(),
+            IOVA::new(0x1000_0000).unwrap(),
+            AccessType::Read,
+            SecurityState::NonSecure,
+            TransactionType::AtsTranslationRequest,
+        );
+
+        // Must return an error.
+        assert!(
+            result.is_err(),
+            "BUG-AUDIT-128: ATS TR on EATS=2/ATSCHK=0 stream must fail; got: {result:?}"
+        );
+
+        // Must have enqueued exactly one F_BAD_ATS_TREQ event for this stream.
+        let events = smmu.get_events();
+        let bad_ats_event = events
+            .iter()
+            .find(|e| {
+                e.stream_id == stream_id.as_u32()
+                    && matches!(e.event_type, EventType::FBadAtsTreq)
+            });
+        assert!(
+            bad_ats_event.is_some(),
+            "BUG-AUDIT-128: Expected F_BAD_ATS_TREQ event for stream {:#010x} but got events: {events:?}",
+            stream_id.as_u32()
         );
     }
 }

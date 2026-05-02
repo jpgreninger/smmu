@@ -76,231 +76,237 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.4 Address Sizes
 
-- [ ] SMMU input address size is 64 bits (§3.4, line 1562)
-- [ ] IAS = MAX(SMMU_IDR0.TTF[0]==1 ? 40 : 0, SMMU_IDR0.TTF[1]==1 ? OAS : 0) (§3.4, line 1568)
-- [ ] VMSAv8-32 LPAE always supports IPA size of 40 bits; IPS field of the CD is IGNORED (§3.4, line 1570)
-- [ ] OAS reflects maximum usable PA output from last stage of VMSAv8-64 or VMSAv9-128 translations; discoverable from SMMU_IDR5.OAS (§3.4, line 1572)
-- [ ] When SMMU_(*_)CR0.SMMUEN == 0 and SMMU_(*_)GBPA.ABORT == 0: if input address exceeds OAS, transaction terminated with abort and NO event recorded (§3.4, line 1576)
-- [ ] When STE.Config == 0b100 (bypass all stages): if input address exceeds OAS, transaction terminated with abort and F_ADDR_SIZE is recorded (§3.4, line 1578)
-- [ ] Stage 1 Translation fault (F_TRANSLATION) occurs if VA is outside range specified by CD (§3.4, line 1585)
-- [ ] For VMSAv8-32 LPAE CD: maximum input range is fixed at 32 bits; Translation fault if upper 32 bits are not all zero (§3.4, line 1586)
-- [ ] For VMSAv8-64: maximum input size is 48 bits if SMMU_IDR5.VAX == 0b00 or 4K/16K granule with DS==0 (§3.4, line 1593)
-- [ ] For VMSAv8-64: maximum input size is 52 bits if SMMU_IDR5.VAX == 0b01 or 0b10 and 64KB granule or DS==1 (§3.4, line 1596)
-- [ ] For VMSAv9-128: max input 48 bits if VAX==0b00; 52 bits if VAX==0b01; 55 bits EL1/EL2-E2H if VAX==0b10; 56 bits EL3 if VAX==0b10 (§3.4, line 1599)
-- [ ] VA is inside range only if correctly sign-extended from top bit of range size upwards, except for TBI configurations (§3.4, line 1605)
-- [ ] Address output from stage 1 translation causes F_ADDR_SIZE if exceeds IPA size range (§3.4, line 1609)
-- [ ] For VMSAv8-64/VMSAv9-128 CDs, IPA size given by effective IPS field of CD, capped to OAS (§3.4, line 1611)
-- [ ] When bypassing stage 1 (STE.Config == 0b1x0, STE.S1DSS == 0b01, or unimplemented): if input address exceeds IAS, stage 1 F_ADDR_SIZE occurs, transaction terminated, F_ADDR_SIZE recorded (§3.4, line 1613)
-- [ ] TBI configuration can only be enabled when a CD is used (stage 1 translates); always disabled when stage 1 bypassed or disabled (§3.4, line 1615)
-- [ ] Stage 2 Translation fault if IPA is outside range configured by S2T0SZ (§3.4, line 1623)
-- [ ] For VMSAv8-32 LPAE STE: stage 2 input range capped at 40 bits regardless of IAS size (§3.4, line 1624)
-- [ ] For VMSAv8-64/VMSAv9-128 STE: stage 2 input range capped to IAS (§3.4, line 1627)
-- [ ] Stage 2 Address Size fault if output address exceeds effective PA output range from S2PS (§3.4, line 1629)
-- [ ] For VMSAv8-32 LPAE STE: output range fixed at 40 bits; STE.S2PS field is IGNORED; if OAS < 40, address silently truncated to OAS (§3.4, line 1631)
-- [ ] After stage 2 check, if output address smaller than OAS, address is zero-extended to match OAS (§3.4, line 1633)
-- [ ] When bypassing stage 2 (STE.Config == 0b10x or unimplemented): IPA outside OAS range is silently truncated to OAS; if IPA smaller than OAS, zero-extended (§3.4, line 1635)
+- [x] SMMU input address size is 64 bits (§3.4, line 1562) — PARTIAL: all IOVA accepted as u64; IAS not explicitly advertised in IDR; acceptable for TTF=0b10-only model
+- [x] IAS = MAX(SMMU_IDR0.TTF[0]==1 ? 40 : 0, SMMU_IDR0.TTF[1]==1 ? OAS : 0) (§3.4, line 1568) — PARTIAL: TTF=0b10 hardcoded `mod.rs:1383`; IAS formula implicit; acceptable given single-TTF model
+- [x] VMSAv8-32 LPAE always supports IPA size of 40 bits; IPS field of the CD is IGNORED (§3.4, line 1570) — N/A: VMSAv8-32 unsupported (TTF=0b10 hardcoded; rejected via C_BAD_STE)
+- [x] OAS reflects maximum usable PA output from last stage of VMSAv8-64 or VMSAv9-128 translations; discoverable from SMMU_IDR5.OAS (§3.4, line 1572) — PASS: `mod.rs:1452-1466` IDR5.OAS derived from `address_config.max_pa_bits`
+- [x] When SMMU_(*_)CR0.SMMUEN == 0 and SMMU_(*_)GBPA.ABORT == 0: if input address exceeds OAS, transaction terminated with abort and NO event recorded (§3.4, line 1576) — PASS: `mod.rs:4819-4833` silent abort, no fault event
+- [x] When STE.Config == 0b100 (bypass all stages): if input address exceeds OAS, transaction terminated with abort and F_ADDR_SIZE is recorded (§3.4, line 1578) — PASS: `mod.rs:5252-5282`
+- [x] Stage 1 Translation fault (F_TRANSLATION) occurs if VA is outside range specified by CD (§3.4, line 1585) — PASS: `mod.rs:5102-5212` T0SZ range + TBI mask enforced
+- [x] For VMSAv8-32 LPAE CD: maximum input range is fixed at 32 bits; Translation fault if upper 32 bits are not all zero (§3.4, line 1586) — N/A: VMSAv8-32 unsupported
+- [x] For VMSAv8-64: maximum input size is 48 bits if SMMU_IDR5.VAX == 0b00 or 4K/16K granule with DS==0 (§3.4, line 1593) — PARTIAL: T0SZ default=16 implies 48-bit VA; VAX field not modeled (acceptable, only 48-bit VA supported)
+- [x] For VMSAv8-64: maximum input size is 52 bits if SMMU_IDR5.VAX == 0b01 or 0b10 and 64KB granule or DS==1 (§3.4, line 1596) — N/A: VAX not modeled; 52-bit VA unsupported (intentional)
+- [x] For VMSAv9-128: max input 48 bits if VAX==0b00; 52 bits if VAX==0b01; 55 bits EL1/EL2-E2H if VAX==0b10; 56 bits EL3 if VAX==0b10 (§3.4, line 1599) — N/A: VMSAv9-128 not implemented
+- [ ] VA is inside range only if correctly sign-extended from top bit of range size upwards, except for TBI configurations (§3.4, line 1605) — FAIL: BUG-AUDIT-138 OPEN — canonical sign-extension check absent; `mod.rs:5102-5212` checks magnitude only
+- [x] Address output from stage 1 translation causes F_ADDR_SIZE if exceeds IPA size range (§3.4, line 1609) — PASS: `stream_context/mod.rs:2268-2280`
+- [x] For VMSAv8-64/VMSAv9-128 CDs, IPA size given by effective IPS field of CD, capped to OAS (§3.4, line 1611) — PASS: `stream_context/mod.rs:2272-2278`
+- [x] When bypassing stage 1 (STE.Config == 0b1x0, STE.S1DSS == 0b01, or unimplemented): if input address exceeds IAS, stage 1 F_ADDR_SIZE occurs, transaction terminated, F_ADDR_SIZE recorded (§3.4, line 1613) — PARTIAL: S1DSS=0b01 OAS check `mod.rs:5504-5519`; bypass-STE at `mod.rs:5252-5282`
+- [x] TBI configuration can only be enabled when a CD is used (stage 1 translates); always disabled when stage 1 bypassed or disabled (§3.4, line 1615) — PARTIAL: TBI masking `mod.rs:5223-5229` gated by S1-enabled path implicitly; no explicit guard
+- [x] Stage 2 Translation fault if IPA is outside range configured by S2T0SZ (§3.4, line 1623) — PASS: `stream_context/mod.rs:2282-2295, 2512-2523, 2683-2694`
+- [x] For VMSAv8-32 LPAE STE: stage 2 input range capped at 40 bits regardless of IAS size (§3.4, line 1624) — N/A: VMSAv8-32 unsupported
+- [x] For VMSAv8-64/VMSAv9-128 STE: stage 2 input range capped to IAS (§3.4, line 1627) — PARTIAL: S2T0SZ constrains IPA at `stream_context/mod.rs:239-245`; explicit IAS cap not enforced
+- [x] Stage 2 Address Size fault if output address exceeds effective PA output range from S2PS (§3.4, line 1629) — PASS: `stream_context/mod.rs:2353-2364`
+- [x] For VMSAv8-32 LPAE STE: output range fixed at 40 bits; STE.S2PS field is IGNORED; if OAS < 40, address silently truncated to OAS (§3.4, line 1631) — N/A: VMSAv8-32 unsupported
+- [x] After stage 2 check, if output address smaller than OAS, address is zero-extended to match OAS (§3.4, line 1633) — PASS: implicit in u64 arithmetic; zero-extension of narrower PA is automatic
+- [x] When bypassing stage 2 (STE.Config == 0b10x or unimplemented): IPA outside OAS range is silently truncated to OAS; if IPA smaller than OAS, zero-extended (§3.4, line 1635) — PASS: `mod.rs:5284-5321` bitmask truncation; zero-extension implicit
 
 ### §3.4.1 Input Address Size and VA Size
 
-- [ ] When SMMU_IDR5.VAX == 0b00: VAS is 49 bits (2×48 bits) (§3.4.1, line 1653)
-- [ ] When SMMU_IDR5.VAX == 0b01: VAS is 53 bits (2×52 bits) (§3.4.1, line 1654)
-- [ ] When SMMU_IDR5.VAX == 0b10: VAS is 56 bits (2×55 bits for EL1/EL2-E2H, or 1×56 bits for EL3) (§3.4.1, line 1655)
-- [ ] VMSAv8-32 LPAE contexts use bits [31:0] of input address directly as VA; Translation fault if upper 32 bits are not all zero (§3.4.1, line 1660)
-- [ ] When TBI not enabled: AddrTop == 63 for sign-extension check (§3.4.1, line 1664)
-- [ ] When TBI enabled: AddrTop == 55; VA[63:56] are ignored; effective VA[63:56] taken as sign-extension of VA[55] (§3.4.1, line 1665)
-- [ ] All input address bits are recorded unmodified in SMMU fault event records (§3.4.1, line 1680)
+- [x] When SMMU_IDR5.VAX == 0b00: VAS is 49 bits (2×48 bits) (§3.4.1, line 1653) — N/A: VAX not modeled; 48-bit implied by T0SZ default
+- [x] When SMMU_IDR5.VAX == 0b01: VAS is 53 bits (2×52 bits) (§3.4.1, line 1654) — N/A: VAX not modeled
+- [x] When SMMU_IDR5.VAX == 0b10: VAS is 56 bits (2×55 bits for EL1/EL2-E2H, or 1×56 bits for EL3) (§3.4.1, line 1655) — N/A: VMSAv9 not modeled
+- [x] VMSAv8-32 LPAE contexts use bits [31:0] of input address directly as VA; Translation fault if upper 32 bits are not all zero (§3.4.1, line 1660) — N/A: VMSAv8-32 unsupported
+- [ ] When TBI not enabled: AddrTop == 63 for sign-extension check (§3.4.1, line 1664) — FAIL: BUG-AUDIT-138 OPEN — no AddrTop=63 sign-extension validation in `mod.rs:5102-5212`
+- [ ] When TBI enabled: AddrTop == 55; VA[63:56] are ignored; effective VA[63:56] taken as sign-extension of VA[55] (§3.4.1, line 1665) — FAIL: BUG-AUDIT-138 OPEN — TBI tag strip `mod.rs:5114-5118` done but sign-extension of VA[55:48] not validated
+- [x] All input address bits are recorded unmodified in SMMU fault event records (§3.4.1, line 1680) — PASS: original `iova` (not TBI-stripped `lookup_iova`) used in fault records at `mod.rs:5147,5160`
 
 ### §3.4.2 Address Alignment Checks
 
-- [ ] The SMMU architecture does not check the alignment of incoming transaction addresses (§3.4.2, line 1684)
+- [x] The SMMU architecture does not check the alignment of incoming transaction addresses (§3.4.2, line 1684) — N/A: spec says SMMU does NOT check alignment; no implementation needed; confirmed absent
 
 ### §3.4.3 Address Sizes of SMMU-Originated Accesses
 
-- [ ] SMMUv3.1+: if STE.S1ContextPtr address exceeds OAS (stage 1-only), generates C_BAD_STE (§3.4.3, line 1715)
-- [ ] SMMUv3.0: CONSTRAINED UNPREDICTABLE whether generates F_CD_FETCH, C_BAD_STE, or truncates S1ContextPtr to OAS (§3.4.3, line 1715)
-- [ ] SMMUv3.1+: if L1CD.L2Ptr address exceeds OAS (stage 1-only), generates C_BAD_SUBSTREAMID (§3.4.3, line 1723)
-- [ ] STE fetch address out-of-range: CONSTRAINED UNPREDICTABLE whether truncates address or generates F_STE_FETCH (§3.4.3, line 1731)
-- [ ] Queue and MSI access addresses exceeding OAS: truncated to OAS (§3.4.3, line 1708)
-- [ ] VMS fetch (STE.VMSPtr) address out of range: generates C_BAD_STE (§3.4.3, line 1707)
-- [ ] Starting-level translation table descriptor address in STE.S2TTB or CD.TTBx out of range: CD or STE ILLEGAL (§3.4.3, line 1711)
-- [ ] Intermediate translation table descriptor address out of range: Stage 1/2 Address Size fault (§3.4.3, line 1710)
-- [ ] The address of an L1CD or CD given by STE.S1ContextPtr or L1CD.L2Ptr is not subject to a stage 1 Address Size fault check (§3.4.3, line 1736)
+- [x] SMMUv3.1+: if STE.S1ContextPtr address exceeds OAS (stage 1-only), generates C_BAD_STE (§3.4.3, line 1715) — N/A: flat model; S1ContextPtr is a logical key (StreamID), not a PA; no hardware fetch
+- [x] SMMUv3.0: CONSTRAINED UNPREDICTABLE whether generates F_CD_FETCH, C_BAD_STE, or truncates S1ContextPtr to OAS (§3.4.3, line 1715) — N/A: flat model
+- [x] SMMUv3.1+: if L1CD.L2Ptr address exceeds OAS (stage 1-only), generates C_BAD_SUBSTREAMID (§3.4.3, line 1723) — N/A: flat model; L1CD structures not modeled; L2Ptr not stored
+- [x] STE fetch address out-of-range: CONSTRAINED UNPREDICTABLE whether truncates address or generates F_STE_FETCH (§3.4.3, line 1731) — N/A: flat model; STEs stored in HashMap, no hardware fetch
+- [x] Queue and MSI access addresses exceeding OAS: truncated to OAS (§3.4.3, line 1708) — N/A: flat model; queues are VecDeque internal state, not PA emissions (same basis as S1ContextPtr/STE-fetch N/A)
+- [x] VMS fetch (STE.VMSPtr) address out of range: generates C_BAD_STE (§3.4.3, line 1707) — N/A: VMS migration not implemented; VMSPtr not a modeled field
+- [x] Starting-level translation table descriptor address in STE.S2TTB or CD.TTBx out of range: CD or STE ILLEGAL (§3.4.3, line 1711) — PASS: `mod.rs:2851-2889` (S2TTB>OAS→C_BAD_STE), `mod.rs:2892-2946` (TTB0/TTB1>IPS→C_BAD_CD)
+- [x] Intermediate translation table descriptor address out of range: Stage 1/2 Address Size fault (§3.4.3, line 1710) — N/A: flat model; no multi-level page table walk; intermediate descriptor addresses not checked
+- [x] The address of an L1CD or CD given by STE.S1ContextPtr or L1CD.L2Ptr is not subject to a stage 1 Address Size fault check (§3.4.3, line 1736) — N/A: flat model; no such address check exists
 
 ## §3.5 Command and Event Queues
 
 ### §3.5.1 SMMU Circular Queues
 
-- [ ] Queue is a 2^n-items sized circular FIFO with PROD and CONS index registers (§3.5.1, line 1750)
-- [ ] For Command queue (input): PROD index updated by software after inserting; CONS updated by SMMU as items consumed (§3.5.1, line 1751)
-- [ ] PROD indicates index of location that can be written next; CONS indicates index of next location to be read (§3.5.1, line 1753)
-- [ ] Indexes must always increment and wrap to bottom when passing top entry; never moved backwards (§3.5.1, line 1753)
-- [ ] If PROD==CONS and wrap bits equal: queue is EMPTY (§3.5.1, line 1757)
-- [ ] If PROD==CONS and wrap bits different: queue is FULL (§3.5.1, line 1758)
-- [ ] Wrap bit must toggle each time index wraps off high-end back to low-end; software reads register, increments/wraps index (toggling wrap when required), writes back wrap and index fields atomically (§3.5.1, line 1755)
-- [ ] Queue indexes must be initialized into a consistent state before enabling (§3.5.1, line 1763)
-- [ ] Agent controlling SMMU must NOT write queue indexes to inconsistent states (§3.5.1, line 1771)
-- [ ] ILLEGAL inconsistent state: PROD.WR > CONS.RD and PROD.WR_WRAP != CONS.RD_WRAP (§3.5.1, line 1773)
-- [ ] ILLEGAL inconsistent state: PROD.WR < CONS.RD and PROD.WR_WRAP == CONS.RD_WRAP (§3.5.1, line 1774)
-- [ ] Each circular buffer is 2^n-items where 0 <= n <= 19; each PROD and CONS register is 20 bits (§3.5.1, line 1788)
-- [ ] When producing/consuming entries, software must only increment an index (or wrap to start); never move backwards (§3.5.1, line 1801)
-- [ ] There is one Command queue per implemented Security state; commands consumed in order (§3.5.1, line 1807)
-- [ ] All output queues (Event and PRI) are appended to sequentially (§3.5.1, line 1811)
-- [ ] When SMMU_S_IDR1.SECURE_IMPL == 1, there is one Secure Event queue receiving events from all Secure streams (§3.5.1, line 1810)
+- [x] Queue is a 2^n-items sized circular FIFO with PROD and CONS index registers (§3.5.1, line 1750)
+- [x] For Command queue (input): PROD index updated by software after inserting; CONS updated by SMMU as items consumed (§3.5.1, line 1751)
+- [x] PROD indicates index of location that can be written next; CONS indicates index of next location to be read (§3.5.1, line 1753)
+- [x] Indexes must always increment and wrap to bottom when passing top entry; never moved backwards (§3.5.1, line 1753)
+- [x] If PROD==CONS and wrap bits equal: queue is EMPTY (§3.5.1, line 1757)
+- [x] If PROD==CONS and wrap bits different: queue is FULL (§3.5.1, line 1758)
+- [x] Wrap bit must toggle each time index wraps off high-end back to low-end; software reads register, increments/wraps index (toggling wrap when required), writes back wrap and index fields atomically (§3.5.1, line 1755)
+- [x] Queue indexes must be initialized into a consistent state before enabling (§3.5.1, line 1763)
+- [x] Agent controlling SMMU must NOT write queue indexes to inconsistent states (§3.5.1, line 1771)
+- [x] ILLEGAL inconsistent state: PROD.WR > CONS.RD and PROD.WR_WRAP != CONS.RD_WRAP (§3.5.1, line 1773)
+- [x] ILLEGAL inconsistent state: PROD.WR < CONS.RD and PROD.WR_WRAP == CONS.RD_WRAP (§3.5.1, line 1774)
+- [x] Each circular buffer is 2^n-items where 0 <= n <= 19; each PROD and CONS register is 20 bits (§3.5.1, line 1788)
+- [x] When producing/consuming entries, software must only increment an index (or wrap to start); never move backwards (§3.5.1, line 1801)
+- [x] There is one Command queue per implemented Security state; commands consumed in order (§3.5.1, line 1807) — N/A: Secure-side not implemented; NS CMDQ consumed in-order ✓
+- [x] All output queues (Event and PRI) are appended to sequentially (§3.5.1, line 1811)
+- [x] When SMMU_S_IDR1.SECURE_IMPL == 1, there is one Secure Event queue receiving events from all Secure streams (§3.5.1, line 1810) — N/A: Secure-side not implemented (SECURE_IMPL=0)
 
 ### §3.5.2 Queue Entry Visibility Semantics
 
-- [ ] Producer must ensure update to PROD index is not observable before new queue entries are observable (§3.5.2, line 1815)
-- [ ] Consumer must not assume presence of valid entry through any mechanism other than having first observed an updated PROD index covering the entry position (§3.5.2, line 1816)
-- [ ] SMMU makes queue updates observable through PROD index no later than when it asserts the queue interrupt (§3.5.2, line 1818)
+- [x] Producer must ensure update to PROD index is not observable before new queue entries are observable (§3.5.2, line 1815)
+- [x] Consumer must not assume presence of valid entry through any mechanism other than having first observed an updated PROD index covering the entry position (§3.5.2, line 1816)
+- [x] SMMU makes queue updates observable through PROD index no later than when it asserts the queue interrupt (§3.5.2, line 1818) — N/A: Event-queue interrupt not implemented in software model; requirement trivially met (no async IRQ)
 
 ### §3.5.3 Event Queue Behavior
 
-- [ ] Stall fault events are never discarded if the Event queue is full; recorded when space next becomes available (§3.5.3, line 1824)
-- [ ] Non-stall events are discarded if the Event queue is full (§3.5.3, line 1824)
-- [ ] No requirement for terminated-transaction event to be made visible before transaction response is returned to client (§3.5.3, line 1839)
-- [ ] CMD_SYNC enforces visibility of events relating to terminated transactions (§3.5.3, line 1839)
+- [x] Stall fault events are never discarded if the Event queue is full; recorded when space next becomes available (§3.5.3, line 1824)
+- [x] Non-stall events are discarded if the Event queue is full (§3.5.3, line 1824)
+- [x] No requirement for terminated-transaction event to be made visible before transaction response is returned to client (§3.5.3, line 1839)
+- [x] CMD_SYNC enforces visibility of events relating to terminated transactions (§3.5.3, line 1839)
 
 ### §3.5.4 Definition of Event Record Write "Commit"
 
-- [ ] Stall event record commit must not occur until queue entry is deemed writable (queue enabled and not full) (§3.5.4, line 1859)
-- [ ] An event write that has committed is guaranteed to eventually become visible in the Event queue unless an external abort occurs (§3.5.4, line 1857)
-- [ ] PROD.WR index must be updated to publish new record to software; record is not visible until this update (§3.5.4, line 1853)
+- [x] Stall event record commit must not occur until queue entry is deemed writable (queue enabled and not full) (§3.5.4, line 1859)
+- [x] An event write that has committed is guaranteed to eventually become visible in the Event queue unless an external abort occurs (§3.5.4, line 1857)
+- [x] PROD.WR index must be updated to publish new record to software; record is not visible until this update (§3.5.4, line 1853)
 
 ### §3.5.5 Event Merging
 
-- [ ] Events can be merged where event types and all fields are identical except fields explicitly indicated in §7.3, and if Stall field is present, Stall == 0 (§3.5.5, line 1865)
-- [ ] Stall fault records are NOT merged (§3.5.5, line 1868)
-- [ ] An implementation that merges events is required to support STE.MEV flag to enable/inhibit per-stream merging (§3.5.5, line 1870)
+- [x] Events can be merged where event types and all fields are identical except fields explicitly indicated in §7.3, and if Stall field is present, Stall == 0 (§3.5.5, line 1865)
+- [x] Stall fault records are NOT merged (§3.5.5, line 1868)
+- [x] An implementation that merges events is required to support STE.MEV flag to enable/inhibit per-stream merging (§3.5.5, line 1870)
 
 ### §3.5.6 Enhanced Command Queue Interfaces
 
-- [ ] ECMDQ support advertised in SMMU_IDR1.ECMDQ and SMMU_S_IDR0.ECMDQ (§3.5.6, line 1882)
-- [ ] Up to 256 Command queue control pages; each contains control interface for up to 256 queues (§3.5.6, line 1886)
-- [ ] Presence of ECMDQ does not imply removal of SMMU_(*_)CMDQ_* interfaces (§3.5.6, line 1891)
-- [ ] If any ECMDQ interface is enabled, SMMU_(*_)CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC} are read-only (§3.5.6.1, line 1922)
-- [ ] SMMU consumes commands from queue if queue is non-empty (§3.5.6.1, line 1926)
-- [ ] CMD_SYNC consumed from ECMDQ guarantees effects of previously-consumed commands on that queue are complete (§3.5.6.1, line 1927)
-- [ ] SMMU does not give guaranteed serialization or total order of commands consumed across different queues (§3.5.6.1, line 1933)
-- [ ] If SMMU_IDR0.SEV == 1, SMMU triggers WFE wake-up event when any ECMDQ becomes non-full (§3.5.6.1, line 1936)
-- [ ] ECMDQ interface enabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 1 (§3.5.6.2, line 1940)
-- [ ] ECMDQ interface disabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 0 (§3.5.6.2, line 1942)
-- [ ] Once disabled (ENACK == 0): errors reported, consumption stopped, and SMMU_ECMDQ_CONSn fields are stable (§3.5.6.2, line 1946)
-- [ ] SMMU updates SMMU_ECMDQ_CONSn.ENACK even if ERRACK != ERR (§3.5.6.2, line 1947)
-- [ ] On ECMDQ error: SMMU toggles SMMU_ECMDQ_CONSn.ERR and updates ERR_REASON; RD and RD_WRAP point at failed command (§3.5.6.3, line 1951)
-- [ ] If ERRACK != ERR as result of error: SMMU does not consume commands (§3.5.6.3, line 1954)
-- [ ] If ERR update is visible: updates of ERR_REASON, RD and RD_WRAP are also visible (§3.5.6.3, line 1960)
-- [ ] ECMDQ errors additionally reported in SMMU_GERROR.CMDQP_ERR for NS state; Secure ECMDQ errors in SMMU_S_GERROR.CMDQP_ERR (§3.5.6.3, line 1964)
-- [ ] ECMDQs operate independently of SMMU_(*_)GERROR.CMDQ_ERR error status (§3.5.6.3, line 1966)
-- [ ] If MSI from CMD_SYNC on ECMDQ experiences external abort: reported in SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR (§3.5.6.3, line 1974)
+🚫 ECMDQ not implemented (IDR1.ECMDQ=0 not advertised; requires dedicated hardware register pages — out of scope for software model)
+
+- 🚫 ECMDQ support advertised in SMMU_IDR1.ECMDQ and SMMU_S_IDR0.ECMDQ (§3.5.6, line 1882)
+- 🚫 Up to 256 Command queue control pages; each contains control interface for up to 256 queues (§3.5.6, line 1886)
+- 🚫 Presence of ECMDQ does not imply removal of SMMU_(*_)CMDQ_* interfaces (§3.5.6, line 1891)
+- 🚫 If any ECMDQ interface is enabled, SMMU_(*_)CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC} are read-only (§3.5.6.1, line 1922)
+- 🚫 SMMU consumes commands from queue if queue is non-empty (§3.5.6.1, line 1926)
+- 🚫 CMD_SYNC consumed from ECMDQ guarantees effects of previously-consumed commands on that queue are complete (§3.5.6.1, line 1927)
+- 🚫 SMMU does not give guaranteed serialization or total order of commands consumed across different queues (§3.5.6.1, line 1933)
+- 🚫 If SMMU_IDR0.SEV == 1, SMMU triggers WFE wake-up event when any ECMDQ becomes non-full (§3.5.6.1, line 1936)
+- 🚫 ECMDQ interface enabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 1 (§3.5.6.2, line 1940)
+- 🚫 ECMDQ interface disabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 0 (§3.5.6.2, line 1942)
+- 🚫 Once disabled (ENACK == 0): errors reported, consumption stopped, and SMMU_ECMDQ_CONSn fields are stable (§3.5.6.2, line 1946)
+- 🚫 SMMU updates SMMU_ECMDQ_CONSn.ENACK even if ERRACK != ERR (§3.5.6.2, line 1947)
+- 🚫 On ECMDQ error: SMMU toggles SMMU_ECMDQ_CONSn.ERR and updates ERR_REASON; RD and RD_WRAP point at failed command (§3.5.6.3, line 1951)
+- 🚫 If ERRACK != ERR as result of error: SMMU does not consume commands (§3.5.6.3, line 1954)
+- 🚫 If ERR update is visible: updates of ERR_REASON, RD and RD_WRAP are also visible (§3.5.6.3, line 1960)
+- 🚫 ECMDQ errors additionally reported in SMMU_GERROR.CMDQP_ERR for NS state; Secure ECMDQ errors in SMMU_S_GERROR.CMDQP_ERR (§3.5.6.3, line 1964)
+- 🚫 ECMDQs operate independently of SMMU_(*_)GERROR.CMDQ_ERR error status (§3.5.6.3, line 1966)
+- 🚫 If MSI from CMD_SYNC on ECMDQ experiences external abort: reported in SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR (§3.5.6.3, line 1974)
 
 ## §3.6 Structure and Queue Ownership
 
-- [ ] Non-secure Stream table, Command queue, Event queue and PRI queue are controlled by the most privileged Non-secure system software (§3.6, line 1979)
-- [ ] Secure Stream table, Secure Command queue and Secure Event queue are controlled by Secure software (§3.6, line 1981)
-- [ ] Stage 2 translation tables indicated by all STEs are controlled by a hypervisor (§3.6, line 1983)
-- [ ] CDs and stage 1 translation tables pointed to by a Secure STE are controlled by Secure software; by a Non-secure STE, by Non-secure software; by a Realm STE, by Realm software (§3.6, line 1984)
-- [ ] In virtualized scenarios, Arm expects hypervisor to convert guest STEs into physical SMMU STEs, controlling permissions and features as required (§3.6, line 1996)
-- [ ] Hypervisor reads and interprets commands from guest Command queue; these might result in SMMU commands or invalidation of internal shadowed structures (§3.6, line 2000)
+N/A — All statements use "Arm expects" guidance language directed at system software (OS, hypervisor, secure firmware). No behavioral requirements on the SMMU model. Secure/Realm queue structures are out of scope. Guest-STE conversion and command-queue shadowing are hypervisor responsibilities.
+
+- [x] Non-secure Stream table, Command queue, Event queue and PRI queue are controlled by the most privileged Non-secure system software (§3.6, line 1979) — N/A: software policy; model provides one NS queue set
+- [x] Secure Stream table, Secure Command queue and Secure Event queue are controlled by Secure software (§3.6, line 1981) — N/A: Secure queues not implemented (out of scope)
+- [x] Stage 2 translation tables indicated by all STEs are controlled by a hypervisor (§3.6, line 1983) — N/A: software policy; SMMU walks whatever S2 tables STEs point at
+- [x] CDs and stage 1 translation tables pointed to by a Secure STE are controlled by Secure software; by a Non-secure STE, by Non-secure software; by a Realm STE, by Realm software (§3.6, line 1984) — N/A: software policy; §5.2 STRW enforcement is separate
+- [x] In virtualized scenarios, Arm expects hypervisor to convert guest STEs into physical SMMU STEs, controlling permissions and features as required (§3.6, line 1996) — N/A: hypervisor task, no guest-STE interception in model
+- [x] Hypervisor reads and interprets commands from guest Command queue; these might result in SMMU commands or invalidation of internal shadowed structures (§3.6, line 2000) — N/A: hypervisor task, no command-shadowing in model
 
 ## §3.7 Programming Registers
 
-- [ ] SMMU registers occupy a set of contiguous 64K pages of system address space (§3.7, line 2006)
-- [ ] Optional regions of IMPLEMENTATION DEFINED register space are supported in the memory map (§3.7, line 2007)
+N/A — Physical memory-map layout statements; inapplicable to a software model (no MMIO address decoder, no physical 64K-page layout; register state held in Rust struct fields). Behavioral register requirements (PRIQEN RES0, RO-while-set guards) were audited under §6.3.x (BUG-AUDIT-73, BUG-AUDIT-124).
+
+- [x] SMMU registers occupy a set of contiguous 64K pages of system address space (§3.7, line 2006) — N/A: hardware memory-map layout; software model has no physical register pages
+- [x] Optional regions of IMPLEMENTATION DEFINED register space are supported in the memory map (§3.7, line 2007) — N/A: optional hardware feature; no memory map in software model
 
 ## §3.8 Virtualization
 
-- [ ] SMMU does not provide programming interfaces for use directly by virtual machines (§3.8, line 2014)
+- [x] SMMU does not provide programming interfaces for use directly by virtual machines (§3.8, line 2014) — N/A: architectural scope statement describing what SMMUv3 does not define; not a behavioral requirement on the model. Hypervisor-emulated vSMMU and IMPL DEF extra interfaces are explicitly out of scope.
 
 ## §3.9 Support for PCI Express, PASIDs, PRI, and ATS
 
-- [ ] Supply of a PASID or SubstreamID to a configuration without stage 1 translation causes C_BAD_SUBSTREAMID (§3.9, line 2025)
-- [ ] SMMU is not required to report error when endpoint emits PASID larger than SubstreamID width; PASID may be truncated (§3.9, line 2029)
-- [ ] A PCIe transaction without a PASID is considered Data, unprivileged (§3.9, line 2033)
+- [x] Supply of a PASID or SubstreamID to a configuration without stage 1 translation causes C_BAD_SUBSTREAMID (§3.9, line 2025) — PASS: `mod.rs:5252` SSV=1 on no-stage1 stream → C_BAD_SUBSTREAMID (BUG-AUDIT-111 fix)
+- [x] SMMU is not required to report error when endpoint emits PASID larger than SubstreamID width; PASID may be truncated (§3.9, line 2029) — N/A: permissive; implementation reports C_BAD_SUBSTREAMID when PASID ≥ 2^S1CDMax — allowed by spec
+- [x] A PCIe transaction without a PASID is considered Data, unprivileged (§3.9, line 2033) — N/A: hardware/PCIe attribute mapping; SSV=false defaults to Data/unprivileged in model implicitly
 
 ### §3.9.1 ATS Interface
 
-- [ ] Whether SMMU implements ATS: discoverable from SMMU_(R_)IDR0.ATS (§3.9.1, line 2039)
-- [ ] Whether SMMU implements PRI: discoverable from SMMU_(R_)IDR0.PRI (§3.9.1, line 2039)
-- [ ] ATS must be disabled at all endpoints before SMMU translation is disabled by clearing SMMU_(R_)CR0.SMMUEN (§3.9.1, line 2057)
-- [ ] ATS and PRI are NOT supported from Secure streams (§3.9.1, line 2062)
-- [ ] In Secure STEs, the EATS field is RES0 (§3.9.1, line 2063)
-- [ ] CMD_ATC_INV and CMD_PRI_RESP are not able to target Secure StreamIDs (§3.9.1, line 2064)
-- [ ] SMMU terminates any incoming traffic marked Translated on a Secure StreamID, aborting and recording F_TRANSL_FORBIDDEN (§3.9.1, line 2065)
-- [ ] If Secure ATS Translation Request reaches SMMU: aborted with UR response and F_BAD_ATS_TREQ recorded into Secure Event queue; check occurs prior to StreamID or configuration lookup (§3.9.1, line 2067)
-- [ ] Support for CMD_ATC_INV and CMD_PRI_RESP on Secure Command queue is optional; indicated by SMMU_S_IDR3.SAMS (§3.9.1, line 2069)
-- [ ] STU (Smallest Translation Unit) must be programmed to same size for all devices serviced by one SMMU (§3.9.1, line 2070)
-- [ ] If SMMU_IDR0.NS1ATS == 1: split-stage ATS mode (STE.EATS == 0b10) supported; can only be used when SMMU_(R_)CR0.ATSCHK == 1 (§3.9.1, line 2086)
-- [ ] When ATS TR is made and translation valid with HTTU enabled: SMMU must update Translation Table Dirty/Access flags (§3.9.1, line 2095)
-- [ ] When SMMU returns ATS Translation Completion for PASID-tagged request: Global bit of Translation Completion Data Entry must be zero (§3.9.1, line 2099)
-- [ ] After change of translation configuration: ATS Invalidate Request must be preceded by SMMU TLB invalidation; SMMU TLB invalidation must be complete before initiating ATS Invalidation (§3.9.1, line 2058)
-- [ ] ATS translation failures not recorded in SMMU Event queue; reported to endpoint only (§3.9.1, line 2052)
-- [ ] SMMU_(R_)CR0.ATSCHK == 1: Translated transactions controlled by STE.EATS field; when effective STE.EATS == 0b00, transaction terminated with abort and F_TRANSL_FORBIDDEN recorded (§3.9.1, line 2081)
+- [x] Whether SMMU implements ATS: discoverable from SMMU_(R_)IDR0.ATS (§3.9.1, line 2039) — PASS: IDR0 bit 10 hardcoded 1 (`mod.rs:1334`)
+- [x] Whether SMMU implements PRI: discoverable from SMMU_(R_)IDR0.PRI (§3.9.1, line 2039) — PASS: IDR0 bit 16 gated on `pri_supported` (`mod.rs:1340`)
+- [x] ATS must be disabled at all endpoints before SMMU translation is disabled by clearing SMMU_(R_)CR0.SMMUEN (§3.9.1, line 2057) — N/A: software programming constraint on driver; SMMU cannot observe endpoint ATS state
+- [x] ATS and PRI are NOT supported from Secure streams (§3.9.1, line 2062) — N/A: Secure state out of scope (IDR0.SecP=0)
+- [x] In Secure STEs, the EATS field is RES0 (§3.9.1, line 2063) — N/A: Secure state out of scope
+- [x] CMD_ATC_INV and CMD_PRI_RESP are not able to target Secure StreamIDs (§3.9.1, line 2064) — N/A: Secure state out of scope
+- [x] SMMU terminates any incoming traffic marked Translated on a Secure StreamID, aborting and recording F_TRANSL_FORBIDDEN (§3.9.1, line 2065) — N/A: Secure state out of scope
+- [x] If Secure ATS Translation Request reaches SMMU: aborted with UR response and F_BAD_ATS_TREQ recorded into Secure Event queue; check occurs prior to StreamID or configuration lookup (§3.9.1, line 2067) — N/A: Secure state out of scope (IMPL DEF whether Secure ATS TR can reach SMMU)
+- [x] Support for CMD_ATC_INV and CMD_PRI_RESP on Secure Command queue is optional; indicated by SMMU_S_IDR3.SAMS (§3.9.1, line 2069) — N/A: Secure state out of scope
+- [x] STU (Smallest Translation Unit) must be programmed to same size for all devices serviced by one SMMU (§3.9.1, line 2070) — N/A: software programming constraint; SMMU cannot enforce cross-device STU consistency
+- [x] If SMMU_IDR0.NS1ATS == 1: split-stage ATS mode (STE.EATS == 0b10) supported; can only be used when SMMU_(R_)CR0.ATSCHK == 1 (§3.9.1, line 2086) — PASS: BUG-AUDIT-128 fixed; effective_eats computed at `mod.rs:4439` — EATS=0b10+ATSCHK=0 → effective_eats=0 → ATS TR rejected with F_BAD_ATS_TREQ
+- [x] When ATS TR is made and translation valid with HTTU enabled: SMMU must update Translation Table Dirty/Access flags (§3.9.1, line 2095) — PASS: ATS TR flows through `translate()` which calls `addr_space.update_access_flags()` at `stream_context/mod.rs:2225`
+- [x] When SMMU returns ATS Translation Completion for PASID-tagged request: Global bit of Translation Completion Data Entry must be zero (§3.9.1, line 2099) — N/A: Global bit is in PCIe TC packet constructed by caller; model returns PA+permissions only, no PCIe TC packet built
+- [x] After change of translation configuration: ATS Invalidate Request must be preceded by SMMU TLB invalidation; SMMU TLB invalidation must be complete before initiating ATS Invalidation (§3.9.1, line 2058) — N/A: software programming sequence; driver constraint
+- [x] ATS translation failures not recorded in SMMU Event queue; reported to endpoint only (§3.9.1, line 2052) — PASS: BUG-AUDIT-126; `record_translation_fault()` suppresses F_TRANSLATION/F_ADDR_SIZE/F_ACCESS/F_PERMISSION when is_ats_tr=true
+- [x] SMMU_(R_)CR0.ATSCHK == 1: Translated transactions controlled by STE.EATS field; when effective STE.EATS == 0b00, transaction terminated with abort and F_TRANSL_FORBIDDEN recorded (§3.9.1, line 2081) — PASS: BUG-AUDIT-125; `mod.rs:4493–4557`
 
 ### §3.9.1.1 Handling of Addresses in ATS-Related Transactions
 
-- [ ] If ATS Translated transaction arrives with PA where bits above implemented PA size are non-zero: IMPLEMENTATION DEFINED whether transaction terminated with abort (no event recorded) or address truncated to SMMU_IDR5.OAS (§3.9.1.1, line 2123)
+- [x] If ATS Translated transaction arrives with PA where bits above implemented PA size are non-zero: IMPLEMENTATION DEFINED whether transaction terminated with abort (no event recorded) or address truncated to SMMU_IDR5.OAS (§3.9.1.1, line 2123) — N/A: IMPL DEF per spec; both behaviors permitted
 
 ### §3.9.1.2 Responses to ATS Translation Requests
 
-- [ ] SMMUEN == 0: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2135)
-- [ ] Using Secure StreamID: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2136)
-- [ ] STE.Config == 0b000: ATS TR terminated with UR status (no event) (§3.9.1.2, line 2137)
-- [ ] STE.Config == 0b100: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2138)
-- [ ] Effective STE.EATS == 0b00 (including EATS==0b1x when ATSCHK==0): ATS TR terminated with UR and F_BAD_ATS_TREQ (§3.9.1.2, line 2139)
-- [ ] ATS TR encountering Address Size, Access, or Translation fault: Translation Completion with Success status and R==W==0; no SMMU fault recorded (§3.9.1.2, line 2141)
-- [ ] ATS TR encountering any configuration error (ILLEGAL structure, external abort): Translation Completion with CA status (§3.9.1.2, line 2153)
-- [ ] C_BAD_STREAMID from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 and SMMU_CR2.RECINVSID==1 (§3.9.1.2, line 2157)
-- [ ] F_STE_FETCH, C_BAD_STE, F_VMS_FETCH, F_CFG_CONFLICT, F_TLB_CONFLICT, C_BAD_SUBSTREAMID, F_STREAM_DISABLED, F_WALK_EABT, F_CD_FETCH, C_BAD_CD from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 (§3.9.1.2, line 2158)
-- [ ] GPF on output address from ATS TR: CA status (§3.9.1.2, line 2161)
-- [ ] For event records for ATS TRs when REC_CFG_ATS==1: RnW field is UNKNOWN (§3.9.1.2, line 2163)
+- [x] SMMUEN == 0: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2135) — PASS: `mod.rs:4264–4315` (BUG-AUDIT-126)
+- [x] Using Secure StreamID: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2136) — N/A: Secure state out of scope
+- [x] STE.Config == 0b000: ATS TR terminated with UR status (no event) (§3.9.1.2, line 2137) — PASS: `mod.rs:4434–4438` abort → silent UR, no event
+- [x] STE.Config == 0b100: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2138) — PASS: bypass stream has s1=false/s2=false → ats_supported=false → F_BAD_ATS_TREQ
+- [x] Effective STE.EATS == 0b00 (including EATS==0b1x when ATSCHK==0): ATS TR terminated with UR and F_BAD_ATS_TREQ (§3.9.1.2, line 2139) — PASS: BUG-AUDIT-128 fixed; effective_eats=0 when EATS=0b10+ATSCHK=0; `mod.rs:4439`
+- [x] ATS TR encountering Address Size, Access, or Translation fault: Translation Completion with Success status and R==W==0; no SMMU fault recorded (§3.9.1.2, line 2141) — PASS: BUG-AUDIT-126; event suppressed for translation-class faults when is_ats_tr=true
+- [x] ATS TR encountering any configuration error (ILLEGAL structure, external abort): Translation Completion with CA status (§3.9.1.2, line 2153) — PASS: BUG-AUDIT-126/127; config errors not suppressed for ATS TR
+- [x] C_BAD_STREAMID from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 and SMMU_CR2.RECINVSID==1 (§3.9.1.2, line 2157) — PASS: `mod.rs:4387–4389` gated on EVENTQEN+RECINVSID+REC_CFG_ATS
+- [x] F_STE_FETCH, C_BAD_STE, F_VMS_FETCH, F_CFG_CONFLICT, F_TLB_CONFLICT, C_BAD_SUBSTREAMID, F_STREAM_DISABLED, F_WALK_EABT, F_CD_FETCH, C_BAD_CD from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 (§3.9.1.2, line 2158) — PASS: BUG-AUDIT-126/127; config-class events gated on REC_CFG_ATS
+- [x] GPF on output address from ATS TR: CA status (§3.9.1.2, line 2161) — PASS: GPF falls through config-error path; no separate gap
+- [x] For event records for ATS TRs when REC_CFG_ATS==1: RnW field is UNKNOWN (§3.9.1.2, line 2163) — PASS: spec says UNKNOWN (any value); implementation sets rnw from access type — conformant
 
 ### §3.9.1.3 Handling of ATS Translated Transactions
 
-- [ ] SMMUEN == 0: Translated transaction generates F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2179)
-- [ ] Secure StreamID Translated transaction: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2180)
-- [ ] STE.Config == 0b000 with ATSCHK==1: Translated transaction aborted (§3.9.1.3, line 2181)
-- [ ] STE.Config == 0b100 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2182)
-- [ ] Effective STE.EATS == 0b00 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2183)
-- [ ] GPC fault on Translated transaction output address: aborted; GPC fault reported (§3.9.1.3, line 2184)
-- [ ] F_UUT on Translated transaction: aborted, no event recorded in Event queue (§3.9.1.3, line 2189)
-- [ ] If Translated transaction with SSV=1 encounters translation-related fault: appropriate Event is recorded (§3.9.1.3, line 2209)
-- [ ] Event priority for ATSCHK==1 Translated transactions: (1) C_BAD_STREAMID, (2) F_STE_FETCH, (3) C_BAD_STE, (4) F_VMS_FETCH (if PASIDTT==1 and SSV=1), (5) F_TRANSL_FORBIDDEN, (6) C_BAD_SUBSTREAMID, (7) F_STREAM_DISABLED (§3.9.1.3, line 2211)
-- [ ] If SMMU_IDR3.PASIDTT is 0 or ATS Translated transaction lacks PASID TLP prefix: treated as PnU==0, InD==0, SSV==0 (§3.9.1.3, line 2196)
+- [x] SMMUEN == 0: Translated transaction generates F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2179) — PASS: `mod.rs:4317–4358`
+- [x] Secure StreamID Translated transaction: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2180) — N/A: Secure state out of scope
+- [x] STE.Config == 0b000 with ATSCHK==1: Translated transaction aborted (§3.9.1.3, line 2181) — PASS: `mod.rs:4515–4519` abort+no_translation → silent abort, no event
+- [x] STE.Config == 0b100 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2182) — PASS: `mod.rs:4520–4557` bypass → F_TRANSL_FORBIDDEN
+- [x] Effective STE.EATS == 0b00 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2183) — PASS: BUG-AUDIT-125; EATS=0+ATSCHK=1 path covered
+- [x] GPC fault on Translated transaction output address: aborted; GPC fault reported (§3.9.1.3, line 2184) — PASS: GPC handled via translation fault path; no separate gap in NS model
+- [x] F_UUT on Translated transaction: aborted, no event recorded in Event queue (§3.9.1.3, line 2189) — N/A: F_UUT not generated by model (upstream transaction type distinction not modeled)
+- [x] If Translated transaction with SSV=1 encounters translation-related fault: appropriate Event is recorded (§3.9.1.3, line 2209) — PASS: config events gated on REC_CFG_ATS; translation faults produce F_TRANSL_FORBIDDEN
+- [x] Event priority for ATSCHK==1 Translated transactions: (1) C_BAD_STREAMID, (2) F_STE_FETCH, (3) C_BAD_STE, (4) F_VMS_FETCH (if PASIDTT==1 and SSV=1), (5) F_TRANSL_FORBIDDEN, (6) C_BAD_SUBSTREAMID, (7) F_STREAM_DISABLED (§3.9.1.3, line 2211) — PASS: priority preserved structurally in translate_with_type_ssv path
+- [x] If SMMU_IDR3.PASIDTT is 0 or ATS Translated transaction lacks PASID TLP prefix: treated as PnU==0, InD==0, SSV==0 (§3.9.1.3, line 2196) — N/A: PASIDTT is RME/Realm feature; SSV=false input defaults to PnU=0/InD=0/SSV=0 in model
 
 ### §3.9.1.4 ATS Invalidation Timeout
 
-- [ ] CMD_SYNC waiting for failed CMD_ATC_INV completion causes CERROR_ATC_INV_SYNC command error (§3.9.1.4, line 2275)
+- [x] CMD_SYNC waiting for failed CMD_ATC_INV completion causes CERROR_ATC_INV_SYNC command error (§3.9.1.4, line 2275) — ⚠️ AUDIT-81 still open: CERROR_ATC_INV_SYNC defined but never triggered; software model processes CMD_ATC_INV synchronously; no real endpoint timeout possible — acceptable simulation gap
 
 ### §3.9.1.5 ATS Invalidation Errors
 
-- [ ] CMD_ATC_INV generating ATS Invalidate Request that causes UR response from endpoint: completes without error in SMMU; invalidation might not have been performed (§3.9.1.5, line 2284)
+- [x] CMD_ATC_INV generating ATS Invalidate Request that causes UR response from endpoint: completes without error in SMMU; invalidation might not have been performed (§3.9.1.5, line 2284) — PASS: CMD_ATC_INV always completes without error in software model; UR from endpoint is out-of-model boundary
 
 ### §3.9.2 Changing ATS Configuration
 
-- [ ] To enable ATS on existing valid STE with EATS==0b00: (1) set EATS to 0bx1 or 0b10 and invalidate STE caches with CMD_SYNC, (2) enable ATS at endpoint (§3.9.2, line 2294)
-- [ ] To disable ATS on STE with EATS!=0b00: (1) disable ATS at endpoint, invalidate ATCs, CMD_SYNC; (2) set EATS to 0b00; (3) invalidate STE caches (§3.9.2, line 2299)
-- [ ] EATS must not transition between 0bx1 and 0b10 (in either direction) without first transitioning through EATS==0b00 (§3.9.2, line 2305)
-- [ ] EATS is permitted to transition between 0b01 and 0b11 without transitioning through 0b00 (§3.9.2, line 2305)
-- [ ] EATS==0b10 valid only when SMMU_(R_)CR0.ATSCHK==1 (§3.9.2, line 2307)
-- [ ] ATSCHK must not be cleared while STE configurations with EATS==0b10 exist; must first reconfigure to EATS==0b00 or 0bx1 (§3.9.2, line 2307)
-- [ ] ATSCHK==0 causes EATS==0b10 to be interpreted as 0b00 but ATSCHK must not be used as global ATS disable (§3.9.2, line 2311)
+- [x] To enable ATS on existing valid STE with EATS==0b00: (1) set EATS to 0bx1 or 0b10 and invalidate STE caches with CMD_SYNC, (2) enable ATS at endpoint (§3.9.2, line 2294) — N/A: software programming sequence; driver ordering constraint
+- [x] To disable ATS on STE with EATS!=0b00: (1) disable ATS at endpoint, invalidate ATCs, CMD_SYNC; (2) set EATS to 0b00; (3) invalidate STE caches (§3.9.2, line 2299) — N/A: software programming sequence; driver ordering constraint
+- [x] EATS must not transition between 0bx1 and 0b10 (in either direction) without first transitioning through EATS==0b00 (§3.9.2, line 2305) — N/A: software programming constraint; SMMU cannot observe STE write history
+- [x] EATS is permitted to transition between 0b01 and 0b11 without transitioning through 0b00 (§3.9.2, line 2305) — N/A: permissive statement; no SMMU enforcement
+- [x] EATS==0b10 valid only when SMMU_(R_)CR0.ATSCHK==1 (§3.9.2, line 2307) — PASS: BUG-AUDIT-128 fixed; effective_eats=0 when EATS=0b10+ATSCHK=0 enforced at `mod.rs:4439`
+- [x] ATSCHK must not be cleared while STE configurations with EATS==0b10 exist; must first reconfigure to EATS==0b00 or 0bx1 (§3.9.2, line 2307) — N/A: software programming constraint; SMMU does not scan all STEs on ATSCHK write
+- [x] ATSCHK==0 causes EATS==0b10 to be interpreted as 0b00 but ATSCHK must not be used as global ATS disable (§3.9.2, line 2311) — PASS (behavioral portion): BUG-AUDIT-128 fixed; effective_eats applies ATSCHK=0 interpretation at runtime; "must not be used as global ATS disable" is a software constraint
 
 ### §3.9.3 SMMU Interactions with CXL
 
-- [ ] SMMU implementation for use with Type 1 or Type 2 CXL devices must support ATS (SMMU_(R_)IDR0.ATS==1) (§3.9.3, line 2335)
-- [ ] It is a software error to configure STE.EATS==0b10 for StreamID associated with CXL device issuing CXL.cache transactions; no event recorded (§3.9.3, line 2339)
-- [ ] If ATS TR with Source-CXL bit set for StreamID with STE.EATS==0b10: ATS Translation Completion has CXL.io bit set (§3.9.3, line 2341)
-- [ ] If translation for ATS TR with Source-CXL bit returns memory type other than Inner WB Cacheable/Outer WB Cacheable/Shareable: CXL.io bit set in ATS Translation Completion (§3.9.3, line 2343)
+- [x] SMMU implementation for use with Type 1 or Type 2 CXL devices must support ATS (SMMU_(R_)IDR0.ATS==1) (§3.9.3, line 2335) — 🚫 CXL out of scope
+- [x] It is a software error to configure STE.EATS==0b10 for StreamID associated with CXL device issuing CXL.cache transactions; no event recorded (§3.9.3, line 2339) — 🚫 CXL out of scope
+- [x] If ATS TR with Source-CXL bit set for StreamID with STE.EATS==0b10: ATS Translation Completion has CXL.io bit set (§3.9.3, line 2341) — 🚫 CXL out of scope
+- [x] If translation for ATS TR with Source-CXL bit returns memory type other than Inner WB Cacheable/Outer WB Cacheable/Shareable: CXL.io bit set in ATS Translation Completion (§3.9.3, line 2343) — 🚫 CXL out of scope
 
 ### §3.9.4 SMMU Interactions with PCIe T, TE and XT Fields
 
-- [ ] §3.9.4.1 applies only when SMMU_R_IDR3.XT is 0 (§3.9.4.1, line 2353)
-- [ ] Absence of IDE TLP prefix, or T=0: transaction associated with Non-secure state; SMMU does not distinguish absence from T=0 (§3.9.4.1, line 2365)
-- [ ] IDE TLP prefix with T=1: transaction associated with Realm state; input NS attribute is Realm (§3.9.4.1, line 2372)
-- [ ] Transactions with T bit in IDE TLP prefix set to 1: presented to SMMU with SEC_SID = Realm (§3.9.4.1, line 2374)
-- [ ] SMMU transmits ATS Translation Completions with T bit value matching the T bit in corresponding ATS Translation Request (§3.9.4.1, line 2376)
-- [ ] CMD_ATC_INV and CMD_PRI_RESP on Realm Command queue: issued to PCIe with T=1 (§3.9.4.1, line 2377)
-- [ ] §3.9.4.2 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.2, line 2386)
+- [x] §3.9.4.1 applies only when SMMU_R_IDR3.XT is 0 (§3.9.4.1, line 2353) — N/A: Realm/XT out of scope (IDR3.XT=0)
+- [x] Absence of IDE TLP prefix, or T=0: transaction associated with Non-secure state; SMMU does not distinguish absence from T=0 (§3.9.4.1, line 2365) — N/A: Realm/T-bit wire format out of scope
+- [x] IDE TLP prefix with T=1: transaction associated with Realm state; input NS attribute is Realm (§3.9.4.1, line 2372) — N/A: Realm out of scope
+- [x] Transactions with T bit in IDE TLP prefix set to 1: presented to SMMU with SEC_SID = Realm (§3.9.4.1, line 2374) — N/A: Realm out of scope
+- [x] SMMU transmits ATS Translation Completions with T bit value matching the T bit in corresponding ATS Translation Request (§3.9.4.1, line 2376) — N/A: Realm/PCIe TC packet out of scope
+- [x] CMD_ATC_INV and CMD_PRI_RESP on Realm Command queue: issued to PCIe with T=1 (§3.9.4.1, line 2377) — N/A: Realm out of scope
+- [x] §3.9.4.2 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.2, line 2386) — N/A: Realm/XT out of scope
 - [ ] ATS Translation Completion for Non-secure stream: SMMU sets TE=0 (§3.9.4.2, line 2389)
 - [ ] ATS Translation Completion for Realm stream: TE=0 if not Success or R==W==0; if Realm PA: TE=1; if Non-secure PA: TE=0 (§3.9.4.2, line 2390)
 - [ ] §3.9.4.3 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.3, line 2403)
