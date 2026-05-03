@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = §3.11
+CURRENT_SECTION = §3.12
 
 ## Status Legend
 
@@ -136,7 +136,7 @@ CURRENT_SECTION = §3.11
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.11 | Reset, Enable, and initialization | ⚠️ | ⚠️ | AUDIT-69–71, 73, 75, 78 | enable() guards, CR0ACK protocol |
+| §3.11 | Reset, Enable, and initialization | ⚠️ | ✅ | AUDIT-69–71, 73, 75, 78 | Re-audited 2026-05-02: 12 items PASS, 3 N/A (software guidance/Secure-only). bypass identity, GBPA.ABORT abort, SMMUEN gate, TLB bypass, CMDQEN-only cmd gate, EVENTQEN, GATOS, STRTAB write guards, CR0ACK mirror, PRIQEN effective gate, CR1 TABLE_* RO — all conformant. No new bugs. 5 test coverage gaps noted (non-blocking). |
 
 ### §3.12 Fault Models
 

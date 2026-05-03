@@ -383,21 +383,21 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.11 Reset, Enable and Initialization
 
-- [ ] SMMU can reset to disabled state where traffic bypasses without translation; attributes determined by SMMU_GBPA (§3.11, line 2733)
-- [ ] SMMU_GBPA.ABORT or SMMU_S_GBPA.ABORT controls whether disabled state aborts all transactions (§3.11, line 2733)
-- [ ] Translation of Non-secure Streams enabled using SMMU_CR0.SMMUEN (§3.11, line 2737)
-- [ ] When translation not enabled for a Security state: SMMU never accesses Stream table; SMMU_(*_)STRTAB_* register content ignored (§3.11, line 2743)
-- [ ] When translation not enabled: SMMU denies PRI Page Requests as though SMMU_(R_)CR0.PRIQEN==0 (§3.11, line 2744)
-- [ ] When translation not enabled: SMMU does not perform ATOS operations (§3.11, line 2745)
-- [ ] When translation not enabled: SMMU does not perform ATS translations (§3.11, line 2746)
-- [ ] When translation not enabled: SMMU can process commands after queue pointers initialized and SMMU_(*_)CR0.CMDQEN enabled (§3.11, line 2748)
-- [ ] When translation not enabled: SMMU does not record new translation events; may continue to write out buffered events from prior enabled period if EVENTQEN enabled (§3.11, line 2749)
-- [ ] SMMU_(*_)STRTAB_BASE register and SMMU_(*_)CR1 table attributes must be configured before enabling via SMMU_(*_)CR0.SMMUEN (§3.11, line 2751)
-- [ ] SMMU is not required to invalidate cached configuration or TLB entries when SMMU_(*_)CR0.SMMUEN changes (§3.11, line 2781)
-- [ ] Before enabling translation, software must: (1) invalidate all configuration and TLB caches, (2) if SECURE_IMPL==1, Secure software must fully invalidate Secure cached configuration/TLB entries before handover to Non-secure (§3.11, line 2776)
-- [ ] Recommended initialization sequence: (1) allocate/initialize Stream table memory and base pointers, (2) allocate/initialize Command/Event queue memory, (3) enable CMDQEN and EVENTQEN, (4) issue invalidation commands, (5) enable translation via SMMUEN (§3.11, line 2783)
-- [ ] SMMU_S_INIT invalidates SMMU caches and TLBs without issuing commands; sequence: write INV_ALL, poll until INV_ALL returns 0 (§3.11, line 2793)
-- [ ] If SMMU creates TLB entries when bypass is selected (SMMUEN==0), these do not need explicit invalidation when SMMUEN transitions from 0 to 1 (§3.11, line 2805)
+- [x] SMMU can reset to disabled state where traffic bypasses without translation; attributes determined by SMMU_GBPA (§3.11, line 2733)
+- [x] SMMU_GBPA.ABORT or SMMU_S_GBPA.ABORT controls whether disabled state aborts all transactions (§3.11, line 2733)
+- [x] Translation of Non-secure Streams enabled using SMMU_CR0.SMMUEN (§3.11, line 2737)
+- [x] When translation not enabled for a Security state: SMMU never accesses Stream table; SMMU_(*_)STRTAB_* register content ignored (§3.11, line 2743)
+- [x] When translation not enabled: SMMU denies PRI Page Requests as though SMMU_(R_)CR0.PRIQEN==0 (§3.11, line 2744)
+- [x] When translation not enabled: SMMU does not perform ATOS operations (§3.11, line 2745)
+- [x] When translation not enabled: SMMU does not perform ATS translations (§3.11, line 2746)
+- [x] When translation not enabled: SMMU can process commands after queue pointers initialized and SMMU_(*_)CR0.CMDQEN enabled (§3.11, line 2748)
+- [x] When translation not enabled: SMMU does not record new translation events; may continue to write out buffered events from prior enabled period if EVENTQEN enabled (§3.11, line 2749)
+- [x] SMMU_(*_)STRTAB_BASE register and SMMU_(*_)CR1 table attributes must be configured before enabling via SMMU_(*_)CR0.SMMUEN (§3.11, line 2751)
+- [x] SMMU is not required to invalidate cached configuration or TLB entries when SMMU_(*_)CR0.SMMUEN changes (§3.11, line 2781)
+- [x] Before enabling translation, software must: (1) invalidate all configuration and TLB caches, (2) if SECURE_IMPL==1, Secure software must fully invalidate Secure cached configuration/TLB entries before handover to Non-secure (§3.11, line 2776) — N/A: software guidance only
+- [x] Recommended initialization sequence: (1) allocate/initialize Stream table memory and base pointers, (2) allocate/initialize Command/Event queue memory, (3) enable CMDQEN and EVENTQEN, (4) issue invalidation commands, (5) enable translation via SMMUEN (§3.11, line 2783) — N/A: software guidance only
+- [x] SMMU_S_INIT invalidates SMMU caches and TLBs without issuing commands; sequence: write INV_ALL, poll until INV_ALL returns 0 (§3.11, line 2793) — N/A: Secure-only register, NonSecure implementation
+- [x] If SMMU creates TLB entries when bypass is selected (SMMUEN==0), these do not need explicit invalidation when SMMUEN transitions from 0 to 1 (§3.11, line 2805)
 
 ## §3.12 Fault Models, Recording and Reporting
 
