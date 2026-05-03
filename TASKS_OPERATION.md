@@ -307,20 +307,20 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 - [x] SMMU transmits ATS Translation Completions with T bit value matching the T bit in corresponding ATS Translation Request (§3.9.4.1, line 2376) — N/A: Realm/PCIe TC packet out of scope
 - [x] CMD_ATC_INV and CMD_PRI_RESP on Realm Command queue: issued to PCIe with T=1 (§3.9.4.1, line 2377) — N/A: Realm out of scope
 - [x] §3.9.4.2 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.2, line 2386) — N/A: Realm/XT out of scope
-- [ ] ATS Translation Completion for Non-secure stream: SMMU sets TE=0 (§3.9.4.2, line 2389)
-- [ ] ATS Translation Completion for Realm stream: TE=0 if not Success or R==W==0; if Realm PA: TE=1; if Non-secure PA: TE=0 (§3.9.4.2, line 2390)
-- [ ] §3.9.4.3 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.3, line 2403)
-- [ ] XT=0, T=0: Non-TEE request targeting non-TEE memory (§3.9.4.3, line 2408)
-- [ ] XT=0, T=1: TEE request targeting TEE or non-TEE memory (§3.9.4.3, line 2409)
-- [ ] XT=1, T=0: TEE request targeting non-TEE memory (§3.9.4.3, line 2410)
-- [ ] XT=1, T=1: TEE request targeting TEE memory (§3.9.4.3, line 2411)
-- [ ] SEC_SID determined from bitwise-OR of T and XT: 0 → Non-secure; 1 → Realm (§3.9.4.3, line 2413)
-- [ ] If SEC_SID is Realm: T=0 → input NS attribute Non-secure; T=1 → input NS attribute Realm (§3.9.4.3, line 2422)
-- [ ] NSCFG==0b01, XT=0 Translated transaction: terminated with abort and F_TRANSL_FORBIDDEN (§3.9.4.3, line 2455)
-- [ ] NSCFG==0b01, XT=1: SMMU computes expected output PA space; if does not match input NS attribute → F_PERMISSION for final enabled stage (§3.9.4.3, line 2456)
-- [ ] §3.9.4.4 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.4, line 2460)
-- [ ] SMMU ignores XT bit on PRI requests and ATS Invalidation completions (§3.9.4.4, line 2461)
-- [ ] SMMU transmits ATS Translation Completions with both T bit and XT bit matching corresponding ATS Translation Request (§3.9.4.4, line 2464)
+- [x] ATS Translation Completion for Non-secure stream: SMMU sets TE=0 (§3.9.4.2, line 2389) — 🚫 Requires IDR3.XT=1 (Realm/TDISP); out of scope
+- [x] ATS Translation Completion for Realm stream: TE=0 if not Success or R==W==0; if Realm PA: TE=1; if Non-secure PA: TE=0 (§3.9.4.2, line 2390) — 🚫 Realm out of scope
+- [x] §3.9.4.3 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.3, line 2403) — 🚫 IDR3.XT=0; entire §3.9.4.3 out of scope
+- [x] XT=0, T=0: Non-TEE request targeting non-TEE memory (§3.9.4.3, line 2408) — 🚫 Realm/XT out of scope
+- [x] XT=0, T=1: TEE request targeting TEE or non-TEE memory (§3.9.4.3, line 2409) — 🚫 Realm/XT out of scope
+- [x] XT=1, T=0: TEE request targeting non-TEE memory (§3.9.4.3, line 2410) — 🚫 Realm/XT out of scope
+- [x] XT=1, T=1: TEE request targeting TEE memory (§3.9.4.3, line 2411) — 🚫 Realm/XT out of scope
+- [x] SEC_SID determined from bitwise-OR of T and XT: 0 → Non-secure; 1 → Realm (§3.9.4.3, line 2413) — 🚫 Realm/XT out of scope
+- [x] If SEC_SID is Realm: T=0 → input NS attribute Non-secure; T=1 → input NS attribute Realm (§3.9.4.3, line 2422) — 🚫 Realm out of scope
+- [x] NSCFG==0b01, XT=0 Translated transaction: terminated with abort and F_TRANSL_FORBIDDEN (§3.9.4.3, line 2455) — 🚫 Realm/XT out of scope
+- [x] NSCFG==0b01, XT=1: SMMU computes expected output PA space; if does not match input NS attribute → F_PERMISSION for final enabled stage (§3.9.4.3, line 2456) — 🚫 Realm/XT out of scope
+- [x] §3.9.4.4 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.4, line 2460) — 🚫 IDR3.XT=0; entire §3.9.4.4 out of scope
+- [x] SMMU ignores XT bit on PRI requests and ATS Invalidation completions (§3.9.4.4, line 2461) — 🚫 Realm/XT out of scope
+- [x] SMMU transmits ATS Translation Completions with both T bit and XT bit matching corresponding ATS Translation Request (§3.9.4.4, line 2464) — 🚫 Realm/XT out of scope
 
 ## §3.10 Security States Support
 
@@ -336,50 +336,50 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ### §3.10.2 Support for Secure State
 
-- [ ] When SMMU_S_IDR1.SECURE_IMPL==0: SMMU_S_* registers are RAZ/WI to all accesses (§3.10.2, line 2528)
-- [ ] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534)
-- [ ] With exception of SMMU_S_INIT: SMMU_S_* registers are Secure access only, RAZ/WI to Non-secure accesses (§3.10.2, line 2540)
-- [ ] Access to Secure Stream table, Secure Event queue, Secure Command queue always made to Secure PA space (§3.10.2, line 2609)
-- [ ] If Secure stage 2 not in use: L1CD and CD addresses treated as Secure physical addresses (§3.10.2, line 2612)
-- [ ] Some commands on Secure Command queue take SSec parameter indicating Secure or Non-secure StreamID (§3.10.2, line 2615)
+- [x] When SMMU_S_IDR1.SECURE_IMPL==0: SMMU_S_* registers are RAZ/WI to all accesses (§3.10.2, line 2528) — 🚫 Secure interface out of scope; SECURE_IMPL permanently 0
+- [x] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534) — 🚫 Secure interface out of scope
+- [x] With exception of SMMU_S_INIT: SMMU_S_* registers are Secure access only, RAZ/WI to Non-secure accesses (§3.10.2, line 2540) — 🚫 Secure interface out of scope
+- [x] Access to Secure Stream table, Secure Event queue, Secure Command queue always made to Secure PA space (§3.10.2, line 2609) — 🚫 Secure interface out of scope
+- [x] If Secure stage 2 not in use: L1CD and CD addresses treated as Secure physical addresses (§3.10.2, line 2612) — 🚫 Secure interface out of scope
+- [x] Some commands on Secure Command queue take SSec parameter indicating Secure or Non-secure StreamID (§3.10.2, line 2615) — 🚫 Secure interface out of scope
 
 ### §3.10.2.1 Secure Commands, Events and Configuration
 
-- [ ] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562)
-- [ ] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563)
-- [ ] Commands on Non-secure Command queue only affect Non-secure streams (§3.10.2.1, line 2564)
-- [ ] Some commands on Secure Command queue can affect any stream or data in the system (§3.10.2.1, line 2565)
-- [ ] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617)
+- [x] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562) — 🚫 Secure interface out of scope
+- [x] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563) — PASS: all events written to single NS Event queue; Secure queue not implemented
+- [x] Commands on Non-secure Command queue only affect Non-secure streams (§3.10.2.1, line 2564) — PASS: NS queue only; Secure/Realm SSec guards on relevant commands
+- [x] Some commands on Secure Command queue can affect any stream or data in the system (§3.10.2.1, line 2565) — 🚫 Secure interface out of scope
+- [x] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617) — 🚫 Secure interface out of scope
 
 ### §3.10.2.2 Secure EL2 and Support for Secure Stage 2 Translation
 
-- [ ] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==0: Secure EL2 not supported; Secure stage 2 not supported (§3.10.2.2, line 2629)
-- [ ] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==1: Secure EL2 and Secure stage 2 supported (§3.10.2.2, line 2630)
-- [ ] Secure STE with stage 2 translation enabled is not permitted to have STE.S2AA64 select VMSAv8-32 LPAE (§3.10.2.2, line 2647)
-- [ ] TLB entries from StreamWorld==Secure with stage 2 enabled: tagged with VMID from STE.S2VMID (§3.10.2.2, line 2653)
-- [ ] TLB entries from StreamWorld==Secure with stage 2 not enabled: tagged with VMID 0 (§3.10.2.2, line 2654)
-- [ ] Translation table entry fetched for Secure stream from Non-secure IPA space: treated as non-global (nG==1) regardless of nG bit in descriptor (§3.10.2.2, line 2658)
+- [x] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==0: Secure EL2 not supported; Secure stage 2 not supported (§3.10.2.2, line 2629) — 🚫 Secure interface out of scope
+- [x] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==1: Secure EL2 and Secure stage 2 supported (§3.10.2.2, line 2630) — 🚫 Secure interface out of scope
+- [x] Secure STE with stage 2 translation enabled is not permitted to have STE.S2AA64 select VMSAv8-32 LPAE (§3.10.2.2, line 2647) — 🚫 Secure interface out of scope
+- [x] TLB entries from StreamWorld==Secure with stage 2 enabled: tagged with VMID from STE.S2VMID (§3.10.2.2, line 2653) — 🚫 Secure interface out of scope
+- [x] TLB entries from StreamWorld==Secure with stage 2 not enabled: tagged with VMID 0 (§3.10.2.2, line 2654) — 🚫 Secure interface out of scope
+- [x] Translation table entry fetched for Secure stream from Non-secure IPA space: treated as non-global (nG==1) regardless of nG bit in descriptor (§3.10.2.2, line 2658) — 🚫 Secure interface out of scope
 
 ### §3.10.3 Support for Realm State
 
-- [ ] Realm translation regimes supported only with VMSAv8-64 or VMSAv9-128 translation tables (§3.10.3, line 2665)
-- [ ] Realm L1STD, STE, L1CD, and CD have same format as Non-secure equivalents except all pointers are Realm physical addresses (§3.10.3, line 2680)
-- [ ] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688)
-- [ ] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694)
+- [x] Realm translation regimes supported only with VMSAv8-64 or VMSAv9-128 translation tables (§3.10.3, line 2665) — 🚫 Realm out of scope
+- [x] Realm L1STD, STE, L1CD, and CD have same format as Non-secure equivalents except all pointers are Realm physical addresses (§3.10.3, line 2680) — 🚫 Realm out of scope
+- [x] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688) — 🚫 Realm out of scope
+- [x] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694) — 🚫 Realm out of scope
 
 ### §3.10.3.1 Input NS Attribute
 
-- [ ] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702)
+- [x] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702) — 🚫 Realm out of scope
 
 ### §3.10.3.2 Realm Stream Disabled
 
-- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b000: stream is disabled; transactions terminated with abort (§3.10.3.2, line 2709)
+- [x] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b000: stream is disabled; transactions terminated with abort (§3.10.3.2, line 2709) — 🚫 Realm out of scope
 
 ### §3.10.3.3 Realm Stream Bypass
 
-- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716)
-- [ ] Realm stream bypass can still result in: F_ADDR_SIZE, F_PERMISSION (instruction to Non-secure PA), F_BAD_ATS_TREQ, F_TRANSL_FORBIDDEN, GPC faults (§3.10.3.3, line 2721)
-- [ ] Realm stream bypass: client transactions still associated with MECID configured in STE.MECID (§3.10.3.3, line 2729)
+- [x] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716) — 🚫 Realm out of scope
+- [x] Realm stream bypass can still result in: F_ADDR_SIZE, F_PERMISSION (instruction to Non-secure PA), F_BAD_ATS_TREQ, F_TRANSL_FORBIDDEN, GPC faults (§3.10.3.3, line 2721) — 🚫 Realm out of scope
+- [x] Realm stream bypass: client transactions still associated with MECID configured in STE.MECID (§3.10.3.3, line 2729) — 🚫 Realm out of scope
 
 ## §3.11 Reset, Enable and Initialization
 
@@ -401,102 +401,106 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.12 Fault Models, Recording and Reporting
 
-- [ ] Four Translation-related fault types: F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION (§3.12, line 2817)
-- [ ] All other faults (F_WALK_EABT, F_TLB_CONFLICT) and configuration errors always terminate the transaction with abort (§3.12, line 2826)
-- [ ] Stage 1 fault behavior configured by CD.{A, R, S} flags; stage 2 by STE.{S2R, S2S} (§3.12, line 2824)
-- [ ] Support for stalling or terminating is IMPLEMENTATION DEFINED; indicated by SMMU_(*_)IDR0.STALL_MODEL (§3.12, line 2861)
-- [ ] When SMMU_S_CR0.NSSTALLD==1: prevents Non-secure use of stall model even if physically supported (§3.12, line 2867)
-- [ ] SMMU_IDR0.TERM_MODEL indicates termination models; if TERM_MODEL==0, CD.A bit selects abort vs RAZ/WI for stage 1 (§3.12, line 2886)
-- [ ] Stage 2 faults when terminated are always aborted; RAZ/WI not available at stage 2 (§3.12, line 2888)
-- [ ] Streams from PCIe subsystems must not stall; must use Terminate model at all enabled stages (§3.12, line 2922)
+*Re-audited 2026-05-03: 27 requirements checked, 3 Rust bugs fixed (BUG-AUDIT-141, 142, 143). All items PASS or N/A.*
+
+- [x] Four Translation-related fault types: F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION (§3.12, line 2817) — PASS: `is_stall_eligible()` gates on exactly these four; all others always terminate
+- [x] All other faults (F_WALK_EABT, F_TLB_CONFLICT) and configuration errors always terminate the transaction with abort (§3.12, line 2826) — PASS: F_WALK_EABT/F_TLB_CONFLICT/config errors mapped to non-stall-eligible fault types; bypass F_ADDR_SIZE hardcoded `stall: false` at `mod.rs:5196`
+- [x] Stage 1 fault behavior configured by CD.{A, R, S} flags; stage 2 by STE.{S2R, S2S} (§3.12, line 2824) — PASS: `cd_r`/`cd_a`/`fault_mode` (CD.S) in `StreamConfig`; `s2_record`/`s2_stall` in `StreamConfig` (BUG-AUDIT-141/142 fixed)
+- [x] Support for stalling or terminating is IMPLEMENTATION DEFINED; indicated by SMMU_(*_)IDR0.STALL_MODEL (§3.12, line 2861) — PASS: `stall_model` field in `SMMU`; IDR0 bits[25:24] reflect runtime value; 0b11 reserved rejected
+- [x] When SMMU_S_CR0.NSSTALLD==1: prevents Non-secure use of stall model even if physically supported (§3.12, line 2867) — N/A: SECURE_IMPL=0; no Secure register interface; IDR0.STALL_MODEL directly reflects physical capability
+- [x] SMMU_IDR0.TERM_MODEL indicates termination models; if TERM_MODEL==0, CD.A bit selects abort vs RAZ/WI for stage 1 (§3.12, line 2886) — PASS: TERM_MODEL=0 in IDR0; `cd_a: bool` in `StreamConfig`; `TranslationError::RazWi` returned when `cd_a=false` (BUG-AUDIT-142 fixed)
+- [x] Stage 2 faults when terminated are always aborted; RAZ/WI not available at stage 2 (§3.12, line 2888) — PASS: `cd_a` only checked on `!is_stage2_fault` path; S2 terminate always returns fault error
+- [x] Streams from PCIe subsystems must not stall; must use Terminate model at all enabled stages (§3.12, line 2922) — PASS: `STE.S1STALLD` (`s1_stalld: bool`) overrides stall even when `CD.S=1`; `is_stall_enabled()` in `stream_context/mod.rs` gates on `!s1_stalld`
 
 ### §3.12.1 Terminate Model
 
-- [ ] Stage 1 terminate: transaction either aborted or completes with RAZ/WI depending on CD.A and SMMU_IDR0.TERM_MODEL (§3.12.1, line 2903)
-- [ ] Stage 2 terminate: transaction terminated with abort (§3.12.1, line 2905)
-- [ ] If CD.R==1 or STE.S2R==1: SMMU records details in Event record (address, syndrome, attributes, type) (§3.12.1, line 2907)
-- [ ] If Event queue full: terminate fault event record is lost (§3.12.1, line 2919)
-- [ ] STE.S1STALLD==1 prevents guest VM from using Stall model at stage 1 (§3.12.1, line 2922)
+- [x] Stage 1 terminate: transaction either aborted or completes with RAZ/WI depending on CD.A and SMMU_IDR0.TERM_MODEL (§3.12.1, line 2903) — PASS: BUG-AUDIT-142 fixed; `cd_a=false` → `TranslationError::RazWi`; `cd_a=true` (default) → abort
+- [x] Stage 2 terminate: transaction terminated with abort (§3.12.1, line 2905) — PASS: RazWi path gated on `!is_stage2_fault`; S2 terminate always returns raw fault error
+- [x] If CD.R==1 or STE.S2R==1: SMMU records details in Event record (address, syndrome, attributes, type) (§3.12.1, line 2907) — PASS: BUG-AUDIT-141 fixed; `stream_s1_record` (CD.R) gates S1 recording; `stream_s2_record` (STE.S2R) already gated S2 recording; both `false` → early return without recording
+- [x] If Event queue full: terminate fault event record is lost (§3.12.1, line 2919) — PASS: `record_translation_fault()` drops event when queue full; OVFLG toggled on overflow
+- [x] STE.S1STALLD==1 prevents guest VM from using Stall model at stage 1 (§3.12.1, line 2922) — PASS: `s1_stalld` field in `StreamContext`; `is_stall_enabled()` returns `false` when `s1_stalld=true`
 
 ### §3.12.2 Stall Model
 
-- [ ] Stalled transaction does not progress; no response returned to client device; SMMU always records fault details in Event queue (§3.12.2, line 2926)
-- [ ] Stalled transaction retried or terminated by CMD_RESUME or CMD_STALL_TERM (§3.12.2, line 2926)
-- [ ] If retry chosen: transaction handled as though just arrived, affected by any configuration/translation changes since stall (§3.12.2, line 2928)
-- [ ] Software must ensure every stall event has corresponding CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared to 0 (§3.12.2, line 2934)
-- [ ] STAG identifies stalled transaction; SMMU uses StreamID+STAG combination from CMD_RESUME to identify stalled transaction (§3.12.2, line 2936)
-- [ ] STAG value cannot be re-used until transaction acknowledged through CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared (§3.12.2, line 2940)
-- [ ] If Event queue not writable when stall fault to be written: stalled transaction retried when queue becomes writable; new fault record generated (§3.12.2, line 2942)
-- [ ] Later transactions may pass through SMMU and complete before earlier stalled transactions from same stream (§3.12.2, line 2951)
+- [x] Stalled transaction does not progress; no response returned to client device; SMMU always records fault details in Event queue (§3.12.2, line 2926) — PASS: `TranslationError::Stalled { stag }` returned; event recorded before stall return path; `stall_pending` buffers when queue full
+- [x] Stalled transaction retried or terminated by CMD_RESUME or CMD_STALL_TERM (§3.12.2, line 2926) — PASS: `cmd_resume()` at `mod.rs:7721`; `cmd_stall_term()` at `mod.rs:7762` both remove STAG from `stall_queue`
+- [x] If retry chosen: transaction handled as though just arrived, affected by any configuration/translation changes since stall (§3.12.2, line 2928) — PASS: synchronous model; retry re-enters `translate()` from scratch with current config
+- [x] Software must ensure every stall event has corresponding CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared to 0 (§3.12.2, line 2934) — N/A: software programming constraint; SMMU cannot enforce driver behavior
+- [x] STAG identifies stalled transaction; SMMU uses StreamID+STAG combination from CMD_RESUME to identify stalled transaction (§3.12.2, line 2936) — PASS: `stall_queue: DashMap<u16, StallRecord>`; CMD_RESUME matches on StreamID+STAG pair
+- [x] STAG value cannot be re-used until transaction acknowledged through CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared (§3.12.2, line 2940) — PASS: BUG-AUDIT-143 fixed; `stall_queue.clear()` called in `disable()` and on SMMUEN 1→0 in `set_cr0()`; STAG allocation loop skips occupied slots
+- [x] If Event queue not writable when stall fault to be written: stalled transaction retried when queue becomes writable; new fault record generated (§3.12.2, line 2942) — N/A: synchronous model; `stall_pending` VecDeque buffers internally; architectural retry semantics not applicable
+- [x] Later transactions may pass through SMMU and complete before earlier stalled transactions from same stream (§3.12.2, line 2951) — N/A: single-threaded synchronous model; per-stream ordering constraint is architectural guidance for HW implementations
 
 ### §3.12.2.1 Suppression of Duplicate Stall Event Records
 
-- [ ] SMMU permitted but not required to suppress duplicate stall fault records when: same page, same privilege, same data/instruction, same type, same SubstreamID, and first stall still pending (§3.12.2.1, line 2962)
-- [ ] Stall fault records are NOT merged (§3.12.2.1, line 2980)
-- [ ] SMMU does not record more than one fault for each incoming transaction, except after CMD_RESUME(Retry) (§3.12.2.1, line 2985)
+- [x] SMMU permitted but not required to suppress duplicate stall fault records when: same page, same privilege, same data/instruction, same type, same SubstreamID, and first stall still pending (§3.12.2.1, line 2962) — N/A: "permitted but not required"; model does not suppress; one fault per transaction enforced
+- [x] Stall fault records are NOT merged (§3.12.2.1, line 2980) — PASS: each stall records independently; STE.MEV suppression does not apply to stall events per `§7.3.1`
+- [x] SMMU does not record more than one fault for each incoming transaction, except after CMD_RESUME(Retry) (§3.12.2.1, line 2985) — PASS: single `record_translation_fault()` call per translation attempt; retry re-enters as new transaction
 
 ### §3.12.2.2 Early Retry of Stalled Transactions
 
-- [ ] SMMU is permitted to speculatively retry stalled transaction without CMD_RESUME(Retry); early retry does not cause additional fault records (§3.12.2.2, line 2989)
-- [ ] Successful early retry does not remove requirement for software to acknowledge stall fault record (§3.12.2.2, line 2997)
-- [ ] CMD_RESUME(Retry) guarantees stalled transaction retried at future point unless terminated by CMD_STALL_TERM or SMMUEN transition (§3.12.2.2, line 2999)
+- [x] SMMU is permitted to speculatively retry stalled transaction without CMD_RESUME(Retry); early retry does not cause additional fault records (§3.12.2.2, line 2989) — N/A: "SMMU is permitted" — IMPL DEF optional; synchronous model does not implement speculative retry
+- [x] Successful early retry does not remove requirement for software to acknowledge stall fault record (§3.12.2.2, line 2997) — N/A: IMPL DEF optional feature not implemented
+- [x] CMD_RESUME(Retry) guarantees stalled transaction retried at future point unless terminated by CMD_STALL_TERM or SMMUEN transition (§3.12.2.2, line 2999) — PASS: `cmd_resume()` removes STAG and caller re-issues translate; SMMUEN=0 clears stall_queue
 
 ### §3.12.5 Combinations of Fault Configuration with Two Stages
 
-- [ ] Stage1=Terminate, Stage2=Terminate, fault at Stage1: transaction terminated, VA in event; event passed to guest as stage 1-only event (§3.12.5, line 3062)
-- [ ] Stage1=Terminate, Stage2=Terminate, fault at Stage2: transaction terminated, VA+IPA in event (§3.12.5, line 3063)
-- [ ] Stage1=Terminate, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3065)
-- [ ] Stage1=Stall, Stage2=Terminate, fault at Stage1: transaction stalled, VA in event (§3.12.5, line 3066)
-- [ ] Stage1=Stall, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3073)
+- [x] Stage1=Terminate, Stage2=Terminate, fault at Stage1: transaction terminated, VA in event; event passed to guest as stage 1-only event (§3.12.5, line 3062) — PASS: BUG-QA-12/13 ✅; S1 fault uses `fault_mode`; S2 uses `s2_stall`; all 8 table rows verified
+- [x] Stage1=Terminate, Stage2=Terminate, fault at Stage2: transaction terminated, VA+IPA in event (§3.12.5, line 3063) — PASS: `stage2_ipa_opt` populated for S2 faults; `fault_s2=true` in event record
+- [x] Stage1=Terminate, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3065) — PASS: `stream_s2_stall=true` → stall path; IPA from `stage2_ipa_opt`
+- [x] Stage1=Stall, Stage2=Terminate, fault at Stage1: transaction stalled, VA in event (§3.12.5, line 3066) — PASS: `stall_mode=true` (CD.S=1) → stall path for S1 faults; S2 uses separate `s2_stall` flag
+- [x] Stage1=Stall, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3073) — PASS: `stream_s2_stall && is_stall_eligible` → stall with IPA populated
 
 ## §3.13 Translation Tables and Access Flag/Dirty State
 
-- [ ] HTTU support indicated by SMMU_IDR0.HTTU: 0=no updates, 1=Access flag only, 2=Access flag and dirty state (§3.13, line 3091)
-- [ ] CDs referencing same translation table and same ASID must have identical HA and HD fields (§3.13, line 3099)
+*Re-audited 2026-04-12 / 2026-05-02. All items PASS, N/A, or 🚫. BUG-AUDIT-128/129/130/130-CPP all fixed.*
+
+- [x] HTTU support indicated by SMMU_IDR0.HTTU: 0=no updates, 1=Access flag only, 2=Access flag and dirty state (§3.13, line 3091) — PASS: IDR0.HTTU=0b01 (AF-only); `mod.rs:1348`; S2HD/HD always rejected at configure time when HTTU<0b10
+- [x] CDs referencing same translation table and same ASID must have identical HA and HD fields (§3.13, line 3099) — N/A: no mandatory enforcement per spec ("must" is on software); flat model has no per-CD ASID identity check; conformant by absence
 
 ### §3.13.2 Access Flag Hardware Update
 
-- [ ] When HTTU enabled and descriptor has AF==0: SMMU atomically sets AF==1; does NOT clear AF (§3.13.2, line 3130)
-- [ ] SMMU never clears AF (§3.13.2, line 3132)
-- [ ] If access to descriptor causes permission fault: it is UNKNOWN whether AF is updated to 1 (§3.13.2, line 3133)
-- [ ] Includes stage 2 translation for L1CD or CD fetch (§3.13.2, line 3130)
+- [x] When HTTU enabled and descriptor has AF==0: SMMU atomically sets AF==1; does NOT clear AF (§3.13.2, line 3130) — PASS: `update_access_flags()` sets AF=1 when `ha=true`; never clears; BUG-AUDIT-128 added S2 HA update
+- [x] SMMU never clears AF (§3.13.2, line 3132) — PASS: `update_access_flags()` only sets; no clear path exists
+- [x] If access to descriptor causes permission fault: it is UNKNOWN whether AF is updated to 1 (§3.13.2, line 3133) — PASS: permission fault returns before `update_access_flags()` is called; AF not updated on fault (one valid UNKNOWN outcome)
+- [x] Includes stage 2 translation for L1CD or CD fetch (§3.13.2, line 3130) — PASS: BUG-AUDIT-128 fixed; stage-2 HTTU update added in `translate_two_stage()` and `translateUnlocked()`
 
 ### §3.13.3.1 Direct Permission Scheme - Dirty State
 
-- [ ] When HTTU dirty state enabled and descriptor is read-only due to AP[2:1]==0b1x (stage 1) or S2AP[1:0]==0b0x (stage 2): if DBM==1 and write translation occurs, SMMU atomically sets AP[2]==0 or S2AP[1]==1 (§3.13.3.1, line 3148)
-- [ ] SMMU never sets or clears DBM (§3.13.3.1, line 3170)
-- [ ] SMMU never clears S2AP[1] (§3.13.3.1, line 3171)
-- [ ] SMMU never sets AP[2]; descriptor never made writable by SMMU unless DBM==1 (§3.13.3.1, line 3172)
-- [ ] SMMU never sets S2AP[1]==1 for the stage 2 translation used to fetch L1CD or CD (§3.13.3.1, line 3174)
+- [x] When HTTU dirty state enabled and descriptor is read-only due to AP[2:1]==0b1x (stage 1) or S2AP[1:0]==0b0x (stage 2): if DBM==1 and write translation occurs, SMMU atomically sets AP[2]==0 or S2AP[1]==1 (§3.13.3.1, line 3148) — N/A: HTTU=0b01; HD/S2HD always rejected at configure time; dirty-state path structurally unreachable
+- [x] SMMU never sets or clears DBM (§3.13.3.1, line 3170) — N/A: HTTU<0b10; DBM path unreachable; `update_access_flags()` never touches permission bits
+- [x] SMMU never clears S2AP[1] (§3.13.3.1, line 3171) — N/A: HTTU<0b10; dirty-state path unreachable
+- [x] SMMU never sets AP[2]; descriptor never made writable by SMMU unless DBM==1 (§3.13.3.1, line 3172) — N/A: HTTU<0b10; permission bits never modified by SMMU
+- [x] SMMU never sets S2AP[1]==1 for the stage 2 translation used to fetch L1CD or CD (§3.13.3.1, line 3174) — N/A: HTTU<0b10; dirty-state path unreachable
 
 ### §3.13.3.2 Indirect Permission Scheme
 
-- [ ] CD.HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 1 (§3.13.3.2, line 3178)
-- [ ] STE.S2HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 2 (§3.13.3.2, line 3182)
+- [x] CD.HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 1 (§3.13.3.2, line 3178) — N/A: HTTU=0b01; CD.HD always rejected (`validate()` error); Indirect Permission dirty-state path unreachable
+- [x] STE.S2HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 2 (§3.13.3.2, line 3182) — N/A: HTTU=0b01; STE.S2HD always rejected; dirty-state path unreachable
 
 ### §3.13.4 HTTU Behavior Summary
 
-- [ ] Descriptor update from completed ATOS translation: made visible by completion of CMD_SYNC submitted after ATOS translation began (§3.13.4, line 3192)
-- [ ] Descriptor update from completed incoming transaction: made visible by completion of CMD_SYNC submitted after transaction completion (§3.13.4, line 3193)
-- [ ] TLB invalidation completion makes descriptor updates from transactions completed by that invalidation visible (§3.13.4, line 3194)
-- [ ] SMMU exception: if stage 2 HD enabled, SMMU permitted to speculatively update stage 2 dirty state for stage 1 TT walk even if stage 1 HA/HD disabled (§3.13.4, line 3198)
+- [x] Descriptor update from completed ATOS translation: made visible by completion of CMD_SYNC submitted after ATOS translation began (§3.13.4, line 3192) — PASS: CMD_SYNC is synchronous in SW model; ATOS AF update committed before CMD_SYNC can be issued
+- [x] Descriptor update from completed incoming transaction: made visible by completion of CMD_SYNC submitted after transaction completion (§3.13.4, line 3193) — PASS: same; synchronous model; all descriptor updates visible immediately
+- [x] TLB invalidation completion makes descriptor updates from transactions completed by that invalidation visible (§3.13.4, line 3194) — PASS: synchronous model; TLB invalidation + CMD_SYNC ordering satisfied structurally
+- [x] SMMU exception: if stage 2 HD enabled, SMMU permitted to speculatively update stage 2 dirty state for stage 1 TT walk even if stage 1 HA/HD disabled (§3.13.4, line 3198) — N/A: HTTU=0b01; S2HD always rejected; speculative dirty-state update path unreachable
 
 ### §3.13.6 Access Flag in Table Descriptors
 
-- [ ] HAFT support controlled by CD.HAFT (stage 1) and STE.S2HAFT (stage 2) (§3.13.6, line 3226)
-- [ ] If HAFT disabled for translation stage: hardware update of AF in Table descriptors also disabled (§3.13.6, line 3230)
-- [ ] If HAFT enabled: Table entry with Access flag clear is NOT permitted to be cached in TLB (§3.13.6, line 3236)
+- [x] HAFT support controlled by CD.HAFT (stage 1) and STE.S2HAFT (stage 2) (§3.13.6, line 3226) — N/A: IDR0.HTTU=0b01 → HAFT explicitly not supported (`mod.rs:1348`); flat model has no Table descriptors; CD.HAFT/STE.S2HAFT structurally inapplicable
+- [x] If HAFT disabled for translation stage: hardware update of AF in Table descriptors also disabled (§3.13.6, line 3230) — N/A: no Table descriptors in flat model; vacuously satisfied
+- [x] If HAFT enabled: Table entry with Access flag clear is NOT permitted to be cached in TLB (§3.13.6, line 3236) — N/A: HAFT not supported; no Table descriptors
 
 ### §3.13.7.1 Hardware Flag Update for ATS and PRI
 
-- [ ] When ATS TR made: AF set to 1 in same way as direct transaction access (§3.13.7.1, line 3253)
-- [ ] If HTTU dirty state enabled and ATS request for write (NW==0) to writable-clean page: SMMU marks page writable-dirty before returning ATS response (§3.13.7.1, line 3254)
-- [ ] If HTTU only Access flag enabled: ATS request for write to writable-clean returns ATS Completion with W==0 (§3.13.7.1, line 3254)
+- [x] When ATS TR made: AF set to 1 in same way as direct transaction access (§3.13.7.1, line 3253) — 🚫 ATS TR→TC processing path out of scope; GATOS (ATOS) uses normal translate path with AF update
+- [x] If HTTU dirty state enabled and ATS request for write (NW==0) to writable-clean page: SMMU marks page writable-dirty before returning ATS response (§3.13.7.1, line 3254) — 🚫 ATS TR path out of scope; HTTU=0b01 (AF-only) anyway
+- [x] If HTTU only Access flag enabled: ATS request for write to writable-clean returns ATS Completion with W==0 (§3.13.7.1, line 3254) — 🚫 ATS TR path out of scope
 
 ### §3.13.8 Hardware Flag Update for Cache Maintenance Operations and Destructive Reads
 
-- [ ] HTTU dirty state update NOT performed for: Invalidate Cache Maintenance Operations, Destructive Reads, Destructive Hints (§3.13.8, line 3281)
-- [ ] When these operations to writable-clean descriptor: descriptor not updated to writable-dirty; operations are downgraded (§3.13.8, line 3292)
+- [x] HTTU dirty state update NOT performed for: Invalidate Cache Maintenance Operations, Destructive Reads, Destructive Hints (§3.13.8, line 3281) — N/A: HTTU=0b01 (AF-only); HD/S2HD always rejected; dirty-state update path unreachable; CMO/DR/DH not modeled
+- [x] When these operations to writable-clean descriptor: descriptor not updated to writable-dirty; operations are downgraded (§3.13.8, line 3292) — N/A: HTTU<0b10; dirty-state path unreachable; vacuously conformant
 
 ## §3.14 Speculative Accesses
 
