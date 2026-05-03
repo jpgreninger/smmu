@@ -504,9 +504,9 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.14 Speculative Accesses
 
-- [ ] Only read transactions can be marked speculative; write transactions marked speculative are always terminated with abort and no event recorded (§3.14, line 3300)
-- [ ] Speculative read: if translation faults for any reason, transaction terminated with abort; no event recorded (§3.14, line 3304)
-- [ ] Speculative read: if translation succeeds without fault and HTTU enabled, SMMU updates Access flags (§3.14, line 3305)
+- [x] Only read transactions can be marked speculative; write transactions marked speculative are always terminated with abort and no event recorded (§3.14, line 3300) — N/A: speculative marking is entirely IMPLEMENTATION DEFINED ("might"); model does not implement speculative transactions; conformant by omission
+- [x] Speculative read: if translation faults for any reason, transaction terminated with abort; no event recorded (§3.14, line 3304) — N/A: conditional on optional speculative feature not implemented
+- [x] Speculative read: if translation succeeds without fault and HTTU enabled, SMMU updates Access flags (§3.14, line 3305) — N/A: conditional on optional speculative feature not implemented
 
 ## §3.15 Coherency Considerations and Memory Access Types
 
