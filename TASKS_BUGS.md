@@ -11,7 +11,7 @@ the TDD workflow, and re-verified before marking ✅.
 
 ---
 
-CURRENT_SECTION = §3.12
+CURRENT_SECTION = §4.1
 
 ## Status Legend
 
@@ -142,9 +142,9 @@ CURRENT_SECTION = §3.12
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.12 | Fault models (overview) | ⚠️ | ⚠️ | | Terminate/Stall dispatch |
-| §3.12.1 | Terminate model | ⚠️ | ⚠️ | | |
-| §3.12.2 | Stall model | ⚠️ | ⚠️ | BUG-QA-12/13, BUG-CPP-S1, BUG-RUST-Q2/Q4 | S2S/S2R, stall decision; double-fault, stall_pending reset |
+| §3.12 | Fault models (overview) | ⚠️ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅, BUG-AUDIT-143 ✅ | Re-audited 2026-05-03: 27 requirements checked, 3 Rust bugs fixed. NSSTALLD→N/A (SECURE_IMPL=0). CD.R gate for S1 terminate event recording implemented. CD.A (abort vs RAZ/WI) implemented with TranslationError::RazWi. stall_queue cleared on SMMUEN=0 transition. |
+| §3.12.1 | Terminate model | ⚠️ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅ | CD.R=false suppresses S1 terminate events; CD.A=false returns RazWi; S2R gate already correct; PCIe S1STALLD enforcement correct. |
+| §3.12.2 | Stall model | ⚠️ | ✅ | BUG-QA-12/13 ✅, BUG-CPP-S1, BUG-RUST-Q2/Q4 ✅, BUG-AUDIT-143 ✅ | S2S/S2R, stall decision; double-fault, stall_pending reset; stall_queue now cleared on SMMUEN=0 transition. |
 | §3.12.2.1 | Suppression of duplicate Stall event records | N/A | N/A | | Dedup is "permitted but not required". One fault per transaction enforced. No mandatory requirement unmet. |
 | §3.12.2.2 | Early retry of Stalled transactions | N/A | N/A | | "SMMU is permitted" to early-retry — IMPL DEF optional. Synchronous model does not implement speculative retry. |
 | §3.12.2.3 | Miscellaneous Stall considerations | N/A | N/A | | Backpressure and IMPL DEF capacity limits. No behavioral requirement for SW model. |

@@ -176,6 +176,13 @@ pub enum TranslationError {
     /// its queues while SFM is active.  PCIe requests are responded to with CA.
     #[error("SMMU Service Failure Mode active (§12.3 GERROR.SFM_ERR) — transaction terminated")]
     ServiceFailureMode,
+
+    /// Stage-1 terminate fault completed with RAZ/WI behavior (BUG-AUDIT-142, ARM §3.12.1).
+    ///
+    /// Returned when `CD.A=false` and `TERM_MODEL=0`: reads return 0, writes are ignored.
+    /// The transaction is "complete" from the client's perspective but with zero data.
+    #[error("Stage-1 terminate fault: RAZ/WI (CD.A=0, §3.12.1)")]
+    RazWi,
 }
 
 /// Translation result data structure

@@ -394,6 +394,25 @@ pub struct StreamConfig {
     /// Default: `true` (record events, normal behavior).
     pub s2_record: bool,
 
+    // ---- BUG-AUDIT-141: CD.R — Stage-1 Record (§3.12.1) ----
+
+    /// §3.12.1 CD.R — Stage-1 Record.
+    /// When `false` AND fault mode is Terminate (not Stall), stage-1 terminate-mode
+    /// fault events are suppressed (not recorded in the event queue).
+    /// The transaction is still terminated; only event recording is skipped.
+    ///
+    /// Default: `true` (record events, normal behavior — preserves existing behavior).
+    pub cd_r: bool,
+
+    // ---- BUG-AUDIT-142: CD.A — Stage-1 Abort vs RAZ/WI (§3.12.1) ----
+
+    /// §3.12.1 CD.A — Stage-1 Abort enable.
+    /// When `true`: terminate-mode fault aborts the transaction.
+    /// When `false` (and TERM_MODEL=0): terminate-mode fault completes with RAZ/WI.
+    ///
+    /// Default: `true` (abort, preserves existing behavior).
+    pub cd_a: bool,
+
     // ---- BUG-AUDIT-50: CD.ENDI / STE.S2ENDI endianness fields (§5.4 / §5.2) ----
 
     /// BUG-AUDIT-50: ARM §5.4 CD.ENDI — endianness for stage-1 table walks. 0=little-endian, 1=big-endian. Per §6.3.1 TTENDIAN=0b00 (mixed), both values are valid.
@@ -488,6 +507,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            cd_r: true,
+            cd_a: true,
             endi: false,
             s2endi: false,
             ttb0: 0,
@@ -546,6 +567,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            cd_r: true,
+            cd_a: true,
             endi: false,
             s2endi: false,
             ttb0: 0,
@@ -604,6 +627,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            cd_r: true,
+            cd_a: true,
             endi: false,
             s2endi: false,
             ttb0: 0,
@@ -662,6 +687,8 @@ impl StreamConfig {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            cd_r: true,
+            cd_a: true,
             endi: false,
             s2endi: false,
             ttb0: 0,
@@ -909,6 +936,10 @@ pub struct StreamConfigBuilder {
     // BUG-AUDIT-50
     endi: bool,
     s2endi: bool,
+    // BUG-AUDIT-141
+    cd_r: bool,
+    // BUG-AUDIT-142
+    cd_a: bool,
     // BUG-AUDIT-115
     ttb0: u64,
     ttb1: u64,
@@ -966,6 +997,8 @@ impl StreamConfigBuilder {
             s2ptw: false,
             s2_stall: false,
             s2_record: true,
+            cd_r: true,
+            cd_a: true,
             endi: false,
             s2endi: false,
             ttb0: 0,
@@ -1049,6 +1082,27 @@ impl StreamConfigBuilder {
     #[must_use]
     pub fn s2_record(mut self, val: bool) -> Self {
         self.s2_record = val;
+        self
+    }
+
+    /// Set CD.R — Stage-1 Record enable (BUG-AUDIT-141, ARM §3.12.1).
+    ///
+    /// When `false` AND fault mode is Terminate, stage-1 terminate-mode fault events
+    /// are suppressed. The transaction is still terminated; only recording is skipped.
+    /// Default: `true`.
+    #[must_use]
+    pub fn cd_r(mut self, val: bool) -> Self {
+        self.cd_r = val;
+        self
+    }
+
+    /// Set CD.A — Stage-1 Abort enable (BUG-AUDIT-142, ARM §3.12.1).
+    ///
+    /// When `true` (default): terminate-mode fault aborts the transaction.
+    /// When `false` (TERM_MODEL=0): terminate-mode fault completes with RAZ/WI.
+    #[must_use]
+    pub fn cd_a(mut self, val: bool) -> Self {
+        self.cd_a = val;
         self
     }
 
@@ -1421,6 +1475,8 @@ impl StreamConfigBuilder {
             s2ptw: self.s2ptw,
             s2_stall: self.s2_stall,
             s2_record: self.s2_record,
+            cd_r: self.cd_r,
+            cd_a: self.cd_a,
             endi: self.endi,
             s2endi: self.s2endi,
             ttb0: self.ttb0,

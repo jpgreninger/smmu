@@ -4917,7 +4917,7 @@ impl SMMU {
         // Capture ASID (CD.ASID, §3.17), VMID (STE.S2VMID, §5.2), stall mode,
         // and S1DSS / S1CDMax while holding the stream guard, so TLB entries
         // can be tagged and routing decisions made without re-locking the map.
-        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt, stream_s2_stall, stream_s2_record, stream_strw) =
+        let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt, stream_s2_stall, stream_s2_record, stream_s1_record, stream_s1_abort, stream_strw) =
             if let Some(stream_ref) = stream_guard {
                 let raw_asid = stream_ref.value().get_pasid_asid_or_default(pasid);
                 // GAP-NEW-S3 fix: §6.3.12 / §3.17.5 — STRW=El2E2h (0b10) is only valid
@@ -4949,6 +4949,8 @@ impl SMMU {
                 let s1cd_max_val = stream_ref.value().get_s1cd_max();
                 let s2_stall_val = stream_ref.value().get_s2_stall();
                 let s2_record_val = stream_ref.value().get_s2_record();
+                let s1_record_val = stream_ref.value().get_s1_record();
+                let s1_abort_val = stream_ref.value().get_s1_abort();
                 let strw_val = stream_ref.value().get_strw();
 
                 // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range [16,39]; 0=sentinel for no restriction).
@@ -5174,7 +5176,7 @@ impl SMMU {
                     pasid, lookup_iova, access, security_state,
                     transaction_type == TransactionType::Atos,
                 );
-                (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt, s2_stall_val, s2_record_val, strw_val)
+                (r, asid, vmid, stall, bypass, s1_en, s2_en, s1dss_val, s1cd_max_val, stage2_ipa_opt, s2_stall_val, s2_record_val, s1_record_val, s1_abort_val, strw_val)
             } else {
                 self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
                 // ARM §7.3.5 / SPEC-20: StreamID is within table bounds but STE.V=0
@@ -5750,6 +5752,28 @@ impl SMMU {
                 return Err(error.clone());
             }
 
+            // BUG-AUDIT-141 fix: §3.12.1 CD.R=0 → suppress stage-1 terminate-mode fault events.
+            // CD.R only gates terminate-mode faults; stall-mode faults are always recorded (§3.12.2).
+            if !is_stage2_fault && !stream_s1_record && !is_stall {
+                // BUG-AUDIT-142: even when not recording, CD.A=false → return RazWi instead of abort.
+                return if !stream_s1_abort {
+                    Err(TranslationError::RazWi)
+                } else {
+                    Err(error.clone())
+                };
+            }
+
+            // BUG-AUDIT-142 fix: §3.12.1 CD.A=0 → stage-1 terminate-mode fault returns RazWi.
+            // Only applies to terminate mode (not stall). Event is still recorded when CD.R=1.
+            if !is_stage2_fault && !is_stall && !stream_s1_abort {
+                self.record_translation_fault(
+                    stream_id, pasid, iova, effective_access, security_state,
+                    error, false, 0, fault_s2, fault_ipa, pnu, nsipa, ssv,
+                    transaction_type == TransactionType::AtsTranslationRequest,
+                );
+                return Err(TranslationError::RazWi);
+            }
+
             self.record_translation_fault(
                 stream_id, pasid, iova, effective_access, security_state,
                 error, is_stall, stag, fault_s2, fault_ipa, pnu, nsipa, ssv,
@@ -5964,6 +5988,9 @@ impl SMMU {
             // This arm is unreachable in practice (the SFM gate returns before
             // map_translation_error_to_fault_type is called), but must be exhaustive.
             TranslationError::ServiceFailureMode => FaultType::TranslationFault,
+            // BUG-AUDIT-142: §3.12.1 CD.A=0 — RAZ/WI terminate. The underlying
+            // fault was already recorded; map to TranslationFault for any fallback path.
+            TranslationError::RazWi => FaultType::TranslationFault,
         }
     }
 

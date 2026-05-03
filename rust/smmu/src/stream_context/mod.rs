@@ -315,6 +315,16 @@ pub struct StreamContext {
 
     /// STE.S2R: when `false` (and s2_stall=false), stage-2 fault events are suppressed.
     s2_record: AtomicBool,
+
+    // ---- BUG-AUDIT-141: CD.R — Stage-1 Record (§3.12.1) ----
+
+    /// CD.R: when `false` (and fault_mode=Terminate), stage-1 terminate-mode fault events are suppressed.
+    s1_record: AtomicBool,
+
+    // ---- BUG-AUDIT-142: CD.A — Stage-1 Abort vs RAZ/WI (§3.12.1) ----
+
+    /// CD.A: when `false`, terminate-mode fault completes with RAZ/WI instead of abort.
+    s1_abort: AtomicBool,
 }
 
 /// §13.1.5 — Combine two MAIR memory-type bytes using strength ordering.
@@ -415,6 +425,8 @@ impl StreamContext {
             s2ptw: AtomicBool::new(false),
             s2_stall: AtomicBool::new(false),
             s2_record: AtomicBool::new(true),
+            s1_record: AtomicBool::new(true),
+            s1_abort: AtomicBool::new(true),
         }
     }
 
@@ -1050,6 +1062,12 @@ impl StreamContext {
 
         // BUG-QA-13: STE.S2R — stage-2 record (§5.5)
         self.s2_record.store(cfg.s2_record, Ordering::Release);
+
+        // BUG-AUDIT-141: CD.R — stage-1 record (§3.12.1)
+        self.s1_record.store(cfg.cd_r, Ordering::Release);
+
+        // BUG-AUDIT-142: CD.A — stage-1 abort vs RAZ/WI (§3.12.1)
+        self.s1_abort.store(cfg.cd_a, Ordering::Release);
     }
 
     /// Returns whether STE.S2S (Stage-2 Stall) is enabled (BUG-QA-12, §5.5).
@@ -1082,6 +1100,25 @@ impl StreamContext {
     #[inline]
     pub fn set_s2_record(&self, val: bool) {
         self.s2_record.store(val, Ordering::Release);
+    }
+
+    /// Returns whether CD.R (Stage-1 Record) is enabled (BUG-AUDIT-141, §3.12.1).
+    ///
+    /// When `false` and fault_mode=Terminate, stage-1 terminate-mode fault events
+    /// are suppressed from the event queue.
+    #[inline]
+    #[must_use]
+    pub fn get_s1_record(&self) -> bool {
+        self.s1_record.load(Ordering::Acquire)
+    }
+
+    /// Returns whether CD.A (Stage-1 Abort) is enabled (BUG-AUDIT-142, §3.12.1).
+    ///
+    /// When `false`, terminate-mode faults complete with RAZ/WI instead of aborting.
+    #[inline]
+    #[must_use]
+    pub fn get_s1_abort(&self) -> bool {
+        self.s1_abort.load(Ordering::Acquire)
     }
 
     /// Returns the configured security state for this stream (FINDING-NEW-44).
