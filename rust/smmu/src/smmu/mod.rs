@@ -1130,6 +1130,14 @@ impl SMMU {
         self.enabled.store(false, Ordering::Release);
         // CONF-GAP-9: CR0ACK mirrors CR0 after disable() (§6.3.10).
         self.cr0ack.store(self.cr0.load(Ordering::Acquire), Ordering::Release);
+        // BUG-AUDIT-143 fix: §3.12.2 — SMMUEN 1→0 implicitly terminates all stalled
+        // transactions; STAG values may be re-used. Clear stall state.
+        // Drain stall_pending first so in-flight stall events are discarded before
+        // clearing the stall_queue map.
+        if let Ok(mut pending) = self.stall_pending.lock() {
+            pending.clear();
+        }
+        self.stall_queue.clear();
         Ok(())
     }
 
@@ -1171,6 +1179,18 @@ impl SMMU {
         self.enabled.store((effective & Self::CR0_SMMUEN) != 0, Ordering::Release);
         // CONF-GAP-9: CR0ACK mirrors CR0 synchronously in this software model (§6.3.10).
         self.cr0ack.store(effective, Ordering::Release);
+        // BUG-AUDIT-143 fix: §3.12.2 — detect SMMUEN 1→0 transition and clear stall state.
+        // cr0_current was loaded before the store; effective carries the new value.
+        let was_smmuen = (cr0_current & Self::CR0_SMMUEN) != 0;
+        let now_smmuen = (effective & Self::CR0_SMMUEN) != 0;
+        if was_smmuen && !now_smmuen {
+            // Drain stall_pending first so in-flight stall events are discarded before
+            // clearing the stall_queue map.
+            if let Ok(mut pending) = self.stall_pending.lock() {
+                pending.clear();
+            }
+            self.stall_queue.clear();
+        }
     }
 
     /// Read SMMU_CR0 (§6.3.9).
