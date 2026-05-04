@@ -525,14 +525,14 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.16 Embedded Implementations
 
-- [ ] SMMU_IDR1.TABLES_PRESET: Stream table base address hardwired to pre-existing storage (§3.16, line 3371)
-- [ ] SMMU_IDR1.QUEUES_PRESET: queue base addresses hardwired to pre-existing storage (§3.16, line 3371)
-- [ ] When SMMU_IDR1.REL set: base addresses given relative to start of SMMU register memory map (§3.16, line 3371)
-- [ ] For embedded implementation using internal storage: all address regions for configuration structures and queues must not overlap; applies within same PA space and across NS and Secure PA spaces (§3.16, line 3374)
-- [ ] Embedded Event/PRI queue entries (QUEUES_PRESET==1): permitted to have read-only/write-ignored behavior for software accesses (§3.16.1.1, line 3382)
-- [ ] Embedded Command queue entries: readable and writable but storage not required for reserved/undefined fields, high-order StreamID bits beyond range, high-order SubstreamID bits beyond range, SSV if SubstreamIDs not implemented, STAG bits generated as '0' (§3.16.1.2, line 3386)
-- [ ] Software must not assume writing arbitrary 16-byte sequence to Command queue entry can be read back unmodified (§3.16.1.2, line 3404)
-- [ ] Embedded Stream table: storage not required for undefined fields, Reserved/RES0 fields, fields IGNORED in all supported configurations, fields with RAZ/WI behavior (§3.16.1.3, line 3408)
+- [x] SMMU_IDR1.TABLES_PRESET: Stream table base address hardwired to pre-existing storage (§3.16, line 3371) — N/A: IDR1 bit 4 = 0 in get_idr1() (smmu/mod.rs:1393-1404); non-embedded implementation; TABLES_PRESET not advertised
+- [x] SMMU_IDR1.QUEUES_PRESET: queue base addresses hardwired to pre-existing storage (§3.16, line 3371) — N/A: IDR1 bit 5 = 0 in get_idr1(); non-embedded implementation; QUEUES_PRESET not advertised
+- [x] When SMMU_IDR1.REL set: base addresses given relative to start of SMMU register memory map (§3.16, line 3371) — N/A: IDR1 bit 6 = 0; REL only meaningful when TABLES_PRESET or QUEUES_PRESET set; neither is set
+- [x] For embedded implementation using internal storage: all address regions for configuration structures and queues must not overlap; applies within same PA space and across NS and Secure PA spaces (§3.16, line 3374) — N/A: conditional on embedded implementation with internal storage; TABLES_PRESET=0, QUEUES_PRESET=0; software heap allocation with no register-map-relative base addresses
+- [x] Embedded Event/PRI queue entries (QUEUES_PRESET==1): permitted to have read-only/write-ignored behavior for software accesses (§3.16.1.1, line 3382) — N/A: permissive relaxation only available when QUEUES_PRESET=1; IDR1.QUEUES_PRESET=0; full writable storage provided (normal non-embedded semantics)
+- [x] Embedded Command queue entries: readable and writable but storage not required for reserved/undefined fields, high-order StreamID bits beyond range, high-order SubstreamID bits beyond range, SSV if SubstreamIDs not implemented, STAG bits generated as '0' (§3.16.1.2, line 3386) — N/A: storage relaxation only applies when QUEUES_PRESET=1; IDR1.QUEUES_PRESET=0; full heap-allocated command entry storage provided
+- [x] Software must not assume writing arbitrary 16-byte sequence to Command queue entry can be read back unmodified (§3.16.1.2, line 3404) — N/A: driver constraint on embedded SMMUs; this implementation does not advertise embedded mode; full read-back fidelity guaranteed
+- [x] Embedded Stream table: storage not required for undefined fields, Reserved/RES0 fields, fields IGNORED in all supported configurations, fields with RAZ/WI behavior (§3.16.1.3, line 3408) — N/A: storage relaxation only applies when TABLES_PRESET=1; IDR1.TABLES_PRESET=0; full STE layouts stored in software model
 
 ## §3.17 TLB Tagging, VMIDs, ASIDs and Broadcast TLB Maintenance
 
