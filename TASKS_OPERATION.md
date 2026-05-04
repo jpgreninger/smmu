@@ -590,31 +590,31 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.18 Interrupts and Notifications
 
-- [ ] Implementation must support one of, or optionally both of, wired interrupts and MSIs; MSI support discoverable from SMMU_IDR0.MSI and SMMU_S_IDR0.MSI (§3.18, line 3707)
-- [ ] Interrupt notification must not be observable before the new information is also observable (§3.18, line 3710)
-- [ ] Global error interrupt: change to GERROR must be observable if interrupt observable (§3.18, line 3712)
-- [ ] Event queue interrupt: new entries must be observable to reads of queue index registers if interrupt observable (§3.18, line 3713)
-- [ ] CMD_SYNC completion interrupt: consumption of CMD_SYNC must be observable to reads of queue index registers if interrupt observable (§3.18, line 3714)
-- [ ] MSIs from Secure sources performed with Secure accesses targeting Secure PA space (§3.18, line 3722)
-- [ ] MSIs from Non-secure sources performed with Non-secure accesses targeting Non-secure PA space (§3.18, line 3722)
-- [ ] SMMU must produce unique DeviceID for outgoing MSIs that does not overlap with those for client devices (§3.18, line 3726)
-- [ ] Interrupt sources: Event queue (empty→non-empty), PRI queue (SMMU_PRIQ_IRQ_CFG2 condition), CMD_SYNC, GERROR (§3.18.2, line 3756)
-- [ ] When MSIs not supported: only interrupt Enable field is used; MSI address/data fields unused (§3.18, line 3736)
+- [x] PASS: Implementation supports wired interrupt model; IDR0.MSI=0 (no HW MSI bus) is correct discovery value for software model (§3.18, line 3707)
+- [x] PASS: Interrupt ordering satisfied — GERROR CAS uses AcqRel before irq_pending Release; eventq_prod uses Release before interrupt flag (§3.18, line 3710)
+- [x] PASS: signal_gerror() writes GERROR with AcqRel before storing gerror_irq_pending=true with Release; ordering guaranteed (§3.18, line 3712)
+- [x] PASS: enqueue_event() advances eventq_prod with Release before setting eventq_irq_pending; BUG-AUDIT-147 fixed (§3.18, line 3713)
+- [x] PASS: process_command_queue() advances cmdq_cons with Release; CMD_SYNC completion event enqueued via enqueue_event() (§3.18, line 3714)
+- [x] N/A: Physical bus access security attributes — software simulation model; no physical MSI writes (§3.18, line 3722)
+- [x] N/A: Physical bus access security attributes — software simulation model; no physical MSI writes (§3.18, line 3722)
+- [x] N/A: DeviceID is a hardware bus-level requirement; software model performs no physical MSI writes (§3.18, line 3726)
+- [x] PASS: Event queue: eventq_irq_pending set on empty→non-empty when EVENTQ_IRQEN=1 (BUG-AUDIT-147); PRI queue: priq_irq_pending same pattern; CMD_SYNC: CS=1 path; GERROR: gerror_irq_pending (§3.18.2, line 3756)
+- [x] N/A: IDR0.MSI=0 so MSI address/data fields unused by design; cmdq_sync_msi_attr/data writable but not consumed (§3.18, line 3736)
 
 ### §3.18.1 MSI Synchronization
 
-- [ ] Disabling MSI through SMMU_(*_)IRQ_CTRL ensures previously-issued MSI writes are completed (§3.18.1, line 3742)
-- [ ] CMD_SYNC ensures completion of MSIs originating from completion of prior CMD_SYNC commands consumed from same Command queue (§3.18.1, line 3743)
-- [ ] Completion of MSI aborted: abort visible in GERROR with appropriate SMMU_(*_)GERROR.MSI_*_ABT_ERR flag (§3.18.1, line 3745)
+- [x] N/A: Synchronous software model; set_irq_ctrl() stores with Release immediately; no in-flight async MSI writes to drain (§3.18.1, line 3742)
+- [x] N/A: Synchronous software model; no async MSI bus transactions; ordering trivially satisfied (§3.18.1, line 3743)
+- [x] N/A: GERROR_MSI_*_ABT_ERR constants defined but never raised; no physical MSI writes means no aborts possible in software model (§3.18.1, line 3745)
 
 ## §3.19 Power Control
 
-- [ ] Power off state entered only when: all client devices and interconnect quiescent, device DMA disabled, outstanding commands/invalidations/transactions complete, stalled transactions terminated with abort (§3.19, line 3798)
-- [ ] On wakeup: SMMU must be reset; SMMU registers must be re-initialized before client devices can be enabled (§3.19, line 3801)
+- [x] N/A: Caller preconditions (quiescent clients, DMA disabled, transactions complete) are system-integrator obligations; software model is fully synchronous so no in-flight operations exist at shutdown() time; stall records become inert post-shutdown (all ops blocked by check_shutdown()) matching spec intent (§3.19, line 3798)
+- [x] N/A: No wakeup/restart path in software model; equivalent is SMMU::new() which initializes all registers to reset values; enable() required before translations, satisfying re-init-before-clients-enabled intent (§3.19, line 3801)
 
 ### §3.19.1 Dormant State
 
-- [ ] When SMMU_STATUSR.DORMANT==1: no caches of any structures or translations are present; no prefetch of any configuration/translation data in progress; any structure/translation alterations will result in fresh memory reads (§3.19.1, line 3807)
+- [x] PASS: DORMANT==1 (shutdown==true) guarantees no cached translation served (all translate paths gated on check_shutdown() before TLB lookup); no prefetch engine exists (synchronous demand-only model); mutation paths blocked by check_shutdown() so no stale cache possible; IDR0.DORMHINT=1 advertised; get_statusr() returns shutdown flag as bit 0 (§3.19.1, line 3807)
 
 ## §3.20 TLB and Configuration Cache Conflict
 
