@@ -635,58 +635,58 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ### §3.21.1 Translation Tables and TLB Invalidation Completion Behavior
 
-- [ ] TLB invalidation operation is complete after: all targeted TLB entries invalidated; relevant HTTUs globally visible; all translation table walks that could have formed targeted TLB entries are complete and globally visible (§3.21.1, line 3876)
-- [ ] ATOS result cannot be based on addresses/attributes not described by translation configuration observable after invalidation (§3.21.1, line 3889)
-- [ ] Translation cache entries not inserted when SMMU_(*_)CR0.SMMUEN==0 (§3.21.1, line 3900)
+- [x] TLB invalidation operation is complete after: all targeted TLB entries invalidated; relevant HTTUs globally visible; all translation table walks that could have formed targeted TLB entries are complete and globally visible (§3.21.1, line 3876) — N/A: hardware pipeline completion / Shareability-domain visibility has no analog in Rust in-process model; DashMap invalidation is synchronous, vacuously satisfying the ordering requirement
+- [x] ATOS result cannot be based on addresses/attributes not described by translation configuration observable after invalidation (§3.21.1, line 3889) — PASS: `gatos_translate()` calls identical `translate_with_type(Atos)` path; no separate ATOS cache; stale results impossible after any CMD_TLBI_* removes the relevant entry (`mod.rs:1855`)
+- [x] Translation cache entries not inserted when SMMU_(*_)CR0.SMMUEN==0 (§3.21.1, line 3900) — PASS: sole `tlb_cache.insert()` at `mod.rs:5412` is unreachable when SMMUEN=0; SMMUEN=0 bypass path returns at `mod.rs:4803-4858` before cache insert site
 
 ### §3.21.1.1 Translation Tables Update Procedure
 
-- [ ] SMMUv3.2+: must support Level 1 or Level 2 BBM behavior as indicated by SMMU_IDR3.BBML (§3.21.1.1, line 3918)
-- [ ] Break-before-make required for (pre-v8.4/pre-SMMUv3.2): changes to memory type, Cacheability, output address, block/page size, creating global entry where non-global entries overlap (§3.21.1.1, line 3904)
+- [x] SMMUv3.2+: must support Level 1 or Level 2 BBM behavior as indicated by SMMU_IDR3.BBML (§3.21.1.1, line 3918) — PASS: `get_idr3()` at `mod.rs:1457` sets BBML=0b01 (Level 1); Level 1 behavioral requirements satisfied structurally (see §3.21.1.2 items)
+- [x] Break-before-make required for (pre-v8.4/pre-SMMUv3.2): changes to memory type, Cacheability, output address, block/page size, creating global entry where non-global entries overlap (§3.21.1.1, line 3904) — N/A: programmer discipline requirement for OS/hypervisor managing page tables; SMMU has no BBM enforcement mechanism; flat HashMap model has no hardware block descriptors
 
 ### §3.21.1.2 BBM Level 1 (SMMU_IDR3.BBML==1)
 
-- [ ] Level 1: nT bit must be used when changing translation size without break-before-make; F_TLB_CONFLICT may occur without nT or BBM (§3.21.1.2, line 3937)
-- [ ] Level 1: Setting nT==1 does NOT cause a fault (§3.21.1.2, line 3939)
-- [ ] Level 1: Block descriptor with nT==1 not cached in way that causes TLB conflict (§3.21.1.2, line 3942)
-- [ ] Level 1: Change to only Contiguous bit (bit 52) with other properties unchanged does not lead to TLB conflict fault (§3.21.1.2, line 3945)
+- [x] Level 1: nT bit must be used when changing translation size without break-before-make; F_TLB_CONFLICT may occur without nT or BBM (§3.21.1.2, line 3937) — N/A: software usage requirement for page-table clients; no raw block descriptors with nT bits in this model; `configure_stream()`/`reconfigure_stream()` API operates at STE/CD level
+- [x] Level 1: Setting nT==1 does NOT cause a fault (§3.21.1.2, line 3939) — N/A: nT is a hardware page-table descriptor bit (bit 16 of block descriptors); software model has no descriptor-level nT field in translation path; no nT-triggered fault path exists
+- [x] Level 1: Block descriptor with nT==1 not cached in way that causes TLB conflict (§3.21.1.2, line 3942) — PASS: TLB is DashMap with single-entry-per-key invariant; structurally impossible for two entries covering same address to coexist; `F_TLB_CONFLICT` (EventType::FTlbConflict) defined but never emitted
+- [x] Level 1: Change to only Contiguous bit (bit 52) with other properties unchanged does not lead to TLB conflict fault (§3.21.1.2, line 3945) — N/A: Contiguous bit is a hardware page-table descriptor field; software model has no such bit; TLB conflict generation impossible (see above)
 
 ### §3.21.1.3 BBM Level 2 (SMMU_IDR3.BBML==2)
 
-- [ ] Level 2: implementation ignores nT bit in Block descriptor; change to translation size can be performed without BBM or nT (§3.21.1.3, line 3957)
-- [ ] Level 2: F_TLB_CONFLICT never reported (§3.21.1.3, line 3961)
-- [ ] Level 2: TLB multi-hit — translations use info from at most one matching entry; no faults that wouldn't otherwise be possible; no combination of info from multiple entries (§3.21.1.3, line 3962)
-- [ ] Level 2: TLB invalidation removes all matching TLB entries even if overlapping entries exist (§3.21.1.3, line 3972)
+- [x] Level 2: implementation ignores nT bit in Block descriptor; change to translation size can be performed without BBM or nT (§3.21.1.3, line 3957) — N/A: BBML=0b01 (Level 1) advertised; Level 2 requirements do not apply to this implementation
+- [x] Level 2: F_TLB_CONFLICT never reported (§3.21.1.3, line 3961) — N/A: BBML=0b01; additionally F_TLB_CONFLICT is structurally impossible in flat-map model regardless
+- [x] Level 2: TLB multi-hit — translations use info from at most one matching entry; no faults that wouldn't otherwise be possible; no combination of info from multiple entries (§3.21.1.3, line 3962) — N/A: BBML=0b01; Level 2 requirements do not apply
+- [x] Level 2: TLB invalidation removes all matching TLB entries even if overlapping entries exist (§3.21.1.3, line 3972) — N/A: BBML=0b01; Level 2 requirements do not apply; single-entry-per-key invariant makes overlapping entries structurally impossible anyway
 
 ### §3.21.2 Queues
 
-- [ ] SMMU does not write to Command queue (§3.21.2, line 3985)
-- [ ] To issue commands: (1) determine space using PROD/CONS, (2) write commands, (3) DSB to ensure data observable, (4) update PROD index (§3.21.2, line 3986)
-- [ ] Software must not alter memory locations representing commands previously submitted until consumed (as indicated by CONS index) (§3.21.2, line 4002)
-- [ ] Software must only write CONS index of output queue (Event/PRI) in consistent manner with appropriate incrementing and wrapping (§3.21.2, line 4004)
-- [ ] Software must only write PROD index of Command queue in consistent manner (§3.21.2, line 4006)
-- [ ] ILLEGAL PROD index write: CONSTRAINED UNPREDICTABLE: SMMU executes unpredictable commands OR stops consuming until queue disabled and re-enabled (§3.21.2, line 4007)
+- [x] SMMU does not write to Command queue (§3.21.2, line 3985) — PASS: command queue `push_back` only in `submit_command()` (external API called by software); SMMU's own `process_command_queue()` only pops (`pop_front`); no internal SMMU code path writes to the command queue
+- [x] To issue commands: (1) determine space using PROD/CONS, (2) write commands, (3) DSB to ensure data observable, (4) update PROD index (§3.21.2, line 3986) — N/A: prescribed hardware MMIO procedure; `submit_command()` encapsulates steps 1–4 atomically; DSB is a hardware memory barrier with no in-process Rust analog
+- [x] Software must not alter memory locations representing commands previously submitted until consumed (as indicated by CONS index) (§3.21.2, line 4002) — N/A: programmer contract for hardware MMIO; Rust ownership semantics structurally prevent post-`push_back` mutation of queued `CommandEntry` objects
+- [x] Software must only write CONS index of output queue (Event/PRI) in consistent manner with appropriate incrementing and wrapping (§3.21.2, line 4004) — N/A: programmer discipline for hardware; software model consumers use `pop_front` on `RwLock<VecDeque>`; no external CONS register exposed for software to write incorrectly
+- [x] Software must only write PROD index of Command queue in consistent manner (§3.21.2, line 4006) — N/A: programmer discipline; `cmdq_prod` only written by `submit_command()` via `advance_index()` — consistent, monotonically advancing, and wrapping per log2size; no API for external arbitrary PROD writes
+- [x] ILLEGAL PROD index write: CONSTRAINED UNPREDICTABLE: SMMU executes unpredictable commands OR stops consuming until queue disabled and re-enabled (§3.21.2, line 4007) — N/A: CONSTRAINED UNPREDICTABLE hardware outcome; software model prevents illegal PROD writes by design; no testable analog
 
 ### §3.21.3 Configuration Structures and Configuration Invalidation Completion
 
-- [ ] SMMU might read any entry at any time, for any reason (§3.21.3, line 4014)
-- [ ] Structure considered valid only when SMMU observes V==1 and no configuration inconsistency makes it ILLEGAL (§3.21.3, line 4016)
-- [ ] SMMU does not follow invalid pointers, whether speculatively or in response to incoming transaction (§3.21.3, line 4018)
-- [ ] STEs and L1STDs not fetched if SMMU_(*_)CR0.SMMUEN==0 (§3.21.3, line 4020)
-- [ ] CDs or L1CDs must never be fetched or prefetched unless indicated from a valid STE (§3.21.3, line 4022)
-- [ ] Implementation must not read any address outside configured range of any table (§3.21.3, line 4056)
-- [ ] Implementation permitted to fetch/prefetch any reachable structure at any time within bounds of containing table (§3.21.3, line 4035)
-- [ ] Any change to a structure must be followed by appropriate CMD_CFGI_* invalidation command, even if structure was initially invalid (§3.21.3, line 4042)
-- [ ] Configuration invalidation completion: all targeted cache entries invalidated; no accesses using old addresses/attributes; all client transactions using targeted entries globally visible; all configuration structure walks using targeted entries complete (§3.21.3, line 4061)
-- [ ] Single-copy atomicity size for configuration structure fetches: if system has FEAT_LSE2, must be 128-bit; otherwise at least 64-bit (§3.21.3, line 4077)
-- [ ] To change single field within aligned single-copy atomic span: can be altered directly without making structure invalid; then CMD_CFGI and CMD_SYNC required (§3.21.3, line 4084)
-- [ ] For fields requiring non-single-copy-atomic writes (spanning multiple atomic spans): must make structure invalid, modify, then make valid using procedures in §3.21.3.1 (§3.21.3, line 4084)
+- [x] SMMU might read any entry at any time, for any reason (§3.21.3, line 4014) — N/A: hardware speculative prefetch permission statement; software model performs no speculative structure fetches; this grants implementation latitude, imposing no obligation on software simulation
+- [x] Structure considered valid only when SMMU observes V==1 and no configuration inconsistency makes it ILLEGAL (§3.21.3, line 4016) — PASS: stream validity modeled via DashMap presence; `configure_stream()` runs `check_ste_illegal()` (`mod.rs:3246`) rejecting ILLEGAL configs at insertion; `get_stream_context()` returns C_BAD_STE for absent streams
+- [x] SMMU does not follow invalid pointers, whether speculatively or in response to incoming transaction (§3.21.3, line 4018) — PASS: `get_stream_context()` returns error for absent StreamIDs; CD lookup only follows successful stream context retrieval; translate path at `mod.rs:5234` handles absent/ILLEGAL streams without following invalid data
+- [x] STEs and L1STDs not fetched if SMMU_(*_)CR0.SMMUEN==0 (§3.21.3, line 4020) — PASS: SMMUEN=0 early-return at `mod.rs:4803-4858` returns before any `streams.get()` / DashMap lookup; StreamID range validation also post-SMMUEN-check; no stream table access when SMMUEN=0
+- [x] CDs or L1CDs must never be fetched or prefetched unless indicated from a valid STE (§3.21.3, line 4022) — PASS: CD-equivalent lookup via `StreamContext::get_context_descriptor` only reachable after `get_stream_context()` succeeds (valid-STE analog present); no CD access possible without prior successful stream context retrieval
+- [x] Implementation must not read any address outside configured range of any table (§3.21.3, line 4056) — PASS: StreamID range enforcement at `mod.rs:4866-4875` — StreamID >= 2^log2size → C_BAD_STREAMID; two-level bounds via `validate_stream_id_2level()` (`mod.rs:2115`); in-process DashMap model makes out-of-range memory reads structurally impossible
+- [x] Implementation permitted to fetch/prefetch any reachable structure at any time within bounds of containing table (§3.21.3, line 4035) — N/A: hardware permission granting speculative prefetch latitude; software model performs no speculative prefetching; creates no obligation for software simulation
+- [x] Any change to a structure must be followed by appropriate CMD_CFGI_* invalidation command, even if structure was initially invalid (§3.21.3, line 4042) — N/A: programmer procedure requirement constraining SMMU driver software, not SMMU itself; `reconfigure_stream()` (`mod.rs:3344-3351`) intentionally does not self-invalidate per spec: software must issue CMD_TLBI_* separately
+- [x] Configuration invalidation completion: all targeted cache entries invalidated; no accesses using old addresses/attributes; all client transactions using targeted entries globally visible; all configuration structure walks using targeted entries complete (§3.21.3, line 4061) — N/A: hardware pipeline completion / Shareability-domain ordering requirement; synchronous in-process invalidation satisfies spirit trivially; "globally visible" has no in-process analog
+- [x] Single-copy atomicity size for configuration structure fetches: if system has FEAT_LSE2, must be 128-bit; otherwise at least 64-bit (§3.21.3, line 4077) — N/A: hardware memory-system property; software model uses Rust atomics (AtomicU32/U64/Bool) with appropriate orderings; FEAT_LSE2 is an ARMv8.7-A hardware feature with no Rust in-process analog
+- [x] To change single field within aligned single-copy atomic span: can be altered directly without making structure invalid; then CMD_CFGI and CMD_SYNC required (§3.21.3, line 4084) — N/A: programmer MMIO procedure; `reconfigure_stream()` uses atomic stores to update individual StreamContext fields without invalidating stream; partial updates supported, consistent with spirit of rule
+- [x] For fields requiring non-single-copy-atomic writes (spanning multiple atomic spans): must make structure invalid, modify, then make valid using procedures in §3.21.3.1 (§3.21.3, line 4084) — N/A: programmer MMIO procedure; all StreamContext fields are individually atomic (AtomicBool/AtomicU32/etc.); no multi-word non-atomic update scenarios in software model
 
 ### §3.21.3.1 Configuration Structure Update Procedure
 
-- [ ] Initialize structure (V==0→V==1): (1) fill all fields with V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait, (5) set V=1, (6) DSB, (7) CMD_CFGI_STRUCT, (8) optionally CMD_SYNC (§3.21.3.1, line 4096)
-- [ ] Make structure invalid (V==1→V==0): (1) set V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait (§3.21.3.1, line 4104)
-- [ ] Software must not allow structure to enter invalid intermediate state while modifying a valid structure (§3.21.3.1, line 4111)
+- [x] Initialize structure (V==0→V==1): (1) fill all fields with V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait, (5) set V=1, (6) DSB, (7) CMD_CFGI_STRUCT, (8) optionally CMD_SYNC (§3.21.3.1, line 4096) — N/A: recommended software procedure for hardware MMIO deployment; `configure_stream()` performs all initialization atomically as single API call; multi-step DSB/CFGI_STRUCT sequence has no in-process analog
+- [x] Make structure invalid (V==1→V==0): (1) set V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait (§3.21.3.1, line 4104) — N/A: recommended software procedure; `remove_stream()` (`mod.rs:3430`) removes stream atomically from DashMap with TLB invalidation in one operation; DSB/CMD_CFGI/CMD_SYNC sequence is hardware MMIO concern
+- [x] Software must not allow structure to enter invalid intermediate state while modifying a valid structure (§3.21.3.1, line 4111) — N/A: programmer discipline for hardware MMIO; individual StreamContext field updates via atomic stores expose no observable invalid intermediate state; Rust ownership prevents partial-update windows
 
 ## §3.22 Destructive Reads and Directed Cache Prefetch Transactions
 
