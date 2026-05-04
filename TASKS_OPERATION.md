@@ -620,16 +620,16 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ### §3.20.1 TLB Conflict
 
-- [ ] When TLB conflict detected: transaction aborted; F_TLB_CONFLICT event recorded (§3.20.1, line 3830)
-- [ ] If TLB conflict not detected: behavior is unpredictable; restriction: transaction cannot access PA to which stream configuration does not explicitly grant access (§3.20.1, line 3835)
-- [ ] TLB conflict never enables: matching entry with different VMID, different Security state, different StreamWorld, or PA outside stage 2 configured range (§3.20.1, line 3837)
-- [ ] TLB conflict from one stream must not cause traffic for different streams with other VMID/StreamWorld/Security to be terminated (§3.20.1, line 3848)
+- [x] 🚫: Detection not required by spec; software TLB is DashMap keyed by (StreamID,PASID,IOVA,SecurityState) — structural multi-hit impossible; FTlbConflict type defined but never emitted (§3.20.1, line 3830)
+- [x] PASS: Absolute restriction satisfied structurally — every PA produced by translate() passes stream-config-derived permission checks (stage-1/stage-2 walk + PermissionViolation guards); no bypass path exists (§3.20.1, line 3835)
+- [x] PASS: CacheKey includes SecurityState; VMID/StreamWorld tagged at insertion and enforced on TLBI paths; OutputAddressRangeFault (0x09) blocks out-of-S2-range PAs before return — cross-domain match is structurally unreachable (§3.20.1, line 3837)
+- [x] PASS: Each translate() acquires an independent DashMap guard per stream_id; no code path causes one stream's fault recording to block or modify another stream's state (§3.20.1, line 3848)
 
 ### §3.20.2 Configuration Cache Conflicts
 
-- [ ] When configuration cache conflict detected: transaction aborted; F_CFG_CONFLICT event recorded (§3.20.2, line 3858)
-- [ ] If conflict not detected: behavior is unpredictable (§3.20.2, line 3863)
-- [ ] Configuration cache conflict cannot cause STE to be treated as associated with different Security state (§3.20.2, line 3864)
+- [x] 🚫: Detection not required by spec; STE store is DashMap<StreamID,StreamContext> — one slot per stream, no span/overlap concept; FCfgConflict (0x21) type defined but never emitted (§3.20.2, line 3858)
+- [x] N/A: Permissive clause licensing undefined behavior when conflict goes undetected — no behavioral requirement to implement (§3.20.2, line 3863)
+- [x] PASS: Security state is a stored field on StreamContext; DashMap keys on StreamID so lookup for stream X always returns stream X's context including its security state — cross-security-state aliasing is structurally impossible (§3.20.2, line 3864)
 
 ## §3.21 Structure Access Rules and Update Procedures
 
