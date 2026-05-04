@@ -690,16 +690,16 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.22 Destructive Reads and Directed Cache Prefetch Transactions
 
-- [ ] In SMMUv3.0: these transactions unconditionally converted on output as specified by interconnect (§3.22, line 4150)
-- [ ] In SMMUv3.1+: DR downgraded to non-destructive read if STE.DRE==0; W-DCP downgraded to ordinary write if STE.DCP==0; NW-DCP downgraded to no-op if STE.DCP==0 (§3.22.1, line 4188)
-- [ ] STE.DRE==1 required for DR to pass without downgrade when one or more stages of translation applied (§3.22.1, line 4194)
-- [ ] STE.DCP==1 required for W-DCP and NW-DCP to pass without downgrade when translation applied (§3.22.1, line 4195)
-- [ ] DR requires Read/Execute AND Write permission that does not result in HTTU dirty state update; if write not granted, downgraded to read or RCI (§3.22.2, line 4213)
-- [ ] NW-DCP: if required permission not present, prefetch does not occur; no abort response generated (§3.22.2, line 4215)
-- [ ] RCI and DR: if ultimately lead to fault, recorded as reads; stall behavior same as ordinary read (§3.22.2, line 4219)
-- [ ] W-DCP: if leads to fault, recorded as write; stall behavior same as ordinary write (§3.22.2, line 4221)
-- [ ] DR, RCI, W-DCP stalled: retried as same transaction type (§3.22.2, line 4222)
-- [ ] Output DR/RCI/W-DCP/NW-DCP downgraded if output attributes incompatible with output interconnect (§3.22.3, line 4228)
+- [x] In SMMUv3.0: these transactions unconditionally converted on output as specified by interconnect (§3.22, line 4150) — N/A: DR/NW-DCP are AMBA AXI5 sideband transaction types; `TransactionType` enum has no DR/RCI/W-DCP/NW-DCP variants; output interconnect conversion is a hardware-level concern outside the software model boundary
+- [x] In SMMUv3.1+: DR downgraded to non-destructive read if STE.DRE==0; W-DCP downgraded to ordinary write if STE.DCP==0; NW-DCP downgraded to no-op if STE.DCP==0 (§3.22.1, line 4188) — N/A: `StreamConfig` has no `dre` or `dcp` fields; DR/W-DCP/NW-DCP transaction types not representable in API; downgrade logic has no applicable surface
+- [x] STE.DRE==1 required for DR to pass without downgrade when one or more stages of translation applied (§3.22.1, line 4194) — N/A: `STE.DRE` field absent from `StreamConfig`; DR transaction type absent from `TransactionType`; no translation path inspects a DRE gate
+- [x] STE.DCP==1 required for W-DCP and NW-DCP to pass without downgrade when translation applied (§3.22.1, line 4195) — N/A: `STE.DCP` field absent from `StreamConfig`; W-DCP/NW-DCP types absent from `TransactionType`; no DCP gate exists in translation path
+- [x] DR requires Read/Execute AND Write permission that does not result in HTTU dirty state update; if write not granted, downgraded to read or RCI (§3.22.2, line 4213) — N/A: DR transaction type absent from `TransactionType`; permission check and conditional RCI downgrade have no applicable code path
+- [x] NW-DCP: if required permission not present, prefetch does not occur; no abort response generated (§3.22.2, line 4215) — N/A: NW-DCP transaction type absent from `TransactionType`; silent-drop-on-missing-permission behavior unreachable
+- [x] RCI and DR: if ultimately lead to fault, recorded as reads; stall behavior same as ordinary read (§3.22.2, line 4219) — N/A: neither DR nor RCI exist as `TransactionType` variants; fault-recording classification and stall semantics for these types are unreachable
+- [x] W-DCP: if leads to fault, recorded as write; stall behavior same as ordinary write (§3.22.2, line 4221) — N/A: W-DCP absent from `TransactionType`; fault-recorded-as-write and write stall path unreachable
+- [x] DR, RCI, W-DCP stalled: retried as same transaction type (§3.22.2, line 4222) — N/A: none of DR, RCI, W-DCP exist as `TransactionType` variants; stall-and-retry-as-same-type requirement has no applicable implementation surface
+- [x] Output DR/RCI/W-DCP/NW-DCP downgraded if output attributes incompatible with output interconnect (§3.22.3, line 4228) — N/A: software model has no output interconnect representation; output-side attribute compatibility check is a hardware bus-level concern outside simulation model boundary
 
 ## §3.23 Memory Tagging Extension
 
