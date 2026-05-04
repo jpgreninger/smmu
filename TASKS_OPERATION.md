@@ -510,18 +510,18 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.15 Coherency Considerations and Memory Access Types
 
-- [ ] All in-memory structures and queues accessed using Normal memory types (§3.15, line 3324)
-- [ ] If HTTU supported: atomic access required to update translation tables shared between PE and SMMU (§3.15, line 3326)
-- [ ] SMMU_IDR0.COHACC==1: system supports IO-coherent accesses from SMMU for configuration structures, translation tables, queues, CMD_SYNC, GERROR, Event queue, PRI queue MSIs (§3.15, line 3339)
-- [ ] TLB-maintenance operations sent from client devices into the system are NOT permitted and never propagated by the SMMU (§3.15.1, line 3343)
-- [ ] SMMU cache maintenance operations from client devices are supported (§3.15.1, line 3343)
-- [ ] SMMU does not output inconsistent attributes from misconfiguration; Outer Shareable used as effective Shareability when Device or Normal Inner Non-cacheable Outer Non-cacheable types configured (§3.15, line 3721)
+- [x] All in-memory structures and queues accessed using Normal memory types (§3.15, line 3324) — N/A: software model; queues/structures are Rust Vec/DashMap, not hardware bus accesses with memory type attributes
+- [x] If HTTU supported: atomic access required to update translation tables shared between PE and SMMU (§3.15, line 3326) — N/A: no separate PE exists in the simulation; AF write-back occurs via Rust interior mutability within a single process (address_space/mod.rs:1438-1462); no PE↔SMMU hardware concurrency model
+- [x] SMMU_IDR0.COHACC==1: system supports IO-coherent accesses from SMMU for configuration structures, translation tables, queues, CMD_SYNC, GERROR, Event queue, PRI queue MSIs (§3.15, line 3339) — PASS: COHACC (IDR0 bit [4]) is intentionally 0 in get_idr0() (smmu/mod.rs:1347-1380); spec requires COHACC=0 when IO-coherent access is not supported — correct for a simulation that models no hardware coherency fabric
+- [x] TLB-maintenance operations sent from client devices into the system are NOT permitted and never propagated by the SMMU (§3.15.1, line 3343) — PASS: public translate API accepts only (stream_id, pasid, iova, access, security_state); no surface for client-initiated TLB maintenance; receive_broadcast_tlbi() (smmu/mod.rs:2240) is PE→SMMU broadcast only, not client-device TLB maintenance
+- [x] SMMU cache maintenance operations from client devices are supported (§3.15.1, line 3343) — N/A: hardware bus-level cache maintenance operations are not modeled in a software simulation; no real cache hierarchy exists
+- [x] SMMU does not output inconsistent attributes from misconfiguration; Outer Shareable used as effective Shareability when Device or Normal Inner Non-cacheable Outer Non-cacheable types configured (§3.15, line 3721) — PASS: apply_output_attrs() (stream_context/mod.rs:3016) correctly matches all Device encodings (0x00 nGnRnE, 0x04 nGnRE, 0x08 nGRE, 0x0C GRE) and Normal-iNC-oNC (0x44), forcing shareability=0b10 (OSH) for all five encodings regardless of SHCFG override
 
 ### §3.15.1.1 Fully-Coherent Client Devices
 
-- [ ] GPC checks apply to fully-coherent requests (§3.15.1.1, line 3355)
-- [ ] DPT checks apply to fully-coherent requests; exception: DPT W bit permitted to be treated as 1 for fully-coherent client where required by coherency protocol (§3.15.1.1, line 3356)
-- [ ] Client-originated snoop requests bypass the SMMU and are NOT subject to DPT checks or GPC (§3.15.1.1, line 3358)
+- [x] GPC checks apply to fully-coherent requests (§3.15.1.1, line 3355) — N/A: GPC (Granule Protection Check) is an RME feature; IDR0.RME_IMPL=0 per smmu/mod.rs:7229-7230; RME/GPC not implemented
+- [x] DPT checks apply to fully-coherent requests; exception: DPT W bit permitted to be treated as 1 for fully-coherent client where required by coherency protocol (§3.15.1.1, line 3356) — N/A: IDR3.DPT=0; DPTI commands raise CERROR_ILL (smmu/mod.rs:8136-8145); dirty page tracking not implemented
+- [x] Client-originated snoop requests bypass the SMMU and are NOT subject to DPT checks or GPC (§3.15.1.1, line 3358) — N/A: software simulation has no snoop request path; clients only invoke translate()
 
 ## §3.16 Embedded Implementations
 
