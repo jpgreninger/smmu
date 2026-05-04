@@ -189,14 +189,14 @@ CURRENT_SECTION = §4.1
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅ | STRW field in TLBEntry; S2P==0 → VMID=0 substitution in receive_broadcast_tlbi; ASET over-invalidation is permitted conservative behavior (spec says "not required to invalidate") |
+| §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅, BUG-AUDIT-144 ✅, BUG-AUDIT-146 ✅ | STRW field in TLBEntry; S2P==0 → VMID=0 substitution in receive_broadcast_tlbi; El2/El3 ASID now zeroed; broadcast TlbiNhAll applies VMW mask |
 | §3.17.1 | The Global flag in translation table descriptor | N/A | N/A | | Flat model has no nG bit in page descriptors; always treats entries as non-global (ASID-tagged); conservative over-tagging is functionally safe; ASET-based ASID set matching not implemented (permitted optimization) |
 | §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ✅ | BUG-NEW-37–40 ✅, AUDIT-54 ✅ | TLBI scoping, VMID vs global; PTM polarity fixed; NH/EL3 commands correctly scope Secure/EL3 entries; re-verified conformant |
 | §3.17.2.1 | Broadcast TLB maintenance when Secure EL2 implemented | 🚫 | 🚫 | | Secure out of scope |
 | §3.17.3 | Broadcast TLB maintenance from ARMv7-A or AArch32 PEs | N/A | ✅ | | AArch32 TLBIs mapped to same NH commands by interconnect; NH scope handling correct |
 | §3.17.4 | Broadcast TLB maintenance in mixed AArch32/AArch64 | N/A | ✅ | | ASID16=1/VMID16=1 in IDR0; u16 fields; 16-bit direct comparison correct |
-| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ⚠️ | ✅ | BUG-NEW-A ✅ | TLBI_EL2_ASID E2H method; any-EL2 vs any-EL2-E2H not required to be differentiated per spec |
-| §3.17.6 | VMID Wildcards | N/A | ✅ | | CR0.VMW wildcard masking implemented; applies to both broadcast and command-queue TLBI |
+| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ⚠️ | ✅ | BUG-NEW-A ✅ | TLBI_EL2_ASID E2H method; CR2.E2H change is programmer directive (not SMMU auto-invalidate); CR2 RO when SMMUEN=1 ensures no concurrent lookups during E2H mode change |
+| §3.17.6 | VMID Wildcards | N/A | ✅ | BUG-AUDIT-146 ✅ | CR0.VMW wildcard masking now applies to both broadcast TlbiNhAll path and command-queue TLBI; invalidate_nh_by_vmid_with_mask() added to cache |
 | §3.17.7 | Broadcast TLB maintenance for GPT information | 🚫 | 🚫 | | GPC/RME out of scope |
 | §3.17.8 | TLBInXS maintenance operations | N/A | N/A | | FEAT_XS not implemented; XS attribute implicitly 0 for all translations; TLBInXS ≡ TLBI; conformant by equivalence |
 

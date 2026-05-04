@@ -2263,8 +2263,15 @@ impl SMMU {
 
         // Execute the invalidation
         let va_raw = va.as_u64();
+        // BUG-AUDIT-146 fix: §3.17.6 — "Both broadcast TLB invalidation and explicit
+        // SMMU TLB invalidation commands...affect all Non-secure VMIDs that match the
+        // group wildcard when SMMU_CR0.VMW!=0."  Apply CR0.VMW masking here.
+        let vmw = (self.cr0.load(Ordering::Acquire) >> Self::CR0_VMW_SHIFT) & 7;
+        let vmid_mask: u16 = if vmw >= 16 { 0u16 } else { (0xFFFFu32 << vmw) as u16 };
         match cmd_type {
-            CommandType::TlbiNhAll => self.tlb_cache.invalidate_nh_by_vmid(vmid),
+            CommandType::TlbiNhAll => {
+                self.tlb_cache.invalidate_nh_by_vmid_with_mask(vmid, vmid_mask);
+            },
             CommandType::TlbiNhAsid => self.tlb_cache.invalidate_by_vmid_and_asid(vmid, asid),
             CommandType::TlbiNhVa => {
                 self.tlb_cache.invalidate_by_vmid_and_va_and_asid(vmid, va_raw, asid);
@@ -4920,15 +4927,20 @@ impl SMMU {
         let (result, entry_asid, entry_vmid, stall_mode, is_bypass, stream_stage1_enabled, stream_stage2_enabled, stream_s1dss, stream_s1cd_max, stage2_ipa_opt, stream_s2_stall, stream_s2_record, stream_s1_record, stream_s1_abort, stream_strw) =
             if let Some(stream_ref) = stream_guard {
                 let raw_asid = stream_ref.value().get_pasid_asid_or_default(pasid);
+                // BUG-AUDIT-144 fix: §3.17 TLB tagging table — ASID must be zero for
+                // any-EL2 (STRW=El2) and EL3 (STRW=El3) StreamWorlds (ASID=No rows).
                 // GAP-NEW-S3 fix: §6.3.12 / §3.17.5 — STRW=El2E2h (0b10) is only valid
                 // when CR2.E2H=1.  When CR2.E2H=0, downgrade El2E2h to NS-EL2 behavior:
                 // no ASID tagging on TLB entries (ASID=0), matching the El2 (STRW=0b01) path.
-                let asid = if stream_ref.value().get_strw() == crate::types::StreamWorld::El2E2h
-                    && (self.cr2.load(Ordering::Acquire) & Self::CR2_E2H) == 0
-                {
-                    0u16 // downgrade: CR2.E2H=0 ⇒ NS-EL2 behavior, no ASID tagging
-                } else {
-                    raw_asid
+                let strw = stream_ref.value().get_strw();
+                let asid = match strw {
+                    crate::types::StreamWorld::El2 | crate::types::StreamWorld::El3 => 0u16,
+                    crate::types::StreamWorld::El2E2h
+                        if (self.cr2.load(Ordering::Acquire) & Self::CR2_E2H) == 0 =>
+                    {
+                        0u16 // downgrade: CR2.E2H=0 ⇒ NS-EL2 behavior, no ASID tagging
+                    },
+                    _ => raw_asid,
                 };
                 let stall = stream_ref.value().is_stall_enabled();
                 let s1_en = stream_ref.value().is_stage1_enabled();
@@ -4951,7 +4963,7 @@ impl SMMU {
                 let s2_record_val = stream_ref.value().get_s2_record();
                 let s1_record_val = stream_ref.value().get_s1_record();
                 let s1_abort_val = stream_ref.value().get_s1_abort();
-                let strw_val = stream_ref.value().get_strw();
+                let strw_val = strw;
 
                 // §5.4 / CT-13: T0SZ/T1SZ out-of-range check (valid range [16,39]; 0=sentinel for no restriction).
                 // §5.4 / CT-14: CD.AA64=false (AArch32 LPAE) is unsupported — C_BAD_CD.

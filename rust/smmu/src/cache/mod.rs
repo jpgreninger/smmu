@@ -931,6 +931,31 @@ impl TlbCache {
         self.statistics.invalidations.fetch_add(count as u64, Ordering::Relaxed);
     }
 
+    /// §3.17.6 — Invalidate NS-EL1El0 TLB entries matching VMID with VMW wildcard mask.
+    ///
+    /// Used by broadcast `CMD_TLBI_NH_ALL` when `CR0.VMW != 0`.  Only entries tagged
+    /// `El1El0` are affected; `El2` / `El2E2h` entries are preserved.
+    ///
+    /// The comparison is: `(entry.vmid & vmid_mask) == (target_vmid & vmid_mask)`.
+    pub fn invalidate_nh_by_vmid_with_mask(&self, target_vmid: u16, vmid_mask: u16) {
+        let mut keys_to_remove: SmallVec<[CacheKey; 32]> = SmallVec::new();
+
+        for entry_ref in self.entries.iter() {
+            let e = entry_ref.value();
+            if e.strw == StreamWorld::El1El0
+                && (e.vmid & vmid_mask) == (target_vmid & vmid_mask)
+            {
+                keys_to_remove.push(*entry_ref.key());
+            }
+        }
+
+        let removed_count = keys_to_remove.len() as u64;
+        for key in keys_to_remove {
+            self.remove_entry(&key);
+        }
+        self.statistics.invalidations.fetch_add(removed_count, Ordering::Relaxed);
+    }
+
     /// ARM §4.4.2.10 `CMD_TLBI_EL2_ASID` — invalidate NS-EL2-E2H entries by ASID.
     ///
     /// Evicts only entries tagged with `StreamWorld::El2E2h` **and** the given ASID.
