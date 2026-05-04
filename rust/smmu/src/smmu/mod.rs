@@ -519,6 +519,16 @@ pub struct SMMU {
     /// Observable via `get_gerror_irq_pending()`.
     gerror_irq_pending: AtomicBool,
 
+    /// §3.18.2 Event queue empty→non-empty interrupt pending flag.
+    /// Set by enqueue_event() when IRQ_CTRL.EVENTQ_IRQEN==1 and queue was empty.
+    /// Cleared by clear_eventq_irq_pending().
+    eventq_irq_pending: AtomicBool,
+
+    /// §3.18.2 PRI queue empty→non-empty interrupt pending flag.
+    /// Set by receive_page_request() when IRQ_CTRL.PRIQ_IRQEN==1 and queue was empty.
+    /// Cleared by clear_priq_irq_pending().
+    priq_irq_pending: AtomicBool,
+
     // ---- BUG-RUST-2: process_command_queue() serialization mutex ----
 
     /// Serialization mutex for `process_command_queue()` (ARM §3.5.1).
@@ -938,6 +948,8 @@ impl SMMU {
             irq_ctrl: AtomicU32::new(0),
             irq_ctrlack: AtomicU32::new(0),
             gerror_irq_pending: AtomicBool::new(false),
+            eventq_irq_pending: AtomicBool::new(false),
+            priq_irq_pending: AtomicBool::new(false),
             // BUG-RUST-2: serialization mutex for process_command_queue().
             cmdq_processing_mutex: Mutex::new(()),
             // BUG-NEW-11: STALL_MODEL=0b00 (both stall and terminate supported).
@@ -1578,6 +1590,28 @@ impl SMMU {
         self.gerror_irq_pending.store(false, Ordering::Release);
     }
 
+    /// §3.18.2: Returns `true` if an event queue interrupt is pending.
+    #[must_use]
+    pub fn get_eventq_irq_pending(&self) -> bool {
+        self.eventq_irq_pending.load(Ordering::Acquire)
+    }
+
+    /// §3.18.2: Clear the event queue interrupt pending flag.
+    pub fn clear_eventq_irq_pending(&self) {
+        self.eventq_irq_pending.store(false, Ordering::Release);
+    }
+
+    /// §3.18.2: Returns `true` if a PRI queue interrupt is pending.
+    #[must_use]
+    pub fn get_priq_irq_pending(&self) -> bool {
+        self.priq_irq_pending.load(Ordering::Acquire)
+    }
+
+    /// §3.18.2: Clear the PRI queue interrupt pending flag.
+    pub fn clear_priq_irq_pending(&self) {
+        self.priq_irq_pending.store(false, Ordering::Release);
+    }
+
     // ========================================================================
     // GAP-NEW-A: Structure-fetch fault injection (§7.3.4, §7.3.10, §7.3.12)
     // ========================================================================
@@ -1725,6 +1759,12 @@ impl SMMU {
             if queue.len() < self.event_queue_capacity {
                 queue.push_back(event);
                 self.event_count.fetch_add(1, Ordering::Relaxed);
+                // §3.18.2: signal event queue interrupt on empty→non-empty transition.
+                if queue.len() == 1
+                    && (self.irq_ctrl.load(Ordering::Acquire) & Self::IRQ_CTRL_EVENTQ_IRQEN) != 0
+                {
+                    self.eventq_irq_pending.store(true, Ordering::Release);
+                }
                 let prod = self.eventq_prod.load(Ordering::Relaxed);
                 // BUG-NEW-D fix: preserve OVFLG (bit 31) when advancing PROD.
                 // NOTE-1 cosmetic fix: removed duplicate `| (prod & (1u32 << 31))`.
@@ -8311,6 +8351,12 @@ impl SMMU {
         }
         queue.push_back(request);
         self.pri_count.fetch_add(1, Ordering::Relaxed);
+        // §3.18.2: signal PRI queue interrupt on empty→non-empty transition.
+        if queue.len() == 1
+            && (self.irq_ctrl.load(Ordering::Acquire) & Self::IRQ_CTRL_PRIQ_IRQEN) != 0
+        {
+            self.priq_irq_pending.store(true, Ordering::Release);
+        }
         // ARM §3.5.1: advance PRIQ_PROD after each enqueue so software can
         // observe queue fullness via (PROD - CONS).
         let prod = self.priq_prod.load(Ordering::Relaxed);
