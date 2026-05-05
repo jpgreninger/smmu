@@ -1,6 +1,6 @@
 # ARM SMMU v3 Rust Implementation
 
-[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.7.6)](https://crates.io/crates/smmu)
+[![Crates.io](https://img.shields.io/crates/v/smmu.svg?label=v1.7.7)](https://crates.io/crates/smmu)
 [![Documentation](https://docs.rs/smmu/badge.svg)](https://docs.rs/smmu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/jpgreninger/smmu#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
@@ -14,17 +14,28 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION READY v1.7.6** - 100% ARM IHI0070G.b Conformance ⚡
+## ✅ **PRODUCTION READY v1.7.7** - 100% ARM IHI0070G.b Conformance ⚡
 
 Production-grade Rust implementation of the ARM System Memory Management Unit v3 specification with hardware-exceeding performance (sub-100ns latencies) and world-class quality.
 
 **🏆 Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars - Production Ready) | **📊 Tests**: 212 passing | **⚡ Performance**: 31ns single-thread, 74ns concurrent | **⚠️ Warnings**: 0
 
-**🎯 Latest Update (May 5, 2026)**: Version 1.7.6 — Conformance audit §3.23–§3.27 (MTE, DPT, GPC, Permission Indirections, Translation Hardening) and §3.3 (BUG-AUDIT-134/138 canonical VA validation): all N/A or passing, zero new bugs. C++ 195/195 tests passing, Rust 212/212 tests passing, zero clippy warnings.
+**🎯 Latest Update (May 5, 2026)**: Version 1.7.7 — TASKS_OPERATION.md §3.3/§3.4 audit status synchronized: BUG-AUDIT-134 FIXED (last-stage guard), BUG-AUDIT-135/136/137 reclassified N/A (programmer constraints per §3.3.3), BUG-AUDIT-138 FIXED (canonical VA sign-extension). C++ 195/195 tests passing, Rust 212/212 tests passing, zero clippy warnings.
 
 ---
 
 ## 🎉 Recent Achievements
+
+### 🚀 Release v1.7.7 (May 5, 2026)
+
+**TASKS_OPERATION.md §3.3/§3.4 Audit Status Synchronization**
+
+- ✅ **BUG-AUDIT-134 FIXED**: `set_s1p_supported(false)` and `set_s2p_supported(false)` refuse to clear the last stage; last-stage guard enforced
+- ✅ **BUG-AUDIT-135 N/A**: Reclassified — §3.3.3 line 1514 "software must ensure" is a programmer constraint, not SMMU enforcement
+- ✅ **BUG-AUDIT-136 N/A**: Reclassified — §3.3.3 line 1515 TTB0/TTB1/granule consistency is a programmer constraint, not SMMU enforcement
+- ✅ **BUG-AUDIT-137 N/A**: Reclassified — §3.3.3 line 1517 EPD1=1 for EL2/EL3 is a CD programming constraint; SMMU does not enforce
+- ✅ **BUG-AUDIT-138 FIXED**: Canonical VA sign-extension check added; TBI=0 uses AddrTop=63, TBI=1 uses AddrTop=55; non-canonical VA → F_TRANSLATION
+- ✅ **195/195 C++ tests passing, 212/212 Rust tests passing, zero clippy warnings**
 
 ### 🚀 Release v1.7.6 (May 5, 2026)
 
