@@ -2,11 +2,13 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION RELEASE v1.7.4** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.7.6** - 100% ARM IHI0070G.b Conformance ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 195/195 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.7.4
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 195/195 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.7.6
 
 > **Since v1.2.6 (Feb 17, 2026)**: 100+ conformance fixes across 11 QA passes. Full ARM SMMU v3 IHI0070G.b compliance achieved (100%). All critical/high/medium/low/partial severity gaps resolved. All 195 tests pass at 100%.
+>
+> **v1.7.6 (May 5, 2026)**: Conformance audit §3.23–§3.27 (MTE, DPT, GPC, Permission Indirections, Translation Hardening) and §3.3 (BUG-AUDIT-134/138 canonical VA validation): all N/A or passing, zero new bugs. 195/195 C++ tests passing, zero warnings.
 >
 > **v1.7.4 (April 15, 2026)**: Wiki documentation updates — comprehensive graph view added, audited wiki links and pages, updated ARM SMMU v3 specification coverage to full coverage except chapter 6 register bits and chapter 15 diagrams. 195/195 C++ tests passing.
 >
