@@ -236,8 +236,8 @@ CURRENT_SECTION = §4.1
 | §3.22.3 | Memory types and Shareability | N/A | N/A | | Output interconnect constraints N/A for SW model |
 | §3.23 | Memory Tagging Extension | N/A | N/A | | IDR3.MTEPERM=1 set; MAIR 0xF0 Reserved enforced by SW model not implementing MAIR field parsing |
 | §3.23.1 | SMMU support for FEAT_MTE_PERM | N/A | N/A | | stage-2 MemAttr NoTagAccess remapping N/A (flat model uses page_attr 0x00/0xFF only) |
-| §3.24 | Device Permission Table | 🚫 | 🚫 | | DPT — out of scope |
-| §3.24.1–7 | DPT sub-sections | 🚫 | 🚫 | | |
+| §3.24 | Device Permission Table | N/A | N/A | | IDR3.DPT=0; all 37 items N/A (audited 2026-05-04); CMD_DPTI_ALL/PA return CERROR_ILL per §4.6.1 |
+| §3.24.1–7 | DPT sub-sections | N/A | N/A | | All sub-sections N/A; IDR3.DPT=0, no DPT walk/TLB/registers/descriptors modeled |
 | §3.25 | Granule Protection Checks | 🚫 | 🚫 | | GPC/GPT — out of scope |
 | §3.25.1–6 | GPC sub-sections | 🚫 | 🚫 | | |
 | §3.26 | Permission Indirections | N/A | N/A | | S1PIE/S2PIE not advertised in IDR0; PIE not implemented |
