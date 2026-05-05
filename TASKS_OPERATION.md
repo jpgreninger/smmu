@@ -854,16 +854,16 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ### §3.27.1 Protected Attribute
 
-- [ ] If SMMU_IDR3.THE==1: Protected attribute in VMSAv9-128 descriptors always present (§3.27.1, line 4971)
-- [ ] If SMMU_IDR3.THE==1: Protected attribute in VMSAv8-64 descriptors only if CD.PnCH==1 (§3.27.1, line 4972)
-- [ ] If CD.PnCH==1: Contiguous bit NOT present in VMSAv8-64 descriptors; bit 52 no longer interpreted as Contiguous (§3.27.1, line 4973)
-- [ ] SMMU does NOT support Read-Check-Write (RCW) operations (§3.27.1, line 4975)
+- [x] If SMMU_IDR3.THE==1: Protected attribute in VMSAv9-128 descriptors always present (§3.27.1, line 4971) — N/A: IDR3.THE (bit 21) not set in get_idr3(); FEAT_THE not advertised or implemented
+- [x] If SMMU_IDR3.THE==1: Protected attribute in VMSAv8-64 descriptors only if CD.PnCH==1 (§3.27.1, line 4972) — N/A: IDR3.THE==0; CD.PnCH field absent from implementation
+- [x] If CD.PnCH==1: Contiguous bit NOT present in VMSAv8-64 descriptors; bit 52 no longer interpreted as Contiguous (§3.27.1, line 4973) — N/A: IDR3.THE==0; CD.PnCH absent; bit 52 handling unaffected
+- [x] SMMU does NOT support Read-Check-Write (RCW) operations (§3.27.1, line 4975) — N/A: THE==0 exempts; no RCW logic anywhere in codebase
 
 ### §3.27.2 AssuredOnly Permission Checks
 
-- [ ] If SMMU_IDR3.THE==1: AssuredOnly behavior same as PE except configured via STE.AssuredOnly (§3.27.2, line 4981)
-- [ ] Stage 2 Permission fault with AssuredOnly: reported as stage 2 F_PERMISSION with AssuredOnly set to 1 (§3.27.2, line 4984)
-- [ ] If CD or L1CD fetched from memory NOT marked AssuredOnly at stage 2: access translated from TTB0 or TTB1 does NOT have Assured Translation property (§3.27.2, line 4985)
-- [ ] If stage 1 translation disabled (bypass due to STE.Config or STE.S1DSS): access to region marked AssuredOnly at stage 2 generates Permission fault (§3.27.2, line 4987)
-- [ ] For ATS TR: AssuredOnly check performed same as regular transaction; if fails → ATS Completion with Success and R==W==0 (§3.27.2, line 4989)
-- [ ] For ATS Translated transaction with STE.EATS==0b10 (Split-stage ATS): AssuredOnly is IGNORED for determining whether transaction permitted (§3.27.2, line 4991)
+- [x] If SMMU_IDR3.THE==1: AssuredOnly behavior same as PE except configured via STE.AssuredOnly (§3.27.2, line 4981) — N/A: IDR3.THE==0; STE.AssuredOnly field absent from implementation
+- [x] Stage 2 Permission fault with AssuredOnly: reported as stage 2 F_PERMISSION with AssuredOnly set to 1 (§3.27.2, line 4984) — N/A: IDR3.THE==0; no AssuredOnly fault path exists
+- [x] If CD or L1CD fetched from memory NOT marked AssuredOnly at stage 2: access translated from TTB0 or TTB1 does NOT have Assured Translation property (§3.27.2, line 4985) — N/A: IDR3.THE==0; no Assured Translation property tracking during CD fetch
+- [x] If stage 1 translation disabled (bypass due to STE.Config or STE.S1DSS): access to region marked AssuredOnly at stage 2 generates Permission fault (§3.27.2, line 4987) — N/A: IDR3.THE==0; bypass path exists but no AssuredOnly check applied (correct)
+- [x] For ATS TR: AssuredOnly check performed same as regular transaction; if fails → ATS Completion with Success and R==W==0 (§3.27.2, line 4989) — N/A: IDR3.THE==0; ATS TR handling exists but no AssuredOnly check (correct)
+- [x] For ATS Translated transaction with STE.EATS==0b10 (Split-stage ATS): AssuredOnly is IGNORED for determining whether transaction permitted (§3.27.2, line 4991) — N/A: IDR3.THE==0; EATS==0b10 path exists; no AssuredOnly logic at all (correct)

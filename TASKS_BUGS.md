@@ -243,9 +243,9 @@ CURRENT_SECTION = §4.1
 | §3.26 | Permission Indirections | N/A | N/A | | IDR3.S1PI=0 (bit 15 unset), IDR3.S2PI=0 (bit 16 unset); FEAT_S1PIE/FEAT_S2PIE not implemented; all 9 items audited 2026-05-05: 2 PASS, 7 N/A, 0 bugs |
 | §3.26.1 | Stage 1 permission indirections | N/A | N/A | | S1PI=0; no S1PIE/CD.PIE/PIIP/PIIU/PIIndex fields; S1POE absence is spec-mandated (PASS); WXN present but indirection unreachable |
 | §3.26.2 | Stage 2 permission indirections | N/A | N/A | | S2PI=0; no S2PIE/S2POE/S2POI/SMMU_S2PII fields; S2PTW enforced (PASS); DRE/DCP absent (§5.2 gap, not §3.26-gated) |
-| §3.27 | Translation Hardening | N/A | N/A | | AssuredOnly/Protected not advertised; not implemented |
-| §3.27.1 | Protected attribute | N/A | N/A | | |
-| §3.27.2 | AssuredOnly permission checks | N/A | N/A | | |
+| §3.27 | Translation Hardening | N/A | N/A | | IDR3.THE (bit 21) not set; FEAT_THE not advertised; all 10 items N/A (audited 2026-05-05); 0 bugs |
+| §3.27.1 | Protected attribute | N/A | N/A | | IDR3.THE==0; VMSAv9-128 not implemented; CD.PnCH absent; no RCW logic; all 4 items N/A |
+| §3.27.2 | AssuredOnly permission checks | N/A | N/A | | IDR3.THE==0; STE.AssuredOnly absent; no Assured Translation tracking; ATS paths correct; all 6 items N/A |
 
 ---
 
