@@ -837,18 +837,18 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ### §3.26.1 Stage 1 Permission Indirections
 
-- [ ] SMMU_IDR3.S1PI==0: stage 1 permission indirections not supported; STE.S1PIE and CD.PIE are RES0 (§3.26.1, line 4918)
-- [ ] SMMU_IDR3.S1PI==1, STE.S1PIE==1, CD.PIE==1: stage 1 permissions determined from CD.PIIP and CD.PIIU using PIIndex from descriptors (§3.26.1, line 4922)
-- [ ] STE.S1PIE==0: hypervisor can prevent guest use of stage 1 permission indirections (§3.26.1, line 4924)
-- [ ] SMMU does NOT support stage 1 permission overlay feature (§3.26.1, line 4926)
-- [ ] If stage 1 Indirect Permission Scheme enabled: CD.WXN is RES0 and has no effect (§3.26.1, line 4927)
+- [x] SMMU_IDR3.S1PI==0: stage 1 permission indirections not supported; STE.S1PIE and CD.PIE are RES0 (§3.26.1, line 4918) — PASS: get_idr3() at src/smmu/mod.rs:1453-1459 does not set bit 15 (S1PI); no s1pie/pie fields exist in StreamConfig or CD structs; structurally RES0
+- [x] SMMU_IDR3.S1PI==1, STE.S1PIE==1, CD.PIE==1: stage 1 permissions determined from CD.PIIP and CD.PIIU using PIIndex from descriptors (§3.26.1, line 4922) — N/A: S1PI=0 (bit 15 unset in IDR3); PIIP/PIIU/PIIndex identifiers absent from entire src/; FEAT_S1PIE not implemented
+- [x] STE.S1PIE==0: hypervisor can prevent guest use of stage 1 permission indirections (§3.26.1, line 4924) — N/A: S1PI=0; STE.S1PIE field absent; hypervisor-prevention mechanism irrelevant when feature not advertised
+- [x] SMMU does NOT support stage 1 permission overlay feature (§3.26.1, line 4926) — PASS: spec mandates absence of S1POE; no S1POE fields, logic, or tests anywhere in Rust source; architecturally correct
+- [x] If stage 1 Indirect Permission Scheme enabled: CD.WXN is RES0 and has no effect (§3.26.1, line 4927) — N/A: S1PI=0; CD.PIE never set to 1; indirection condition unreachable; WXN present at config.rs:365 but condition cannot be met
 
 ### §3.26.2 Stage 2 Permission Indirections
 
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==0, STE.S2POE==1: ILLEGAL → generates C_BAD_STE (§3.26.2, line 4948)
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==0: stage 2 permissions from SMMU_S2PII using PIIndex (§3.26.2, line 4949)
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==1: stage 2 permissions from STE.S2POI (POIndex) combined with SMMU_S2PII (PIIndex) (§3.26.2, line 4950)
-- [ ] Stage 2 permission computation order: (1) AssuredOnly check for stage 2 of stage 1 output address, (2) Base and Overlay permissions, (3) STE.S2PTW for TT walk/CD fetch, (4) Dirty state permission check if indirection enabled, (5) STE.DRE/STE.DCP for directed prefetch and CMO (§3.26.2, line 4952)
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==0, STE.S2POE==1: ILLEGAL → generates C_BAD_STE (§3.26.2, line 4948) — N/A: S2PI=0 (bit 16 unset in IDR3); S2PIE/S2POE fields absent from StreamConfig; ILLEGAL combination cannot occur
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==0: stage 2 permissions from SMMU_S2PII using PIIndex (§3.26.2, line 4949) — N/A: S2PI=0; SMMU_S2PII register and S2PIE field do not exist; FEAT_S2PIE not implemented
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==1: stage 2 permissions from STE.S2POI (POIndex) combined with SMMU_S2PII (PIIndex) (§3.26.2, line 4950) — N/A: S2PI=0; S2POI/S2PIE/S2POE all absent
+- [x] Stage 2 permission computation order: (1) AssuredOnly check for stage 2 of stage 1 output address, (2) Base and Overlay permissions, (3) STE.S2PTW for TT walk/CD fetch, (4) Dirty state permission check if indirection enabled, (5) STE.DRE/STE.DCP for directed prefetch and CMO (§3.26.2, line 4952) — N/A: steps 1/2/4 require FEAT_THE/S2PIE/S2POE (not implemented); step 3 PASS: S2PTW enforced at config.rs:376 and stream_context/mod.rs:304; step 5 observation: DRE/DCP absent (§5.2 gap, out of §3.26 scope)
 
 ## §3.27 Translation Hardening
 
