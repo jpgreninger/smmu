@@ -2223,13 +2223,26 @@ impl SMMU {
     /// - `true` (default): IDR0.S2P=1, stage-2 TLBI commands execute normally.
     /// - `false`:          IDR0.S2P=0, stage-2 TLBI commands raise CERROR_ILL
     ///   (ARM §4.4.3.1/§4.4.3.2: illegal when stage-2 not supported).
+    ///
+    /// BUG-AUDIT-134 fix: §3.3 — SMMU must support at least one translation stage.
+    /// If disabling S2P would leave S1P also false, the request is silently ignored
+    /// to preserve the invariant.
     pub fn set_s2p_supported(&self, enabled: bool) {
+        if !enabled && !self.s1p_supported.load(Ordering::Acquire) {
+            return; // §3.3: at least one stage required; refuse to clear the last one.
+        }
         self.s2p_supported.store(enabled, Ordering::Release);
     }
 
     /// BUG-AUDIT-NEW-03 fix: IDR0.S1P is now configurable so the CERROR_ILL guard for
     /// `TLBI_NH_ALL/ASID/VA/VAA` (§4.4.2) and `CFGI_CD/ALL` (§4.3.3/§4.3.4) is exercisable.
+    ///
+    /// BUG-AUDIT-134 fix: §3.3 — SMMU must support at least one translation stage.
+    /// If disabling S1P would leave S2P also false, the request is silently ignored.
     pub fn set_s1p_supported(&self, enabled: bool) {
+        if !enabled && !self.s2p_supported.load(Ordering::Acquire) {
+            return; // §3.3: at least one stage required; refuse to clear the last one.
+        }
         self.s1p_supported.store(enabled, Ordering::Release);
     }
 
@@ -5198,6 +5211,101 @@ impl SMMU {
                                 }
                             }
                             return Err(TranslationError::VaRangeExceeded);
+                        }
+                    }
+                }
+
+                // BUG-AUDIT-138 fix: §3.4.1 — Canonical VA sign-extension check.
+                // "Input range checks ... fail unless bits VA[AddrTop: N-1] are identical."
+                // AddrTop = 55 when TBI=1, else 63.  N = 64 - T0SZ.
+                // VA[AddrTop:N-1] must all equal the sign bit VA[N-1]; any deviation
+                // (upper bits 0 while VA[N-1]=1, or vice versa) is a non-canonical VA.
+                // This check is separate from the magnitude check and catches VAs whose
+                // magnitude is within the T0SZ range but whose sign extension is wrong.
+                if stream_ref.value().is_stage1_enabled() {
+                    let t0sz = stream_ref.value().get_t0sz();
+                    let tbi = stream_ref.value().get_tbi();
+                    if t0sz > 0 {
+                        let n_bits = 64u32 - u32::from(t0sz); // significant VA bits
+                        let addr_top: u32 = if tbi { 55 } else { 63 };
+                        // effective_iova for canonical check: TBI strips [63:56] when enabled.
+                        let eff_va = if tbi {
+                            iova.as_u64() & 0x00FF_FFFF_FFFF_FFFFu64
+                        } else {
+                            iova.as_u64()
+                        };
+                        // Number of bits in the sign-extension range: [AddrTop:N-1].
+                        // These (addr_top - n_bits + 2) bits must all be identical.
+                        if addr_top >= n_bits {
+                            let ext_width = addr_top - n_bits + 2; // bits in [AddrTop:N-1]
+                            // Shift right by (N-1) to put sign bit at position 0.
+                            let upper = eff_va >> (n_bits - 1);
+                            // upper should be all-zeros or all-ones (mask = 2^ext_width - 1).
+                            let mask = if ext_width >= 64 { u64::MAX } else { (1u64 << ext_width) - 1 };
+                            let non_canonical = upper != 0 && upper != mask;
+                            if non_canonical {
+                                let pnu = stream_ref.value().is_access_privileged(access);
+                                let effective_at = if transaction_type == TransactionType::Atos {
+                                    access
+                                } else {
+                                    stream_ref.value().effective_access_type(access)
+                                };
+                                let stream_mev = stream_ref.value().mev();
+                                let s1cd_max_val = stream_ref.value().get_s1cd_max();
+                                drop(stream_ref);
+                                self.failed_translations.0.fetch_add(1, Ordering::Relaxed);
+                                let timestamp = self.fault_timestamp_counter.fetch_add(1, Ordering::Relaxed);
+                                let fault = FaultRecord::builder()
+                                    .stream_id(stream_id)
+                                    .pasid(pasid)
+                                    .address(iova)
+                                    .fault_type(FaultType::TranslationFault)
+                                    .access_type(access)
+                                    .security_state(security_state)
+                                    .timestamp(timestamp)
+                                    .build();
+                                self.record_fault(fault);
+                                if (self.cr0.load(Ordering::Acquire) & Self::CR0_EVENTQEN) != 0 {
+                                    let event = EventEntry {
+                                        event_type: EventType::FTranslation,
+                                        stream_id: stream_id.as_u32(),
+                                        pasid: pasid.as_u32(),
+                                        address: iova.as_u64(),
+                                        security_state,
+                                        error_code: 0,
+                                        timestamp,
+                                        stall: false,
+                                        stag: 0,
+                                        event_class: 2,
+                                        rnw: !effective_at.can_write(),
+                                        ind: effective_at.can_execute() && !effective_at.can_write(),
+                                        pnu,
+                                        ssv: s1cd_max_val > 0 || pasid.as_u32() != 0,
+                                        ..EventEntry::zeroed()
+                                    };
+                                    if let Ok(mut queue) = self.event_queue.write() {
+                                        if stream_mev
+                                            && queue.iter().any(|e| {
+                                                e.event_type == EventType::FTranslation
+                                                    && e.stream_id == stream_id.as_u32()
+                                            })
+                                        {
+                                            // Duplicate suppressed.
+                                        } else if queue.len() < self.event_queue_capacity {
+                                            queue.push_back(event);
+                                            self.event_count.fetch_add(1, Ordering::Relaxed);
+                                            let prod = self.eventq_prod.load(Ordering::Relaxed);
+                                            self.eventq_prod.store(
+                                                Self::advance_index(prod, self.eventq_log2size) | (prod & (1u32 << 31)),
+                                                Ordering::Release,
+                                            );
+                                        } else {
+                                            self.toggle_ovflg_once();
+                                        }
+                                    }
+                                }
+                                return Err(TranslationError::VaRangeExceeded);
+                            }
                         }
                     }
                 }

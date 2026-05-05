@@ -99,7 +99,12 @@ fn gap_c_t0sz_16_iova_exceeds_range_generates_f_translation() {
 /// Gap C Test 2: T0SZ=16 (48-bit VA), IOVA well inside range — must succeed.
 ///
 /// ARM IHI0070G.b §3.4.1: An IOVA below 2^(64-T0SZ) is within the valid range.
-/// With T0SZ=16 the limit is 2^48.  0x0000_FFFF_FFFF_F000 < 2^48 must succeed.
+/// With T0SZ=16 the limit is 2^48 and the canonical-VA check requires VA[63:47] identical.
+/// 0x0000_7FFF_FFFF_F000: VA[47]=0, VA[63:48]=0x0000 → canonical and within range → must succeed.
+///
+/// NOTE: 0x0000_FFFF_FFFF_F000 was previously used here but that address has VA[47]=1 and
+/// VA[63:48]=0x0000, which is non-canonical per §3.4.1 (VA[63:47] not identical) and
+/// correctly generates F_TRANSLATION after the BUG-AUDIT-138 fix.
 ///
 /// BEFORE FIX: Passes (no VA range check was performed).
 /// AFTER FIX:  Must still pass (regression guard).
@@ -117,8 +122,8 @@ fn gap_c_t0sz_16_iova_within_range_succeeds() {
     smmu.configure_stream(sid(0xC2), cfg).unwrap();
     smmu.create_pasid(sid(0xC2), pasid(0)).unwrap();
 
-    // Map a page inside the 48-bit VA window.
-    let valid_iova: u64 = 0x0000_FFFF_FFFF_F000;
+    // Canonical VA: VA[47]=0, VA[63:48]=0x0000 → VA[63:47] all 0 → canonical and < 2^48.
+    let valid_iova: u64 = 0x0000_7FFF_FFFF_F000;
     smmu.map_page(
         sid(0xC2),
         pasid(0),
