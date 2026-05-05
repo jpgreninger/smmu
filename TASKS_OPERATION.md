@@ -703,13 +703,13 @@ N/A — Physical memory-map layout statements; inapplicable to a software model 
 
 ## §3.23 Memory Tagging Extension
 
-- [ ] MAIR encoding 0xF0 is Reserved in SMMUv3 in CD.MAIR0 and CD.MAIR1 (§3.23, line 4240)
-- [ ] All SMMU-originated accesses are Tag Unchecked accesses; SMMU does not write Allocation Tags (§3.23, line 4242)
+- [x] MAIR encoding 0xF0 is Reserved in SMMUv3 in CD.MAIR0 and CD.MAIR1 (§3.23, line 4240) — N/A: model does not parse CD.MAIR0/MAIR1 fields at all; no MAIR byte validation exists; validation of reserved MAIR encoding is a software-model boundary (CD field parsing is abstracted away entirely)
+- [x] All SMMU-originated accesses are Tag Unchecked accesses; SMMU does not write Allocation Tags (§3.23, line 4242) — PASS: model is a pure translation engine with no memory write path; zero references to AllocationTag/tag_write/NoTagAccess anywhere in source; SMMU cannot write allocation tags by architectural construction
 
 ### §3.23.1 SMMU Support for FEAT_MTE_PERM
 
-- [ ] If SMMU_IDR3.MTEPERM==1: stage 2 MemAttr NoTagAccess encodings treated as without NoTagAccess in SMMU (§3.23.1, line 4247)
-- [ ] When STE.S2FWB==0 and stage 2 MemAttr[3:0]==0b0100: SMMU interprets as Normal Inner WB Cacheable, Outer WB Cacheable (§3.23.1, line 4256)
+- [x] If SMMU_IDR3.MTEPERM==1: stage 2 MemAttr NoTagAccess encodings treated as without NoTagAccess in SMMU (§3.23.1, line 4247) — N/A: IDR3.MTEPERM=1 advertised correctly (smmu/mod.rs:1453 bit 0); MTEPERM=1 suppresses a NoTagAccess fault that never exists in this model; no 4-bit stage-2 MemAttr decode exists; requirement has no applicable implementation surface
+- [x] When STE.S2FWB==0 and stage 2 MemAttr[3:0]==0b0100: SMMU interprets as Normal Inner WB Cacheable, Outer WB Cacheable (§3.23.1, line 4256) — N/A: IDR3.FWB=0 (smmu/mod.rs:1449); S2FWB not implemented; model stores stage-2 attrs as pre-resolved 8-bit MAIR bytes, never decoding 4-bit MemAttr field; 0x04 in combine_mem_type() is MAIR byte Device-nGnRE, not stage-2 MemAttr 0b0100 (NoTagAccess)
 
 ## §3.24 Device Permission Table
 
