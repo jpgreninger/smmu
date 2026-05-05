@@ -1,6 +1,6 @@
 [package]
 name = "smmu-cli"
-version = "1.7.6"
+version = "1.7.7"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
