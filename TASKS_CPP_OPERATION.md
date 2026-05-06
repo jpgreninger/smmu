@@ -6,10 +6,10 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.1 Software Interface
 
-> **Audit date:** 2026-05-05 — 6 items checked: 3 PASS, 1 PARTIAL (BUG-AUDIT-148-CPP), 2 N/A
+> **Audit date:** 2026-05-05 — 6 items checked: 4 PASS, 2 N/A, 0 bugs (BUG-AUDIT-148-CPP FIXED 2026-05-05)
 
 - [x] SMMU provides three software interfaces: memory-based data structures, memory-based circular buffer queues (Command, Event, PRI), and a register set per Security state (§3.1, line 1217) — **PASS**: `streamMap` + three queues with PROD/CONS pairs + full register surface (CR0, IDR0–IDR5, GBPA, etc.) in smmu.h
-- [ ] PRI queue is only present on SMMUs supporting PRI services (§3.1, line 1220) — **PARTIAL / BUG-AUDIT-148-CPP**: `priSupported_`/`IDR0.PRI` gates `CMD_PRI_RESP` but `submitPageRequest()` and the `priQueue` data structure are always accessible; a caller can enqueue PRI requests even when PRI is not advertised
+- [x] PRI queue is only present on SMMUs supporting PRI services (§3.1, line 1220) — **PASS / BUG-AUDIT-148-CPP FIXED**: `submitPageRequest()` now silently drops PPRs when `priSupported_==false` (no enqueue, no auto-failure); `processPRIQueue()` is a no-op; `setPRISupported(false)` clears in-flight queue and resets PROD/CONS. TDD test: `test_bug_audit148_pri_gate.cpp`
 - [x] When Secure state is supported, an additional register set exists to allow Secure software to maintain Secure device structures, issue commands on a second Secure Command queue and read Secure events from a Secure Event queue (§3.1, line 1223) — **N/A**: No Secure register namespace implemented; `SecurityState::Secure` is a per-transaction attribute only; no Secure register-set support is advertised via IDR bits
 - [x] IMPLEMENTATION DEFINED fields must not be used in a way that makes a generic SMMUv3 driver unusable (§3.1, line 1227) — **PASS**: All IMPDEF fields zero-initialized (F_UUT.reason=0, IIDR=0); no behavioral dependency on non-zero IMPDEF values; core paths unaffected
 - [x] A driver without extended knowledge of IMPLEMENTATION DEFINED fields must treat them as Reserved and set to 0 (§3.1, line 1227) — **N/A**: Driver behavioral requirement, not an SMMU implementation requirement; no C++ code needed

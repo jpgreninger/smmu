@@ -3655,8 +3655,16 @@ bool SMMU::isS1PSupported() const {
 
 // BUG-NEW-G fix: IDR0.PRI (bit 16) is now configurable so the CERROR_ILL guard
 // for CMD_PRI_RESP (ARM §4.5.2) can be tested with PRI==0.
+// BUG-AUDIT-148-CPP fix: when transitioning to false (PRI structurally absent),
+// clear any in-flight priQueue entries and reset PROD/CONS indices to 0.
 void SMMU::setPRISupported(bool enabled) {
     priSupported_.store(enabled, std::memory_order_release);
+    if (!enabled) {
+        std::lock_guard<std::recursive_mutex> lock(queueMutex);
+        priQueue.clear();
+        priqProd.store(0, std::memory_order_release);
+        priqCons.store(0, std::memory_order_release);
+    }
 }
 
 // BUG-AUDIT-01 fix: IDR0.NS1ATS (bit 11) is now configurable so the C_BAD_STE
@@ -3999,6 +4007,12 @@ void SMMU::submitPageRequest(const PRIEntry& request) {
     // Lock is acquired first so priAutoFailures_ is protected.
     // BUG-03 fix: protect priQueue with queueMutex.
     std::lock_guard<std::recursive_mutex> lock(queueMutex);
+    // BUG-AUDIT-148-CPP fix: §3.1 line 1220 — PRI queue only exists on PRI-supporting SMMUs.
+    // When priSupported_==false (IDR0.PRI==0), the queue is structurally absent.
+    // Silent drop — no auto-failure, no enqueue.
+    if (!priSupported_.load(std::memory_order_acquire)) {
+        return;
+    }
     {
         uint32_t cr0val = cr0_.load(std::memory_order_acquire);
         bool priqen = (cr0val & CR0_PRIQEN) != 0u;
@@ -4228,6 +4242,10 @@ void SMMU::processPRIQueue() {
     // here (software writes it).
     {
         std::lock_guard<std::recursive_mutex> lock(queueMutex);
+        // BUG-AUDIT-148-CPP fix: §3.1 line 1220 — no-op when PRI not supported.
+        if (!priSupported_.load(std::memory_order_acquire)) {
+            return;
+        }
         uint32_t priqProdVal = priqProd.load(std::memory_order_relaxed);
         uint32_t priqConsVal = priqCons.load(std::memory_order_relaxed);
         bool overflowActive = (((priqProdVal >> 31) & 1u) != ((priqConsVal >> 31) & 1u));
