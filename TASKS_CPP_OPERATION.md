@@ -17,17 +17,19 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.2 Stream Numbering
 
-- [ ] StreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 32 bits (§3.2, line 1238)
-- [ ] SubstreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 20 bits (§3.2, line 1241)
-- [ ] Transactions provided with a SubstreamID are terminated when stage 1 translation is not enabled (§3.2, line 1354)
-- [ ] A stage 2-only implementation does not take a SubstreamID input (§3.2, line 1252)
-- [ ] An implementation with stage 1 is not required to support substreams (§3.2, line 1252)
-- [ ] When Secure state is supported, the StreamID input is qualified by SEC_SID determining Secure or Non-secure StreamID namespace (§3.2, line 1254)
-- [ ] For PCI, StreamID must be at least 16 bits for SMMU implementations intended for use with PCI clients (§3.2, line 1258)
-- [ ] Arm recommends StreamID be a dense namespace starting at 0 (§3.2, line 1236)
-- [ ] StreamID namespace is per-SMMU; devices with the same StreamID behind different SMMUs are seen as different sources (§3.2, line 1236)
-- [ ] SubstreamID maximum size of 20 bits matches the maximum size of a PCIe PASID (§3.2, line 1245)
-- [ ] For PCIe, SubstreamID is intended to be directly provided from the PASID in a one-to-one fashion (§3.2, line 1256)
+> **Audit date:** 2026-05-06 — 11 items checked: 7 PASS, 2 N/A, 1 N/A (integrator), 1 N/A (Secure not implemented) — 0 bugs
+
+- [x] StreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 32 bits (§3.2, line 1238) — **PASS**: `setStrtabLog2Size()` clamps any value >32 to 32 (smmu.cpp:5587–5589); default is 32; IDR1 advertises SIDSIZE=32 (smmu.cpp:3485)
+- [x] SubstreamID is of IMPLEMENTATION DEFINED size, between 0 bits and 20 bits (§3.2, line 1241) — **PASS**: `isConfigurationValid()` rejects `s1cdMax > 20` with C_BAD_STE (smmu.cpp:1195–1198); IDR1 advertises SSIDSIZE=20 (smmu.cpp:3486); tested in `test_tenth_pass_bugs_spec.cpp`
+- [x] Transactions provided with a SubstreamID are terminated when stage 1 translation is not enabled (§3.2, line 1354) — **PASS**: guard `if (ssv && !streamCfgSnapshot.stage1Enabled)` emits C_BAD_SUBSTREAMID (smmu.cpp:674–685); tested in `test_c_bad_substreamid_spec.cpp`
+- [x] A stage 2-only implementation does not take a SubstreamID input (§3.2, line 1252) — **PASS**: same guard covers stage2-only path (stage1Enabled=false, stage2Enabled=true); `Stage2OnlyNonZeroPasidFails` test confirms
+- [x] An implementation with stage 1 is not required to support substreams (§3.2, line 1252) — **PASS**: `s1cdMax` defaults to 0; stage-1 translation works correctly with s1cdMax=0; tested in `test_c_bad_substreamid_spec.cpp:Stage1OnlyNonZeroPasidIsOk`
+- [x] When Secure state is supported, the StreamID input is qualified by SEC_SID determining Secure or Non-secure StreamID namespace (§3.2, line 1254) — **N/A**: No Secure register namespace implemented; consistent with §3.1 audit verdict. SEC_SID is modeled as a per-transaction `SecurityState` parameter (types.h:509–512) but no separate SMMU_S_* register bank exists
+- [x] For PCI, StreamID must be at least 16 bits for SMMU implementations intended for use with PCI clients (§3.2, line 1258) — **N/A** (integrator requirement): default StreamID width is 32 bits; `setStrtabLog2Size()` imposes no minimum; requirement is on system integrators, not the SMMU model
+- [x] Arm recommends StreamID be a dense namespace starting at 0 (§3.2, line 1236) — **N/A**: architectural recommendation only; no runtime enforcement required or present
+- [x] StreamID namespace is per-SMMU; devices with the same StreamID behind different SMMUs are seen as different sources (§3.2, line 1236) — **PASS**: `streamMap` is a non-static instance member (smmu.h:436); each SMMU instance owns its own stream map with no shared global state
+- [x] SubstreamID maximum size of 20 bits matches the maximum size of a PCIe PASID (§3.2, line 1245) — **N/A**: informational note only; implementation enforces the 20-bit maximum via the s1cdMax>20 check above
+- [x] For PCIe, SubstreamID is intended to be directly provided from the PASID in a one-to-one fashion (§3.2, line 1256) — **PASS**: PASID parameter is passed through unmodified as SubstreamID at all call sites (smmu.cpp:2160–2162, 657, 677); no masking or transformation applied
 
 ## §3.3 Data Structures and Translation Procedure
 
