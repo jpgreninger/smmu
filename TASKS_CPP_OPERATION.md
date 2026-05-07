@@ -223,7 +223,7 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.8 Virtualization
 
-- [ ] SMMU does not provide programming interfaces for use directly by virtual machines (§3.8, line 2014)
+- [x] SMMU does not provide programming interfaces for use directly by virtual machines (§3.8, line 2014) — **N/A**: §3.8 addresses hardware-level interface partitioning between a hypervisor and guest VMs (multiple address-mapped register banks mapped to guest VMs). The C++ software behavioral model exposes a single unified SMMU class API; no hardware boundary, MMIO address space, or mechanism exists by which a guest VM could program the SMMU directly without hypervisor mediation. Consistent with §3.6 and §3.7 N/A pattern for architectural framing sections.
 
 ## §3.9 Support for PCI Express, PASIDs, PRI, and ATS
 
