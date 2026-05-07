@@ -570,8 +570,9 @@ TEST_F(SMMUPhase1TwoStageErrorsTest, MaxAddressSize_48BitIOVA_HandlesCorrectly) 
     ASSERT_TRUE(smmu->enableStream(STREAM_1).isOk());
     ASSERT_TRUE(smmu->createStreamPASID(STREAM_1, PASID_1).isOk());
 
-    // Use maximum 48-bit address
-    IOVA maxIOVA = 0xFFFFFFFFFFFFULL;
+    // Use maximum canonical address for T0SZ=16 (N=48): canonical positive half ends at 2^47-1.
+    // 0xFFFFFFFFFFFF is non-canonical per ARM §3.4.1 (bit[47]=1, bits[63:48]=0).
+    IOVA maxIOVA = 0x7FFFFFFFFFFFULL;  // canonical max (2^47-1)
     PA validPA = BASE_PA;
 
     PagePermissions perms(true, false, false);

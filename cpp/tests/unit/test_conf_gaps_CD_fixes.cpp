@@ -114,8 +114,10 @@ TEST_F(GapCT0SZTests, GapC_T0SZ16_IOVAAtLimit_FTranslation) {
 TEST_F(GapCT0SZTests, GapC_T0SZ16_IOVAWithinRange_Succeeds) {
     setupStage1StreamT0SZ(*smmu_, 16u);
 
-    // Map IOVA just below the T0SZ limit.
-    static constexpr IOVA WITHIN_IOVA = (UINT64_C(1) << 48u) - 0x1000u; // last page in range
+    // Map IOVA in the canonical positive half: below 2^47 (sign bit 0, bits[63:47] all 0).
+    // (UINT64_C(1)<<48)-0x1000 = 0xFFFF_FFFF_F000 is non-canonical per ARM §3.4.1
+    // (bit[47]=1 with bits[63:48]=0); use 0x7FFF_FFFF_F000 instead (bit[47]=0).
+    static constexpr IOVA WITHIN_IOVA = (UINT64_C(1) << 47u) - 0x1000u; // last canonical page
     PagePermissions perms(true, false, false);
     ASSERT_TRUE(smmu_->mapPage(SID, PID, WITHIN_IOVA, BASE_PA, perms).isOk());
 

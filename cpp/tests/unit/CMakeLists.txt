@@ -189,6 +189,7 @@ set(UNIT_TEST_SOURCES
     test_bug_audit148_pri_gate.cpp
     test_bug_audit149_at_least_one_stage.cpp
     test_bug_audit152_el2_el3_asid.cpp
+    test_bug_audit153_canonical_va.cpp
     ../test_thread_safety.cpp
 )
 

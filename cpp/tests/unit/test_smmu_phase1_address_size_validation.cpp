@@ -408,9 +408,11 @@ TEST_F(SMMUAddressSizeValidationTest, SizeMismatch_Stage1_Stage2_DifferentSizes)
 
     PagePermissions perms(true, false, false);
 
-    // Stage-1: 48-bit VA → 48-bit IPA
-    IOVA iova_48bit = 0x0000800000000000ULL;  // Within 48-bit range
-    IPA ipa_48bit = 0x0000400000000000ULL;    // IPA within 48-bit
+    // Stage-1: canonical VA → 48-bit IPA
+    // 0x0000_8000_0000_0000 is non-canonical per ARM §3.4.1 (bit[47]=1, bits[63:48]=0).
+    // Use 0x0000_4000_0000_0000 (bit[47]=0 → canonical positive) instead.
+    IOVA iova_48bit = 0x0000400000000000ULL;  // Canonical 47-bit VA
+    IPA ipa_48bit = 0x0000200000000000ULL;    // IPA within 48-bit
 
     // Stage-2: 48-bit IPA → 40-bit PA
     PA pa_40bit = 0x000000A000000000ULL;      // PA within 40-bit range

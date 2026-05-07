@@ -2225,6 +2225,28 @@ TranslationResult SMMU::performTwoStageTranslation(StreamID streamID, PASID pasi
             // a second F_TRANSLATION event.  The event was already queued above.
             return makeTranslationError(SMMUError::InvalidConfiguration);
         }
+
+        // BUG-AUDIT-153-CPP fix: §3.4.1 — Canonical VA sign-extension check.
+        // "Input range checks ... fail unless bits VA[AddrTop:N-1] are identical."
+        // AddrTop = 55 when TBI=1 (VA[63:56] treated as tag), else 63.
+        // N = 64 - T0SZ.  VA[AddrTop:N-1] must all equal VA[N-1] (the sign bit).
+        // A VA within the T0SZ magnitude window but with non-uniform high bits is
+        // non-canonical and must generate F_TRANSLATION (not a silent success).
+        {
+            unsigned nBits  = 64u - static_cast<unsigned>(config.t0sz);
+            unsigned addrTop = config.tbi ? 55u : 63u;
+            if (addrTop >= nBits) {
+                unsigned extWidth = addrTop - nBits + 2u; // bits in [AddrTop:N-1]
+                uint64_t upper = effectiveIova >> (nBits - 1u);
+                uint64_t mask  = (extWidth >= 64u) ? UINT64_MAX : ((UINT64_C(1) << extWidth) - 1u);
+                bool nonCanonical = (upper != 0u) && (upper != mask);
+                if (nonCanonical) {
+                    generateEvent(EventType::F_TRANSLATION, streamID, pasid, iova, securityState,
+                                  false, 0, effectiveAccessType);
+                    return makeTranslationError(SMMUError::InvalidConfiguration);
+                }
+            }
+        }
     }
 
     // NEW-7 fix: §5.4 — CD.EPD0=1: TTBR0 translation walk disabled → F_TRANSLATION.

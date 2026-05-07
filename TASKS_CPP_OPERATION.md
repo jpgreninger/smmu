@@ -82,55 +82,57 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.4 Address Sizes
 
-- [ ] SMMU input address size is 64 bits (§3.4, line 1562)
-- [ ] IAS = MAX(SMMU_IDR0.TTF[0]==1 ? 40 : 0, SMMU_IDR0.TTF[1]==1 ? OAS : 0) (§3.4, line 1568)
-- [ ] VMSAv8-32 LPAE always supports IPA size of 40 bits; IPS field of the CD is IGNORED (§3.4, line 1570)
-- [ ] OAS reflects maximum usable PA output from last stage of VMSAv8-64 or VMSAv9-128 translations; discoverable from SMMU_IDR5.OAS (§3.4, line 1572)
-- [ ] When SMMU_(*_)CR0.SMMUEN == 0 and SMMU_(*_)GBPA.ABORT == 0: if input address exceeds OAS, transaction terminated with abort and NO event recorded (§3.4, line 1576)
-- [ ] When STE.Config == 0b100 (bypass all stages): if input address exceeds OAS, transaction terminated with abort and F_ADDR_SIZE is recorded (§3.4, line 1578)
-- [ ] Stage 1 Translation fault (F_TRANSLATION) occurs if VA is outside range specified by CD (§3.4, line 1585)
-- [ ] For VMSAv8-32 LPAE CD: maximum input range is fixed at 32 bits; Translation fault if upper 32 bits are not all zero (§3.4, line 1586)
-- [ ] For VMSAv8-64: maximum input size is 48 bits if SMMU_IDR5.VAX == 0b00 or 4K/16K granule with DS==0 (§3.4, line 1593)
-- [ ] For VMSAv8-64: maximum input size is 52 bits if SMMU_IDR5.VAX == 0b01 or 0b10 and 64KB granule or DS==1 (§3.4, line 1596)
-- [ ] For VMSAv9-128: max input 48 bits if VAX==0b00; 52 bits if VAX==0b01; 55 bits EL1/EL2-E2H if VAX==0b10; 56 bits EL3 if VAX==0b10 (§3.4, line 1599)
-- [ ] VA is inside range only if correctly sign-extended from top bit of range size upwards, except for TBI configurations (§3.4, line 1605)
-- [ ] Address output from stage 1 translation causes F_ADDR_SIZE if exceeds IPA size range (§3.4, line 1609)
-- [ ] For VMSAv8-64/VMSAv9-128 CDs, IPA size given by effective IPS field of CD, capped to OAS (§3.4, line 1611)
-- [ ] When bypassing stage 1 (STE.Config == 0b1x0, STE.S1DSS == 0b01, or unimplemented): if input address exceeds IAS, stage 1 F_ADDR_SIZE occurs, transaction terminated, F_ADDR_SIZE recorded (§3.4, line 1613)
-- [ ] TBI configuration can only be enabled when a CD is used (stage 1 translates); always disabled when stage 1 bypassed or disabled (§3.4, line 1615)
-- [ ] Stage 2 Translation fault if IPA is outside range configured by S2T0SZ (§3.4, line 1623)
-- [ ] For VMSAv8-32 LPAE STE: stage 2 input range capped at 40 bits regardless of IAS size (§3.4, line 1624)
-- [ ] For VMSAv8-64/VMSAv9-128 STE: stage 2 input range capped to IAS (§3.4, line 1627)
-- [ ] Stage 2 Address Size fault if output address exceeds effective PA output range from S2PS (§3.4, line 1629)
-- [ ] For VMSAv8-32 LPAE STE: output range fixed at 40 bits; STE.S2PS field is IGNORED; if OAS < 40, address silently truncated to OAS (§3.4, line 1631)
-- [ ] After stage 2 check, if output address smaller than OAS, address is zero-extended to match OAS (§3.4, line 1633)
-- [ ] When bypassing stage 2 (STE.Config == 0b10x or unimplemented): IPA outside OAS range is silently truncated to OAS; if IPA smaller than OAS, zero-extended (§3.4, line 1635)
+> **Audit date:** 2026-05-06 — 40 items checked: 18 PASS, 21 N/A, 1 bug (BUG-AUDIT-153-CPP FIXED 2026-05-06)
+
+- [x] SMMU input address size is 64 bits (§3.4, line 1562) — **PASS**: All translation entry points accept `uint64_t IOVA`; no width truncation at ingress
+- [x] IAS = MAX(SMMU_IDR0.TTF[0]==1 ? 40 : 0, SMMU_IDR0.TTF[1]==1 ? OAS : 0) (§3.4, line 1568) — **PASS**: IDR0.TTF=0b10 (AArch64-only); TTF[0]=0 contributes 0; TTF[1]=1 contributes OAS=48; IAS=48 enforced throughout (smmu.cpp:3451-3481, smmu.cpp:3537)
+- [x] VMSAv8-32 LPAE always supports IPA size of 40 bits; IPS field of the CD is IGNORED (§3.4, line 1570) — **N/A**: VMSAv8-32 LPAE globally rejected; `!config.aa64` → C_BAD_CD (smmu.cpp:2179-2182); `!s2aa64` → C_BAD_STE (smmu.cpp:1174-1177)
+- [x] OAS reflects maximum usable PA output from last stage of VMSAv8-64 or VMSAv9-128 translations; discoverable from SMMU_IDR5.OAS (§3.4, line 1572) — **PASS**: IDR5.OAS=5 (48-bit) hardcoded at smmu.cpp:3537; `oasBits_`=48 used in all OAS enforcement paths
+- [x] When SMMU_(*_)CR0.SMMUEN == 0 and SMMU_(*_)GBPA.ABORT == 0: if input address exceeds OAS, transaction terminated with abort and NO event recorded (§3.4, line 1576) — **PASS**: smmu.cpp:286-291; bare `return makeTranslationError(SMMUError::InvalidAddress)` with no `generateEvent` call; distinct from STE-bypass path
+- [x] When STE.Config == 0b100 (bypass all stages): if input address exceeds OAS, transaction terminated with abort and F_ADDR_SIZE is recorded (§3.4, line 1578) — **PASS**: smmu.cpp:1921-1939; explicitly calls `generateEvent(EventType::F_ADDR_SIZE, ...)` before returning error
+- [x] Stage 1 Translation fault (F_TRANSLATION) occurs if VA is outside range specified by CD (§3.4, line 1585) — **PASS**: smmu.cpp:2213-2228; `effectiveIova >= vaLimit` where `vaLimit = 1 << (64-T0SZ)` generates F_TRANSLATION
+- [x] For VMSAv8-32 LPAE CD: maximum input range is fixed at 32 bits; Translation fault if upper 32 bits are not all zero (§3.4, line 1586) — **N/A**: VMSAv8-32 globally rejected (see above)
+- [x] For VMSAv8-64: maximum input size is 48 bits if SMMU_IDR5.VAX == 0b00 or 4K/16K granule with DS==0 (§3.4, line 1593) — **PASS**: VAX=0, 4KB granule; T0SZ=16 enforces N=48 via `vaLimit = 1<<48`; tested in `test_bug_audit153_canonical_va.cpp`
+- [x] For VMSAv8-64: maximum input size is 52 bits if SMMU_IDR5.VAX == 0b01 or 0b10 and 64KB granule or DS==1 (§3.4, line 1596) — **N/A**: VAX=0 only; DS field not modeled; 52-bit VA path not implemented
+- [x] For VMSAv9-128: max input 48 bits if VAX==0b00; 52 bits if VAX==0b01; 55 bits EL1/EL2-E2H if VAX==0b10; 56 bits EL3 if VAX==0b10 (§3.4, line 1599) — **N/A**: VMSAv9-128 not modeled
+- [x] VA is inside range only if correctly sign-extended from top bit of range size upwards, except for TBI configurations (§3.4, line 1605) — **PASS / BUG-AUDIT-153-CPP FIXED**: canonical VA check now at smmu.cpp:2229-2247; `upper = effectiveIova >> (N-1)`; `mask = (1<<extWidth)-1`; `nonCanonical = upper != 0 && upper != mask` → F_TRANSLATION. TDD: `test_bug_audit153_canonical_va.cpp` (2 RED tests now GREEN)
+- [x] Address output from stage 1 translation causes F_ADDR_SIZE if exceeds IPA size range (§3.4, line 1609) — **PASS**: smmu.cpp:2523-2540; IPA checked against `1ULL << ipsBits`; F_ADDR_SIZE generated on overflow
+- [x] For VMSAv8-64/VMSAv9-128 CDs, IPA size given by effective IPS field of CD, capped to OAS (§3.4, line 1611) — **PASS**: smmu.cpp:2183-2196; `config.ips > oasBits_` → C_BAD_CD
+- [x] When bypassing stage 1 (STE.Config == 0b1x0, STE.S1DSS == 0b01, or unimplemented): if input address exceeds IAS, stage 1 F_ADDR_SIZE occurs, transaction terminated, F_ADDR_SIZE recorded (§3.4, line 1613) — **PASS**: smmu.cpp:2048-2066; S1DSS=0b01 path checks OAS and calls `generateEvent(EventType::F_ADDR_SIZE, ...)`
+- [x] TBI configuration can only be enabled when a CD is used (stage 1 translates); always disabled when stage 1 bypassed or disabled (§3.4, line 1615) — **PASS**: smmu.cpp:2248-2249; TBI masking gated on `config.stage1Enabled`; bypass and stage-2-only paths never reach TBI code
+- [x] Stage 2 Translation fault if IPA is outside range configured by S2T0SZ (§3.4, line 1623) — **PASS**: smmu.cpp:2275-2291 (stage-2-only) and smmu.cpp:2543-2560 (two-stage); `ipa >= (1ULL << (64-s2t0sz))` → F_TRANSLATION
+- [x] For VMSAv8-32 LPAE STE: stage 2 input range capped at 40 bits regardless of IAS size (§3.4, line 1624) — **N/A**: VMSAv8-32 globally rejected
+- [x] For VMSAv8-64/VMSAv9-128 STE: stage 2 input range capped to IAS (§3.4, line 1627) — **PASS**: S2T0SZ enforces IAS=48 cap; out-of-range IPA → F_TRANSLATION at both stage-2 paths
+- [x] Stage 2 Address Size fault if output address exceeds effective PA output range from S2PS (§3.4, line 1629) — **PASS**: smmu.cpp:2725-2747 (two-stage) and smmu.cpp:2953-2980 (stage-2-only); `oasBitsFromS2PS(config.s2ps)` → F_ADDR_SIZE on overflow
+- [x] For VMSAv8-32 LPAE STE: output range fixed at 40 bits; STE.S2PS field is IGNORED; if OAS < 40, address silently truncated to OAS (§3.4, line 1631) — **N/A**: VMSAv8-32 globally rejected
+- [x] After stage 2 check, if output address smaller than OAS, address is zero-extended to match OAS (§3.4, line 1633) — **PASS**: stage-1-only output PA masked to OAS at smmu.cpp:2859-2875; zero-extension implicit in uint64_t (upper bits already 0)
+- [x] When bypassing stage 2 (STE.Config == 0b10x or unimplemented): IPA outside OAS range is silently truncated to OAS; if IPA smaller than OAS, zero-extended (§3.4, line 1635) — **PASS**: smmu.cpp:2859-2875 silently truncates (`pa &= oasLimit - 1`); no F_ADDR_SIZE on stage-1-only path per spec
 
 ### §3.4.1 Input Address Size and VA Size
 
-- [ ] When SMMU_IDR5.VAX == 0b00: VAS is 49 bits (2×48 bits) (§3.4.1, line 1653)
-- [ ] When SMMU_IDR5.VAX == 0b01: VAS is 53 bits (2×52 bits) (§3.4.1, line 1654)
-- [ ] When SMMU_IDR5.VAX == 0b10: VAS is 56 bits (2×55 bits for EL1/EL2-E2H, or 1×56 bits for EL3) (§3.4.1, line 1655)
-- [ ] VMSAv8-32 LPAE contexts use bits [31:0] of input address directly as VA; Translation fault if upper 32 bits are not all zero (§3.4.1, line 1660)
-- [ ] When TBI not enabled: AddrTop == 63 for sign-extension check (§3.4.1, line 1664)
-- [ ] When TBI enabled: AddrTop == 55; VA[63:56] are ignored; effective VA[63:56] taken as sign-extension of VA[55] (§3.4.1, line 1665)
-- [ ] All input address bits are recorded unmodified in SMMU fault event records (§3.4.1, line 1680)
+- [x] When SMMU_IDR5.VAX == 0b00: VAS is 49 bits (2×48 bits) (§3.4.1, line 1653) — **N/A**: VAX=0 is the only supported value; VAS description is architectural background, no runtime enforcement required beyond T0SZ check
+- [x] When SMMU_IDR5.VAX == 0b01: VAS is 53 bits (2×52 bits) (§3.4.1, line 1654) — **N/A**: VAX=0 only; 52-bit VA path not implemented
+- [x] When SMMU_IDR5.VAX == 0b10: VAS is 56 bits (2×55 bits for EL1/EL2-E2H, or 1×56 bits for EL3) (§3.4.1, line 1655) — **N/A**: VAX=0 only
+- [x] VMSAv8-32 LPAE contexts use bits [31:0] of input address directly as VA; Translation fault if upper 32 bits are not all zero (§3.4.1, line 1660) — **N/A**: VMSAv8-32 globally rejected
+- [x] When TBI not enabled: AddrTop == 63 for sign-extension check (§3.4.1, line 1664) — **PASS / BUG-AUDIT-153-CPP FIXED**: canonical check at smmu.cpp:2233 sets `addrTop = config.tbi ? 55u : 63u`; TBI=0 → AddrTop=63 enforced
+- [x] When TBI enabled: AddrTop == 55; VA[63:56] are ignored; effective VA[63:56] taken as sign-extension of VA[55] (§3.4.1, line 1665) — **PASS / BUG-AUDIT-153-CPP FIXED**: TBI=1 → AddrTop=55; `effectiveIova &= 0x00FFFFFFFFFFFFFF` strips [63:56] before canonical check; smmu.cpp:2215-2217, 2233
+- [x] All input address bits are recorded unmodified in SMMU fault event records (§3.4.1, line 1680) — **PASS**: smmu.cpp:6082; `event.address = address`; all `generateEvent` call sites pass original `iova` parameter unmodified; TBI masking applied only to `lookupIova` (smmu.cpp:2248-2249)
 
 ### §3.4.2 Address Alignment Checks
 
-- [ ] The SMMU architecture does not check the alignment of incoming transaction addresses (§3.4.2, line 1684)
+- [x] The SMMU architecture does not check the alignment of incoming transaction addresses (§3.4.2, line 1684) — **N/A**: Spec states SMMU does NOT check alignment. No implementation required or present.
 
 ### §3.4.3 Address Sizes of SMMU-Originated Accesses
 
-- [ ] SMMUv3.1+: if STE.S1ContextPtr address exceeds OAS (stage 1-only), generates C_BAD_STE (§3.4.3, line 1715)
-- [ ] SMMUv3.0: CONSTRAINED UNPREDICTABLE whether generates F_CD_FETCH, C_BAD_STE, or truncates S1ContextPtr to OAS (§3.4.3, line 1715)
-- [ ] SMMUv3.1+: if L1CD.L2Ptr address exceeds OAS (stage 1-only), generates C_BAD_SUBSTREAMID (§3.4.3, line 1723)
-- [ ] STE fetch address out-of-range: CONSTRAINED UNPREDICTABLE whether truncates address or generates F_STE_FETCH (§3.4.3, line 1731)
-- [ ] Queue and MSI access addresses exceeding OAS: truncated to OAS (§3.4.3, line 1708)
-- [ ] VMS fetch (STE.VMSPtr) address out of range: generates C_BAD_STE (§3.4.3, line 1707)
-- [ ] Starting-level translation table descriptor address in STE.S2TTB or CD.TTBx out of range: CD or STE ILLEGAL (§3.4.3, line 1711)
-- [ ] Intermediate translation table descriptor address out of range: Stage 1/2 Address Size fault (§3.4.3, line 1710)
-- [ ] The address of an L1CD or CD given by STE.S1ContextPtr or L1CD.L2Ptr is not subject to a stage 1 Address Size fault check (§3.4.3, line 1736)
+- [x] SMMUv3.1+: if STE.S1ContextPtr address exceeds OAS (stage 1-only), generates C_BAD_STE (§3.4.3, line 1715) — **N/A**: Flat model; no raw S1ContextPtr integer field stored; structured C++ objects used; same precedent as §3.3 raw-descriptor reclassification
+- [x] SMMUv3.0: CONSTRAINED UNPREDICTABLE whether generates F_CD_FETCH, C_BAD_STE, or truncates S1ContextPtr to OAS (§3.4.3, line 1715) — **N/A**: Flat model; no hardware table walk; permissive CONSTRAINED UNPREDICTABLE clause
+- [x] SMMUv3.1+: if L1CD.L2Ptr address exceeds OAS (stage 1-only), generates C_BAD_SUBSTREAMID (§3.4.3, line 1723) — **N/A**: Flat model; no L1CD.L2Ptr integer field
+- [x] STE fetch address out-of-range: CONSTRAINED UNPREDICTABLE whether truncates address or generates F_STE_FETCH (§3.4.3, line 1731) — **N/A**: Flat model; no STE fetch hardware walk; permissive CONSTRAINED UNPREDICTABLE clause
+- [x] Queue and MSI access addresses exceeding OAS: truncated to OAS (§3.4.3, line 1708) — **N/A**: Queues implemented as VecDeque/std::deque internal state; no physical queue base address emissions; same rationale as BUG-AUDIT-139 resolved N/A in TASKS_BUGS.md
+- [x] VMS fetch (STE.VMSPtr) address out of range: generates C_BAD_STE (§3.4.3, line 1707) — **N/A**: VMSPtr field not modeled; VMS subsystem absent
+- [x] Starting-level translation table descriptor address in STE.S2TTB or CD.TTBx out of range: CD or STE ILLEGAL (§3.4.3, line 1711) — **PASS**: smmu.cpp:1104-1115; S2TTB checked against `(1ULL << oasBits_)` → C_BAD_STE on overflow
+- [x] Intermediate translation table descriptor address out of range: Stage 1/2 Address Size fault (§3.4.3, line 1710) — **N/A**: Flat model; no multi-level page-table walk; intermediate descriptor addresses not emitted
+- [x] The address of an L1CD or CD given by STE.S1ContextPtr or L1CD.L2Ptr is not subject to a stage 1 Address Size fault check (§3.4.3, line 1736) — **N/A**: Flat model; no hardware descriptor fetch; constraint vacuously satisfied
 
 ## §3.5 Command and Event Queues
 

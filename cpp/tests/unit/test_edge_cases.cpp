@@ -55,7 +55,10 @@ protected:
     
     static constexpr IOVA MIN_IOVA = 0x0;
     static constexpr IOVA MAX_IOVA_32BIT = 0xFFFFFFFFULL;
-    static constexpr IOVA MAX_IOVA_48BIT = 0xFFFFFFFFFFFFULL;
+    // ARM §3.4.1: with T0SZ=16 (N=48) the canonical positive half ends at 2^47-1.
+    // 0xFFFFFFFFFFFF (2^48-1) is non-canonical (bit[47]=1, bits[63:48]=0). Use the
+    // canonical maximum 0x7FFFFFFFFFFF (2^47-1) instead.
+    static constexpr IOVA MAX_IOVA_48BIT = 0x7FFFFFFFFFFFULL;
     static constexpr IOVA INVALID_IOVA_HIGH = 0x1000000000000ULL;  // Beyond 48-bit
     
     static constexpr PA MIN_PA = 0x0;
