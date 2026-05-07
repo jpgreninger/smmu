@@ -1,4 +1,5 @@
 # Build directories
+bugs/
 build/
 cpp/build/
 rust/target/
