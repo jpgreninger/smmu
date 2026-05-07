@@ -3389,6 +3389,21 @@ void SMMU::processEventQueue() {
             eventqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
         }
     }
+    // BUG-AUDIT-154-CPP fix: ARM §3.5.3 — drain stallPending_ into eventQueue
+    // after the consumption loop completes and space has been freed.  Stall events
+    // must be recorded "when entries are consumed from the Event queue and space
+    // next becomes available" per §3.5.3 line 1824.  The drain runs post-loop so
+    // promoted stall events are not immediately re-consumed by the same call.
+    while (!stallPending_.empty() && eventQueue.size() < maxEventQueueSize) {
+        eventQueue.push_back(stallPending_.front());
+        stallPending_.pop_front();
+        // BUG-NEW-D fix: preserve OVFLG (bit 31) across the PROD advance.
+        {
+            uint32_t oldProd = eventqProd.load(std::memory_order_relaxed);
+            uint32_t newProd = advanceQueueIndex(oldProd, eventqLog2Size) | (oldProd & (1u << 31));
+            eventqProd.store(newProd, std::memory_order_release);
+        }
+    }
 }
 
 Result<bool> SMMU::hasEvents() const {

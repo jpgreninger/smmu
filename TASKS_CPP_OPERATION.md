@@ -136,70 +136,72 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.5 Command and Event Queues
 
+> **Audit date:** 2026-05-07 — 43 items checked: 22 PASS, 20 N/A, 1 bug (BUG-AUDIT-154-CPP FIXED 2026-05-07)
+
 ### §3.5.1 SMMU Circular Queues
 
-- [ ] Queue is a 2^n-items sized circular FIFO with PROD and CONS index registers (§3.5.1, line 1750)
-- [ ] For Command queue (input): PROD index updated by software after inserting; CONS updated by SMMU as items consumed (§3.5.1, line 1751)
-- [ ] PROD indicates index of location that can be written next; CONS indicates index of next location to be read (§3.5.1, line 1753)
-- [ ] Indexes must always increment and wrap to bottom when passing top entry; never moved backwards (§3.5.1, line 1753)
-- [ ] If PROD==CONS and wrap bits equal: queue is EMPTY (§3.5.1, line 1757)
-- [ ] If PROD==CONS and wrap bits different: queue is FULL (§3.5.1, line 1758)
-- [ ] Wrap bit must toggle each time index wraps off high-end back to low-end; software reads register, increments/wraps index (toggling wrap when required), writes back wrap and index fields atomically (§3.5.1, line 1755)
-- [ ] Queue indexes must be initialized into a consistent state before enabling (§3.5.1, line 1763)
-- [ ] Agent controlling SMMU must NOT write queue indexes to inconsistent states (§3.5.1, line 1771)
-- [ ] ILLEGAL inconsistent state: PROD.WR > CONS.RD and PROD.WR_WRAP != CONS.RD_WRAP (§3.5.1, line 1773)
-- [ ] ILLEGAL inconsistent state: PROD.WR < CONS.RD and PROD.WR_WRAP == CONS.RD_WRAP (§3.5.1, line 1774)
-- [ ] Each circular buffer is 2^n-items where 0 <= n <= 19; each PROD and CONS register is 20 bits (§3.5.1, line 1788)
-- [ ] When producing/consuming entries, software must only increment an index (or wrap to start); never move backwards (§3.5.1, line 1801)
-- [ ] There is one Command queue per implemented Security state; commands consumed in order (§3.5.1, line 1807)
-- [ ] All output queues (Event and PRI) are appended to sequentially (§3.5.1, line 1811)
-- [ ] When SMMU_S_IDR1.SECURE_IMPL == 1, there is one Secure Event queue receiving events from all Secure streams (§3.5.1, line 1810)
+- [x] Queue is a 2^n-items sized circular FIFO with PROD and CONS index registers (§3.5.1, line 1750) — **PASS**: `cmdqProd`/`cmdqCons`, `eventqProd`/`eventqCons`, `priqProd`/`priqCons` are `std::atomic<uint32_t>` pairs (smmu.h:488–496); capacity 2^log2Size entries via `computeLog2Size()` (smmu.cpp:89–91)
+- [x] For Command queue (input): PROD index updated by software after inserting; CONS updated by SMMU as items consumed (§3.5.1, line 1751) — **PASS**: `submitCommand()` calls `advanceQueueIndex()` on `cmdqProd` after `push_back` (smmu.cpp:3898); `processCommandQueue()` advances `cmdqCons` only after `pop_front` (smmu.cpp:4000–4002); Event queue mirrors with `generateEvent()` advancing `eventqProd` and `processEventQueue()` advancing `eventqCons`
+- [x] PROD indicates index of location that can be written next; CONS indicates index of next location to be read (§3.5.1, line 1753) — **PASS**: PROD advanced after each `push_back`; CONS advanced only after confirmed `pop_front`; `processCommandQueue()` pops before advancing CONS
+- [x] Indexes must always increment and wrap to bottom when passing top entry; never moved backwards (§3.5.1, line 1753) — **PASS**: `advanceQueueIndex(idx, log2size)` computes `(idx + 1) % (2^(log2size+1))` (smmu.cpp:62); no decrement path exists anywhere; reset to 0 only on `clearEventQueue()`/`clearCommandQueue()`
+- [x] If PROD==CONS and wrap bits equal: queue is EMPTY (§3.5.1, line 1757) — **PASS**: `isCmdqEmptyByIndex()` compares `cmdqProd & 0xFFFFF` == `cmdqCons & 0xFFFFF` (smmu.cpp:6838); 20-bit field covers both n-bit index and bit-n wrap; `isEventqEmptyByIndex()` masks OVFLG bit[31] before comparing 20 index+wrap bits (smmu.cpp:6847–6848)
+- [x] If PROD==CONS and wrap bits different: queue is FULL (§3.5.1, line 1758) — **PASS** (software-model equivalent): full detected via `commandQueue.size() >= maxCommandQueueSize` and `eventQueue.size() >= maxEventQueueSize`; PROD/CONS indices stay in lockstep with container sizes; semantically equivalent to wrap-bit full detection
+- [x] Wrap bit must toggle each time index wraps off high-end back to low-end; software reads register, increments/wraps index (toggling wrap when required), writes back wrap and index fields atomically (§3.5.1, line 1755) — **PASS**: `modulus = 2^(log2size+1)`; index bits [log2size-1:0] plus wrap bit at position log2size; wrap toggles naturally when crossing 2^log2size boundary; RMW patterns at smmu.cpp:3387–3389, 4000–4002, 5871–5873 correctly preserve OVFLG (bit 31) outside the 20-bit field
+- [x] Queue indexes must be initialized into a consistent state before enabling (§3.5.1, line 1763) — **PASS**: constructor initializes all PROD/CONS to 0 (smmu.cpp:92–97); spec-recommended empty state (PROD.WR == CONS.RD, same wrap)
+- [x] Agent controlling SMMU must NOT write queue indexes to inconsistent states (§3.5.1, line 1771) — **N/A**: behavioral requirement on the controlling agent, not the SMMU; no public raw PROD/CONS write API exposed; internal state always consistent
+- [x] ILLEGAL inconsistent state: PROD.WR > CONS.RD and PROD.WR_WRAP != CONS.RD_WRAP (§3.5.1, line 1773) — **N/A**: same rationale as above; constraint on agent, not SMMU enforcement; no API to inject inconsistent state
+- [x] ILLEGAL inconsistent state: PROD.WR < CONS.RD and PROD.WR_WRAP == CONS.RD_WRAP (§3.5.1, line 1774) — **N/A**: same rationale; constraint on agent
+- [x] Each circular buffer is 2^n-items where 0 <= n <= 19; each PROD and CONS register is 20 bits (§3.5.1, line 1788) — **PASS**: `advanceQueueIndex()` clamps `log2size` to 19 before computing modulus (smmu.cpp:60); PROD/CONS are `uint32_t` with bits [19:0] as queue index+wrap; bits above 19 carry OVFLG at bit 31 or ERR at bits [30:24] masked during index operations
+- [x] When producing/consuming entries, software must only increment an index (or wrap to start); never move backwards (§3.5.1, line 1801) — **N/A**: constraint on software driver (producer); SMMU consumer side confirmed to only use `advanceQueueIndex()` (forward-only)
+- [x] There is one Command queue per implemented Security state; commands consumed in order (§3.5.1, line 1807) — **PASS**: one `commandQueue` deque; consumed strictly in FIFO order via `commandQueue.front()` + `pop_front()` (smmu.cpp:3952–4003); Secure Command queue N/A (no Secure register namespace, consistent with §3.1 audit)
+- [x] All output queues (Event and PRI) are appended to sequentially (§3.5.1, line 1811) — **PASS**: both `eventQueue` and `priQueue` are `std::deque` with `push_back()` only; no out-of-order insertion
+- [x] When SMMU_S_IDR1.SECURE_IMPL == 1, there is one Secure Event queue receiving events from all Secure streams (§3.5.1, line 1810) — **N/A**: no Secure register namespace or Secure Event queue implemented; consistent with §3.1/§3.2 N/A verdicts
 
 ### §3.5.2 Queue Entry Visibility Semantics
 
-- [ ] Producer must ensure update to PROD index is not observable before new queue entries are observable (§3.5.2, line 1815)
-- [ ] Consumer must not assume presence of valid entry through any mechanism other than having first observed an updated PROD index covering the entry position (§3.5.2, line 1816)
-- [ ] SMMU makes queue updates observable through PROD index no later than when it asserts the queue interrupt (§3.5.2, line 1818)
+- [x] Producer must ensure update to PROD index is not observable before new queue entries are observable (§3.5.2, line 1815) — **PASS**: all PROD stores use `std::memory_order_release` (smmu.cpp:3898, 5873, 6333); queue entry insertion precedes PROD release-store in program order; C++11 equivalent of hardware memory-ordering requirement
+- [x] Consumer must not assume presence of valid entry through any mechanism other than having first observed an updated PROD index covering the entry position (§3.5.2, line 1816) — **N/A** (software model): behavioral requirement on consumer (software driver); `processEventQueue()`/`processCommandQueue()` always check `!empty()` before consuming, logically equivalent to checking PROD
+- [x] SMMU makes queue updates observable through PROD index no later than when it asserts the queue interrupt (§3.5.2, line 1818) — **N/A** (software model): `irqCtrl_`/`irqCtrlAck_` registers exist but no asynchronous hardware interrupt assertion; interrupt ordering with respect to PROD visibility inapplicable to synchronous software model
 
 ### §3.5.3 Event Queue Behavior
 
-- [ ] Stall fault events are never discarded if the Event queue is full; recorded when space next becomes available (§3.5.3, line 1824)
-- [ ] Non-stall events are discarded if the Event queue is full (§3.5.3, line 1824)
-- [ ] No requirement for terminated-transaction event to be made visible before transaction response is returned to client (§3.5.3, line 1839)
-- [ ] CMD_SYNC enforces visibility of events relating to terminated transactions (§3.5.3, line 1839)
+- [x] Stall fault events are never discarded if the Event queue is full; recorded when space next becomes available (§3.5.3, line 1824) — **PASS / BUG-AUDIT-154-CPP FIXED**: `generateEvent()` correctly parks stall events in `stallPending_` when queue full (smmu.cpp:5902–6095); `processEventQueue()` now drains `stallPending_` into `eventQueue` after each batch of entries is consumed (smmu.cpp:3392–3406). TDD: `test_bug_audit154_stall_drain.cpp`
+- [x] Non-stall events are discarded if the Event queue is full (§3.5.3, line 1824) — **PASS**: `generateEvent()` checks `eventQueue.size() >= maxEventQueueSize` for non-stall events and returns immediately; OVFLG toggled on first overflow (smmu.cpp:5877–5900)
+- [x] No requirement for terminated-transaction event to be made visible before transaction response is returned to client (§3.5.3, line 1839) — **PASS**: `generateEvent()` appends to queue asynchronously after translation result determined; caller receives result before event visibility is guaranteed
+- [x] CMD_SYNC enforces visibility of events relating to terminated transactions (§3.5.3, line 1839) — **PASS**: CMD_SYNC handler uses `cmdqProcessingMutex_` + `queueMutex` ordering; all events from prior commands visible in `eventQueue` before CMD_SYNC completes
 
 ### §3.5.4 Definition of Event Record Write "Commit"
 
-- [ ] Stall event record commit must not occur until queue entry is deemed writable (queue enabled and not full) (§3.5.4, line 1859)
-- [ ] An event write that has committed is guaranteed to eventually become visible in the Event queue unless an external abort occurs (§3.5.4, line 1857)
-- [ ] PROD.WR index must be updated to publish new record to software; record is not visible until this update (§3.5.4, line 1853)
+- [x] Stall event record commit must not occur until queue entry is deemed writable (queue enabled and not full) (§3.5.4, line 1859) — **PASS**: `generateEvent()` checks `CR0_EVENTQEN` first (smmu.cpp:5783–5785); returns without committing if EVENTQEN=0; when full, stall events go to `stallPending_` without advancing `eventqProd`; PROD advance (commit) only occurs when stall event promoted to `eventQueue`
+- [x] An event write that has committed is guaranteed to eventually become visible in the Event queue unless an external abort occurs (§3.5.4, line 1857) — **PASS** (software model): once placed in `eventQueue` and `eventqProd` advanced, no code path removes entry without advancing `eventqCons`; no external abort concept in software model; committed events always visible
+- [x] PROD.WR index must be updated to publish new record to software; record is not visible until this update (§3.5.4, line 1853) — **PASS**: `eventqProd` advanced with `memory_order_release` after `eventQueue.push_back()` (smmu.cpp:6333); store ordering ensures event data visible before PROD update
 
 ### §3.5.5 Event Merging
 
-- [ ] Events can be merged where event types and all fields are identical except fields explicitly indicated in §7.3, and if Stall field is present, Stall == 0 (§3.5.5, line 1865)
-- [ ] Stall fault records are NOT merged (§3.5.5, line 1868)
-- [ ] An implementation that merges events is required to support STE.MEV flag to enable/inhibit per-stream merging (§3.5.5, line 1870)
+- [x] Events can be merged where event types and all fields are identical except fields explicitly indicated in §7.3, and if Stall field is present, Stall == 0 (§3.5.5, line 1865) — **PASS**: MEV dedup at smmu.cpp:5852–5858 compares `type`, `streamID`, `pasid`; gated on `mevEnabled && !isStall`; merging is optional per spec
+- [x] Stall fault records are NOT merged (§3.5.5, line 1868) — **PASS**: MEV block gated `if (mevEnabled && !isStall)` (smmu.cpp:5852); stall events skip merge check; inner loop also skips existing stall entries (`!existing.stall`)
+- [x] An implementation that merges events is required to support STE.MEV flag to enable/inhibit per-stream merging (§3.5.5, line 1870) — **PASS**: `mevEnabled` read from `sc.mev` per-stream config (smmu.cpp:5808); `StreamConfig` includes `mev` field; per-stream MEV enable/disable implemented
 
 ### §3.5.6 Enhanced Command Queue Interfaces
 
-- [ ] ECMDQ support advertised in SMMU_IDR1.ECMDQ and SMMU_S_IDR0.ECMDQ (§3.5.6, line 1882)
-- [ ] Up to 256 Command queue control pages; each contains control interface for up to 256 queues (§3.5.6, line 1886)
-- [ ] Presence of ECMDQ does not imply removal of SMMU_(*_)CMDQ_* interfaces (§3.5.6, line 1891)
-- [ ] If any ECMDQ interface is enabled, SMMU_(*_)CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC} are read-only (§3.5.6.1, line 1922)
-- [ ] SMMU consumes commands from queue if queue is non-empty (§3.5.6.1, line 1926)
-- [ ] CMD_SYNC consumed from ECMDQ guarantees effects of previously-consumed commands on that queue are complete (§3.5.6.1, line 1927)
-- [ ] SMMU does not give guaranteed serialization or total order of commands consumed across different queues (§3.5.6.1, line 1933)
-- [ ] If SMMU_IDR0.SEV == 1, SMMU triggers WFE wake-up event when any ECMDQ becomes non-full (§3.5.6.1, line 1936)
-- [ ] ECMDQ interface enabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 1 (§3.5.6.2, line 1940)
-- [ ] ECMDQ interface disabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 0 (§3.5.6.2, line 1942)
-- [ ] Once disabled (ENACK == 0): errors reported, consumption stopped, and SMMU_ECMDQ_CONSn fields are stable (§3.5.6.2, line 1946)
-- [ ] SMMU updates SMMU_ECMDQ_CONSn.ENACK even if ERRACK != ERR (§3.5.6.2, line 1947)
-- [ ] On ECMDQ error: SMMU toggles SMMU_ECMDQ_CONSn.ERR and updates ERR_REASON; RD and RD_WRAP point at failed command (§3.5.6.3, line 1951)
-- [ ] If ERRACK != ERR as result of error: SMMU does not consume commands (§3.5.6.3, line 1954)
-- [ ] If ERR update is visible: updates of ERR_REASON, RD and RD_WRAP are also visible (§3.5.6.3, line 1960)
-- [ ] ECMDQ errors additionally reported in SMMU_GERROR.CMDQP_ERR for NS state; Secure ECMDQ errors in SMMU_S_GERROR.CMDQP_ERR (§3.5.6.3, line 1964)
-- [ ] ECMDQs operate independently of SMMU_(*_)GERROR.CMDQ_ERR error status (§3.5.6.3, line 1966)
-- [ ] If MSI from CMD_SYNC on ECMDQ experiences external abort: reported in SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR (§3.5.6.3, line 1974)
+- [x] ECMDQ support advertised in SMMU_IDR1.ECMDQ and SMMU_S_IDR0.ECMDQ (§3.5.6, line 1882) — **N/A**: ECMDQ not implemented; IDR1.ECMDQ=0 not advertised; feature requires dedicated hardware register pages — out of scope for software model
+- [x] Up to 256 Command queue control pages; each contains control interface for up to 256 queues (§3.5.6, line 1886) — **N/A**: ECMDQ 🚫 out of scope
+- [x] Presence of ECMDQ does not imply removal of SMMU_(*_)CMDQ_* interfaces (§3.5.6, line 1891) — **N/A**: ECMDQ 🚫 out of scope
+- [x] If any ECMDQ interface is enabled, SMMU_(*_)CR1.{QUEUE_SH, QUEUE_OC, QUEUE_IC} are read-only (§3.5.6.1, line 1922) — **N/A**: ECMDQ 🚫 out of scope
+- [x] SMMU consumes commands from queue if queue is non-empty (§3.5.6.1, line 1926) — **N/A**: ECMDQ 🚫 out of scope
+- [x] CMD_SYNC consumed from ECMDQ guarantees effects of previously-consumed commands on that queue are complete (§3.5.6.1, line 1927) — **N/A**: ECMDQ 🚫 out of scope
+- [x] SMMU does not give guaranteed serialization or total order of commands consumed across different queues (§3.5.6.1, line 1933) — **N/A**: ECMDQ 🚫 out of scope
+- [x] If SMMU_IDR0.SEV == 1, SMMU triggers WFE wake-up event when any ECMDQ becomes non-full (§3.5.6.1, line 1936) — **N/A**: ECMDQ 🚫 out of scope
+- [x] ECMDQ interface enabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 1 (§3.5.6.2, line 1940) — **N/A**: ECMDQ 🚫 out of scope
+- [x] ECMDQ interface disabled when SMMU_ECMDQ_PRODn.EN == SMMU_ECMDQ_CONSn.ENACK == 0 (§3.5.6.2, line 1942) — **N/A**: ECMDQ 🚫 out of scope
+- [x] Once disabled (ENACK == 0): errors reported, consumption stopped, and SMMU_ECMDQ_CONSn fields are stable (§3.5.6.2, line 1946) — **N/A**: ECMDQ 🚫 out of scope
+- [x] SMMU updates SMMU_ECMDQ_CONSn.ENACK even if ERRACK != ERR (§3.5.6.2, line 1947) — **N/A**: ECMDQ 🚫 out of scope
+- [x] On ECMDQ error: SMMU toggles SMMU_ECMDQ_CONSn.ERR and updates ERR_REASON; RD and RD_WRAP point at failed command (§3.5.6.3, line 1951) — **N/A**: ECMDQ 🚫 out of scope
+- [x] If ERRACK != ERR as result of error: SMMU does not consume commands (§3.5.6.3, line 1954) — **N/A**: ECMDQ 🚫 out of scope
+- [x] If ERR update is visible: updates of ERR_REASON, RD and RD_WRAP are also visible (§3.5.6.3, line 1960) — **N/A**: ECMDQ 🚫 out of scope
+- [x] ECMDQ errors additionally reported in SMMU_GERROR.CMDQP_ERR for NS state; Secure ECMDQ errors in SMMU_S_GERROR.CMDQP_ERR (§3.5.6.3, line 1964) — **N/A**: ECMDQ 🚫 out of scope
+- [x] ECMDQs operate independently of SMMU_(*_)GERROR.CMDQ_ERR error status (§3.5.6.3, line 1966) — **N/A**: ECMDQ 🚫 out of scope
+- [x] If MSI from CMD_SYNC on ECMDQ experiences external abort: reported in SMMU_(*_)GERROR.MSI_CMDQ_ABT_ERR (§3.5.6.3, line 1974) — **N/A**: ECMDQ 🚫 out of scope
 
 ## §3.6 Structure and Queue Ownership
 
