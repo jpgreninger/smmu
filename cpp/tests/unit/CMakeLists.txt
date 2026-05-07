@@ -187,6 +187,8 @@ set(UNIT_TEST_SOURCES
     test_cpp_audit_p3_spotcheck.cpp
     test_cpp_audit_p4_na_justification.cpp
     test_bug_audit148_pri_gate.cpp
+    test_bug_audit149_at_least_one_stage.cpp
+    test_bug_audit152_el2_el3_asid.cpp
     ../test_thread_safety.cpp
 )
 

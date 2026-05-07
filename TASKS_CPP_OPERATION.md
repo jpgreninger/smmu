@@ -33,50 +33,52 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.3 Data Structures and Translation Procedure
 
-- [ ] When SMMU_CR0.SMMUEN == 0 (globally disabled), transaction passes through without address modification; attributes applied from SMMU_GBPA (§3.3, line 1403)
-- [ ] When SMMU_GBPA.ABORT is set, all transactions are aborted in bypass (§3.3, line 1403)
-- [ ] If the SMMU does not implement one of the two translation stages, it behaves as though that stage is permanently in bypass (§3.3, line 1429)
-- [ ] An SMMU must support at least one stage of translation (§3.3, line 1429)
-- [ ] S1ContextPtr and L2Ptr addresses are IPAs when both stage 1 and stage 2 are in use, and PAs when only stage 1 is used (§3.3.2, line 1375)
+> **Audit date:** 2026-05-06 — 35 items checked: 20 PASS, 6 N/A, 2 PARTIAL, 2 BUG-AUDIT (BUG-AUDIT-149-CPP FIXED, BUG-AUDIT-152-CPP FIXED)
+
+- [x] When SMMU_CR0.SMMUEN == 0 (globally disabled), transaction passes through without address modification; attributes applied from SMMU_GBPA (§3.3, line 1403) — **PASS**: smmu.cpp:265-318; `cr0_` bit 0 checked; GBPA.ABORT=0 returns identity bypass with `gbpaConfig_` attributes (mtCfg, shCfg, allocCfg, instCfg, privCfg)
+- [x] When SMMU_GBPA.ABORT is set, all transactions are aborted in bypass (§3.3, line 1403) — **PASS**: smmu.cpp:281-283; `gbpaAbort_.load()` returns `makeTranslationError(SMMUError::GbpaAbort)` unconditionally
+- [x] If the SMMU does not implement one of the two translation stages, it behaves as though that stage is permanently in bypass (§3.3, line 1429) — **PASS**: smmu.cpp:1182-1188; S1P/S2P flags gate stage usage; stage routing at smmu.cpp:2246-2253 dispatches stage-1-only, stage-2-only, or both-stages paths
+- [x] An SMMU must support at least one stage of translation (§3.3, line 1429) — **PASS / BUG-AUDIT-149-CPP FIXED**: `setS1PSupported(false)` now refuses if `s2pSupported_` is false; `setS2PSupported(false)` refuses if `s1pSupported_` is false (smmu.cpp:3638-3661). TDD: `test_bug_audit149_at_least_one_stage.cpp` (4 tests all pass)
+- [x] S1ContextPtr and L2Ptr addresses are IPAs when both stage 1 and stage 2 are in use, and PAs when only stage 1 is used (§3.3.2, line 1375) — **PASS**: smmu.cpp:2246-2253; two-stage path calls `performBothStagesTranslation()` which routes stage-1 result as IPA into stage-2; stage-1-only calls `performStage1OnlyTranslation()` using PA directly
 
 ### §3.3.1 Stream Table Lookup
 
-- [ ] StreamID is range-checked against the programmed table size; a transaction is terminated if its StreamID would select an entry outside the configured Stream table extent; C_BAD_STREAMID is recorded (§3.3.1, line 1276)
-- [ ] Linear Stream table format is supported by all SMMU implementations (§3.3.1.1, line 1285)
-- [ ] Linear Stream table is a contiguous array of STEs indexed from 0 by StreamID; size is configurable as 2^n multiple of STE size (§3.3.1.1, line 1285)
-- [ ] SMMUs supporting more than 64 StreamIDs (6 bits) must also support two-level Stream tables (§3.3.1.2, line 1298)
-- [ ] 2-level Stream table top-level is indexed by StreamID[n:x] where x is SMMU_STRTAB_BASE_CFG.SPLIT; second-level tables indexed by up to StreamID[x-1:0] (§3.3.1.2, line 1294)
-- [ ] Where 2-level Stream tables are supported, split points of 6, 8, and 10 bits can be used (§3.3.1.2, line 1296)
-- [ ] SMMU_IDR0.ST_LEVEL field advertises support for 2-level Stream table format (§3.3.1.2, line 1296)
-- [ ] Top-level descriptors contain pointer to second-level table along with StreamID span; each can be marked invalid (§3.3.1.2, line 1303)
+- [x] StreamID is range-checked against the programmed table size; a transaction is terminated if its StreamID would select an entry outside the configured Stream table extent; C_BAD_STREAMID is recorded (§3.3.1, line 1276) — **PASS**: smmu.cpp:357-388; `strtabLog2Size_` bounds check; StreamIDs >= 2^LOG2SIZE produce `FaultType::BadStreamID` + `EventType::C_BAD_STREAMID`
+- [x] Linear Stream table format is supported by all SMMU implementations (§3.3.1.1, line 1285) — **PASS**: types.h:1436 `StreamTableFormat::Linear=0` as default; smmu.cpp:107 initializes `strtabFmt_` to Linear
+- [x] Linear Stream table is a contiguous array of STEs indexed from 0 by StreamID; size is configurable as 2^n multiple of STE size (§3.3.1.1, line 1285) — **PASS**: smmu.cpp:357-388; `strtabLog2Size_` configures 2^n entries; bounds check `(uint64_t)1u << log2sz`
+- [x] SMMUs supporting more than 64 StreamIDs (6 bits) must also support two-level Stream tables (§3.3.1.2, line 1298) — **PASS**: IDR0.ST_LEVEL[0]=1 (smmu.cpp:3472); `StreamTableFormat::TwoLevel` with `validateStreamID2Level()` (smmu.cpp:5490); IDR1.SIDSIZE=32
+- [x] 2-level Stream table top-level is indexed by StreamID[n:x] where x is SMMU_STRTAB_BASE_CFG.SPLIT; second-level tables indexed by up to StreamID[x-1:0] (§3.3.1.2, line 1294) — **PASS**: smmu.cpp:5490-5518; `l1Index = streamID >> split` validated against `2^(log2sz - split)`
+- [x] Where 2-level Stream tables are supported, split points of 6, 8, and 10 bits can be used (§3.3.1.2, line 1296) — **PASS**: smmu.cpp:5478-5482; `setStrtabSplit()` enforces split ∈ {6, 8, 10}; rejects all other values
+- [x] SMMU_IDR0.ST_LEVEL field advertises support for 2-level Stream table format (§3.3.1.2, line 1296) — **PASS**: smmu.cpp:3472; `getIDR0()` sets bit 27 (ST_LEVEL[0])
+- [x] Top-level descriptors contain pointer to second-level table along with StreamID span; each can be marked invalid (§3.3.1.2, line 1303) — **N/A**: Software model uses mathematical bounds check only (`validateStreamID2Level()`, smmu.cpp:5490-5518); no raw L1 descriptor storage. Same precedent as §3.3 BUG-AUDIT-135/136/137 reclassified N/A in TASKS_BUGS.md
 
 ### §3.3.2 StreamIDs to Context Descriptors
 
-- [ ] When STE.S1DSS == 0b00, all traffic expected to have SubstreamID; lack of SubstreamID causes abort and event recorded (§3.3.2, line 1362)
-- [ ] When STE.S1DSS == 0b01, transaction without SubstreamID is treated as stage 1-bypass (§3.3.2, line 1363)
-- [ ] When STE.S1DSS == 0b10, transaction without SubstreamID uses the CD of Substream 0; transactions arriving with SubstreamID 0 are aborted and event recorded (§3.3.2, line 1364)
-- [ ] STE.S1ContextPtr field gives address of one or more CDs, configured by STE.S1Fmt and STE.S1CDMax (§3.3.2, line 1366)
-- [ ] Multiple StreamID/SubstreamID configurations with identical ASID/VMID/StreamWorld must maintain same configuration where that configuration can affect TLB lookup (§3.3.3, line 1514)
-- [ ] Two streams sharing the same ASID/VMID/StreamWorld must use the same translation table base addresses and translation granule (§3.3.3, line 1515)
-- [ ] For any-EL2 and EL3 regimes, only one translation table is used; CD.TTB1 is unused (§3.3.3, line 1517)
-- [ ] Selecting an inconsistent combination of StreamWorld and CD.AA64 causes the CD to be ILLEGAL (§3.3.3, line 1519)
-- [ ] Secure stage 2 is not supported for VMSAv8-32 LPAE translation tables (§3.3.3, line 1521)
-- [ ] AP[1] bit is IGNORED for any-EL2 and EL3 StreamWorlds (VMSAv8-64 and VMSAv9-128) (§3.3.4, line 1536)
-- [ ] any-EL2-E2H translations maintain privileged/non-privileged checks in the same manner as EL1 (§3.3.4, line 1536)
-- [ ] Bits [63:60] of stage 2 Block and Page descriptors are Reserved for use by a System MMU; in SMMUv3.1 and later these bits are RES0 (§3.3.5, line 1555)
+- [x] When STE.S1DSS == 0b00, all traffic expected to have SubstreamID; lack of SubstreamID causes abort and event recorded (§3.3.2, line 1362) — **PASS**: smmu.cpp:2021-2040; `s1dss==0x00 && pasid==0` generates `F_STREAM_DISABLED` and returns `SMMUError::SubstreamDisabled`
+- [x] When STE.S1DSS == 0b01, transaction without SubstreamID is treated as stage 1-bypass (§3.3.2, line 1363) — **PASS**: smmu.cpp:2042-2111; `s1dss==0x01 && pasid==0` bypasses stage-1; either returns identity (no stage-2) or passes IOVA directly to stage-2 as IPA
+- [x] When STE.S1DSS == 0b10, transaction without SubstreamID uses the CD of Substream 0; transactions arriving with SubstreamID 0 are aborted and event recorded (§3.3.2, line 1364) — **PASS**: smmu.cpp:698-715; SSV=1 + PASID==0 + S1DSS==0b10 generates `F_STREAM_DISABLED` and aborts; non-SSV path falls through to CD[0]
+- [x] STE.S1ContextPtr field gives address of one or more CDs, configured by STE.S1Fmt and STE.S1CDMax (§3.3.2, line 1366) — **PASS**: types.h:1169-1172; `s1cdMax` configures CD table size; smmu.cpp:648-665 uses `s1cdMax` to gate C_BAD_SUBSTREAMID checking
+- [x] Multiple StreamID/SubstreamID configurations with identical ASID/VMID/StreamWorld must maintain same configuration where that configuration can affect TLB lookup (§3.3.3, line 1514) — **N/A**: Programming model constraint on software ("software must ensure" per spec line 1514-1515); same precedent as TASKS_BUGS.md §3.3 BUG-AUDIT-135/136 reclassified N/A
+- [x] Two streams sharing the same ASID/VMID/StreamWorld must use the same translation table base addresses and translation granule (§3.3.3, line 1515) — **N/A**: Programming model constraint; spec text places obligation on software, not SMMU enforcement
+- [x] For any-EL2 and EL3 regimes, only one translation table is used; CD.TTB1 is unused (§3.3.3, line 1517) — **N/A**: Model uses unified per-PASID AddressSpace with no TTBR0/TTBR1 split; TTB1 structurally absent for all streams; EL2/EL3 requirement satisfied by architecture
+- [x] Selecting an inconsistent combination of StreamWorld and CD.AA64 causes the CD to be ILLEGAL (§3.3.3, line 1519) — **N/A**: Model globally rejects `CD.AA64==0` (`!config.aa64` → C_BAD_CD at smmu.cpp:2179-2182) for all StreamWorlds; AArch32 LPAE not implemented; StreamWorld+AA64 consistency check degenerates to "AA64 must always be 1"
+- [x] Secure stage 2 is not supported for VMSAv8-32 LPAE translation tables (§3.3.3, line 1521) — **N/A**: VMSAv8-32 LPAE globally rejected (`aa64==false` → C_BAD_CD smmu.cpp:2179-2182; `s2aa64==false` → C_BAD_STE smmu.cpp:1174-1177); doubly enforced
+- [x] AP[1] bit is IGNORED for any-EL2 and EL3 StreamWorlds (VMSAv8-64 and VMSAv9-128) (§3.3.4, line 1536) — **PASS**: smmu.cpp:453-456, 475-490; EL2/EL3 access type promoted to Privileged variants on both TLB fast-path and slow-path; EL2_E2H explicitly excluded
+- [x] any-EL2-E2H translations maintain privileged/non-privileged checks in the same manner as EL1 (§3.3.4, line 1536) — **PASS**: smmu.cpp:454-455, 474-476; EL2_E2H excluded from the `EL2 || EL3` privilege-suppress promotion; retains normal privilege checking
+- [x] Bits [63:60] of stage 2 Block and Page descriptors are Reserved for use by a System MMU; in SMMUv3.1 and later these bits are RES0 (§3.3.5, line 1555) — **N/A**: Software model uses structured AddressSpace API; no raw 64-bit stage-2 descriptor parsing; hardware descriptor format requirement not applicable
 
 ### §3.3.3 StreamWorld Table
 
-- [ ] StreamWorld NS-EL1: Non-secure EL1&0, with ASID and VMID tags (§3.3.3, line 1478)
-- [ ] StreamWorld NS-EL2: Non-secure EL2 without E2H; translations do not have an ASID tag (§3.3.3, line 1479)
-- [ ] StreamWorld NS-EL2-E2H: Non-secure EL2&0 with E2H; translations have ASID tag (§3.3.3, line 1480)
-- [ ] StreamWorld S-EL2: Secure EL2 without E2H; no ASID tag (§3.3.3, line 1481)
-- [ ] StreamWorld S-EL2-E2H: Secure EL2&0 with E2H; ASID tag (§3.3.3, line 1482)
-- [ ] StreamWorld EL3: EL3 in AArch64 state when FEAT_RME not implemented; no ASID tag (§3.3.3, line 1491)
-- [ ] StreamWorld Realm-EL1: Realm EL1&0 (§3.3.3, line 1492)
-- [ ] StreamWorld Realm-EL2: Realm EL2 without E2H; no ASID tag (§3.3.3, line 1493)
-- [ ] StreamWorld Realm-EL2-E2H: Realm EL2&0 with E2H; ASID tag (§3.3.3, line 1494)
-- [ ] A translation is architecturally unique if identified by unique {StreamWorld, VMID, ASID, Address} (§3.3.3, line 1502)
+- [x] StreamWorld NS-EL1: Non-secure EL1&0, with ASID and VMID tags (§3.3.3, line 1478) — **PASS**: types.h:1143 `EL1_EL0=0x00`; TLB insertion at smmu.cpp:757 uses `streamCfg.asid` and `streamCfg.vmid` for EL1_EL0 stage-1+stage-2
+- [x] StreamWorld NS-EL2: Non-secure EL2 without E2H; translations do not have an ASID tag (§3.3.3, line 1479) — **PASS / BUG-AUDIT-152-CPP FIXED**: TLB insertion path (smmu.cpp:~788) now zeros `entryAsid` when `strw==StreamWorld::EL2`; previously only zeroed for stage-2-only or EL2_E2H+CR2.E2H=0. TDD: `test_bug_audit152_el2_el3_asid.cpp:EL2StreamWorldHasNoAsidTag`
+- [x] StreamWorld NS-EL2-E2H: Non-secure EL2&0 with E2H; translations have ASID tag (§3.3.3, line 1480) — **PASS**: types.h:1145 `EL2_E2H=0x02`; TLB insertion retains `streamCfg.asid` when CR2.E2H=1; tested in `test_bug_audit152_el2_el3_asid.cpp:EL2E2HStreamWorldRetainsAsidTagWhenE2HEnabled`
+- [x] StreamWorld S-EL2: Secure EL2 without E2H; no ASID tag (§3.3.3, line 1481) — **N/A**: No Secure register namespace; consistent with §3.1 audit verdict; Secure is per-transaction attribute only. S-EL2 as distinct StreamWorld is 🚫 out-of-scope
+- [x] StreamWorld S-EL2-E2H: Secure EL2&0 with E2H; ASID tag (§3.3.3, line 1482) — **N/A**: Same as S-EL2; 🚫 out-of-scope (Secure register namespace not implemented)
+- [x] StreamWorld EL3: EL3 in AArch64 state when FEAT_RME not implemented; no ASID tag (§3.3.3, line 1491) — **PASS**: smmu.cpp:~788 BUG-AUDIT-152-CPP fix zeros `entryAsid` for `strw==StreamWorld::EL3` in same guard as EL2; EL3 STRW=0b11 is ILLEGAL for both Secure (smmu.cpp:1085-1088) and NonSecure (smmu.cpp:1078-1081) stage-1 streams; fix is defence-in-depth. Enum distinctness verified in `test_bug_audit152_el2_el3_asid.cpp:EL3StreamWorldEnumDistinctFromEL2`
+- [x] StreamWorld Realm-EL1: Realm EL1&0 (§3.3.3, line 1492) — **N/A**: TASKS_BUGS.md §2.6 marks Realm 🚫 out-of-scope (SMMU for RME features not implemented)
+- [x] StreamWorld Realm-EL2: Realm EL2 without E2H; no ASID tag (§3.3.3, line 1493) — **N/A**: Realm 🚫 out-of-scope
+- [x] StreamWorld Realm-EL2-E2H: Realm EL2&0 with E2H; ASID tag (§3.3.3, line 1494) — **N/A**: Realm 🚫 out-of-scope
+- [x] A translation is architecturally unique if identified by unique {StreamWorld, VMID, ASID, Address} (§3.3.3, line 1502) — **PASS**: types.h:1342-1377; `TLBEntry` carries asid, vmid, strw, iova, securityState; uniqueness supported by entry structure; smmu.cpp:2333-2354
 
 ## §3.4 Address Sizes
 

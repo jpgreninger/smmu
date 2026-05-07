@@ -779,6 +779,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 (cr2_.load(std::memory_order_acquire) & CR2_E2H) == 0u) {
                 entryAsid = 0;
             }
+            // BUG-AUDIT-152-CPP fix: §3.3.3 lines 1479 and 1491 — NS-EL2 (without E2H)
+            // and EL3 StreamWorlds have no ASID tag. Zero entryAsid for these regimes
+            // regardless of whether stage 1 or stage 2 is enabled.
+            if (streamCfg.strw == StreamWorld::EL2 || streamCfg.strw == StreamWorld::EL3) {
+                entryAsid = 0;
+            }
             cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid, streamCfg.strw);
         }
     } else if (result.isError()) {
@@ -3635,7 +3641,12 @@ bool SMMU::isHypSupported() const {
 
 // BUG-NEW-39 fix: IDR0.S2P is now configurable so the CERROR_ILL guard for
 // TLBI_S12_VMALL / TLBI_S2_IPA (§4.4.3.1/§4.4.3.2) is exercisable in tests.
+// BUG-AUDIT-149-CPP fix: §3.3 line 1429 — SMMU must support at least one stage.
+// If disabling S2P would leave S1P also false, the request is silently ignored.
 void SMMU::setS2PSupported(bool enabled) {
+    if (!enabled && !s1pSupported_.load(std::memory_order_acquire)) {
+        return; // §3.3 line 1429: at least one stage required; refuse to clear the last one.
+    }
     s2pSupported_.store(enabled, std::memory_order_release);
 }
 
@@ -3645,7 +3656,12 @@ bool SMMU::isS2PSupported() const {
 
 // BUG-AUDIT-NEW-03 fix: IDR0.S1P is now configurable so the CERROR_ILL guard for
 // TLBI_NH_ALL/ASID/VA/VAA (§4.4.2.1-4) and CFGI_CD/ALL (§4.3.3/4.3.4) is exercisable.
+// BUG-AUDIT-149-CPP fix: §3.3 line 1429 — SMMU must support at least one stage.
+// If disabling S1P would leave S2P also false, the request is silently ignored.
 void SMMU::setS1PSupported(bool enabled) {
+    if (!enabled && !s2pSupported_.load(std::memory_order_acquire)) {
+        return; // §3.3 line 1429: at least one stage required; refuse to clear the last one.
+    }
     s1pSupported_.store(enabled, std::memory_order_release);
 }
 
