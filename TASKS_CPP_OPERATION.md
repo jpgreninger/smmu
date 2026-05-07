@@ -205,12 +205,14 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.6 Structure and Queue Ownership
 
-- [ ] Non-secure Stream table, Command queue, Event queue and PRI queue are controlled by the most privileged Non-secure system software (§3.6, line 1979)
-- [ ] Secure Stream table, Secure Command queue and Secure Event queue are controlled by Secure software (§3.6, line 1981)
-- [ ] Stage 2 translation tables indicated by all STEs are controlled by a hypervisor (§3.6, line 1983)
-- [ ] CDs and stage 1 translation tables pointed to by a Secure STE are controlled by Secure software; by a Non-secure STE, by Non-secure software; by a Realm STE, by Realm software (§3.6, line 1984)
-- [ ] In virtualized scenarios, Arm expects hypervisor to convert guest STEs into physical SMMU STEs, controlling permissions and features as required (§3.6, line 1996)
-- [ ] Hypervisor reads and interprets commands from guest Command queue; these might result in SMMU commands or invalidation of internal shadowed structures (§3.6, line 2000)
+> **Audit date:** 2026-05-07 — 6 items checked: 0 PASS, 6 N/A, 0 bugs
+
+- [x] Non-secure Stream table, Command queue, Event queue and PRI queue are controlled by the most privileged Non-secure system software (§3.6, line 1979) — **N/A**: "Arm expects" language places obligation on external system software callers, not on the SMMU to authenticate/enforce caller privilege; model exposes `streamMap`, `commandQueue`, `eventQueue`, `priQueue` via public API accepting any caller without privilege verification; correct per spec intent
+- [x] Secure Stream table, Secure Command queue and Secure Event queue are controlled by Secure software (§3.6, line 1981) — **N/A**: No Secure register namespace (`SMMU_S_*`) implemented; consistent with §3.1/§3.2 audit verdicts; Secure instances of stream table and queues do not exist in this model
+- [x] Stage 2 translation tables indicated by all STEs are controlled by a hypervisor (§3.6, line 1983) — **N/A**: Software-ownership expectation only; model implements stage-2 (`setStreamStage2AddressSpace`, `performBothStagesTranslation`) and accepts stage-2 configuration from any caller; SMMU does not track or enforce caller identity as hypervisor
+- [x] CDs and stage 1 translation tables pointed to by a Secure STE are controlled by Secure software; by a Non-secure STE, by Non-secure software; by a Realm STE, by Realm software (§3.6, line 1984) — **N/A**: Software-ownership expectation; SMMU does not verify CD creator matches STE `securityState`; additionally, Realm security state is not implemented as a functional namespace (🚫 out-of-scope)
+- [x] In virtualized scenarios, Arm expects hypervisor to convert guest STEs into physical SMMU STEs, controlling permissions and features as required (§3.6, line 1996) — **N/A**: No hypervisor virtualization layer; `configureStream()` programs physical `StreamContext` objects directly into `streamMap` (smmu.cpp:1060); no guest-to-host STE conversion pipeline or virtual-to-physical StreamID mapping
+- [x] Hypervisor reads and interprets commands from guest Command queue; these might result in SMMU commands or invalidation of internal shadowed structures (§3.6, line 2000) — **N/A**: Single unified command queue (`commandQueue`, processed by `processCommandQueue()` smmu.cpp:3917); no guest/host CMDQ split, no shadowed-structure invalidation path, no hypervisor-mediated command translation; hypervisor virtualization layer not implemented
 
 ## §3.7 Programming Registers
 
