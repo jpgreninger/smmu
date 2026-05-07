@@ -216,8 +216,10 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.7 Programming Registers
 
-- [ ] SMMU registers occupy a set of contiguous 64K pages of system address space (§3.7, line 2006)
-- [ ] Optional regions of IMPLEMENTATION DEFINED register space are supported in the memory map (§3.7, line 2007)
+> **Audit date:** 2026-05-07 — 2 items checked: 0 PASS, 2 N/A, 0 bugs
+
+- [x] SMMU registers occupy a set of contiguous 64K pages of system address space (§3.7, line 2006) — **N/A**: Software model exposes registers via C++ accessor methods (`getCR0/setCR0`, `getIDR0..IDR5`, `getAIDR`, `getIIDR`, etc. in include/smmu/smmu.h:258–390); no MMIO/address-decoded 64K page region simulated anywhere in cpp/include/ or cpp/src/. Architectural requirement about physical address space layout does not apply to a non-hardware behavioral model.
+- [x] Optional regions of IMPLEMENTATION DEFINED register space are supported in the memory map (§3.7, line 2007) — **N/A**: "Optional" by spec (no implementation required to provide IMPDEF register regions); additionally, no underlying register memory map exists in the model to host such regions (consistent with line 2006 N/A). IMPDEF fields within individual registers (IIDR=0, AIDR=0x02, CMD_SYNC/ATC_INV completion) already covered by §3.1 audit.
 
 ## §3.8 Virtualization
 
