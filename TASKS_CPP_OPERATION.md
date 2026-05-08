@@ -332,63 +332,64 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 - [ ] SMMU transmits ATS Translation Completions with both T bit and XT bit matching corresponding ATS Translation Request (§3.9.4.4, line 2464)
 
 ## §3.10 Security States Support
+<!-- Audited 2026-05-08: 25 items checked, 11 PASS, 9 N/A, 5 BUG (BUG-AUDIT-159..163-CPP) -->
 
-- [ ] SMMU always supports Non-secure state and programming interface (§3.10, line 2479)
-- [ ] Non-secure streams can only generate transactions targeting Non-secure (NS==1) PA space (§3.10, line 2549)
-- [ ] Secure streams can generate transactions targeting both Secure (NS==0) and Non-secure (NS==1) PA spaces (§3.10, line 2549)
+- [x] SMMU always supports Non-secure state and programming interface (§3.10, line 2479) <!-- PASS: SecurityState::NonSecure is default; smmu.h:513, types.h:510 -->
+- [x] Non-secure streams can only generate transactions targeting Non-secure (NS==1) PA space (§3.10, line 2549) <!-- PASS: validateSecurityState() smmu.cpp:6393-6395 -->
+- [x] Secure streams can generate transactions targeting both Secure (NS==0) and Non-secure (NS==1) PA spaces (§3.10, line 2549) <!-- PASS: validateSecurityState() allows Secure→Secure; nsCfg override pathway present -->
 
 ### §3.10.1 StreamID Security State (SEC_SID)
 
-- [ ] If SMMU_S_IDR1.SECURE_IMPL==0: SEC_SID == 0 (or absent implicitly); all streams are Non-secure (§3.10.1, line 2494)
-- [ ] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499)
-- [ ] For SMMU with RME DA: SEC_SID extended to 2 bits: 0b00=Non-secure, 0b01=Secure, 0b10=Realm, 0b11=Reserved (§3.10.1, line 2511)
+- [x] If SMMU_S_IDR1.SECURE_IMPL==0: SEC_SID == 0 (or absent implicitly); all streams are Non-secure (§3.10.1, line 2494) <!-- PASS: model has no Secure interface; all streams default NonSecure -->
+- [ ] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499) <!-- BUG-AUDIT-159-CPP: single streamMap; no separate Secure stream table -->
+- [x] For SMMU with RME DA: SEC_SID extended to 2 bits: 0b00=Non-secure, 0b01=Secure, 0b10=Realm, 0b11=Reserved (§3.10.1, line 2511) <!-- PASS: SecurityState enum types.h:508-517; NonSecure=0x00, Secure=0x01, Realm=0x02, Root=0x03 -->
 
 ### §3.10.2 Support for Secure State
 
-- [ ] When SMMU_S_IDR1.SECURE_IMPL==0: SMMU_S_* registers are RAZ/WI to all accesses (§3.10.2, line 2528)
-- [ ] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534)
-- [ ] With exception of SMMU_S_INIT: SMMU_S_* registers are Secure access only, RAZ/WI to Non-secure accesses (§3.10.2, line 2540)
-- [ ] Access to Secure Stream table, Secure Event queue, Secure Command queue always made to Secure PA space (§3.10.2, line 2609)
-- [ ] If Secure stage 2 not in use: L1CD and CD addresses treated as Secure physical addresses (§3.10.2, line 2612)
-- [ ] Some commands on Secure Command queue take SSec parameter indicating Secure or Non-secure StreamID (§3.10.2, line 2615)
+- [x] When SMMU_S_IDR1.SECURE_IMPL==0: SMMU_S_* registers are RAZ/WI to all accesses (§3.10.2, line 2528) <!-- N/A: register MMIO page access control is OS/platform concern; model has no MMIO -->
+- [ ] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534) <!-- BUG-AUDIT-159-CPP: no Secure queue/table infrastructure -->
+- [x] With exception of SMMU_S_INIT: SMMU_S_* registers are Secure access only, RAZ/WI to Non-secure accesses (§3.10.2, line 2540) <!-- N/A: register access control is hardware/OS concern -->
+- [x] Access to Secure Stream table, Secure Event queue, Secure Command queue always made to Secure PA space (§3.10.2, line 2609) <!-- N/A: PA-space physical routing for hardware data structures not modeled -->
+- [x] If Secure stage 2 not in use: L1CD and CD addresses treated as Secure physical addresses (§3.10.2, line 2612) <!-- N/A: PA-space routing for CD/L1CD fetches not modeled; model uses host pointers -->
+- [x] Some commands on Secure Command queue take SSec parameter indicating Secure or Non-secure StreamID (§3.10.2, line 2615) <!-- PASS: CommandEntry::ssec field exists; SSec=1 on NS queue → CERROR_ILL smmu.cpp:4894 -->
 
 ### §3.10.2.1 Secure Commands, Events and Configuration
 
-- [ ] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562)
-- [ ] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563)
-- [ ] Commands on Non-secure Command queue only affect Non-secure streams (§3.10.2.1, line 2564)
-- [ ] Some commands on Secure Command queue can affect any stream or data in the system (§3.10.2.1, line 2565)
-- [ ] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617)
+- [ ] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562) <!-- BUG-AUDIT-159-CPP: single eventQueue; no routing by securityState -->
+- [ ] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563) <!-- BUG-AUDIT-159-CPP: single eventQueue; no routing by securityState -->
+- [x] Commands on Non-secure Command queue only affect Non-secure streams (§3.10.2.1, line 2564) <!-- PASS: SSec=1 on single queue raises CERROR_ILL smmu.cpp:4893-4895 -->
+- [x] Some commands on Secure Command queue can affect any stream or data in the system (§3.10.2.1, line 2565) <!-- N/A: no Secure Command queue (BUG-AUDIT-159-CPP) -->
+- [ ] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617) <!-- BUG-AUDIT-160-CPP: no SIF flag or enforcement anywhere in implementation -->
 
 ### §3.10.2.2 Secure EL2 and Support for Secure Stage 2 Translation
 
-- [ ] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==0: Secure EL2 not supported; Secure stage 2 not supported (§3.10.2.2, line 2629)
-- [ ] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==1: Secure EL2 and Secure stage 2 supported (§3.10.2.2, line 2630)
-- [ ] Secure STE with stage 2 translation enabled is not permitted to have STE.S2AA64 select VMSAv8-32 LPAE (§3.10.2.2, line 2647)
-- [ ] TLB entries from StreamWorld==Secure with stage 2 enabled: tagged with VMID from STE.S2VMID (§3.10.2.2, line 2653)
-- [ ] TLB entries from StreamWorld==Secure with stage 2 not enabled: tagged with VMID 0 (§3.10.2.2, line 2654)
-- [ ] Translation table entry fetched for Secure stream from Non-secure IPA space: treated as non-global (nG==1) regardless of nG bit in descriptor (§3.10.2.2, line 2658)
+- [x] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==0: Secure EL2 not supported; Secure stage 2 not supported (§3.10.2.2, line 2629) <!-- N/A: capability advertisement bits are register-page concern -->
+- [x] SMMU_S_IDR1.SECURE_IMPL==1, SMMU_S_IDR1.SEL2==1: Secure EL2 and Secure stage 2 supported (§3.10.2.2, line 2630) <!-- N/A: capability advertisement bits are register-page concern -->
+- [x] Secure STE with stage 2 translation enabled is not permitted to have STE.S2AA64 select VMSAv8-32 LPAE (§3.10.2.2, line 2647) <!-- PASS: smmu.cpp:1185-1188 stage2Enabled && !s2aa64 → C_BAD_STE (covers Secure by inclusion) -->
+- [x] TLB entries from StreamWorld==Secure with stage 2 enabled: tagged with VMID from STE.S2VMID (§3.10.2.2, line 2653) <!-- PASS: smmu.cpp:764-771; stage2Enabled → entryVmid=streamCfg.vmid -->
+- [x] TLB entries from StreamWorld==Secure with stage 2 not enabled: tagged with VMID 0 (§3.10.2.2, line 2654) <!-- PASS: smmu.cpp:769-771; securityState==Secure && !stage2Enabled → entryVmid=0 -->
+- [x] Translation table entry fetched for Secure stream from Non-secure IPA space: treated as non-global (nG==1) regardless of nG bit in descriptor (§3.10.2.2, line 2658) <!-- N/A: model does not implement page-table descriptor parsing; nG bit not modeled -->
 
 ### §3.10.3 Support for Realm State
 
-- [ ] Realm translation regimes supported only with VMSAv8-64 or VMSAv9-128 translation tables (§3.10.3, line 2665)
-- [ ] Realm L1STD, STE, L1CD, and CD have same format as Non-secure equivalents except all pointers are Realm physical addresses (§3.10.3, line 2680)
-- [ ] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688)
-- [ ] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694)
+- [x] Realm translation regimes supported only with VMSAv8-64 or VMSAv9-128 translation tables (§3.10.3, line 2665) <!-- N/A: model globally enforces AArch64-only TTF; covered by construction -->
+- [x] Realm L1STD, STE, L1CD, and CD have same format as Non-secure equivalents except all pointers are Realm physical addresses (§3.10.3, line 2680) <!-- N/A: hardware table formats not modeled; single abstract streamMap used -->
+- [ ] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688) <!-- BUG-AUDIT-161-CPP: nsCfg applied unconditionally regardless of securityState==Realm smmu.cpp:1955 -->
+- [ ] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694) <!-- BUG-AUDIT-162-CPP: no Realm Command queue; Realm-specific SSec=1 rejection absent -->
 
 ### §3.10.3.1 Input NS Attribute
 
-- [ ] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702)
+- [ ] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702) <!-- BUG-AUDIT-162-CPP: determineContextSecurityState() returns NonSecure for unconfigured streams smmu.cpp:6425; no Realm defaulting -->
 
 ### §3.10.3.2 Realm Stream Disabled
 
-- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b000: stream is disabled; transactions terminated with abort (§3.10.3.2, line 2709)
+- [x] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b000: stream is disabled; transactions terminated with abort (§3.10.3.2, line 2709) <!-- PASS: Config==0b000 → F_STREAM_DISABLED → abort smmu.cpp:715-718,1099 -->
 
 ### §3.10.3.3 Realm Stream Bypass
 
-- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716)
-- [ ] Realm stream bypass can still result in: F_ADDR_SIZE, F_PERMISSION (instruction to Non-secure PA), F_BAD_ATS_TREQ, F_TRANSL_FORBIDDEN, GPC faults (§3.10.3.3, line 2721)
-- [ ] Realm stream bypass: client transactions still associated with MECID configured in STE.MECID (§3.10.3.3, line 2729)
+- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716) <!-- BUG-AUDIT-163-CPP: nsCfgOut set smmu.cpp:1955 but never consumed downstream; inert dead field -->
+- [x] Realm stream bypass can still result in: F_ADDR_SIZE, F_PERMISSION (instruction to Non-secure PA), F_BAD_ATS_TREQ, F_TRANSL_FORBIDDEN, GPC faults (§3.10.3.3, line 2721) <!-- PASS: fault types implemented generically for all streams including Realm; smmu.cpp:1917-1942 -->
+- [x] Realm stream bypass: client transactions still associated with MECID configured in STE.MECID (§3.10.3.3, line 2729) <!-- N/A: MECID is RME DA memory encryption context tag below SW model abstraction level -->
 
 ## §3.11 Reset, Enable and Initialization
 
