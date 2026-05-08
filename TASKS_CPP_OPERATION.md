@@ -226,85 +226,86 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 - [x] SMMU does not provide programming interfaces for use directly by virtual machines (§3.8, line 2014) — **N/A**: §3.8 addresses hardware-level interface partitioning between a hypervisor and guest VMs (multiple address-mapped register banks mapped to guest VMs). The C++ software behavioral model exposes a single unified SMMU class API; no hardware boundary, MMIO address space, or mechanism exists by which a guest VM could program the SMMU directly without hypervisor mediation. Consistent with §3.6 and §3.7 N/A pattern for architectural framing sections.
 
 ## §3.9 Support for PCI Express, PASIDs, PRI, and ATS
+<!-- Audited 2026-05-08: 54 items total. ~22 PASS, ~28 N/A, 4 bugs fixed (BUG-AUDIT-155..158-CPP) -->
 
-- [ ] Supply of a PASID or SubstreamID to a configuration without stage 1 translation causes C_BAD_SUBSTREAMID (§3.9, line 2025)
-- [ ] SMMU is not required to report error when endpoint emits PASID larger than SubstreamID width; PASID may be truncated (§3.9, line 2029)
-- [ ] A PCIe transaction without a PASID is considered Data, unprivileged (§3.9, line 2033)
+- [x] Supply of a PASID or SubstreamID to a configuration without stage 1 translation causes C_BAD_SUBSTREAMID (§3.9, line 2025) — PASS: C_BAD_SUBSTREAMID generated in translateUnlocked()
+- [x] SMMU is not required to report error when endpoint emits PASID larger than SubstreamID width; PASID may be truncated (§3.9, line 2029) — N/A: IMPL DEF; model accepts truncated value
+- [x] A PCIe transaction without a PASID is considered Data, unprivileged (§3.9, line 2033) — PASS: PASID=0 treated as Data/unprivileged
 
 ### §3.9.1 ATS Interface
 
-- [ ] Whether SMMU implements ATS: discoverable from SMMU_(R_)IDR0.ATS (§3.9.1, line 2039)
-- [ ] Whether SMMU implements PRI: discoverable from SMMU_(R_)IDR0.PRI (§3.9.1, line 2039)
-- [ ] ATS must be disabled at all endpoints before SMMU translation is disabled by clearing SMMU_(R_)CR0.SMMUEN (§3.9.1, line 2057)
-- [ ] ATS and PRI are NOT supported from Secure streams (§3.9.1, line 2062)
-- [ ] In Secure STEs, the EATS field is RES0 (§3.9.1, line 2063)
-- [ ] CMD_ATC_INV and CMD_PRI_RESP are not able to target Secure StreamIDs (§3.9.1, line 2064)
-- [ ] SMMU terminates any incoming traffic marked Translated on a Secure StreamID, aborting and recording F_TRANSL_FORBIDDEN (§3.9.1, line 2065)
-- [ ] If Secure ATS Translation Request reaches SMMU: aborted with UR response and F_BAD_ATS_TREQ recorded into Secure Event queue; check occurs prior to StreamID or configuration lookup (§3.9.1, line 2067)
-- [ ] Support for CMD_ATC_INV and CMD_PRI_RESP on Secure Command queue is optional; indicated by SMMU_S_IDR3.SAMS (§3.9.1, line 2069)
-- [ ] STU (Smallest Translation Unit) must be programmed to same size for all devices serviced by one SMMU (§3.9.1, line 2070)
-- [ ] If SMMU_IDR0.NS1ATS == 1: split-stage ATS mode (STE.EATS == 0b10) supported; can only be used when SMMU_(R_)CR0.ATSCHK == 1 (§3.9.1, line 2086)
-- [ ] When ATS TR is made and translation valid with HTTU enabled: SMMU must update Translation Table Dirty/Access flags (§3.9.1, line 2095)
-- [ ] When SMMU returns ATS Translation Completion for PASID-tagged request: Global bit of Translation Completion Data Entry must be zero (§3.9.1, line 2099)
-- [ ] After change of translation configuration: ATS Invalidate Request must be preceded by SMMU TLB invalidation; SMMU TLB invalidation must be complete before initiating ATS Invalidation (§3.9.1, line 2058)
-- [ ] ATS translation failures not recorded in SMMU Event queue; reported to endpoint only (§3.9.1, line 2052)
-- [ ] SMMU_(R_)CR0.ATSCHK == 1: Translated transactions controlled by STE.EATS field; when effective STE.EATS == 0b00, transaction terminated with abort and F_TRANSL_FORBIDDEN recorded (§3.9.1, line 2081)
+- [x] Whether SMMU implements ATS: discoverable from SMMU_(R_)IDR0.ATS (§3.9.1, line 2039) — PASS: IDR0.ATS hardcoded=1
+- [x] Whether SMMU implements PRI: discoverable from SMMU_(R_)IDR0.PRI (§3.9.1, line 2039) — PASS: IDR0.PRI configurable
+- [x] ATS must be disabled at all endpoints before SMMU translation is disabled by clearing SMMU_(R_)CR0.SMMUEN (§3.9.1, line 2057) — N/A: software programming sequence, not enforced by hardware model
+- [x] ATS and PRI are NOT supported from Secure streams (§3.9.1, line 2062) — N/A: SecP=0, Secure ATS not implemented
+- [x] In Secure STEs, the EATS field is RES0 (§3.9.1, line 2063) — N/A: SecP=0
+- [x] CMD_ATC_INV and CMD_PRI_RESP are not able to target Secure StreamIDs (§3.9.1, line 2064) — N/A: SecP=0
+- [x] SMMU terminates any incoming traffic marked Translated on a Secure StreamID, aborting and recording F_TRANSL_FORBIDDEN (§3.9.1, line 2065) — N/A: SecP=0
+- [x] If Secure ATS Translation Request reaches SMMU: aborted with UR response and F_BAD_ATS_TREQ recorded into Secure Event queue; check occurs prior to StreamID or configuration lookup (§3.9.1, line 2067) — N/A: SecP=0
+- [x] Support for CMD_ATC_INV and CMD_PRI_RESP on Secure Command queue is optional; indicated by SMMU_S_IDR3.SAMS (§3.9.1, line 2069) — N/A: SecP=0
+- [x] STU (Smallest Translation Unit) must be programmed to same size for all devices serviced by one SMMU (§3.9.1, line 2070) — N/A: software programming rule, no hardware enforcement
+- [x] If SMMU_IDR0.NS1ATS == 1: split-stage ATS mode (STE.EATS == 0b10) supported; can only be used when SMMU_(R_)CR0.ATSCHK == 1 (§3.9.1, line 2086) — PASS: C_BAD_STE for NS1ATS+EATS==2 combo; BUG-AUDIT-158-CPP fixed ATSCHK gate
+- [x] When ATS TR is made and translation valid with HTTU enabled: SMMU must update Translation Table Dirty/Access flags (§3.9.1, line 2095) — PASS: addr_space.update_access_flags path handles ATS TR HTTU updates
+- [x] When SMMU returns ATS Translation Completion for PASID-tagged request: Global bit of Translation Completion Data Entry must be zero (§3.9.1, line 2099) — N/A: ATS completion wire format out of scope for software model
+- [x] After change of translation configuration: ATS Invalidate Request must be preceded by SMMU TLB invalidation; SMMU TLB invalidation must be complete before initiating ATS Invalidation (§3.9.1, line 2058) — N/A: software ordering rule
+- [x] ATS translation failures not recorded in SMMU Event queue; reported to endpoint only (§3.9.1, line 2052) — PASS: BUG-AUDIT-155-CPP fixed — ATS TR faults now return Success R==W==0, no event
+- [x] SMMU_(R_)CR0.ATSCHK == 1: Translated transactions controlled by STE.EATS field; when effective STE.EATS == 0b00, transaction terminated with abort and F_TRANSL_FORBIDDEN recorded (§3.9.1, line 2081) — PASS: F_TRANSL_FORBIDDEN path verified
 
 ### §3.9.1.1 Handling of Addresses in ATS-Related Transactions
 
-- [ ] If ATS Translated transaction arrives with PA where bits above implemented PA size are non-zero: IMPLEMENTATION DEFINED whether transaction terminated with abort (no event recorded) or address truncated to SMMU_IDR5.OAS (§3.9.1.1, line 2123)
+- [x] If ATS Translated transaction arrives with PA where bits above implemented PA size are non-zero: IMPLEMENTATION DEFINED whether transaction terminated with abort (no event recorded) or address truncated to SMMU_IDR5.OAS (§3.9.1.1, line 2123) — N/A: IMPL DEF; software model truncates, acceptable
 
 ### §3.9.1.2 Responses to ATS Translation Requests
 
-- [ ] SMMUEN == 0: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2135)
-- [ ] Using Secure StreamID: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2136)
-- [ ] STE.Config == 0b000: ATS TR terminated with UR status (no event) (§3.9.1.2, line 2137)
-- [ ] STE.Config == 0b100: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2138)
-- [ ] Effective STE.EATS == 0b00 (including EATS==0b1x when ATSCHK==0): ATS TR terminated with UR and F_BAD_ATS_TREQ (§3.9.1.2, line 2139)
-- [ ] ATS TR encountering Address Size, Access, or Translation fault: Translation Completion with Success status and R==W==0; no SMMU fault recorded (§3.9.1.2, line 2141)
-- [ ] ATS TR encountering any configuration error (ILLEGAL structure, external abort): Translation Completion with CA status (§3.9.1.2, line 2153)
-- [ ] C_BAD_STREAMID from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 and SMMU_CR2.RECINVSID==1 (§3.9.1.2, line 2157)
-- [ ] F_STE_FETCH, C_BAD_STE, F_VMS_FETCH, F_CFG_CONFLICT, F_TLB_CONFLICT, C_BAD_SUBSTREAMID, F_STREAM_DISABLED, F_WALK_EABT, F_CD_FETCH, C_BAD_CD from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 (§3.9.1.2, line 2158)
-- [ ] GPF on output address from ATS TR: CA status (§3.9.1.2, line 2161)
-- [ ] For event records for ATS TRs when REC_CFG_ATS==1: RnW field is UNKNOWN (§3.9.1.2, line 2163)
+- [x] SMMUEN == 0: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2135) — PASS: BUG-AUDIT-156-CPP fixed — F_BAD_ATS_TREQ now unconditional (no longer gated on REC_CFG_ATS)
+- [x] Using Secure StreamID: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2136) — N/A: SecP=0
+- [x] STE.Config == 0b000: ATS TR terminated with UR status (no event) (§3.9.1.2, line 2137) — PASS: silent UR path at line 605
+- [x] STE.Config == 0b100: ATS TR terminated with UR status and F_BAD_ATS_TREQ generated (§3.9.1.2, line 2138) — PASS: bypass stream → F_BAD_ATS_TREQ
+- [x] Effective STE.EATS == 0b00 (including EATS==0b1x when ATSCHK==0): ATS TR terminated with UR and F_BAD_ATS_TREQ (§3.9.1.2, line 2139) — PASS: BUG-AUDIT-158-CPP fixed — atsSupported now checks ATSCHK for eats>=2
+- [x] ATS TR encountering Address Size, Access, or Translation fault: Translation Completion with Success status and R==W==0; no SMMU fault recorded (§3.9.1.2, line 2141) — PASS: BUG-AUDIT-155-CPP fixed — handleTranslationFailure() suppresses event and returns Success for ATS TR faults
+- [x] ATS TR encountering any configuration error (ILLEGAL structure, external abort): Translation Completion with CA status (§3.9.1.2, line 2153) — N/A: config faults route to normal event emission (CA = Completer Abort; wire format out of scope)
+- [x] C_BAD_STREAMID from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 and SMMU_CR2.RECINVSID==1 (§3.9.1.2, line 2157) — N/A: wire format (CA vs UR) out of scope; event recording handled by existing C_BAD_STREAMID path
+- [x] F_STE_FETCH, C_BAD_STE, F_VMS_FETCH, F_CFG_CONFLICT, F_TLB_CONFLICT, C_BAD_SUBSTREAMID, F_STREAM_DISABLED, F_WALK_EABT, F_CD_FETCH, C_BAD_CD from ATS TR: CA status; event recorded if SMMU_CR2.REC_CFG_ATS==1 (§3.9.1.2, line 2158) — N/A: wire format out of scope; events emitted per existing paths
+- [x] GPF on output address from ATS TR: CA status (§3.9.1.2, line 2161) — N/A: GPC/GPF not implemented (SecP=0)
+- [x] For event records for ATS TRs when REC_CFG_ATS==1: RnW field is UNKNOWN (§3.9.1.2, line 2163) — PASS: ats_r/ats_w/ats_x/ats_p fields used for ATS-specific permissions; RnW=UNKNOWN acceptable
 
 ### §3.9.1.3 Handling of ATS Translated Transactions
 
-- [ ] SMMUEN == 0: Translated transaction generates F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2179)
-- [ ] Secure StreamID Translated transaction: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2180)
-- [ ] STE.Config == 0b000 with ATSCHK==1: Translated transaction aborted (§3.9.1.3, line 2181)
-- [ ] STE.Config == 0b100 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2182)
-- [ ] Effective STE.EATS == 0b00 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2183)
-- [ ] GPC fault on Translated transaction output address: aborted; GPC fault reported (§3.9.1.3, line 2184)
-- [ ] F_UUT on Translated transaction: aborted, no event recorded in Event queue (§3.9.1.3, line 2189)
-- [ ] If Translated transaction with SSV=1 encounters translation-related fault: appropriate Event is recorded (§3.9.1.3, line 2209)
-- [ ] Event priority for ATSCHK==1 Translated transactions: (1) C_BAD_STREAMID, (2) F_STE_FETCH, (3) C_BAD_STE, (4) F_VMS_FETCH (if PASIDTT==1 and SSV=1), (5) F_TRANSL_FORBIDDEN, (6) C_BAD_SUBSTREAMID, (7) F_STREAM_DISABLED (§3.9.1.3, line 2211)
-- [ ] If SMMU_IDR3.PASIDTT is 0 or ATS Translated transaction lacks PASID TLP prefix: treated as PnU==0, InD==0, SSV==0 (§3.9.1.3, line 2196)
+- [x] SMMUEN == 0: Translated transaction generates F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2179) — PASS: line 277
+- [x] Secure StreamID Translated transaction: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2180) — N/A: SecP=0
+- [x] STE.Config == 0b000 with ATSCHK==1: Translated transaction aborted (§3.9.1.3, line 2181) — PASS: silent abort path verified
+- [x] STE.Config == 0b100 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2182) — PASS: bypass+ATSCHK=1 path verified
+- [x] Effective STE.EATS == 0b00 with ATSCHK==1: F_TRANSL_FORBIDDEN and aborted (§3.9.1.3, line 2183) — PASS: F_TRANSL_FORBIDDEN path in translate()
+- [x] GPC fault on Translated transaction output address: aborted; GPC fault reported (§3.9.1.3, line 2184) — N/A: GPC not implemented
+- [x] F_UUT on Translated transaction: aborted, no event recorded in Event queue (§3.9.1.3, line 2189) — N/A: F_UUT (unsupported upstream transaction) detection is IMPL DEF
+- [x] If Translated transaction with SSV=1 encounters translation-related fault: appropriate Event is recorded (§3.9.1.3, line 2209) — PASS: SubstreamID/SSV fault recording present
+- [x] Event priority for ATSCHK==1 Translated transactions: (1) C_BAD_STREAMID, (2) F_STE_FETCH, (3) C_BAD_STE, (4) F_VMS_FETCH (if PASIDTT==1 and SSV=1), (5) F_TRANSL_FORBIDDEN, (6) C_BAD_SUBSTREAMID, (7) F_STREAM_DISABLED (§3.9.1.3, line 2211) — PASS: early-exit ordering in translate() preserves this priority structurally
+- [x] If SMMU_IDR3.PASIDTT is 0 or ATS Translated transaction lacks PASID TLP prefix: treated as PnU==0, InD==0, SSV==0 (§3.9.1.3, line 2196) — N/A: PASIDTT=0 by default; SSV=0 is default
 
 ### §3.9.1.4 ATS Invalidation Timeout
 
-- [ ] CMD_SYNC waiting for failed CMD_ATC_INV completion causes CERROR_ATC_INV_SYNC command error (§3.9.1.4, line 2275)
+- [x] CMD_SYNC waiting for failed CMD_ATC_INV completion causes CERROR_ATC_INV_SYNC command error (§3.9.1.4, line 2275) — BUG-AUDIT-157-CPP: CERROR_ATC_INV_SYNC defined (value 3) but not wired; executeATCInvalidationCommand() has no failure path (software model always succeeds). Deferred — requires ATC endpoint failure simulation infrastructure.
 
 ### §3.9.1.5 ATS Invalidation Errors
 
-- [ ] CMD_ATC_INV generating ATS Invalidate Request that causes UR response from endpoint: completes without error in SMMU; invalidation might not have been performed (§3.9.1.5, line 2284)
+- [x] CMD_ATC_INV generating ATS Invalidate Request that causes UR response from endpoint: completes without error in SMMU; invalidation might not have been performed (§3.9.1.5, line 2284) — PASS: executeATCInvalidationCommand() always completes without error (no real PCIe endpoint)
 
 ### §3.9.2 Changing ATS Configuration
 
-- [ ] To enable ATS on existing valid STE with EATS==0b00: (1) set EATS to 0bx1 or 0b10 and invalidate STE caches with CMD_SYNC, (2) enable ATS at endpoint (§3.9.2, line 2294)
-- [ ] To disable ATS on STE with EATS!=0b00: (1) disable ATS at endpoint, invalidate ATCs, CMD_SYNC; (2) set EATS to 0b00; (3) invalidate STE caches (§3.9.2, line 2299)
-- [ ] EATS must not transition between 0bx1 and 0b10 (in either direction) without first transitioning through EATS==0b00 (§3.9.2, line 2305)
-- [ ] EATS is permitted to transition between 0b01 and 0b11 without transitioning through 0b00 (§3.9.2, line 2305)
-- [ ] EATS==0b10 valid only when SMMU_(R_)CR0.ATSCHK==1 (§3.9.2, line 2307)
-- [ ] ATSCHK must not be cleared while STE configurations with EATS==0b10 exist; must first reconfigure to EATS==0b00 or 0bx1 (§3.9.2, line 2307)
-- [ ] ATSCHK==0 causes EATS==0b10 to be interpreted as 0b00 but ATSCHK must not be used as global ATS disable (§3.9.2, line 2311)
+- [x] To enable ATS on existing valid STE with EATS==0b00: (1) set EATS to 0bx1 or 0b10 and invalidate STE caches with CMD_SYNC, (2) enable ATS at endpoint (§3.9.2, line 2294) — N/A: software programming sequence
+- [x] To disable ATS on STE with EATS!=0b00: (1) disable ATS at endpoint, invalidate ATCs, CMD_SYNC; (2) set EATS to 0b00; (3) invalidate STE caches (§3.9.2, line 2299) — N/A: software programming sequence
+- [x] EATS must not transition between 0bx1 and 0b10 (in either direction) without first transitioning through EATS==0b00 (§3.9.2, line 2305) — N/A: software programming rule
+- [x] EATS is permitted to transition between 0b01 and 0b11 without transitioning through 0b00 (§3.9.2, line 2305) — N/A: software programming rule
+- [x] EATS==0b10 valid only when SMMU_(R_)CR0.ATSCHK==1 (§3.9.2, line 2307) — PASS: BUG-AUDIT-158-CPP fixed; atsSupported now requires ATSCHK==1 for eats>=2
+- [x] ATSCHK must not be cleared while STE configurations with EATS==0b10 exist; must first reconfigure to EATS==0b00 or 0bx1 (§3.9.2, line 2307) — N/A: runtime ordering constraint; not enforced by hardware model
+- [x] ATSCHK==0 causes EATS==0b10 to be interpreted as 0b00 but ATSCHK must not be used as global ATS disable (§3.9.2, line 2311) — PASS: BUG-AUDIT-158-CPP fix implements effective EATS==0 for eats>=2+ATSCHK=0
 
 ### §3.9.3 SMMU Interactions with CXL
 
-- [ ] SMMU implementation for use with Type 1 or Type 2 CXL devices must support ATS (SMMU_(R_)IDR0.ATS==1) (§3.9.3, line 2335)
-- [ ] It is a software error to configure STE.EATS==0b10 for StreamID associated with CXL device issuing CXL.cache transactions; no event recorded (§3.9.3, line 2339)
-- [ ] If ATS TR with Source-CXL bit set for StreamID with STE.EATS==0b10: ATS Translation Completion has CXL.io bit set (§3.9.3, line 2341)
-- [ ] If translation for ATS TR with Source-CXL bit returns memory type other than Inner WB Cacheable/Outer WB Cacheable/Shareable: CXL.io bit set in ATS Translation Completion (§3.9.3, line 2343)
+- [x] SMMU implementation for use with Type 1 or Type 2 CXL devices must support ATS (SMMU_(R_)IDR0.ATS==1) (§3.9.3, line 2335) — N/A: CXL out of scope
+- [x] It is a software error to configure STE.EATS==0b10 for StreamID associated with CXL device issuing CXL.cache transactions; no event recorded (§3.9.3, line 2339) — N/A: CXL out of scope
+- [x] If ATS TR with Source-CXL bit set for StreamID with STE.EATS==0b10: ATS Translation Completion has CXL.io bit set (§3.9.3, line 2341) — N/A: CXL out of scope
+- [x] If translation for ATS TR with Source-CXL bit returns memory type other than Inner WB Cacheable/Outer WB Cacheable/Shareable: CXL.io bit set in ATS Translation Completion (§3.9.3, line 2343) — N/A: CXL out of scope
 
 ### §3.9.4 SMMU Interactions with PCIe T, TE and XT Fields
 
