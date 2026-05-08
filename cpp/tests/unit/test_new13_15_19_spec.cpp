@@ -111,8 +111,10 @@ TEST_F(New13SmmUenZeroAts, SmmUenZero_AtsTr_RecCfgAts1_EmitsEvent) {
     EXPECT_EQ(events[0].type, EventType::F_BAD_ATS_TREQ);
 }
 
-// Test 2: SMMUEN=0 + ATS TR + REC_CFG_ATS=0 → no event (silent UR)
-TEST_F(New13SmmUenZeroAts, SmmUenZero_AtsTr_RecCfgAts0_Silent) {
+// Test 2: SMMUEN=0 + ATS TR + REC_CFG_ATS=0 → F_BAD_ATS_TREQ fired unconditionally
+// BUG-AUDIT-156-CPP fix: §3.9.1.2 table row for SMMUEN=0 is unconditional.
+// REC_CFG_ATS only gates config-error events, not admission-failure events.
+TEST_F(New13SmmUenZeroAts, SmmUenZero_AtsTr_RecCfgAts0_StillEmitsEvent) {
     // CR2 = 0 (default): REC_CFG_ATS=0
     smmu_->setCR2(0);
     smmu_->disable();
@@ -124,8 +126,10 @@ TEST_F(New13SmmUenZeroAts, SmmUenZero_AtsTr_RecCfgAts0_Silent) {
         TransactionType::AtsTranslationRequest);
 
     EXPECT_FALSE(result.isOk()) << "SMMUEN=0 ATS TR must fail";
-    EXPECT_TRUE(smmu_->getEventQueue().empty())
-        << "No event when SMMUEN=0 and REC_CFG_ATS=0";
+    auto events = smmu_->getEventQueue();
+    ASSERT_FALSE(events.empty())
+        << "F_BAD_ATS_TREQ must fire even when REC_CFG_ATS=0 (§3.9.1.2)";
+    EXPECT_EQ(events[0].type, EventType::F_BAD_ATS_TREQ);
 }
 
 // Test 3: SMMUEN=0 + ATS TT → F_TRANSL_FORBIDDEN emitted (always, §7.3.8)

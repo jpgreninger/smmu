@@ -736,7 +736,8 @@ private:
     // Enhanced error handling and fault recovery methods (Task 5.2)
     void handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                                  AccessType accessType, AccessType effectiveAccessType,
-                                 SecurityState securityState, TranslationResult& result, uint64_t currentTime);
+                                 SecurityState securityState, TranslationResult& result, uint64_t currentTime,
+                                 TransactionType transactionType = TransactionType::Ordinary);
     FaultType classifyTranslationFault(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState) const;
     void handleTranslationFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState);
     void handlePermissionFaultRecovery(StreamID streamID, PASID pasid, IOVA iova, AccessType accessType, SecurityState securityState);

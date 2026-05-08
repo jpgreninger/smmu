@@ -296,7 +296,10 @@ TEST_F(New12Ats, TrType_BypassStream_BadAtsTreq) {
 }
 
 // Test 9: TR type with eats != 0 and translation-enabled stream → success
+// BUG-AUDIT-158-CPP fix: eats==2 with ATSCHK==0 = effective EATS==0 → F_BAD_ATS_TREQ.
+// Set ATSCHK=1 so eats==2 is genuinely ATS-capable (§3.9.1.2 footnote).
 TEST_F(New12Ats, TrType_EatsNonZero_Succeeds) {
+    smmu_->setCR0(smmu_->getCR0() | SMMU::CR0_ATSCHK);  // eats==2 requires ATSCHK==1
     setupS1Stream(*smmu_, SID, PID, /*eats=*/2);
     setupPage(*smmu_);
     smmu_->clearEventQueue();

@@ -265,11 +265,11 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
     if ((cr0_.load(std::memory_order_acquire) & CR0_SMMUEN) == 0u) {
         // NEW-13: ATS TR/TT get specific events even when SMMUEN=0 (§3.9.1.2/3.9.1.3).
         if (transactionType == TransactionType::AtsTranslationRequest) {
-            // §7.3.6: F_BAD_ATS_TREQ for SMMUEN=0 requires CR2.REC_CFG_ATS=1.
-            if ((cr2_.load(std::memory_order_acquire) & CR2_REC_CFG_ATS) != 0u) {
-                generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
-                              securityState, false, 0, accessType, false, 0);
-            }
+            // BUG-AUDIT-156-CPP fix: §3.9.1.2 table row for SMMUEN=0 is unconditional —
+            // F_BAD_ATS_TREQ fires regardless of CR2.REC_CFG_ATS. REC_CFG_ATS only gates
+            // config-error events (§3.9.1.2 lines 2157-2158), not admission-failure events.
+            generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
+                          securityState, false, 0, accessType, false, 0);
             return makeTranslationError(SMMUError::PageNotMapped);
         }
         if (transactionType == TransactionType::AtsTranslated) {
@@ -606,9 +606,14 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             return makeTranslationError(SMMUError::PageNotMapped);
         }
         // Other unsupported cases (EATS=0, bypass stream) → F_BAD_ATS_TREQ.
-        bool atsSupported = (streamCfgSnapshot.eats != 0)
-                            && streamCfgSnapshot.translationEnabled
-                            && !streamCfgSnapshot.bypassEnabled;
+        // BUG-AUDIT-158-CPP fix: §3.9.1.2 footnote — effective EATS==0 when
+        // EATS==0b1x (2 or 3) AND CR0_ATSCHK==0. Only eats==1 (full ATS) is
+        // unconditionally supported; eats==2/3 require ATSCHK==1.
+        const bool atschkSet = (cr0_.load(std::memory_order_acquire) & CR0_ATSCHK) != 0u;
+        bool atsSupported = streamCfgSnapshot.translationEnabled
+                            && !streamCfgSnapshot.bypassEnabled
+                            && (streamCfgSnapshot.eats == 1
+                                || (streamCfgSnapshot.eats >= 2 && atschkSet));
         if (!atsSupported) {
             generateEvent(EventType::F_BAD_ATS_TREQ, streamID, pasid, iova,
                           securityState, false, 0, accessType, false, 0);
@@ -936,7 +941,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 // performTwoStageTranslation(); do NOT call lock.unlock() again.
                 streamContext = nullptr; // Defensive: no further accesses via this pointer
                 handleTranslationFailure(streamID, pasid, iova, accessType, translateEffectiveAccessType,
-                                         securityState, result, currentTime);
+                                         securityState, result, currentTime, transactionType);
                 return result;
             }
             // ARM §7.3 / FINDING-NEW-13: Derive the correct EventType from the actual
@@ -1042,7 +1047,7 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
         // acquires the stripe lock — this is safe because we no longer hold it.
         streamContext = nullptr; // Defensive: no further accesses via this pointer
         handleTranslationFailure(streamID, pasid, iova, accessType, translateEffectiveAccessType,
-                                 securityState, result, currentTime);
+                                 securityState, result, currentTime, transactionType);
         return result;
     }
 
@@ -3009,7 +3014,8 @@ TranslationResult SMMU::performStage2OnlyTranslation(StreamID streamID, PASID pa
 // in stage-specific methods. It only performs fault recovery actions.
 void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
                                    AccessType accessType, AccessType effectiveAccessType,
-                                   SecurityState securityState, TranslationResult& result, uint64_t currentTime) {
+                                   SecurityState securityState, TranslationResult& result, uint64_t currentTime,
+                                   TransactionType transactionType) {
     // ARM SMMU v3 spec: Comprehensive fault handling and recovery
 
     // Determine fault type from the Result error code
@@ -3098,6 +3104,23 @@ void SMMU::handleTranslationFailure(StreamID streamID, PASID pasid, IOVA iova,
     // translate() from the streamCfgSnapshot taken before the stripe lock was released),
     // and use it directly — no re-fetch, no lock, no race.
     const AccessType eventAccessType = effectiveAccessType;
+
+    // BUG-AUDIT-155-CPP fix: §3.9.1.2 — ATS TR that encounters Address Size / Access /
+    // Translation fault must return Success R==W==0 with NO event recorded.
+    if (transactionType == TransactionType::AtsTranslationRequest) {
+        switch (faultType) {
+            case FaultType::TranslationFault:
+            case FaultType::PermissionFault:
+            case FaultType::AddressSizeFault:
+            case FaultType::AccessFault:
+            case FaultType::AccessFlagFault:
+                // Spec §3.9.1.2: suppress event, return Success with PA=0 (R==W==0).
+                result = makeTranslationSuccess(0);
+                return;
+            default:
+                break;  // config faults and others fall through to normal handling
+        }
+    }
 
     // ARM SMMU v3 spec: Implement fault recovery mechanisms based on fault type
     switch (faultType) {
