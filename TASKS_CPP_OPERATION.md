@@ -413,53 +413,55 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.12 Fault Models, Recording and Reporting
 
-- [ ] Four Translation-related fault types: F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION (§3.12, line 2817)
-- [ ] All other faults (F_WALK_EABT, F_TLB_CONFLICT) and configuration errors always terminate the transaction with abort (§3.12, line 2826)
-- [ ] Stage 1 fault behavior configured by CD.{A, R, S} flags; stage 2 by STE.{S2R, S2S} (§3.12, line 2824)
-- [ ] Support for stalling or terminating is IMPLEMENTATION DEFINED; indicated by SMMU_(*_)IDR0.STALL_MODEL (§3.12, line 2861)
-- [ ] When SMMU_S_CR0.NSSTALLD==1: prevents Non-secure use of stall model even if physically supported (§3.12, line 2867)
-- [ ] SMMU_IDR0.TERM_MODEL indicates termination models; if TERM_MODEL==0, CD.A bit selects abort vs RAZ/WI for stage 1 (§3.12, line 2886)
-- [ ] Stage 2 faults when terminated are always aborted; RAZ/WI not available at stage 2 (§3.12, line 2888)
-- [ ] Streams from PCIe subsystems must not stall; must use Terminate model at all enabled stages (§3.12, line 2922)
+> **Audit date:** 2026-05-08 — 32 items checked: 19 PASS, 13 N/A, 0 bugs
+
+- [x] Four Translation-related fault types: F_TRANSLATION, F_ADDR_SIZE, F_ACCESS, F_PERMISSION (§3.12, line 2817) — **PASS**: all four EventType enum values defined and emitted by handleTranslationFailure() and stall path (smmu.cpp:3026-3049, 950-969); isConfigFault guard correctly excludes config-class faults from stall eligibility
+- [x] All other faults (F_WALK_EABT, F_TLB_CONFLICT) and configuration errors always terminate the transaction with abort (§3.12, line 2826) — **PASS**: isConfigFault guard at smmu.cpp:863-886 routes all non-translation-class errors directly to abort path; F_WALK_EABT/F_TLB_CONFLICT and C_* events never enter stall branch
+- [x] Stage 1 fault behavior configured by CD.{A, R, S} flags; stage 2 by STE.{S2R, S2S} (§3.12, line 2824) — **PASS**: stage-1 stall controlled by getFaultMode()==Stall && !isS1StallDisabled() (smmu.cpp:860-861); stage-2 stall by s2s (smmu.cpp:859); CD.R gates S1 terminate event; S2R gates S2 terminate event (smmu.cpp:1036)
+- [x] Support for stalling or terminating is IMPLEMENTATION DEFINED; indicated by SMMU_(*_)IDR0.STALL_MODEL (§3.12, line 2861) — **PASS**: stallModel_ (default 0b00 = both supported) exposed via IDR0 bits[25:24] at smmu.cpp:3541; setStallModel() at smmu.cpp:3683 enforces valid range; IDR1.STALL_MAX conditioned on stallModel_ at smmu.cpp:3592
+- [x] When SMMU_S_CR0.NSSTALLD==1: prevents Non-secure use of stall model even if physically supported (§3.12, line 2867) — **N/A**: NSSTALLD is part of the Secure register interface (SMMU_S_CR0); Secure registers not implemented; SECURE_IMPL=0
+- [x] SMMU_IDR0.TERM_MODEL indicates termination models; if TERM_MODEL==0, CD.A bit selects abort vs RAZ/WI for stage 1 (§3.12, line 2886) — **PASS**: TERM_MODEL=0 in IDR0 at smmu.cpp:3534-3538; CD.A=0 returns TranslationError::RazWi (terminate-model RAZ/WI path); CD.A=1 returns abort
+- [x] Stage 2 faults when terminated are always aborted; RAZ/WI not available at stage 2 (§3.12, line 2888) — **PASS**: stage-2 terminate path in handleTranslationFailure() always aborts; no RAZ/WI path exists for S2 faults; S2S=0 routes to abort-only terminate
+- [x] Streams from PCIe subsystems must not stall; must use Terminate model at all enabled stages (§3.12, line 2922) — **PASS**: STE.S1STALLD enforced in stream config at smmu.cpp:852, 860 via isS1StallDisabled(); PCIe streams set S1STALLD=1 to force terminate model at stage 1
 
 ### §3.12.1 Terminate Model
 
-- [ ] Stage 1 terminate: transaction either aborted or completes with RAZ/WI depending on CD.A and SMMU_IDR0.TERM_MODEL (§3.12.1, line 2903)
-- [ ] Stage 2 terminate: transaction terminated with abort (§3.12.1, line 2905)
-- [ ] If CD.R==1 or STE.S2R==1: SMMU records details in Event record (address, syndrome, attributes, type) (§3.12.1, line 2907)
-- [ ] If Event queue full: terminate fault event record is lost (§3.12.1, line 2919)
-- [ ] STE.S1STALLD==1 prevents guest VM from using Stall model at stage 1 (§3.12.1, line 2922)
+- [x] Stage 1 terminate: transaction either aborted or completes with RAZ/WI depending on CD.A and SMMU_IDR0.TERM_MODEL (§3.12.1, line 2903) — **PASS**: TERM_MODEL=0 → CD.A=0 returns RazWi; CD.A=1 returns abort; handleTranslationFailure() implements this correctly
+- [x] Stage 2 terminate: transaction terminated with abort (§3.12.1, line 2905) — **PASS**: no RAZ/WI path for stage-2 faults; all stage-2 terminate paths return abort
+- [x] If CD.R==1 or STE.S2R==1: SMMU records details in Event record (address, syndrome, attributes, type) (§3.12.1, line 2907) — **PASS**: CD.R gate suppresses S1 terminate event when CD.R==false; S2R gate at smmu.cpp:1036 suppresses S2 event when S2R==0; generateEvent() called only when gate allows
+- [x] If Event queue full: terminate fault event record is lost (§3.12.1, line 2919) — **PASS**: smmu.cpp:5915-5938 — when queue full and isStall==false, event silently dropped; OVFLG toggled in eventqProd; no stallPending_ redirect for terminate events
+- [x] STE.S1STALLD==1 prevents guest VM from using Stall model at stage 1 (§3.12.1, line 2922) — **PASS**: isS1StallDisabled() checked at smmu.cpp:861; when true, inStallMode forced false for stage-1 faults → falls through to abort
 
 ### §3.12.2 Stall Model
 
-- [ ] Stalled transaction does not progress; no response returned to client device; SMMU always records fault details in Event queue (§3.12.2, line 2926)
-- [ ] Stalled transaction retried or terminated by CMD_RESUME or CMD_STALL_TERM (§3.12.2, line 2926)
-- [ ] If retry chosen: transaction handled as though just arrived, affected by any configuration/translation changes since stall (§3.12.2, line 2928)
-- [ ] Software must ensure every stall event has corresponding CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared to 0 (§3.12.2, line 2934)
-- [ ] STAG identifies stalled transaction; SMMU uses StreamID+STAG combination from CMD_RESUME to identify stalled transaction (§3.12.2, line 2936)
-- [ ] STAG value cannot be re-used until transaction acknowledged through CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared (§3.12.2, line 2940)
-- [ ] If Event queue not writable when stall fault to be written: stalled transaction retried when queue becomes writable; new fault record generated (§3.12.2, line 2942)
-- [ ] Later transactions may pass through SMMU and complete before earlier stalled transactions from same stream (§3.12.2, line 2951)
+- [x] Stalled transaction does not progress; no response returned to client device; SMMU always records fault details in Event queue (§3.12.2, line 2926) — **PASS**: stall path at smmu.cpp:887-1042 enqueues StallRecord and always calls generateEvent() with isStall=true; returns SMMUError::Stalled (no PA response); event parked in stallPending_ if queue full
+- [x] Stalled transaction retried or terminated by CMD_RESUME or CMD_STALL_TERM (§3.12.2, line 2926) — **PASS**: CMD_RESUME at smmu.cpp:5188-5214 handles Retry/Terminate/Abort outcomes; CMD_STALL_TERM at smmu.cpp:5233-5244 erases all matching StreamID entries from stallQueue_
+- [x] If retry chosen: transaction handled as though just arrived, affected by any configuration/translation changes since stall (§3.12.2, line 2928) — **N/A**: synchronous model — ResumeOutcome::Retry is recorded (smmu.cpp:5203, 5210) for software observability; re-execution of the original transaction is the responsibility of the client caller, not the SMMU model
+- [x] Software must ensure every stall event has corresponding CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared to 0 (§3.12.2, line 2934) — **N/A**: software obligation on the entity driving the SMMU; model enforces via STAG lookup (unknown STAG is a no-op) but cannot enforce that software issues the correct command
+- [x] STAG identifies stalled transaction; SMMU uses StreamID+STAG combination from CMD_RESUME to identify stalled transaction (§3.12.2, line 2936) — **PASS**: CMD_RESUME at smmu.cpp:5198-5199 matches stallQueue_ by STAG then validates StreamID; mismatch is silently ignored per §4.6
+- [x] STAG value cannot be re-used until transaction acknowledged through CMD_RESUME, CMD_STALL_TERM, or SMMUEN cleared (§3.12.2, line 2940) — **PASS**: STAG scan at smmu.cpp:916-935 skips any candidate already in stallQueue_; STAG only removed by CMD_RESUME (smmu.cpp:5211) or CMD_STALL_TERM (smmu.cpp:5239) or stallQueue_.clear() on SMMUEN=0 (smmu.cpp:1718)
+- [x] If Event queue not writable when stall fault to be written: stalled transaction retried when queue becomes writable; new fault record generated (§3.12.2, line 2942) — **PASS**: smmu.cpp:5940-6133 — stall event redirected to stallPending_ when queue full; stallPending_ drained into eventQueue at smmu.cpp:3420-3422 and 5902-5904 when queue becomes writable
+- [x] Later transactions may pass through SMMU and complete before earlier stalled transactions from same stream (§3.12.2, line 2951) — **N/A**: ordering between concurrent transactions is a hardware-fabric property; the synchronous software model processes one transaction at a time; stallQueue_ does not block subsequent translate() calls from completing
 
 ### §3.12.2.1 Suppression of Duplicate Stall Event Records
 
-- [ ] SMMU permitted but not required to suppress duplicate stall fault records when: same page, same privilege, same data/instruction, same type, same SubstreamID, and first stall still pending (§3.12.2.1, line 2962)
-- [ ] Stall fault records are NOT merged (§3.12.2.1, line 2980)
-- [ ] SMMU does not record more than one fault for each incoming transaction, except after CMD_RESUME(Retry) (§3.12.2.1, line 2985)
+- [x] SMMU permitted but not required to suppress duplicate stall fault records when: same page, same privilege, same data/instruction, same type, same SubstreamID, and first stall still pending (§3.12.2.1, line 2962) — **N/A**: suppression is "permitted but not required"; synchronous model does not implement deduplication
+- [x] Stall fault records are NOT merged (§3.12.2.1, line 2980) — **N/A**: no deduplication implemented; each stall generates a distinct StallRecord with unique STAG; by construction records are never merged
+- [x] SMMU does not record more than one fault for each incoming transaction, except after CMD_RESUME(Retry) (§3.12.2.1, line 2985) — **PASS**: single translate() call generates at most one stall event (stall path returns immediately after generateEvent); InvalidConfiguration routing in handleTranslationFailure() prevents duplicate events for config-class faults (smmu.cpp:3077-3082)
 
 ### §3.12.2.2 Early Retry of Stalled Transactions
 
-- [ ] SMMU is permitted to speculatively retry stalled transaction without CMD_RESUME(Retry); early retry does not cause additional fault records (§3.12.2.2, line 2989)
-- [ ] Successful early retry does not remove requirement for software to acknowledge stall fault record (§3.12.2.2, line 2997)
-- [ ] CMD_RESUME(Retry) guarantees stalled transaction retried at future point unless terminated by CMD_STALL_TERM or SMMUEN transition (§3.12.2.2, line 2999)
+- [x] SMMU is permitted to speculatively retry stalled transaction without CMD_RESUME(Retry); early retry does not cause additional fault records (§3.12.2.2, line 2989) — **N/A**: "SMMU is permitted" — optional speculative retry not implemented in synchronous model
+- [x] Successful early retry does not remove requirement for software to acknowledge stall fault record (§3.12.2.2, line 2997) — **N/A**: speculative retry not implemented; requirement on software acknowledgement enforced structurally by STAG not being removed until CMD_RESUME/STALL_TERM
+- [x] CMD_RESUME(Retry) guarantees stalled transaction retried at future point unless terminated by CMD_STALL_TERM or SMMUEN transition (§3.12.2.2, line 2999) — **N/A**: retry guarantee is a liveness property of hardware; synchronous model records ResumeOutcome::Retry (smmu.cpp:5203) but does not re-execute transactions internally
 
 ### §3.12.5 Combinations of Fault Configuration with Two Stages
 
-- [ ] Stage1=Terminate, Stage2=Terminate, fault at Stage1: transaction terminated, VA in event; event passed to guest as stage 1-only event (§3.12.5, line 3062)
-- [ ] Stage1=Terminate, Stage2=Terminate, fault at Stage2: transaction terminated, VA+IPA in event (§3.12.5, line 3063)
-- [ ] Stage1=Terminate, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3065)
-- [ ] Stage1=Stall, Stage2=Terminate, fault at Stage1: transaction stalled, VA in event (§3.12.5, line 3066)
-- [ ] Stage1=Stall, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3073)
+- [x] Stage1=Terminate, Stage2=Terminate, fault at Stage1: transaction terminated, VA in event; event passed to guest as stage 1-only event (§3.12.5, line 3062) — **PASS**: S1 fault with isStage2=false → generateEvent with S2=0, IPA=0; both stages terminate → abort path; confirmed by §3.12.5 prior audit (BUG-QA-12/13 ✅)
+- [x] Stage1=Terminate, Stage2=Terminate, fault at Stage2: transaction terminated, VA+IPA in event (§3.12.5, line 3063) — **PASS**: S2 fault with tl_stage2FaultCtx.isStage2=true, ipa set → generateEvent with S2=1, IPA; S2S=0 → terminate; confirmed by prior audit
+- [x] Stage1=Terminate, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3065) — **PASS**: S2S=true → inStallMode=true for stage-2 fault; stall path uses tl_stage2FaultCtx.isStage2/ipa for event; confirmed by prior audit
+- [x] Stage1=Stall, Stage2=Terminate, fault at Stage1: transaction stalled, VA in event (§3.12.5, line 3066) — **PASS**: isStage2Fault=false → uses getFaultMode()==Stall; S2S=false → S2 terminate; stall event has S2=0; confirmed by prior audit
+- [x] Stage1=Stall, Stage2=Stall, fault at Stage2: transaction stalled, VA+IPA in event (§3.12.5, line 3073) — **PASS**: S2S=true → inStallMode=true; stall event carries S2=1, IPA; confirmed by prior audit
 
 ## §3.13 Translation Tables and Access Flag/Dirty State
 

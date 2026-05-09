@@ -144,11 +144,11 @@ CURRENT_SECTION = §4.2
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.12 | Fault models (overview) | ⚠️ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅, BUG-AUDIT-143 ✅ | Re-audited 2026-05-03: 27 requirements checked, 3 Rust bugs fixed. NSSTALLD→N/A (SECURE_IMPL=0). CD.R gate for S1 terminate event recording implemented. CD.A (abort vs RAZ/WI) implemented with TranslationError::RazWi. stall_queue cleared on SMMUEN=0 transition. |
-| §3.12.1 | Terminate model | ⚠️ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅ | CD.R=false suppresses S1 terminate events; CD.A=false returns RazWi; S2R gate already correct; PCIe S1STALLD enforcement correct. |
-| §3.12.2 | Stall model | ⚠️ | ✅ | BUG-QA-12/13 ✅, BUG-CPP-S1, BUG-RUST-Q2/Q4 ✅, BUG-AUDIT-143 ✅ | S2S/S2R, stall decision; double-fault, stall_pending reset; stall_queue now cleared on SMMUEN=0 transition. |
-| §3.12.2.1 | Suppression of duplicate Stall event records | N/A | N/A | | Dedup is "permitted but not required". One fault per transaction enforced. No mandatory requirement unmet. |
-| §3.12.2.2 | Early retry of Stalled transactions | N/A | N/A | | "SMMU is permitted" to early-retry — IMPL DEF optional. Synchronous model does not implement speculative retry. |
+| §3.12 | Fault models (overview) | ✅ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅, BUG-AUDIT-143 ✅ | Re-audited 2026-05-08 (C++): 8 items, 7 PASS, 1 N/A. Four fault types correct; config faults always abort; CD.{A,R,S}/STE.{S2R,S2S} wired; stallModel_ in IDR0; TERM_MODEL=0 with CD.A RazWi; S2 always aborts; S1STALLD PCIe enforce. NSSTALLD→N/A (Secure interface not implemented). 0 bugs. |
+| §3.12.1 | Terminate model | ✅ | ✅ | BUG-AUDIT-141 ✅, BUG-AUDIT-142 ✅ | Re-audited 2026-05-08 (C++): 5 items, 5 PASS. CD.A/TERM_MODEL abort-vs-RazWi; S2 always abort; CD.R/S2R event gate; queue-full→lost with OVFLG; S1STALLD guard. 0 bugs. |
+| §3.12.2 | Stall model | ✅ | ✅ | BUG-QA-12/13 ✅, BUG-CPP-S1, BUG-RUST-Q2/Q4 ✅, BUG-AUDIT-143 ✅ | Re-audited 2026-05-08 (C++): 8 items, 5 PASS, 3 N/A. PASS: stall enqueues event+StallRecord; CMD_RESUME/STALL_TERM erase stallQueue_; STAG StreamID+STAG lookup; STAG not reused until erased; stallPending_ buffer drains on queue writable. N/A: retry re-execution (SW responsibility), SW acknowledgement obligation, concurrent-stream ordering (HW property). 0 bugs. |
+| §3.12.2.1 | Suppression of duplicate Stall event records | ✅ | N/A | | Re-audited 2026-05-08 (C++): 3 items, 1 PASS, 2 N/A. PASS: one fault per transaction (InvalidConfiguration routing). N/A: dedup "permitted but not required"; merge prohibition trivially satisfied (no dedup implemented). |
+| §3.12.2.2 | Early retry of Stalled transactions | N/A | N/A | | Re-audited 2026-05-08 (C++): 3 items, 3 N/A. All "SMMU is permitted" — optional speculative retry not implemented; liveness guarantee is hardware property. |
 | §3.12.2.3 | Miscellaneous Stall considerations | N/A | N/A | | Backpressure and IMPL DEF capacity limits. No behavioral requirement for SW model. |
 | §3.12.3 | Considerations for client devices using Stall | N/A | N/A | | Software guidance |
 | §3.12.4 | Virtual Memory paging with SMMU | N/A | N/A | | Informational — three fault models; no additional behavioral requirement beyond §3.12.1, §3.12.2, §8 |
