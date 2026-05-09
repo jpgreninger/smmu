@@ -159,7 +159,7 @@ CURRENT_SECTION = §4.2
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.13 | Translation tables and Access flag/Dirty state | ✅ | ✅ | NEW-GAP ✅ | IDR0.HTTU=0b01 (AF-only); S2HD/HD guards reject dirty-state when HTTU<0b10; HA hardware AF-update modeled; no mandatory enforcement for shared-ASID CD.HA/HD identity |
+| §3.13 | Translation tables and Access flag/Dirty state | ✅ | ✅ | NEW-GAP ✅ | Re-audited 2026-05-08 (C++): 25 items, 5 PASS, 17 N/A, 3 Out-of-scope, 0 bugs. PASS: IDR0.HTTU=0b01 correct; AF atomically set on HA; SMMU never clears AF; permission-fault AF UNKNOWN→N/A; S2 updateAccessFlags for CD/L1CD fetch. N/A: dirty-state (HD/S2HD rejected), HAFT (flat model/HTTU<0b10), CMO/DR, speculative, CMD_SYNC visibility (synchronous model). Out-of-scope: ATS TR §3.13.7.1 items. |
 | §3.13.1 | Software update of flags | N/A | N/A | | Software guidance only; AFFD (suppress F_ACCESS when AF=0) implemented in stream_context |
 | §3.13.2 | Access flag hardware update | ✅ | ✅ | NEW-GAP ✅, BUG-RUST-I ✅, BUG-AUDIT-128 ✅ | Stage-1 HA AF-update correct; stage-2 HA AF-update added (BUG-AUDIT-128); AFFD/S2AFFD suppress F_ACCESS; SMMU never clears AF |
 | §3.13.3 | Dirty state hardware update | N/A | N/A | BUG-AUDIT-36 ✅, BUG-AUDIT-40 ✅ | HTTU=0b01: HD/S2HD always rejected at configure time; dirty-state HTTU unreachable by design |

@@ -465,52 +465,54 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.13 Translation Tables and Access Flag/Dirty State
 
-- [ ] HTTU support indicated by SMMU_IDR0.HTTU: 0=no updates, 1=Access flag only, 2=Access flag and dirty state (§3.13, line 3091)
-- [ ] CDs referencing same translation table and same ASID must have identical HA and HD fields (§3.13, line 3099)
+> **Audit date:** 2026-05-08 — 25 items checked: 5 PASS, 17 N/A, 3 Out-of-scope, 0 bugs
+
+- [x] HTTU support indicated by SMMU_IDR0.HTTU: 0=no updates, 1=Access flag only, 2=Access flag and dirty state (§3.13, line 3091) — **PASS**: smmu.cpp:3518 sets bit 6 in IDR0 → HTTU[7:6]=0b01 (access-flag-only), correctly encoding the three-value HTTU field
+- [x] CDs referencing same translation table and same ASID must have identical HA and HD fields (§3.13, line 3099) — **N/A**: software programmer constraint on CD configuration; the SMMU model is not required to enforce or check cross-CD field identity; obligation is on the OS/hypervisor
 
 ### §3.13.2 Access Flag Hardware Update
 
-- [ ] When HTTU enabled and descriptor has AF==0: SMMU atomically sets AF==1; does NOT clear AF (§3.13.2, line 3130)
-- [ ] SMMU never clears AF (§3.13.2, line 3132)
-- [ ] If access to descriptor causes permission fault: it is UNKNOWN whether AF is updated to 1 (§3.13.2, line 3133)
-- [ ] Includes stage 2 translation for L1CD or CD fetch (§3.13.2, line 3130)
+- [x] When HTTU enabled and descriptor has AF==0: SMMU atomically sets AF==1; does NOT clear AF (§3.13.2, line 3130) — **PASS**: address_space.cpp:152-154 sets `entry.accessFlag = true` only when `ha==true && !entry.accessFlag`; call is made under contextMutex (atomicity); AF never cleared by this path
+- [x] SMMU never clears AF (§3.13.2, line 3132) — **PASS**: `updateAccessFlags` only sets `accessFlag = true`; no code path anywhere in the implementation clears `accessFlag` once set
+- [x] If access to descriptor causes permission fault: it is UNKNOWN whether AF is updated to 1 (§3.13.2, line 3133) — **N/A**: spec says UNKNOWN — no conformance requirement placed on the SMMU; implementation returns early on permission fault before reaching `updateAccessFlags`, which is one valid outcome
+- [x] Includes stage 2 translation for L1CD or CD fetch (§3.13.2, line 3130) — **PASS**: smmu.cpp:2798-2802 and stream_context.cpp:1440-1444 call `stage2AddressSpace->updateAccessFlags()` with `config.s2ha` after successful stage-2 translation, covering the stage-2 HA AF-update path
 
 ### §3.13.3.1 Direct Permission Scheme - Dirty State
 
-- [ ] When HTTU dirty state enabled and descriptor is read-only due to AP[2:1]==0b1x (stage 1) or S2AP[1:0]==0b0x (stage 2): if DBM==1 and write translation occurs, SMMU atomically sets AP[2]==0 or S2AP[1]==1 (§3.13.3.1, line 3148)
-- [ ] SMMU never sets or clears DBM (§3.13.3.1, line 3170)
-- [ ] SMMU never clears S2AP[1] (§3.13.3.1, line 3171)
-- [ ] SMMU never sets AP[2]; descriptor never made writable by SMMU unless DBM==1 (§3.13.3.1, line 3172)
-- [ ] SMMU never sets S2AP[1]==1 for the stage 2 translation used to fetch L1CD or CD (§3.13.3.1, line 3174)
+- [x] When HTTU dirty state enabled and descriptor is read-only due to AP[2:1]==0b1x (stage 1) or S2AP[1:0]==0b0x (stage 2): if DBM==1 and write translation occurs, SMMU atomically sets AP[2]==0 or S2AP[1]==1 (§3.13.3.1, line 3148) — **N/A**: IDR0.HTTU=0b01 (access-flag-only); CD.HD=1 causes C_BAD_CD at smmu.cpp:1177-1179; dirty-state code path structurally unreachable
+- [x] SMMU never sets or clears DBM (§3.13.3.1, line 3170) — **N/A**: HTTU=0b01; dirty-state path unreachable; DBM field never examined or modified by model
+- [x] SMMU never clears S2AP[1] (§3.13.3.1, line 3171) — **N/A**: HTTU=0b01; STE.S2HD=1 rejected at smmu.cpp:1167-1170; S2AP bits never modified
+- [x] SMMU never sets AP[2]; descriptor never made writable by SMMU unless DBM==1 (§3.13.3.1, line 3172) — **N/A**: HTTU=0b01; HD rejected at smmu.cpp:1177-1179; no AP[2] modification ever occurs
+- [x] SMMU never sets S2AP[1]==1 for the stage 2 translation used to fetch L1CD or CD (§3.13.3.1, line 3174) — **N/A**: HTTU=0b01; S2HD rejected at smmu.cpp:1167-1170; dirty-state update for stage-2 PTW lookup never attempted
 
 ### §3.13.3.2 Indirect Permission Scheme
 
-- [ ] CD.HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 1 (§3.13.3.2, line 3178)
-- [ ] STE.S2HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 2 (§3.13.3.2, line 3182)
+- [x] CD.HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 1 (§3.13.3.2, line 3178) — **N/A**: HTTU=0b01; CD.HD=1 rejected at smmu.cpp:1177-1179; Indirect Permission Scheme dirty-state path structurally unreachable
+- [x] STE.S2HD exclusively defines whether dirty state managed by hardware or software when Indirect Permission Scheme used for stage 2 (§3.13.3.2, line 3182) — **N/A**: HTTU=0b01; STE.S2HD=1 rejected at smmu.cpp:1167-1170; dirty-state path unreachable
 
 ### §3.13.4 HTTU Behavior Summary
 
-- [ ] Descriptor update from completed ATOS translation: made visible by completion of CMD_SYNC submitted after ATOS translation began (§3.13.4, line 3192)
-- [ ] Descriptor update from completed incoming transaction: made visible by completion of CMD_SYNC submitted after transaction completion (§3.13.4, line 3193)
-- [ ] TLB invalidation completion makes descriptor updates from transactions completed by that invalidation visible (§3.13.4, line 3194)
-- [ ] SMMU exception: if stage 2 HD enabled, SMMU permitted to speculatively update stage 2 dirty state for stage 1 TT walk even if stage 1 HA/HD disabled (§3.13.4, line 3198)
+- [x] Descriptor update from completed ATOS translation: made visible by completion of CMD_SYNC submitted after ATOS translation began (§3.13.4, line 3192) — **N/A**: synchronous in-memory model; ATOS descriptor updates are immediately visible in the same memory; CMD_SYNC ordering requirement trivially satisfied (no async descriptor cache)
+- [x] Descriptor update from completed incoming transaction: made visible by completion of CMD_SYNC submitted after transaction completion (§3.13.4, line 3193) — **N/A**: synchronous model; visibility is immediate; CMD_SYNC ordering trivially satisfied
+- [x] TLB invalidation completion makes descriptor updates from transactions completed by that invalidation visible (§3.13.4, line 3194) — **N/A**: synchronous model; no caching layer between descriptor updates and subsequent lookups; requirement vacuously satisfied
+- [x] SMMU exception: if stage 2 HD enabled, SMMU permitted to speculatively update stage 2 dirty state for stage 1 TT walk even if stage 1 HA/HD disabled (§3.13.4, line 3198) — **N/A**: "permitted to" = optional optimization; additionally HTTU=0b01 means dirty-state (HD) is not implemented
 
 ### §3.13.6 Access Flag in Table Descriptors
 
-- [ ] HAFT support controlled by CD.HAFT (stage 1) and STE.S2HAFT (stage 2) (§3.13.6, line 3226)
-- [ ] If HAFT disabled for translation stage: hardware update of AF in Table descriptors also disabled (§3.13.6, line 3230)
-- [ ] If HAFT enabled: Table entry with Access flag clear is NOT permitted to be cached in TLB (§3.13.6, line 3236)
+- [x] HAFT support controlled by CD.HAFT (stage 1) and STE.S2HAFT (stage 2) (§3.13.6, line 3226) — **N/A**: IDR0.HTTU=0b01 → HAFT not supported; no HAFT/S2HAFT fields parsed or used; flat model has no hierarchical Table descriptors
+- [x] If HAFT disabled for translation stage: hardware update of AF in Table descriptors also disabled (§3.13.6, line 3230) — **N/A**: flat address-space model has no Table descriptors (only leaf page entries); requirement vacuously satisfied
+- [x] If HAFT enabled: Table entry with Access flag clear is NOT permitted to be cached in TLB (§3.13.6, line 3236) — **N/A**: HTTU=0b01 → HAFT not supported; flat model has no Table entries; not applicable
 
 ### §3.13.7.1 Hardware Flag Update for ATS and PRI
 
-- [ ] When ATS TR made: AF set to 1 in same way as direct transaction access (§3.13.7.1, line 3253)
-- [ ] If HTTU dirty state enabled and ATS request for write (NW==0) to writable-clean page: SMMU marks page writable-dirty before returning ATS response (§3.13.7.1, line 3254)
-- [ ] If HTTU only Access flag enabled: ATS request for write to writable-clean returns ATS Completion with W==0 (§3.13.7.1, line 3254)
+- [x] When ATS TR made: AF set to 1 in same way as direct transaction access (§3.13.7.1, line 3253) — **Out-of-scope**: ATS Translation Request processing from PCIe devices is not modeled (🚫 per TASKS_BUGS.md §3.13.7.1)
+- [x] If HTTU dirty state enabled and ATS request for write (NW==0) to writable-clean page: SMMU marks page writable-dirty before returning ATS response (§3.13.7.1, line 3254) — **Out-of-scope**: ATS TR path not modeled; additionally HTTU=0b01 makes dirty-state update unavailable regardless
+- [x] If HTTU only Access flag enabled: ATS request for write to writable-clean returns ATS Completion with W==0 (§3.13.7.1, line 3254) — **Out-of-scope**: ATS TR path not modeled
 
 ### §3.13.8 Hardware Flag Update for Cache Maintenance Operations and Destructive Reads
 
-- [ ] HTTU dirty state update NOT performed for: Invalidate Cache Maintenance Operations, Destructive Reads, Destructive Hints (§3.13.8, line 3281)
-- [ ] When these operations to writable-clean descriptor: descriptor not updated to writable-dirty; operations are downgraded (§3.13.8, line 3292)
+- [x] HTTU dirty state update NOT performed for: Invalidate Cache Maintenance Operations, Destructive Reads, Destructive Hints (§3.13.8, line 3281) — **N/A**: HTTU=0b01 means dirty-state updates never performed for any transaction type; CMO/Destructive Read/Destructive Hint operations not modeled; vacuously conformant
+- [x] When these operations to writable-clean descriptor: descriptor not updated to writable-dirty; operations are downgraded (§3.13.8, line 3292) — **N/A**: dirty-state path (HTTU>=0b10) unreachable via HD/S2HD rejection at smmu.cpp:1167-1179; downgrade behavior not applicable
 
 ## §3.14 Speculative Accesses
 
