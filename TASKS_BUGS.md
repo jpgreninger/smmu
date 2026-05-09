@@ -138,7 +138,7 @@ CURRENT_SECTION = §4.2
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.11 | Reset, Enable, and initialization | ⚠️ | ✅ | AUDIT-69–71, 73, 75, 78 | Re-audited 2026-05-02: 12 items PASS, 3 N/A (software guidance/Secure-only). bypass identity, GBPA.ABORT abort, SMMUEN gate, TLB bypass, CMDQEN-only cmd gate, EVENTQEN, GATOS, STRTAB write guards, CR0ACK mirror, PRIQEN effective gate, CR1 TABLE_* RO — all conformant. No new bugs. 5 test coverage gaps noted (non-blocking). |
+| §3.11 | Reset, Enable, and initialization | ✅ | ✅ | AUDIT-69–71, 73, 75, 78 | Re-audited 2026-05-08 (C++): 15 items, 12 PASS, 3 N/A, 0 bugs. PASS: reset→disabled bypass, GBPA.ABORT abort, SMMUEN gate, stream-table structural bypass, effective-PRIQEN AND-gate, GATOS SMMUEN gate, ATS TR/TT faults when SMMUEN=0, CMDQEN-only cmd gate, EVENTQEN buffered-drain, STRTAB/CR1 RO-when-SMMUEN=1 write guards, no-flush on SMMUEN change, no-flush on 0→1 transition. N/A: software pre-enable invalidation guidance, recommended init sequence, SMMU_S_INIT (Secure interface not implemented). |
 
 ### §3.12 Fault Models
 
