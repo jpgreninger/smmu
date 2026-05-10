@@ -181,7 +181,7 @@ CURRENT_SECTION = §4.2
 | §3.15 | Coherency considerations and memory access types | N/A | N/A | | Hardware coherency concerns; COHACC=0 correct for SW model (no IO-coherent access); atomicity satisfied by Rust DashMap AtomicU64 |
 | §3.15.1 | Client devices | N/A | N/A | | Hardware snoop/cache topology; not applicable to SW simulation |
 | §3.15.1.1 | Fully-coherent client devices | N/A | N/A | | GPC/DPT/snoop hardware behavior; out of scope |
-| §3.16 | Embedded Implementations | N/A | N/A | | TABLES_PRESET/QUEUES_PRESET hardwired storage; SW model uses dynamic allocation; IDR1.TABLES_PRESET=0/QUEUES_PRESET=0 correct |
+| §3.16 | Embedded Implementations | N/A | N/A | | TABLES_PRESET/QUEUES_PRESET hardwired storage; SW model uses dynamic allocation; IDR1.TABLES_PRESET=0/QUEUES_PRESET=0 correct — audited 2026-05-09: 8 items all N/A, 0 bugs |
 | §3.16.1 | Changes to structure/queue storage when fixed/preset | N/A | N/A | | Embedded preset storage behavior; not applicable |
 | §3.16.1.1 | Event Queue and PRI Queue (embedded) | N/A | N/A | | |
 | §3.16.1.2 | Command Queue (embedded) | N/A | N/A | | |

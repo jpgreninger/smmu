@@ -539,6 +539,8 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.16 Embedded Implementations
 
+> **Audit date:** 2026-05-09 — 8 items checked: 0 PASS, 8 N/A, 0 bugs (embedded mode is IMPLEMENTATION DEFINED optional; TABLES_PRESET=0 and QUEUES_PRESET=0 in IDR1 — all §3.16 requirements vacuously satisfied)
+
 - [x] SMMU_IDR1.TABLES_PRESET: Stream table base address hardwired to pre-existing storage (§3.16, line 3371) — **N/A**: TABLES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); this implementation uses normal RAM-backed stream tables allocated by software; embedded/preset mode is an IMPLEMENTATION DEFINED optional feature not advertised by this model
 - [x] SMMU_IDR1.QUEUES_PRESET: queue base addresses hardwired to pre-existing storage (§3.16, line 3371) — **N/A**: QUEUES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); all queues (CMDQ, EVENTQ, PRIQ) are software-allocated in normal memory; preset queue mode is IMPLEMENTATION DEFINED and not advertised
 - [x] When SMMU_IDR1.REL set: base addresses given relative to start of SMMU register memory map (§3.16, line 3371) — **N/A**: REL=0 in getIDR1() (smmu.cpp:3553-3566); per spec §6.3.2 line 10988, REL is RES0 when both TABLES_PRESET==0 and QUEUES_PRESET==0; vacuously satisfied
