@@ -195,6 +195,7 @@ set(UNIT_TEST_SOURCES
     test_bug_audit164_osh_memattr.cpp
     test_bug_audit166_el2_el3_vmid.cpp
     test_bug_audit167_broadcast_vmid_s2p.cpp
+    test_bug_audit168_cr2_e2h_flush.cpp
     test_bug_audit169_vmw_nh_commands.cpp
     ../test_thread_safety.cpp
 )

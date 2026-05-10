@@ -5487,7 +5487,18 @@ void SMMU::setCR2(uint32_t value) {
     if (((cr0_.load(std::memory_order_acquire) | cr0ack_.load(std::memory_order_acquire)) & CR0_SMMUEN) != 0u) {
         return;
     }
+    const uint32_t oldCR2 = cr2_.load(std::memory_order_acquire);
     cr2_.store(value, std::memory_order_release);
+    // BUG-AUDIT-168 fix: ARM §3.17.5 — a change to CR2.E2H requires invalidation
+    // of all EL2 and EL2-E2H TLB entries.  The OS is responsible for issuing an
+    // ALLE2 (or equivalent) before toggling E2H, but the simulation model must
+    // also defensively flush stale EL2/EL2_E2H entries when E2H transitions to
+    // correctly model the required behavior across disable/enable cycles.
+    if (((oldCR2 ^ value) & CR2_E2H) != 0u) {
+        if (tlbCache) {
+            tlbCache->invalidateEL2Entries();
+        }
+    }
 }
 
 uint32_t SMMU::getCR2() const {
