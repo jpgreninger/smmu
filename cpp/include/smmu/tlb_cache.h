@@ -144,8 +144,9 @@ public:
     // (entry.vmid & vmidMask)==(vmid & vmidMask) AND entry.ipa is in [ipa, ipaEnd].
     // Only entries with entry.ipa != 0 are candidates (two-stage entries).
     void invalidateByVMIDAndIPA(uint16_t vmid, uint16_t vmidMask, IOVA ipa, IOVA ipaEnd);
-    /// ARM §4.4.2.2: CMD_TLBI_NH_ASID — evict entries tagged with both VMID AND ASID (joint match)
-    void invalidateByVMIDAndASID(uint16_t vmid, uint16_t asid);
+    /// ARM §4.4.2.2: CMD_TLBI_NH_ASID — evict entries tagged with both VMID AND ASID (joint match).
+    /// BUG-AUDIT-169-CPP: vmidMask applies VMW wildcard (§3.17.6); default 0xFFFF = exact match.
+    void invalidateByVMIDAndASID(uint16_t vmid, uint16_t asid, uint16_t vmidMask = 0xFFFFu);
     // CONF-GAP-6: VA-targeted TLBI — invalidate entries by VA+ASID or VA-only (§4.4)
     void invalidateByVAAndASID(IOVA va, uint16_t asid);  ///< evict entries matching va AND asid
     void invalidateByVA(IOVA va);                         ///< evict entries matching va (all ASIDs)
@@ -153,11 +154,14 @@ public:
     void invalidateByVARange(IOVA start, IOVA end, uint16_t asid);
     // BUG-NEW-37: VMID-scoped VA invalidation methods for TLBI_NH_VA / TLBI_NH_VAA (§4.4.2.3/4).
     /// Evict entries where vmid matches AND iova matches va AND asid matches (single-page, VMID+VA+ASID).
-    void invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asid);
+    /// BUG-AUDIT-169-CPP: vmidMask applies VMW wildcard (§3.17.6); default 0xFFFF = exact match.
+    void invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asid, uint16_t vmidMask = 0xFFFFu);
     /// Evict entries where vmid matches AND iova in [start,end] AND asid matches (range, VMID+VA+ASID).
-    void invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, uint16_t asid);
+    /// BUG-AUDIT-169-CPP: vmidMask applies VMW wildcard (§3.17.6); default 0xFFFF = exact match.
+    void invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, uint16_t asid, uint16_t vmidMask = 0xFFFFu);
     /// Evict entries where vmid matches AND iova matches va (single-page, VMID+VA, any ASID).
-    void invalidateByVMIDAndVA(uint16_t vmid, IOVA va);
+    /// BUG-AUDIT-169-CPP: vmidMask applies VMW wildcard (§3.17.6); default 0xFFFF = exact match.
+    void invalidateByVMIDAndVA(uint16_t vmid, IOVA va, uint16_t vmidMask = 0xFFFFu);
     void invalidateByStream(StreamID streamID);
     void invalidateByPASID(StreamID streamID, PASID pasid);
     void invalidateAll();
@@ -168,8 +172,9 @@ public:
     /// Evicts entries tagged with StreamWorld::EL2 or StreamWorld::EL2_E2H; preserves EL1_EL0.
     void invalidateEL2Entries();
     /// QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
-    /// Evicts only entries where strw==EL1_EL0 AND vmid==vmid; preserves all other entries.
-    void invalidateNonHypEntriesByVMID(uint16_t vmid);
+    /// Evicts only entries where strw==EL1_EL0 AND (vmid & vmidMask)==(entry.vmid & vmidMask).
+    /// BUG-AUDIT-169-CPP: vmidMask applies VMW wildcard (§3.17.6); default 0xFFFF = exact match.
+    void invalidateNonHypEntriesByVMID(uint16_t vmid, uint16_t vmidMask = 0xFFFFu);
     /// BUG-NEW-D fix: ARM §4.4.2.10 CMD_TLBI_EL2_ASID — evict only EL2_E2H entries matching ASID.
     /// EL1_EL0 entries with the same ASID value must be preserved.
     void invalidateEL2E2HByASID(uint16_t asid);

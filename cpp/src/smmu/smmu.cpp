@@ -796,8 +796,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // BUG-AUDIT-152-CPP fix: §3.3.3 lines 1479 and 1491 — NS-EL2 (without E2H)
             // and EL3 StreamWorlds have no ASID tag. Zero entryAsid for these regimes
             // regardless of whether stage 1 or stage 2 is enabled.
+            // BUG-AUDIT-166-CPP fix: §3.17.1 — EL2/EL3 streams are not in the EL1&0
+            // translation regime and carry no VMID tag. Zero entryVmid for these regimes
+            // regardless of whether stage 2 is enabled (entryVmid=streamCfg.vmid above
+            // is only correct for EL1_EL0 two-stage streams).
             if (streamCfg.strw == StreamWorld::EL2 || streamCfg.strw == StreamWorld::EL3) {
                 entryAsid = 0;
+                entryVmid = 0;
             }
             cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid, streamCfg.strw);
         }
@@ -4568,8 +4573,9 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // QA-AUDIT-FIX-2: ARM §4.4.2.1 CMD_TLBI_NH_ALL — Non-Hyp all, VMID-scoped.
             // Only evicts EL1_EL0 entries belonging to the command's VMID operand.
             // Preserves EL2, EL2_E2H, and EL1_EL0 entries of other VMIDs.
+            // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6).
             if (tlbCache) {
-                tlbCache->invalidateNonHypEntriesByVMID(vmid);
+                tlbCache->invalidateNonHypEntriesByVMID(vmid, getVmidMask());
             }
             break;
 
@@ -4585,11 +4591,12 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // BUG-NEW-37 fix: ARM §4.4.2.3 CMD_TLBI_NH_VA — must be VMID-scoped.
             // The previous calls to invalidateByVARange / invalidateByVAAndASID ignored
             // VMID and could evict entries from other VMIDs sharing the same VA+ASID.
+            // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6).
             if (ril) {
                 tlbCache->invalidateByVMIDAndVARange(vmid,
-                    iova, computeRILRangeEnd(iova, tg, num, scale), asid);
+                    iova, computeRILRangeEnd(iova, tg, num, scale), asid, getVmidMask());
             } else {
-                tlbCache->invalidateByVMIDAndVAAndASID(vmid, iova, asid);
+                tlbCache->invalidateByVMIDAndVAAndASID(vmid, iova, asid, getVmidMask());
             }
             break;
 
@@ -4597,6 +4604,7 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // BUG-NEW-37 fix: ARM §4.4.2.4 CMD_TLBI_NH_VAA — must be VMID-scoped.
             // The previous calls to invalidateByVA (in both RIL and non-RIL paths)
             // ignored VMID and could evict entries from other VMIDs sharing the same VA.
+            // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6).
             if (ril) {
                 // BUG-AUDIT-34 fix: use TG-derived granule size per ARM §4.4.1.1
                 uint64_t granuleSize;
@@ -4608,12 +4616,12 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
                 IOVA rangeEnd = computeRILRangeEnd(iova, tg, num, scale);
                 IOVA cur = iova & ~(granuleSize - 1u);
                 while (cur <= rangeEnd) {
-                    tlbCache->invalidateByVMIDAndVA(vmid, cur);
+                    tlbCache->invalidateByVMIDAndVA(vmid, cur, getVmidMask());
                     if (cur > UINT64_MAX - granuleSize) break;
                     cur += granuleSize;
                 }
             } else {
-                tlbCache->invalidateByVMIDAndVA(vmid, iova);
+                tlbCache->invalidateByVMIDAndVA(vmid, iova, getVmidMask());
             }
             break;
 
@@ -4622,7 +4630,8 @@ void SMMU::executeTLBInvalidationCommand(CommandType type, StreamID streamID, PA
             // by VMID AND ASID (joint match).  Previously called invalidateByASID(asid)
             // which ignored VMID, over-invalidating entries from other VMIDs that share
             // the same ASID value.
-            tlbCache->invalidateByVMIDAndASID(vmid, asid);
+            // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6).
+            tlbCache->invalidateByVMIDAndASID(vmid, asid, getVmidMask());
             break;
 
         case CommandType::TLBI_EL2_ALL:
@@ -5815,6 +5824,11 @@ void SMMU::receiveBroadcastTLBI(CommandType type, uint16_t asid, uint16_t vmid, 
                         type == CommandType::TLBI_EL2_ASID);
     if (isNsEL1Tlbi && (cr2_.load(std::memory_order_acquire) & CR2_PTM) != 0u) {
         return; // BUG-AUDIT-54 fix: CR2.PTM=1 → Private TLB Maintenance, SMMU does not participate (ARM §6.3.12)
+    }
+    // BUG-AUDIT-167-CPP fix: §3.17 line 3466 — if SMMU does not support stage 2
+    // (IDR0.S2P==0), a VMID operand in a broadcast TLBI is treated as 0.
+    if (!s2pSupported_.load(std::memory_order_acquire)) {
+        vmid = 0;
     }
     executeTLBInvalidationCommand(type, asid, vmid, va);
 }
