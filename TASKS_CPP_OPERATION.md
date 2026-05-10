@@ -522,18 +522,20 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.15 Coherency Considerations and Memory Access Types
 
-- [ ] All in-memory structures and queues accessed using Normal memory types (§3.15, line 3324)
-- [ ] If HTTU supported: atomic access required to update translation tables shared between PE and SMMU (§3.15, line 3326)
-- [ ] SMMU_IDR0.COHACC==1: system supports IO-coherent accesses from SMMU for configuration structures, translation tables, queues, CMD_SYNC, GERROR, Event queue, PRI queue MSIs (§3.15, line 3339)
-- [ ] TLB-maintenance operations sent from client devices into the system are NOT permitted and never propagated by the SMMU (§3.15.1, line 3343)
-- [ ] SMMU cache maintenance operations from client devices are supported (§3.15.1, line 3343)
-- [ ] SMMU does not output inconsistent attributes from misconfiguration; Outer Shareable used as effective Shareability when Device or Normal Inner Non-cacheable Outer Non-cacheable types configured (§3.15, line 3721)
+<!-- Audited 2026-05-08: 9 items checked, 2 PASS, 6 N/A, 1 BUG (BUG-AUDIT-164-CPP FIXED 2026-05-09) -->
+
+- [x] All in-memory structures and queues accessed using Normal memory types (§3.15, line 3324) — **N/A**: hardware memory-attribute rule; software model issues no real memory transactions and has no cache-coherent interconnect to configure; rule is vacuously satisfied by construction
+- [x] If HTTU supported: atomic access required to update translation tables shared between PE and SMMU (§3.15, line 3326) — **N/A**: rule scopes to "shared between the PE and SMMU" in a real system; this model has no real PE; HTTU=0b01 (access flag only); updateAccessFlags() is non-atomic but this is a thread-safety concern outside §3.15 scope
+- [x] SMMU_IDR0.COHACC: system supports IO-coherent accesses from SMMU for configuration structures, translation tables, queues, CMD_SYNC, GERROR, Event queue, PRI queue MSIs (§3.15, line 3339) — **PASS**: COHACC (IDR0 bit 13) is absent from getIDR0() (smmu.cpp:3515-3541), correctly advertising COHACC=0; spec §3.15 line 3339 mandates COHACC=0 when IO-coherent access is not supported, which is correct for a software model with no IO-coherent interconnect
+- [x] TLB-maintenance operations sent from client devices into the system are NOT permitted and never propagated by the SMMU (§3.15.1, line 3343) — **PASS**: no client API exists to forward TLB maintenance operations; receiveBroadcastTLBI() is the inbound-from-PE direction (CR2.PTM gated), not client-originated; absence of a client TLB-maint forwarding path is correct behavior
+- [x] SMMU cache maintenance operations from client devices are supported (§3.15.1, line 3343) — **N/A**: pure translation model; no cache state is modelled; CMOs from clients, if presented, would translate as ordinary accesses; no specific code path required in a software model
+- [x] SMMU does not output inconsistent attributes from misconfiguration; Outer Shareable used as effective Shareability when Device or Normal Inner Non-cacheable Outer Non-cacheable types configured (§3.15, line 3721) — **PASS / BUG-AUDIT-164-CPP FIXED**: `oshRequired(uint8_t memAttr)` helper added to stream_context.cpp and smmu.cpp (`return (memAttr <= 0x5u) || (memAttr == 0x8u) || (memAttr == 0xCu)`); all three OSH enforcement sites updated (stream_context.cpp mtCfg=true branch, smmu.cpp TLB fast path mtCfg=true branch, smmu.cpp GBPA bypass path); covers Device-nGnRnE/nGnRE/nGRE/GRE (0x0–0x3), reserved Device aliases (0x4/0x8/0xC), and Normal-iNC-oNC (0x5); mtCfg=false page-level branch unchanged (pageAttr is binary 0x00/0xFF in address_space.cpp so Normal-iNC-oNC cannot be represented at page level); TDD: `test_bug_audit164_osh_memattr.cpp` (13 tests, all PASS)
 
 ### §3.15.1.1 Fully-Coherent Client Devices
 
-- [ ] GPC checks apply to fully-coherent requests (§3.15.1.1, line 3355)
-- [ ] DPT checks apply to fully-coherent requests; exception: DPT W bit permitted to be treated as 1 for fully-coherent client where required by coherency protocol (§3.15.1.1, line 3356)
-- [ ] Client-originated snoop requests bypass the SMMU and are NOT subject to DPT checks or GPC (§3.15.1.1, line 3358)
+- [x] GPC checks apply to fully-coherent requests (§3.15.1.1, line 3355) — **N/A**: GPC infrastructure absent (IDR0.RME_IMPL=0 per §3.25 audit; no GPT/GPC implementation); fully-coherent client device distinction absent from TransactionType enum (types.h:1443-1448); rule unreachable
+- [x] DPT checks apply to fully-coherent requests; exception: DPT W bit permitted to be treated as 1 for fully-coherent client where required by coherency protocol (§3.15.1.1, line 3356) — **N/A**: DPT not implemented (IDR3.DPT=0); DPTI_ALL/DPTI_PA commands return CERROR_ILL (smmu.cpp:5368-5372); fully-coherent client type absent from TransactionType; rule unreachable
+- [x] Client-originated snoop requests bypass the SMMU and are NOT subject to DPT checks or GPC (§3.15.1.1, line 3358) — **N/A**: no Snoop TransactionType defined; GPC and DPT absent; bypass behavior vacuously satisfied since neither check exists
 
 ## §3.16 Embedded Implementations
 

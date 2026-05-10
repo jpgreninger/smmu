@@ -202,8 +202,8 @@ TEST(Bug4DeadCodeLookup, STRWPromotion_InlinePathPromotesUnprivilegedAccess) {
 //   output-attribute overrides to TranslationData explicitly on every TLB hit.
 //
 // Scenario (non-zero output attributes that would be zeroed by dead method):
-//   - mtCfg=true, memAttr=5  → memType must be 5
-//   - shCfg=3                → shareability must be 3
+//   - mtCfg=true, memAttr=0x77 (Normal WB) → memType must be 0x77
+//   - shCfg=3                → shareability must be 3 (Normal WB does not force OSH)
 //   - allocCfg=0xC           → allocHint must be 0xC
 //   - privCfg=1              → privCfg must be 1
 //   - nsCfg=2                → nsCfgOut must be 2
@@ -222,10 +222,13 @@ TEST(Bug4DeadCodeLookup, OutputAttributes_TLBHit_CorrectlyAppliesSTEOverrides) {
     cfg.stage2Enabled      = false;
     cfg.faultMode          = FaultMode::Terminate;
     cfg.t0sz               = 0;
-    // Non-zero STE output-attribute overrides
+    // Non-zero STE output-attribute overrides.
+    // Use memAttr=0x77 (Normal WB inner/outer) — a non-zero, non-trivial value
+    // that does NOT trigger the OSH-enforcement rule (§3.15/§13.1.7 Rule 1), so
+    // shCfg=3 is preserved unchanged and exercises the TLB plumbing path.
     cfg.mtCfg    = true;
-    cfg.memAttr  = 5;    // memType must be 5 on hit
-    cfg.shCfg    = 3;    // shareability must be 3 on hit
+    cfg.memAttr  = 0x77; // Normal WB (inner WB / outer WB) — memType must be 0x77 on hit
+    cfg.shCfg    = 3;    // shareability must be 3 on hit (Normal memory; OSH not forced)
     cfg.allocCfg = 0xC;  // allocHint must be 0xC on hit
     cfg.instCfg  = 0;    // 0 = no override; avoids Read→Execute promotion (Gap D)
     cfg.privCfg  = 1;    // privCfg must be 1 on hit
@@ -250,11 +253,11 @@ TEST(Bug4DeadCodeLookup, OutputAttributes_TLBHit_CorrectlyAppliesSTEOverrides) {
     // Verify slow path already returns correct attrs (sanity check).
     {
         const TranslationData& td = miss.getValue();
-        EXPECT_EQ(td.memType,      5u)   << "Slow-path memType must be 5";
-        EXPECT_EQ(td.shareability, 3u)   << "Slow-path shareability must be 3";
-        EXPECT_EQ(td.allocHint,    0xCu) << "Slow-path allocHint must be 0xC";
-        EXPECT_EQ(td.privCfg,      1u)   << "Slow-path privCfg must be 1";
-        EXPECT_EQ(td.nsCfgOut,     2u)   << "Slow-path nsCfgOut must be 2";
+        EXPECT_EQ(td.memType,      0x77u) << "Slow-path memType must be 0x77";
+        EXPECT_EQ(td.shareability, 3u)    << "Slow-path shareability must be 3";
+        EXPECT_EQ(td.allocHint,    0xCu)  << "Slow-path allocHint must be 0xC";
+        EXPECT_EQ(td.privCfg,      1u)    << "Slow-path privCfg must be 1";
+        EXPECT_EQ(td.nsCfgOut,     2u)    << "Slow-path nsCfgOut must be 2";
     }
 
     // --- Second call: guaranteed TLB cache HIT (same IOVA, same stream). ---
@@ -268,12 +271,12 @@ TEST(Bug4DeadCodeLookup, OutputAttributes_TLBHit_CorrectlyAppliesSTEOverrides) {
 
     // These assertions expose what lookupTranslationCache() would return wrong:
     // the dead method calls makeTranslationSuccess() without STE attrs → all 0.
-    EXPECT_EQ(td.memType, 5u)
-        << "Bug 4: TLB hit must return memType=5 (mtCfg=true, memAttr=5); "
+    EXPECT_EQ(td.memType, 0x77u)
+        << "Bug 4: TLB hit must return memType=0x77 (mtCfg=true, memAttr=0x77); "
            "lookupTranslationCache() would return 0 — confirming the dead method "
            "is broken and must not be used (ARM §13 STE output attrs)";
     EXPECT_EQ(td.shareability, 3u)
-        << "Bug 4: TLB hit must return shareability=3 (shCfg=3); "
+        << "Bug 4: TLB hit must return shareability=3 (shCfg=3, Normal WB — OSH not forced); "
            "lookupTranslationCache() would return 0 (ARM §13)";
     EXPECT_EQ(td.allocHint, 0xCu)
         << "Bug 4: TLB hit must return allocHint=0xC (allocCfg=0xC); "

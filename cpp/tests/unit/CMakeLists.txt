@@ -192,6 +192,7 @@ set(UNIT_TEST_SOURCES
     test_bug_audit153_canonical_va.cpp
     test_bug_audit154_stall_drain.cpp
     test_bug_audit155_158_ats.cpp
+    test_bug_audit164_osh_memattr.cpp
     ../test_thread_safety.cpp
 )
 

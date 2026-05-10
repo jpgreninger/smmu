@@ -7,6 +7,11 @@
 
 namespace smmu {
 
+// §3.15 / §13.1.7 Rule 1: OSH required for all Device types and Normal Non-Cacheable.
+static inline bool oshRequired(uint8_t memAttr) {
+    return (memAttr <= 0x5u) || (memAttr == 0x8u) || (memAttr == 0xCu);
+}
+
 // Helper function to get current timestamp
 static uint64_t getCurrentTimestamp() {
     auto now = std::chrono::steady_clock::now();
@@ -1204,15 +1209,15 @@ TranslationResult StreamContext::translateUnlocked(PASID pasid, IOVA iova, Acces
         data.instCfg      = currentConfiguration.instCfg;
         data.privCfg      = currentConfiguration.privCfg;
         data.nsCfgOut     = currentConfiguration.nsCfg;
-        // BUG-13.1.7-CPP fix: ARM §13.1.7 Rule 1 — Device and Non-Cacheable memory
-        // types must always use Outer Shareable (OSH=2) regardless of STE.SHCfg.
-        // When mtCfg=true, the STE memAttr override is authoritative;
-        // when mtCfg=false, the page-level attribute (data.pageAttr) governs.
+        // BUG-13.1.7-CPP / BUG-AUDIT-164-CPP fix: §3.15/§13.1.7 Rule 1 — all Device
+        // and Normal Non-Cacheable types require OSH regardless of STE.SHCfg.
+        // mtCfg=true: STE memAttr override is authoritative (use oshRequired helper).
+        // mtCfg=false: page-level attr governs (only binary 0x00/0xFF representable).
         {
-            bool effectiveDevice = currentConfiguration.mtCfg
-                ? (currentConfiguration.memAttr == 0x00u)
+            bool needsOsh = currentConfiguration.mtCfg
+                ? oshRequired(currentConfiguration.memAttr)
                 : (data.pageAttr == 0x00u);
-            if (effectiveDevice) {
+            if (needsOsh) {
                 data.shareability = 2u;  // OSH
             }
         }

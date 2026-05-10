@@ -33,6 +33,13 @@ static uint8_t oasBitsFromS2PS(uint8_t s2ps) {
     return kS2PSToBits[idx];
 }
 
+// §3.15 / §13.1.7 Rule 1: OSH is required for all Device memory types and Normal
+// Non-Cacheable.  Device encodes as 0x0–0x3 (and reserved aliases 0x4, 0x8, 0xC);
+// Normal-iNC-oNC encodes as 0x5.  Normal WB/WA/WT (inner or outer cacheable) does not.
+static inline bool oshRequired(uint8_t memAttr) {
+    return (memAttr <= 0x5u) || (memAttr == 0x8u) || (memAttr == 0xCu);
+}
+
 // ARM §3.5.1: Circular queue index helpers (FINDING-M-01)
 
 // Compute LOG2SIZE: smallest k such that 2^k >= capacity (minimum 0).
@@ -306,9 +313,9 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 td.memType = gbpa.memAttr;
             }
             td.shareability = gbpa.shCfg;
-            // BUG-13.2-CPP fix: §13.1.7 Rule 1 — Device and Non-Cacheable memory types
-            // must use Outer Shareable (OSH=2) regardless of the configured GBPA.SHCfg.
-            if (td.memType == 0x00u) { // Device-nGnRnE (or any Device) → force OSH
+            // BUG-13.2-CPP / BUG-AUDIT-164-CPP fix: §3.15/§13.1.7 Rule 1 — all Device and
+            // Normal Non-Cacheable memory types require OSH regardless of GBPA.SHCfg.
+            if (oshRequired(td.memType)) {
                 td.shareability = 2u;
             }
             td.allocHint    = gbpa.allocCfg;
@@ -559,10 +566,12 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                     // STE.SHCfg.  When mtCfg=true, the STE override is authoritative;
                     // when mtCfg=false, the page-level attribute (cached in TLBEntry) is used.
                     {
-                        bool effectiveDevice = streamCfgForTlb.mtCfg
-                            ? (streamCfgForTlb.memAttr == 0x00u)
+                        // BUG-AUDIT-164-CPP fix: §3.15/§13.1.7 Rule 1 applies to all
+                        // Device and Normal-NC types, not just Device-nGnRnE (0x00).
+                        bool needsOsh = streamCfgForTlb.mtCfg
+                            ? oshRequired(streamCfgForTlb.memAttr)
                             : (entry.pageAttr == 0x00u);
-                        if (effectiveDevice) {
+                        if (needsOsh) {
                             data.shareability = 2u;  // OSH
                         }
                     }
