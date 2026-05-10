@@ -539,14 +539,14 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.16 Embedded Implementations
 
-- [ ] SMMU_IDR1.TABLES_PRESET: Stream table base address hardwired to pre-existing storage (§3.16, line 3371)
-- [ ] SMMU_IDR1.QUEUES_PRESET: queue base addresses hardwired to pre-existing storage (§3.16, line 3371)
-- [ ] When SMMU_IDR1.REL set: base addresses given relative to start of SMMU register memory map (§3.16, line 3371)
-- [ ] For embedded implementation using internal storage: all address regions for configuration structures and queues must not overlap; applies within same PA space and across NS and Secure PA spaces (§3.16, line 3374)
-- [ ] Embedded Event/PRI queue entries (QUEUES_PRESET==1): permitted to have read-only/write-ignored behavior for software accesses (§3.16.1.1, line 3382)
-- [ ] Embedded Command queue entries: readable and writable but storage not required for reserved/undefined fields, high-order StreamID bits beyond range, high-order SubstreamID bits beyond range, SSV if SubstreamIDs not implemented, STAG bits generated as '0' (§3.16.1.2, line 3386)
-- [ ] Software must not assume writing arbitrary 16-byte sequence to Command queue entry can be read back unmodified (§3.16.1.2, line 3404)
-- [ ] Embedded Stream table: storage not required for undefined fields, Reserved/RES0 fields, fields IGNORED in all supported configurations, fields with RAZ/WI behavior (§3.16.1.3, line 3408)
+- [x] SMMU_IDR1.TABLES_PRESET: Stream table base address hardwired to pre-existing storage (§3.16, line 3371) — **N/A**: TABLES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); this implementation uses normal RAM-backed stream tables allocated by software; embedded/preset mode is an IMPLEMENTATION DEFINED optional feature not advertised by this model
+- [x] SMMU_IDR1.QUEUES_PRESET: queue base addresses hardwired to pre-existing storage (§3.16, line 3371) — **N/A**: QUEUES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); all queues (CMDQ, EVENTQ, PRIQ) are software-allocated in normal memory; preset queue mode is IMPLEMENTATION DEFINED and not advertised
+- [x] When SMMU_IDR1.REL set: base addresses given relative to start of SMMU register memory map (§3.16, line 3371) — **N/A**: REL=0 in getIDR1() (smmu.cpp:3553-3566); per spec §6.3.2 line 10988, REL is RES0 when both TABLES_PRESET==0 and QUEUES_PRESET==0; vacuously satisfied
+- [x] For embedded implementation using internal storage: all address regions for configuration structures and queues must not overlap; applies within same PA space and across NS and Secure PA spaces (§3.16, line 3374) — **N/A**: no internal/embedded storage used; TABLES_PRESET=0 and QUEUES_PRESET=0; requirement is conditional on an implementation using internal storage; vacuously satisfied
+- [x] Embedded Event/PRI queue entries (QUEUES_PRESET==1): permitted to have read-only/write-ignored behavior for software accesses (§3.16.1.1, line 3382) — **N/A**: QUEUES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); requirement explicitly gated on QUEUES_PRESET==1; vacuously satisfied
+- [x] Embedded Command queue entries: readable and writable but storage not required for reserved/undefined fields, high-order StreamID bits beyond range, high-order SubstreamID bits beyond range, SSV if SubstreamIDs not implemented, STAG bits generated as '0' (§3.16.1.2, line 3386) — **N/A**: QUEUES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); requirement explicitly gated on QUEUES_PRESET==1 (embedded Command queue); command queue stored in normal software-allocated memory with full field storage
+- [x] Software must not assume writing arbitrary 16-byte sequence to Command queue entry can be read back unmodified (§3.16.1.2, line 3404) — **N/A**: QUEUES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); this rule governs software behavior when interacting with embedded (preset) command queues only; non-preset command queues in normal memory provide full read-back fidelity
+- [x] Embedded Stream table: storage not required for undefined fields, Reserved/RES0 fields, fields IGNORED in all supported configurations, fields with RAZ/WI behavior (§3.16.1.3, line 3408) — **N/A**: TABLES_PRESET=0 in getIDR1() (smmu.cpp:3553-3566); stream tables are software-allocated in normal RAM; embedded STE storage rules apply only to TABLES_PRESET==1 implementations
 
 ## §3.17 TLB Tagging, VMIDs, ASIDs and Broadcast TLB Maintenance
 
