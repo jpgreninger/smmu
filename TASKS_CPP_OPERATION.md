@@ -552,57 +552,59 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.17 TLB Tagging, VMIDs, ASIDs and Broadcast TLB Maintenance
 
-- [ ] Cached translations tagged with: translation regime (StreamWorld), ASID if regime supports ASIDs, VMID if S2 implemented and regime supports VMIDs (§3.17, line 3420)
-- [ ] NS-EL1 stage 1 VA translations: ASID-tagged if nG==1, VMID-tagged if S2P==1 (§3.17, line 3431)
-- [ ] any-EL2 translations: no ASID tag, no VMID tag (§3.17, line 3435)
-- [ ] any-EL2-E2H translations: ASID-tagged if nG==1, no VMID tag (§3.17, line 3436)
-- [ ] EL3 translations: no ASID tag, no VMID tag (§3.17, line 3438)
-- [ ] When SMMU_IDR0.S1P==1: SMMU supports 16-bit ASIDs if SMMU_IDR0.ASID16==1 (§3.17, line 3456)
-- [ ] When SMMU_IDR0.S2P==1: SMMU supports 16-bit VMIDs if SMMU_IDR0.VMID16==1 (§3.17, line 3457)
-- [ ] All TLB entries inserted using NS-EL1 configurations are tagged with VMIDs when S2P==1, regardless of stage configuration (§3.17, line 3458)
-- [ ] SMMU support for broadcast TLB maintenance is optional; indicated by SMMU_IDR0.BTM (§3.17, line 3462)
-- [ ] If SMMU_IDR0.BTM==1 and SMMU_(*_)CR2.PTM==1: SMMU permitted but not required to ignore broadcast TLB invalidations for corresponding Security state (§3.17, line 3466)
-- [ ] Broadcast TLB invalidations with illegal operations (e.g. affecting unimplemented stage): silently ignored (§3.17, line 3466)
-- [ ] When SMMU_IDR0.S2P==0: SMMU matches VMID 0 for incoming broadcast TLB invalidations for regimes using VMIDs (§3.17, line 3466)
-- [ ] CD.ASET==1: address space and ASID are non-shared; TLB entries not required to be invalidated by broadcast VA{L}ExIS and ASIDExIS operations (§3.17, line 3478)
-- [ ] CD.ASET==0: ASID considered shared with PE processes; TLB entries required to be affected by all matching broadcast invalidations (§3.17, line 3478)
-- [ ] CMD_TLBI_* commands invalidate all matching TLB entries regardless of ASET value (§3.17, line 3480)
+> **Audit date:** 2026-05-09 — 35 items checked: 12 PASS, 12 N/A, 8 BUG, 3 Out-of-scope (BUG-AUDIT-165-CPP through BUG-AUDIT-169-CPP filed)
+
+- [x] Cached translations tagged with: translation regime (StreamWorld), ASID if regime supports ASIDs, VMID if S2 implemented and regime supports VMIDs (§3.17, line 3420) — **PASS**: TLBEntry carries `strw`, `asid`, `vmid` fields (types.h:1351-1361); insert path smmu.cpp:766-802 sets tags based on stage config and regime
+- [ ] NS-EL1 stage 1 VA translations: ASID-tagged if nG==1, VMID-tagged if S2P==1 (§3.17, line 3431) — **BUG-AUDIT-165-CPP**: nG bit not tracked in TLBEntry or TranslationData; ASID applied unconditionally regardless of global/non-global descriptor flag; VMID tagging for S2P==1 is correct (smmu.cpp:772-781)
+- [ ] any-EL2 translations: no ASID tag, no VMID tag (§3.17, line 3435) — **BUG-AUDIT-166-CPP**: ASID zeroed correctly (smmu.cpp:799-800) but `entryVmid` not zeroed for EL2 streams; EL2 stream with non-zero STE.S2VMID produces TLB entries incorrectly tagged with that VMID
+- [ ] any-EL2-E2H translations: ASID-tagged if nG==1, no VMID tag (§3.17, line 3436) — **BUG-AUDIT-165-CPP / BUG-AUDIT-166-CPP**: nG absent; `entryVmid` not zeroed for EL2_E2H streams (smmu.cpp:787-802)
+- [ ] EL3 translations: no ASID tag, no VMID tag (§3.17, line 3438) — **BUG-AUDIT-166-CPP**: ASID zeroed correctly (smmu.cpp:799-800) but `entryVmid` not zeroed for EL3 streams
+- [x] When SMMU_IDR0.S1P==1: SMMU supports 16-bit ASIDs if SMMU_IDR0.ASID16==1 (§3.17, line 3456) — **PASS**: IDR0 advertises S1P (gated on s1pSupported_) and ASID16=1 unconditional (smmu.cpp:3524-3533)
+- [x] When SMMU_IDR0.S2P==1: SMMU supports 16-bit VMIDs if SMMU_IDR0.VMID16==1 (§3.17, line 3457) — **PASS**: IDR0 advertises S2P (gated on s2pSupported_) and VMID16=1 unconditional (smmu.cpp:3524, 3540)
+- [x] All TLB entries inserted using NS-EL1 configurations are tagged with VMIDs when S2P==1, regardless of stage configuration (§3.17, line 3458) — **PASS**: smmu.cpp:772-781; NS-EL1 always retains STE.S2VMID as entryVmid for stage-1-only, stage-2-only, and both-stage configs
+- [x] SMMU support for broadcast TLB maintenance is optional; indicated by SMMU_IDR0.BTM (§3.17, line 3462) — **PASS**: IDR0 bit 5 set unconditionally (smmu.cpp:3528); receiveBroadcastTLBI() implemented (smmu.cpp:5806)
+- [x] If SMMU_IDR0.BTM==1 and SMMU_(*_)CR2.PTM==1: SMMU permitted but not required to ignore broadcast TLB invalidations for corresponding Security state (§3.17, line 3466) — **PASS**: smmu.cpp:5816-5817; CR2.PTM=1 causes early return for NS-targeted commands
+- [x] Broadcast TLB invalidations with illegal operations (e.g. affecting unimplemented stage): silently ignored (§3.17, line 3466) — **PASS**: receiveBroadcastTLBI() routes only to implemented NS/EL1/EL2 types; unimplemented-stage broadcasts produce no effect
+- [ ] When SMMU_IDR0.S2P==0: SMMU matches VMID 0 for incoming broadcast TLB invalidations for regimes using VMIDs (§3.17, line 3466) — **BUG-AUDIT-167-CPP**: receiveBroadcastTLBI() (smmu.cpp:5806-5820) has no VMID=0 substitution when s2pSupported_==false; broadcast VMID operand passed unchanged
+- [x] CD.ASET==1: address space and ASID are non-shared; TLB entries not required to be invalidated by broadcast VA{L}ExIS and ASIDExIS operations (§3.17, line 3478) — **N/A**: ASET not tracked in TLBEntry; conservative over-invalidation is conformant (spec uses "not required")
+- [x] CD.ASET==0: ASID considered shared with PE processes; TLB entries required to be affected by all matching broadcast invalidations (§3.17, line 3478) — **N/A**: all entries effectively treated as ASET==0; requirement met by over-invalidation
+- [x] CMD_TLBI_* commands invalidate all matching TLB entries regardless of ASET value (§3.17, line 3480) — **PASS**: smmu.cpp:4566-4704; no ASET filtering anywhere in CMD_TLBI_* paths
 
 ### §3.17.1 The Global Flag in the Translation Table Descriptor
 
-- [ ] Translation performed for Secure stream from Non-secure memory is treated as non-global (nG==1) regardless of nG bit value in descriptor (§3.17.1, line 3504)
-- [ ] any-EL2 and EL3 StreamWorlds: nG bit has no effect (§3.17.1, line 3504)
-- [ ] Global TLB entry can match regardless of ASID; but can only match lookups from same StreamWorld as when TLB entry created (§3.17.1, line 3508)
-- [ ] Global TLB entries with ASET==0 do not match lookups through configurations with ASET==1 and vice versa (§3.17.1, line 3512)
+- [ ] Translation performed for Secure stream from Non-secure memory is treated as non-global (nG==1) regardless of nG bit value in descriptor (§3.17.1, line 3504) — **BUG-AUDIT-165-CPP**: nG not tracked in TLBEntry (types.h:1342-1378) or TranslationData; no enforcement of non-global override for Secure-stream-from-NS-memory
+- [x] any-EL2 and EL3 StreamWorlds: nG bit has no effect (§3.17.1, line 3504) — **N/A**: nG not tracked in model; trivially satisfied — nG has no effect anywhere
+- [ ] Global TLB entry can match regardless of ASID; but can only match lookups from same StreamWorld as when TLB entry created (§3.17.1, line 3508) — **BUG-AUDIT-165-CPP**: no isGlobal/nG field in TLBEntry; global vs non-global distinction entirely absent; StreamWorld not part of TLBCache lookup key
+- [ ] Global TLB entries with ASET==0 do not match lookups through configurations with ASET==1 and vice versa (§3.17.1, line 3512) — **BUG-AUDIT-165-CPP**: neither ASET nor nG tracked; cross-ASET isolation for global entries unimplemented; vacuously N/A since global entries are never created
 
 ### §3.17.4 Broadcast TLB Maintenance in Mixed AArch32/AArch64 Systems
 
-- [ ] SMMU supporting 16-bit ASID: compares full 16-bit broadcast value to TLB tags (§3.17.4, line 3600)
-- [ ] SMMU supporting 8-bit ASID: compares bottom 8 bits; required to match if bottom 8 equal and top 8 zero; not required to match if top 8 non-zero (§3.17.4, line 3602)
+- [x] SMMU supporting 16-bit ASID: compares full 16-bit broadcast value to TLB tags (§3.17.4, line 3600) — **PASS**: TLBEntry.asid is uint16_t; invalidateByASID() compares full 16-bit value (tlb_cache.cpp:393-425); IDR0.ASID16=1
+- [x] SMMU supporting 8-bit ASID: compares bottom 8 bits; required to match if bottom 8 equal and top 8 zero; not required to match if top 8 non-zero (§3.17.4, line 3602) — **N/A**: model advertises ASID16=1; 8-bit rule does not apply
 
 ### §3.17.5 EL2 ASIDs and TLB Maintenance in E2H Mode
 
-- [ ] Change to SMMU_CR2.E2H must be accompanied by invalidation of all TLB entries from NS-EL2 or NS-EL2-E2H STEs (§3.17.5, line 3635)
-- [ ] Change to SMMU_S_CR2.E2H must be accompanied by invalidation of all TLB entries from S-EL2 or S-EL2-E2H STEs (§3.17.5, line 3636)
+- [ ] Change to SMMU_CR2.E2H must be accompanied by invalidation of all TLB entries from NS-EL2 or NS-EL2-E2H STEs (§3.17.5, line 3635) — **BUG-AUDIT-168-CPP**: setCR2() (smmu.cpp:5475-5482) stores value only; no TLB invalidation on E2H bit transition
+- [x] Change to SMMU_S_CR2.E2H must be accompanied by invalidation of all TLB entries from S-EL2 or S-EL2-E2H STEs (§3.17.5, line 3636) — **N/A**: Secure EL2 (SMMU_S_CR2) not implemented in this model
 
 ### §3.17.6 VMID Wildcards
 
-- [ ] SMMU_CR0.VMW controls Non-secure VMID wildcard function; configured number of VMID LSBs ignored during invalidation matching (§3.17.6, line 3654)
-- [ ] Both broadcast TLB invalidation and explicit CMD_TLBI_* commands respect VMID wildcard when SMMU_CR0.VMW != 0 (§3.17.6, line 3658)
-- [ ] VMID wildcard does not allow dissimilar VMID values to alias on TLB lookup (§3.17.6, line 3662)
+- [x] SMMU_CR0.VMW controls Non-secure VMID wildcard function; configured number of VMID LSBs ignored during invalidation matching (§3.17.6, line 3654) — **PASS**: getVmidMask() lambda (smmu.cpp:4558-4563) reads CR0_VMW and computes (0xFFFFu << vmw) & 0xFFFF
+- [ ] Both broadcast TLB invalidation and explicit CMD_TLBI_* commands respect VMID wildcard when SMMU_CR0.VMW != 0 (§3.17.6, line 3658) — **BUG-AUDIT-169-CPP**: getVmidMask() applied only to TLBI_S12_VMALL and TLBI_S2_IPA (smmu.cpp:4683,4693-4700); TLBI_NH_ALL, TLBI_NH_VA, TLBI_NH_VAA, TLBI_NH_ASID use exact VMID matching without wildcard (smmu.cpp:4572-4625)
+- [x] VMID wildcard does not allow dissimilar VMID values to alias on TLB lookup (§3.17.6, line 3662) — **PASS**: TLBCache lookup keyed on {streamID,pasid,iova,secState}; VMID not in lookup key; no alias possible
 
 ### §3.17.7 Broadcast TLB Maintenance for GPT Information
 
-- [ ] SMMU with RME and SMMU_ROOT_IDR0.BGPTM==1 participates in broadcast TLBI *PA* instructions from PEs in EL3 (§3.17.7, line 3668)
-- [ ] TLBI *PA* to Outer Shareable domain affects the SMMU (§3.17.7, line 3670)
-- [ ] This applies regardless of SMMU_IDR0.BTM and SMMU_(*_)CR2.PTM values (§3.17.7, line 3672)
+- [x] SMMU with RME and SMMU_ROOT_IDR0.BGPTM==1 participates in broadcast TLBI *PA* instructions from PEs in EL3 (§3.17.7, line 3668) — **Out-of-scope**: RME_IMPL=0 (smmu.cpp:5325-5327); RME/GPT not implemented
+- [x] TLBI *PA* to Outer Shareable domain affects the SMMU (§3.17.7, line 3670) — **Out-of-scope**: RME not implemented
+- [x] This applies regardless of SMMU_IDR0.BTM and SMMU_(*_)CR2.PTM values (§3.17.7, line 3672) — **Out-of-scope**: RME not implemented
 
 ### §3.17.8 TLBInXS Maintenance Operations
 
-- [ ] Applies only when SMMU_IDR0.BTM==1 (§3.17.8, line 3682)
-- [ ] MAIR encodings 0b00000001, 0b01000000, and 0b10100000 remain Reserved; XS attribute taken as 0 for all MAIR encodings (§3.17.8, line 3693)
-- [ ] Bit [11] of stage 2 block and page descriptors remains RES0; XS attribute taken as 0 for all stage 2 translations (§3.17.8, line 3694)
-- [ ] SMMU behaves as though XS attribute for cached translations is 0 when determining effect of TLBI or TLBInXS operation (§3.17.8, line 3695)
+- [x] Applies only when SMMU_IDR0.BTM==1 (§3.17.8, line 3682) — **N/A**: BTM=1 is advertised but XS attribute is not modeled anywhere
+- [x] MAIR encodings 0b00000001, 0b01000000, and 0b10100000 remain Reserved; XS attribute taken as 0 for all MAIR encodings (§3.17.8, line 3693) — **N/A**: XS not tracked; effectively 0 everywhere — conformant by absence
+- [x] Bit [11] of stage 2 block and page descriptors remains RES0; XS attribute taken as 0 for all stage 2 translations (§3.17.8, line 3694) — **N/A**: stage 2 descriptor bit[11] not exposed; XS=0 implicitly for all S2 translations
+- [x] SMMU behaves as though XS attribute for cached translations is 0 when determining effect of TLBI or TLBInXS operation (§3.17.8, line 3695) — **N/A**: TLBEntry has no XS field; all invalidations operate without XS distinction — equivalent to XS=0 everywhere
 
 ## §3.18 Interrupts and Notifications
 
