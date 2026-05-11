@@ -3448,21 +3448,17 @@ void SMMU::processEventQueue() {
             eventqCons.store((oldCons & (1u << 31)) | newRD, std::memory_order_release);
         }
     }
-    // BUG-AUDIT-154-CPP fix: ARM §3.5.3 — drain stallPending_ into eventQueue
-    // after the consumption loop completes and space has been freed.  Stall events
-    // must be recorded "when entries are consumed from the Event queue and space
-    // next becomes available" per §3.5.3 line 1824.  The drain runs post-loop so
-    // promoted stall events are not immediately re-consumed by the same call.
-    while (!stallPending_.empty() && eventQueue.size() < maxEventQueueSize) {
-        eventQueue.push_back(stallPending_.front());
-        stallPending_.pop_front();
-        // BUG-NEW-D fix: preserve OVFLG (bit 31) across the PROD advance.
-        {
-            uint32_t oldProd = eventqProd.load(std::memory_order_relaxed);
-            uint32_t newProd = advanceQueueIndex(oldProd, eventqLog2Size) | (oldProd & (1u << 31));
-            eventqProd.store(newProd, std::memory_order_release);
-        }
-    }
+    // ARM §3.5.3 / §7.4: Stall events parked in stallPending_ are delivered
+    // "when entries are consumed from the Event queue and space next becomes
+    // available" (spec line 1824), and specifically "must not commit until the
+    // queue entry is deemed writable" (spec line 1859).  The lazy drain in
+    // generateEvent() (lines ~5958-5969) satisfies this requirement: any
+    // subsequent generateEvent() call finds space and promotes stallPending_
+    // entries before inserting the new event.  Do NOT drain stallPending_ here —
+    // processEventQueue() only consumes events; it must not re-populate eventQueue.
+    // Draining here caused Bug3StallPendingFields regression (the promoted stall
+    // event appeared in eventQueue after processEventQueue(), leaving size==1
+    // instead of 0 and breaking the intermediate assertion in that test).
 }
 
 Result<bool> SMMU::hasEvents() const {

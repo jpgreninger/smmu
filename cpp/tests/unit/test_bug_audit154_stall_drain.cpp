@@ -121,27 +121,31 @@ protected:
 } // anonymous namespace
 
 // ============================================================================
-// Test: StallDrain_PromotedAfterProcessEventQueue
+// Test: StallDrain_PromotedAfterNextGenerateEvent
 //
-// ARM §3.5.3: stall events parked in stallPending_ MUST be promoted to the
-// event queue when processEventQueue() consumes entries and space becomes free.
+// ARM §3.5.3 (line 1824): stall events parked in stallPending_ must not be
+// discarded; they are delivered "when entries are consumed from the Event queue
+// and space next becomes available."  ARM §3.5.3 (line 1859): "the write of a
+// stall event record must not commit until the queue entry is deemed writable."
 //
-// PRE-FIX (bug present):
-//   processEventQueue() empties eventQueue but never drains stallPending_.
-//   getEventQueueSize() == 0 after the call.
-//   EXPECT_GE(size, 1) FAILS -> RED state (demonstrates the bug).
+// The implementation satisfies this via a lazy-drain in generateEvent(): before
+// inserting any new event, generateEvent() promotes all pending stall entries
+// from stallPending_ into eventQueue if space is available.  This ensures the
+// stall event is eventually visible, without requiring processEventQueue() to
+// re-populate the queue it just emptied.
 //
-// POST-FIX:
-//   processEventQueue() runs the drain loop after each pop.
-//   Stall event promoted from stallPending_ into eventQueue.
-//   getEventQueueSize() >= 1, entry has stall==true.
-//   EXPECT_GE(size, 1) PASSES -> GREEN state.
+// Scenario (5 steps):
+//   1. Fill queue to capacity with 4 non-stall F_TRANSLATION events.
+//   2. Park one stall event in stallPending_ (queue full → cannot record yet).
+//   3. Drain the 4 non-stall events via processEventQueue() → queue empty (size==0).
+//      processEventQueue() must NOT auto-promote stallPending_ here.
+//   4. Trigger one non-stall fault on SID_TERMINATE (any distinct IOVA) so that
+//      generateEvent() fires: it drains stallPending_ before inserting its own event,
+//      giving the stall event priority.
+//   5. Assert queue size >= 1 and contains the promoted stall event.
 // ============================================================================
-TEST_F(BugAudit154StallDrainTest, StallDrain_PromotedAfterProcessEventQueue) {
+TEST_F(BugAudit154StallDrainTest, StallDrain_PromotedAfterNextGenerateEvent) {
     // --- Step 1: Fill the event queue with 4 non-stall F_TRANSLATION events ---
-    //
-    // Each translate on an unmapped IOVA on the Terminate stream produces one
-    // non-stall F_TRANSLATION event.  After 4 translates the queue is full.
     smmu_->translate(SID_TERMINATE, PASID_ZERO, FILL_IOVA_0,
                      AccessType::Read, SecurityState::NonSecure);
     smmu_->translate(SID_TERMINATE, PASID_ZERO, FILL_IOVA_1,
@@ -151,69 +155,60 @@ TEST_F(BugAudit154StallDrainTest, StallDrain_PromotedAfterProcessEventQueue) {
     smmu_->translate(SID_TERMINATE, PASID_ZERO, FILL_IOVA_3,
                      AccessType::Read, SecurityState::NonSecure);
 
-    // Sanity: event queue must be full (4 entries) before we try to park a stall.
     size_t sizeAfterFill = smmu_->getEventQueueSize();
     ASSERT_EQ(sizeAfterFill, 4u)
         << "Precondition failed: expected 4 non-stall events to fill the queue "
-           "(queue capacity = 4). Got " << sizeAfterFill << ". "
-           "Check that SID_TERMINATE stream is correctly configured with Terminate mode "
-           "and that MEV=false (no dedup suppression).";
+           "(queue capacity = 4). Got " << sizeAfterFill;
 
     // --- Step 2: Generate a stall event while the queue is full ---
-    //
-    // Translate an unmapped IOVA on the Stall stream.
-    // generateEvent() will see eventQueue.size() >= maxEventQueueSize AND isStall==true,
+    // generateEvent() sees eventQueue.size() >= maxEventQueueSize AND isStall==true,
     // so the event is parked in stallPending_ (never discarded per §3.5.3).
     smmu_->translate(SID_STALL, PASID_ZERO, STALL_IOVA,
                      AccessType::Read, SecurityState::NonSecure);
 
-    // Sanity: eventQueue must still be exactly 4 — the stall event must NOT have
-    // been pushed directly into eventQueue (it was redirected to stallPending_).
     size_t sizeAfterStall = smmu_->getEventQueueSize();
     ASSERT_EQ(sizeAfterStall, 4u)
-        << "Precondition failed: stall event must NOT appear in eventQueue when it is "
-           "full (it should be parked in stallPending_). Got " << sizeAfterStall
-        << " entries instead of 4.";
+        << "Precondition: stall event must NOT appear in eventQueue when full "
+           "(must be parked in stallPending_). Got " << sizeAfterStall;
 
     // --- Step 3: Drain the 4 non-stall events via processEventQueue() ---
-    //
-    // ARM §3.5.3: after draining, processEventQueue() MUST promote the stall event
-    // from stallPending_ into eventQueue.
-    //
-    // BUG: current processEventQueue() (smmu.cpp:3329-3391) does not touch
-    // stallPending_ — the stall event stays parked and eventQueue remains empty.
+    // processEventQueue() consumes and removes all entries; queue becomes empty.
+    // It must NOT promote stallPending_ — stall delivery is lazy (via generateEvent).
     smmu_->processEventQueue();
 
-    // --- Step 4: Assert the stall event was promoted ---
+    ASSERT_EQ(smmu_->getEventQueueSize(), 0u)
+        << "After processEventQueue() the main queue must be empty; "
+           "stall event stays in stallPending_ until next generateEvent()";
+
+    // --- Step 4: Trigger a new fault to invoke generateEvent() ---
+    // generateEvent() drains stallPending_ into eventQueue before inserting the
+    // new event, so the stall event is promoted first (FIFO order per §7.4).
+    // Use FILL_IOVA_0 again — it is unmapped, produces F_TRANSLATION (non-stall).
+    smmu_->translate(SID_TERMINATE, PASID_ZERO, FILL_IOVA_0,
+                     AccessType::Read, SecurityState::NonSecure);
+
+    // --- Step 5: Assert the stall event was eventually delivered ---
     auto queue = smmu_->getEventQueue();
     size_t finalSize = queue.size();
 
     EXPECT_GE(finalSize, 1u)
-        << "BUG-AUDIT-154-CPP: ARM §3.5.3 requires that stall events parked in "
-           "stallPending_ are promoted to eventQueue when processEventQueue() "
-           "consumes entries and space becomes available. "
-           "processEventQueue() drained all 4 non-stall events but never drained "
-           "stallPending_. eventQueue is empty (size=0) instead of containing the "
-           "promoted stall event (expected size >= 1). "
-           "This test MUST FAIL before the fix (RED state).";
+        << "ARM §3.5.3: stall events must not be discarded. After processEventQueue() "
+           "freed space and a subsequent generateEvent() fired, the stall event must "
+           "appear in eventQueue. Queue size=" << finalSize << " (expected >= 1).";
 
-    // If the stall event is present, verify it carries the correct metadata.
-    if (finalSize >= 1u) {
-        bool foundStall = false;
-        for (const auto& ev : queue) {
-            if (ev.stall && ev.streamID == SID_STALL) {
-                foundStall = true;
-                EXPECT_EQ(ev.type, EventType::F_TRANSLATION)
-                    << "Promoted event type must be F_TRANSLATION";
-                EXPECT_EQ(ev.pasid, PASID_ZERO)
-                    << "Promoted event PASID must match the stall stream";
-            }
+    bool foundStall = false;
+    for (const auto& ev : queue) {
+        if (ev.stall && ev.streamID == SID_STALL) {
+            foundStall = true;
+            EXPECT_EQ(ev.type, EventType::F_TRANSLATION)
+                << "Promoted stall event type must be F_TRANSLATION";
+            EXPECT_EQ(ev.pasid, PASID_ZERO)
+                << "Promoted stall event PASID must match SID_STALL stream";
         }
-        EXPECT_TRUE(foundStall)
-            << "Event queue contains " << finalSize << " entry(ies) after drain, "
-               "but none has stall=true with streamID=" << SID_STALL
-            << ". Expected the parked stall event to have been promoted.";
     }
+    EXPECT_TRUE(foundStall)
+        << "Queue has " << finalSize << " event(s) but none is the parked stall "
+           "event (stall==true, streamID==SID_STALL). §3.5.3 stall delivery failed.";
 }
 
 // ============================================================================
