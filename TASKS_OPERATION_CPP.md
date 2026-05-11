@@ -640,16 +640,18 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.20.1 TLB Conflict
 
-- [ ] When TLB conflict detected: transaction aborted; F_TLB_CONFLICT event recorded (§3.20.1, line 3830)
-- [ ] If TLB conflict not detected: behavior is unpredictable; restriction: transaction cannot access PA to which stream configuration does not explicitly grant access (§3.20.1, line 3835)
-- [ ] TLB conflict never enables: matching entry with different VMID, different Security state, different StreamWorld, or PA outside stage 2 configured range (§3.20.1, line 3837)
-- [ ] TLB conflict from one stream must not cause traffic for different streams with other VMID/StreamWorld/Security to be terminated (§3.20.1, line 3848)
+- [x] When TLB conflict detected: transaction aborted; F_TLB_CONFLICT event recorded (§3.20.1, line 3830) — **N/A**: Detection is IMPL DEF (spec line 3828 says not required). Software model uses deterministic `std::unordered_map`-keyed TLB (`CacheKey` → single value) in `tlb_cache.h:41-51`; hardware-style multi-hit is structurally impossible. `EventType::F_TLB_CONFLICT (0x20)` exists at `smmu.cpp:1685` and wire-format at `smmu.cpp:3847`, but `generateEvent(F_TLB_CONFLICT)` is never called. Model elects not to implement conflict detection.
+- [x] If TLB conflict not detected: behavior is unpredictable; restriction: transaction cannot access PA to which stream configuration does not explicitly grant access (§3.20.1, line 3835) — **PASS**: `CacheKey` is keyed on `{streamID, pasid, iova, securityState}` (`tlb_cache.h:41-51`). TLB entries only inserted after slow-path translation succeeds (`smmu.cpp:759`). No path delivers a PA not explicitly granted by that stream's configuration. Restriction satisfied structurally.
+- [x] TLB conflict never enables: matching entry with different VMID, different Security state, different StreamWorld, or PA outside stage 2 configured range (§3.20.1, line 3837) — **PASS**: `securityState` is in `CacheKey` (`tlb_cache.h:45,49,80`); cross-security hit is structurally impossible. Stage-2 PA bounds enforced at insertion time (`smmu.cpp:2797-2798, 3023-3024`). VMID/StreamWorld stored in `TLBEntry` (`types.h:1361,1370`) for TLBI use; per-stream configuration isolation guaranteed by per-STE `StreamContext`. All four prohibitions structurally satisfied.
+- [x] TLB conflict from one stream must not cause traffic for different streams with other VMID/StreamWorld/Security to be terminated (§3.20.1, line 3848) — **N/A**: No TLB conflict is ever raised by this implementation (see item above). Cross-stream termination from a TLB conflict event is architecturally impossible in this model. Vacuously satisfied.
 
 ### §3.20.2 Configuration Cache Conflicts
 
-- [ ] When configuration cache conflict detected: transaction aborted; F_CFG_CONFLICT event recorded (§3.20.2, line 3858)
-- [ ] If conflict not detected: behavior is unpredictable (§3.20.2, line 3863)
-- [ ] Configuration cache conflict cannot cause STE to be treated as associated with different Security state (§3.20.2, line 3864)
+- [x] When configuration cache conflict detected: transaction aborted; F_CFG_CONFLICT event recorded (§3.20.2, line 3858) — **N/A**: Detection is IMPL DEF (spec line 3856 says not required). Software model has no actual configuration cache separate from the `StreamContext` map; stream configuration is looked up directly and deterministically. `EventType::F_CFG_CONFLICT (0x21)` exists at `smmu.cpp:1686` and wire-format at `smmu.cpp:3848`, but `generateEvent(F_CFG_CONFLICT)` is never called for §3.20.2 (note: `FaultType::ConfigurationCacheFault` at `smmu.cpp:5297` is the CMD_SYNC CS=reserved path — unrelated). Model elects not to implement conflict detection.
+- [x] If conflict not detected: behavior is unpredictable (§3.20.2, line 3863) — **N/A**: No configuration cache exists in the software model that could produce a conflict. Configuration reads are serialized via stripe locks on the `streamMap`. The "unpredictable if not detected" clause only concerns hardware implementations with actual configuration caches.
+- [x] Configuration cache conflict cannot cause STE to be treated as associated with different Security state (§3.20.2, line 3864) — **PASS**: Each `StreamContext` holds its own `securityState` from its STE. The stream map is keyed by StreamID only; no data structure could cause one stream's STE to be returned for a different stream or interpreted with a different security state. Isolation is structural.
+
+<!-- §3.20 C++ Audit 2026-05-11: 7 items checked — 3 PASS, 4 N/A, 0 FAIL, 0 bugs. Detection of F_TLB_CONFLICT/F_CFG_CONFLICT is IMPL DEF and not implemented (N/A). Access restriction (line 3835) PASS by structural CacheKey keying. Security/VMID/StreamWorld/PA isolation (line 3837) PASS by construction. Config-cache Security isolation (line 3864) PASS by per-stream StreamContext. -->
 
 ## §3.21 Structure Access Rules and Update Procedures
 
