@@ -629,12 +629,12 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.19 Power Control
 
-- [ ] Power off state entered only when: all client devices and interconnect quiescent, device DMA disabled, outstanding commands/invalidations/transactions complete, stalled transactions terminated with abort (§3.19, line 3798)
-- [ ] On wakeup: SMMU must be reset; SMMU registers must be re-initialized before client devices can be enabled (§3.19, line 3801)
+- [x] Power off state entered only when: all client devices and interconnect quiescent, device DMA disabled, outstanding commands/invalidations/transactions complete, stalled transactions terminated with abort (§3.19, line 3798) — **N/A**: These are system-software caller obligations per spec §3.19 lines 3798–3800; the SW model has no external DMA generators, interconnect, or stall-producing client devices to quiesce. The SMMU implementation cannot observe or enforce quiescence from inside the model.
+- [x] On wakeup: SMMU must be reset; SMMU registers must be re-initialized before client devices can be enabled (§3.19, line 3801) — **N/A**: Power-cycle wakeup maps to constructing a new `SMMU` object, which runs the constructor and initializes all registers to reset state. `enable()` on an existing object is re-enablement within a single lifecycle, not wakeup from power-off.
 
 ### §3.19.1 Dormant State
 
-- [ ] When SMMU_STATUSR.DORMANT==1: no caches of any structures or translations are present; no prefetch of any configuration/translation data in progress; any structure/translation alterations will result in fresh memory reads (§3.19.1, line 3807)
+- [x] When SMMU_STATUSR.DORMANT==1: no caches of any structures or translations are present; no prefetch of any configuration/translation data in progress; any structure/translation alterations will result in fresh memory reads (§3.19.1, line 3807) — **PASS** (BUG-DORMANT-2-CPP fixed 2026-05-11): `disable()` now calls `tlbCache->invalidateAll()` before setting `statusr_=1`; stale TLB entries are evicted on dormant entry. `enable()` clears DORMANT=0. IDR0.DORMHINT=1 advertises dormancy. TDD: `P3Dormant.TlbFlushedOnDormantEntry` verifies stale pre-dormant PA not served post-wakeup; `P3Dormant.StatusrDormantSetAfterDisable`/`ClearedAfterReEnable`/`Idr0DormhintIsSet` all pass.
 
 ## §3.20 TLB and Configuration Cache Conflict
 

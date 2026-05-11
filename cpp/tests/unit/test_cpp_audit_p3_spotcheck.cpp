@@ -237,6 +237,51 @@ TEST(P3Dormant, Idr0DormhintIsSet) {
         << "§3.19 / §6.3.1: IDR0.DORMHINT (bit 8) must be 1 when dormancy is implemented";
 }
 
+// BUG-DORMANT-2-CPP: §3.19.1 guarantees that when STATUSR.DORMANT==1 the SMMU
+// holds no cached translations.  disable() sets DORMANT=1 but does NOT flush the
+// TLB cache, so stale entries populated before disable() survive across the
+// dormant boundary.  If software modifies a mapping while dormant then calls
+// enable(), the first translation after wakeup can return the pre-dormant PA.
+//
+// Fix: disable() must call tlbCache->invalidateAll() before setting statusr_=1.
+//
+// Test: populate TLB via translate() → disable() → remap VA to new PA → enable()
+// → translate() must return new PA (not stale pre-dormant PA).
+TEST(P3Dormant, TlbFlushedOnDormantEntry) {
+    constexpr PA kPA2 = 0xB000'0000ULL;  // different PA from kPA
+
+    auto smmu = std::make_unique<SMMU>();
+    smmu->enable();
+    smmu->setCR0(smmu->getCR0() | SMMU::CR0_EVENTQEN);
+    setupS1Stream(*smmu, kSid + 5);
+
+    // Step 1: map VA→PA1 and translate to populate TLB.
+    PagePermissions rw(true, true, false);
+    ASSERT_TRUE(smmu->mapPage(kSid + 5, kPasid, kPage, kPA, rw).isOk());
+    auto r1 = smmu->translate(kSid + 5, kPasid, kPage, AccessType::Read, SecurityState::NonSecure);
+    ASSERT_TRUE(r1.isOk()) << "Pre-condition: first translation must succeed";
+    ASSERT_EQ(r1.getValue().physicalAddress, kPA) << "Pre-condition: PA1 returned";
+
+    // Step 2: enter dormant state (DORMANT=1).
+    smmu->disable();
+    ASSERT_EQ(smmu->getStatusr() & 1u, 1u) << "Pre-condition: DORMANT must be 1";
+
+    // Step 3: remap VA→PA2 while dormant (mapPage does NOT invalidate the TLB).
+    ASSERT_TRUE(smmu->mapPage(kSid + 5, kPasid, kPage, kPA2, rw).isOk());
+
+    // Step 4: wake up (DORMANT=0).
+    smmu->enable();
+    ASSERT_EQ(smmu->getStatusr() & 1u, 0u) << "Pre-condition: DORMANT must be 0 after enable()";
+
+    // Step 5: translate must return PA2.  If disable() did not flush the TLB,
+    // the stale entry for PA1 is served and this assertion fails.
+    auto r2 = smmu->translate(kSid + 5, kPasid, kPage, AccessType::Read, SecurityState::NonSecure);
+    ASSERT_TRUE(r2.isOk()) << "§3.19.1: post-dormant translation must succeed";
+    EXPECT_EQ(r2.getValue().physicalAddress, kPA2)
+        << "§3.19.1 / BUG-DORMANT-2-CPP: disable() must flush TLB; stale pre-dormant "
+           "PA1 served instead of updated PA2";
+}
+
 // ─── §3.4 / §3.4.1 — OAS/IPS address size conformance (regression guard) ────
 //
 // ARM §3.4.1: An address-size fault is raised when the input address exceeds

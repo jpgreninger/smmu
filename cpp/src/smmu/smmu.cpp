@@ -5757,6 +5757,12 @@ void SMMU::disable() {
     smmuen_.store(false, std::memory_order_release);
     // CONF-GAP-9: sync CR0ACK to match updated CR0
     cr0ack_.store(newVal, std::memory_order_release);
+    // BUG-DORMANT-2-CPP fix: §3.19.1 guarantees no cached translations when
+    // STATUSR.DORMANT==1.  Flush the TLB before advertising the dormant state so
+    // stale entries cannot be served after enable()/wakeup.
+    if (tlbCache) {
+        tlbCache->invalidateAll();
+    }
     // BUG-DORMANT-CPP fix: ARM §3.19 / §6.3.47 — STATUSR.DORMANT (bit 0) must be 1
     // when the SMMU has entered the dormant state.  IDR0.DORMHINT=1 advertises that
     // this SMMU implements dormancy; disable() is the entry point to the dormant state
