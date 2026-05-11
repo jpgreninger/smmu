@@ -804,7 +804,23 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
                 entryAsid = 0;
                 entryVmid = 0;
             }
-            cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid, streamCfg.strw);
+            // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — determine the nG (not-Global) bit.
+            // globalTranslations==true (CD.nG=0): entry is global; evicted by any
+            // ASID-targeted TLBI regardless of the ASID operand.
+            // globalTranslations==false (CD.nG=1): entry is non-global (default);
+            // only evicted when the ASID operand matches.
+            //
+            // Secure-from-NS override (ARM §3.17.1): if the stream is Secure but the
+            // translation result resolved to NS memory, force nonGlobal=true (nG=1).
+            bool entryNonGlobal = !streamCfg.globalTranslations;
+            {
+                const TranslationData& tdata = result.getValue();
+                if (streamCfg.securityState == SecurityState::Secure &&
+                    tdata.securityState == SecurityState::NonSecure) {
+                    entryNonGlobal = true; // Override: Secure-from-NS must be non-global
+                }
+            }
+            cacheTranslationResult(streamID, pasid, iova, result, currentTime, entryAsid, entryVmid, streamCfg.strw, entryNonGlobal);
         }
     } else if (result.isError()) {
         // BUG-CPP-5 fix: §7.3 — compute the effective (post-STE-override) access type
@@ -2360,7 +2376,8 @@ bool SMMU::isTranslationCacheable(const TranslationResult& result) const {
 
 void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                  const TranslationResult& result, uint64_t currentTime,
-                                 uint16_t asid, uint16_t vmid, StreamWorld strw) {
+                                 uint16_t asid, uint16_t vmid, StreamWorld strw,
+                                 bool nonGlobal) {
     if (!tlbCache || result.isError() || !cachingEnabled.load(std::memory_order_acquire)) {
         return; // Caching disabled or invalid result
     }
@@ -2398,6 +2415,11 @@ void SMMU::cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
     // BUG-13.1.7-CPP fix: propagate page-level memory type so the TLB fast path
     // can enforce ARM §13.1.7 Rule 1 (Device/NC memory must use OSH) on cache hits.
     entry.pageAttr = data.pageAttr;
+    // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — propagate nG (not-Global) bit.
+    // nonGlobal=false (global entry, nG=0): ASID-targeted TLBIs must evict this
+    // entry regardless of the ASID operand value (global entries match all ASIDs).
+    // nonGlobal=true  (non-global, nG=1): only evict when ASID operand matches.
+    entry.nonGlobal = nonGlobal;
 
     // ARM SMMU v3 spec: Insert into TLB with LRU eviction if needed
     tlbCache->insert(entry);

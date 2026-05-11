@@ -550,13 +550,18 @@ void TLBCache::invalidateByVMIDAndASID(uint16_t vmid, uint16_t asid, uint16_t vm
     // ALL entries with the given ASID regardless of VMID, over-invalidating
     // entries belonging to other VMIDs that happen to share the same ASID.
     // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6) to VMID comparison.
+    // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — global entries (nonGlobal==false, nG=0)
+    // must be evicted regardless of the ASID operand; they match all ASIDs.
+    // Note: the same pattern applies to invalidateByASID, invalidateByVAAndASID,
+    // invalidateEL2E2HByASID, and invalidateEL2ByVAAndASID (see BUG-AUDIT-165-CPP).
     AllLocksGuard allLocks(*this);
 
     for (size_t i = 0; i < NUM_LOCK_STRIPES; ++i) {
         CacheStripe& stripe = stripes[i];
         auto it = stripe.list.begin();
         while (it != stripe.list.end()) {
-            if ((it->second.vmid & vmidMask) == (vmid & vmidMask) && it->second.asid == asid) {
+            if ((it->second.vmid & vmidMask) == (vmid & vmidMask) &&
+                (it->second.asid == asid || !it->second.nonGlobal)) {
                 const CacheKey& key = it->first;
 
                 auto& streamSet = stripe.streamIndex[key.streamID];
@@ -691,6 +696,8 @@ void TLBCache::invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asi
     // Previously called invalidateByVAAndASID() which ignores VMID, evicting
     // entries from other VMIDs sharing the same VA+ASID — a spec violation.
     // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6) to VMID comparison.
+    // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — global entries (nonGlobal==false, nG=0)
+    // match this VA+VMID regardless of ASID operand.
     IOVA pageAlignedVA = va & ~static_cast<IOVA>(PAGE_SIZE - 1u);
     AllLocksGuard allLocks(*this);
 
@@ -700,7 +707,7 @@ void TLBCache::invalidateByVMIDAndVAAndASID(uint16_t vmid, IOVA va, uint16_t asi
         while (it != stripe.list.end()) {
             if ((it->second.vmid & vmidMask) == (vmid & vmidMask) &&
                 it->second.iova == pageAlignedVA &&
-                it->second.asid == asid) {
+                (it->second.asid == asid || !it->second.nonGlobal)) {
                 const CacheKey& key = it->first;
 
                 auto& streamSet = stripe.streamIndex[key.streamID];
@@ -729,6 +736,8 @@ void TLBCache::invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, u
     // BUG-NEW-37 fix: ARM §4.4.2.3 CMD_TLBI_NH_VA (RIL path) — evict entries where
     // entry.vmid == vmid AND iova in [start,end] AND entry.asid == asid (joint match).
     // BUG-AUDIT-169-CPP fix: apply VMW wildcard mask (§3.17.6) to VMID comparison.
+    // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — global entries (nonGlobal==false, nG=0)
+    // within the VA range must be evicted regardless of ASID operand.
     IOVA pageAlignedStart = start & ~static_cast<IOVA>(PAGE_SIZE - 1u);
     AllLocksGuard allLocks(*this);
 
@@ -739,7 +748,7 @@ void TLBCache::invalidateByVMIDAndVARange(uint16_t vmid, IOVA start, IOVA end, u
             IOVA entryVA = it->second.iova;
             if ((it->second.vmid & vmidMask) == (vmid & vmidMask) &&
                 entryVA >= pageAlignedStart && entryVA <= end &&
-                it->second.asid == asid) {
+                (it->second.asid == asid || !it->second.nonGlobal)) {
                 const CacheKey& key = it->first;
 
                 auto& streamSet = stripe.streamIndex[key.streamID];

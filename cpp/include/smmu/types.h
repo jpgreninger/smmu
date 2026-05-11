@@ -1289,6 +1289,14 @@ struct StreamConfig {
     /// Per §6.3.1 TTENDIAN=0b00 (mixed), both values are valid; no C_BAD_STE raised.
     bool s2endi; ///< STE.S2ENDI; defaults to false (little-endian)
 
+    /// BUG-AUDIT-165-CPP: ARM §3.17.1 — CD.nG (not-Global) bit.
+    /// When false (global translations), TLB entries are tagged as global (nG=0):
+    /// they are accessible to all ASIDs and must be evicted by ASID-targeted TLBIs
+    /// (CMD_TLBI_NH_ASID, CMD_TLBI_NH_VA, CMD_TLBI_NH_VAA) regardless of the ASID
+    /// operand.  When true (non-global, the safe default), entries are ASID-scoped
+    /// and only evicted when the ASID operand matches.
+    bool globalTranslations; ///< CD.nG==0 (global); defaults to false (non-global/nG=1)
+
     StreamConfig() : translationEnabled(false), stage1Enabled(false),
                     stage2Enabled(false), bypassEnabled(false), faultMode(FaultMode::Terminate),
                     ha(false), hd(false), asid(0), vmid(0), s1dss(2), s1cdMax(0),
@@ -1304,7 +1312,8 @@ struct StreamConfig {
                     affd(false), s2affd(false), s2ha(false), s2hd(false),
                     wxn(false), uwxn(false),
                     s2ptw(false),
-                    endi(false), s2endi(false) {
+                    endi(false), s2endi(false),
+                    globalTranslations(false) {
     }
 };
 
@@ -1365,15 +1374,24 @@ struct TLBEntry {
     /// ARM §13.1.7 Rule 1 (Device/NC memory must use OSH) on cache hits.
     uint8_t pageAttr; ///< page-level memory type; 0x00=Device, 0xFF=Normal
 
+    /// BUG-AUDIT-165-CPP: ARM §3.17.1 — not-Global (nG) bit.
+    /// When true (nG=1): entry is ASID-scoped (non-global); only evicted by
+    /// ASID-targeted TLBIs when the ASID operand matches.
+    /// When false (nG=0): entry is global; ASID-targeted TLBIs must evict it
+    /// regardless of the ASID operand value.
+    /// Default: true (non-global) — the safe/conservative default.
+    bool nonGlobal; ///< nG bit: true=non-global (ASID-scoped), false=global (ASID-independent)
+
     TLBEntry() : streamID(0), pasid(0), iova(0), physicalAddress(0),
                  securityState(SecurityState::NonSecure), valid(false), timestamp(0),
-                 asid(0), vmid(0), ipa(0), strw(StreamWorld::EL1_EL0), pageAttr(0xFFu) {
+                 asid(0), vmid(0), ipa(0), strw(StreamWorld::EL1_EL0), pageAttr(0xFFu),
+                 nonGlobal(true) {
     }
 
     TLBEntry(StreamID sid, PASID p, IOVA iva, PA pa, PagePermissions perms, SecurityState secState)
         : streamID(sid), pasid(p), iova(iva), physicalAddress(pa), permissions(perms),
           securityState(secState), valid(true), timestamp(0), asid(0), vmid(0), ipa(0),
-          strw(StreamWorld::EL1_EL0), pageAttr(0xFFu) {
+          strw(StreamWorld::EL1_EL0), pageAttr(0xFFu), nonGlobal(true) {
     }
 };
 

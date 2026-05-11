@@ -689,7 +689,8 @@ private:
     bool isTranslationCacheable(const TranslationResult& result) const;
     void cacheTranslationResult(StreamID streamID, PASID pasid, IOVA iova,
                                const TranslationResult& result, uint64_t currentTime,
-                               uint16_t asid, uint16_t vmid, StreamWorld strw);
+                               uint16_t asid, uint16_t vmid, StreamWorld strw,
+                               bool nonGlobal);
     void generateCacheKey(StreamID streamID, PASID pasid, IOVA iova, SecurityState securityState, uint64_t& cacheKey) const;
 
     // Stage-specific translation methods (Task 5.2)
