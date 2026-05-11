@@ -484,8 +484,16 @@ static StreamConfig ptmTestStreamCfg(uint16_t vmid) {
 // BEFORE FIX: PTM=1 → executes TLBI → TLB flushed → second translate is a miss → FAILS
 // AFTER FIX:  PTM=1 → skips TLBI  → TLB intact  → second translate is a hit  → PASSES
 // Uses TLBI_NSNH_ALL (VMID-agnostic) to ensure the entry is targeted.
+//
+// Note: CR2.PTM is set before enable() so no disable/enable cycle is needed.
+// disable() enters the dormant state (§3.19.1) and flushes the TLB, which
+// would empty the cache and invalidate the test's hit/miss observation.
 TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm1_Private_SkipsTlbi) {
     SMMU smmu;
+    // CR2 is writable while SMMUEN=0 (ARM §6.3.12).  Set PTM=1 before
+    // calling enable() so no disable/enable cycle — and no TLB flush — occurs.
+    smmu.setCR2(SMMU::CR2_PTM);
+
     enableSMMU(smmu);
     smmu.enableCaching(true);
 
@@ -511,10 +519,6 @@ TEST(BugAudit54Cpp, ReceiveBroadcastTlbi_Ptm1_Private_SkipsTlbi) {
 
     // CR2.PTM=1 → Private TLB Maintenance: SMMU must NOT participate in broadcast.
     // Use TLBI_NSNH_ALL (VMID-agnostic) so the entry for vmid=10 is targeted.
-    // CR2 must be set while SMMUEN=0 — disable, set PTM=1, re-enable.
-    smmu.disable();
-    smmu.setCR2(SMMU::CR2_PTM);
-    smmu.enable();
     smmu.receiveBroadcastTLBI(CommandType::TLBI_NSNH_ALL);
 
     // Second translate: TLB should still be populated → cache HIT.
