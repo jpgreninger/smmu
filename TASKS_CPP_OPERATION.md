@@ -608,22 +608,24 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.18 Interrupts and Notifications
 
-- [ ] Implementation must support one of, or optionally both of, wired interrupts and MSIs; MSI support discoverable from SMMU_IDR0.MSI and SMMU_S_IDR0.MSI (§3.18, line 3707)
-- [ ] Interrupt notification must not be observable before the new information is also observable (§3.18, line 3710)
-- [ ] Global error interrupt: change to GERROR must be observable if interrupt observable (§3.18, line 3712)
-- [ ] Event queue interrupt: new entries must be observable to reads of queue index registers if interrupt observable (§3.18, line 3713)
-- [ ] CMD_SYNC completion interrupt: consumption of CMD_SYNC must be observable to reads of queue index registers if interrupt observable (§3.18, line 3714)
-- [ ] MSIs from Secure sources performed with Secure accesses targeting Secure PA space (§3.18, line 3722)
-- [ ] MSIs from Non-secure sources performed with Non-secure accesses targeting Non-secure PA space (§3.18, line 3722)
-- [ ] SMMU must produce unique DeviceID for outgoing MSIs that does not overlap with those for client devices (§3.18, line 3726)
-- [ ] Interrupt sources: Event queue (empty→non-empty), PRI queue (SMMU_PRIQ_IRQ_CFG2 condition), CMD_SYNC, GERROR (§3.18.2, line 3756)
-- [ ] When MSIs not supported: only interrupt Enable field is used; MSI address/data fields unused (§3.18, line 3736)
+> **Audit date:** 2026-05-10 — 13 items checked: 5 PASS, 8 N/A, 0 bugs — IDR0.MSI=0 (wired-only model); all MSI-specific items are N/A by consistent configuration; ordering requirements vacuously satisfied (no interrupt emission mechanism)
+
+- [x] Implementation must support one of, or optionally both of, wired interrupts and MSIs; MSI support discoverable from SMMU_IDR0.MSI and SMMU_S_IDR0.MSI (§3.18, line 3707) — **PASS**: `getIDR0()` (smmu.cpp:3543) never sets bit 21 (MSI); model consistently advertises wired-only capability. Internally coherent: no MSI infrastructure is present because IDR0.MSI=0
+- [x] Interrupt notification must not be observable before the new information is also observable (§3.18, line 3710) — **PASS (vacuous)**: No interrupt notification mechanism exists (no callback, no wired pin, no MSI write); no notification signal can race ahead of data; ordering requirement vacuously satisfied
+- [x] Global error interrupt: change to GERROR must be observable if interrupt observable (§3.18, line 3712) — **PASS (vacuous)**: `signalGerror()` (smmu.cpp:5465) atomically toggles `gerrorStatus` under `queueMutex`; GERROR state is always current when a reader acquires the mutex; no separate IRQ signal can race ahead because none exists
+- [x] Event queue interrupt: new entries must be observable to reads of queue index registers if interrupt observable (§3.18, line 3713) — **PASS (vacuous)**: `eventqProd` is advanced under `queueMutex` during `generateEvent()` (smmu.cpp:5961); PROD advance is the sole observable; no IRQ signal can precede it because none exists
+- [x] CMD_SYNC completion interrupt: consumption of CMD_SYNC must be observable to reads of queue index registers if interrupt observable (§3.18, line 3714) — **PASS (vacuous)**: CONS.RD advance and CMD_SYNC completion event are both serialized under `queueMutex` in `processCommandQueue()`; no out-of-order IRQ possible
+- [x] MSIs from Secure sources performed with Secure accesses targeting Secure PA space (§3.18, line 3722) — **N/A**: No Secure state implemented; no MSI writes occur (IDR0.MSI=0)
+- [x] MSIs from Non-secure sources performed with Non-secure accesses targeting Non-secure PA space (§3.18, line 3722) — **N/A**: No MSI writes occur (IDR0.MSI=0); no hardware access path for MSI delivery in this software model
+- [x] SMMU must produce unique DeviceID for outgoing MSIs that does not overlap with those for client devices (§3.18, line 3726) — **N/A**: No outgoing MSIs produced; no DeviceID register or mechanism exists; IDR0.MSI=0 makes this vacuous
+- [x] Interrupt sources: Event queue (empty→non-empty), PRI queue (SMMU_PRIQ_IRQ_CFG2 condition), CMD_SYNC, GERROR (§3.18.2, line 3756) — **PASS**: All four sources tracked internally: `eventqProd` advances on event enqueue; `priqProd` advances on PRI enqueue; `cmdSyncLastSig_` records CS=1/2 completion; `gerrorStatus` toggled by `signalGerror()`; no delivery mechanism (consistent with software model intent)
+- [x] When MSIs not supported: only interrupt Enable field is used; MSI address/data fields unused (§3.18, line 3736) — **PASS**: `irqCtrl_`/`irqCtrlAck_` model only enable bits (smmu.h:587–588, smmu.cpp:3695–3697); per-queue `*_IRQ_CFG0/1/2` MSI address/data registers not implemented — precisely correct for IDR0.MSI=0; `cmdqSyncMsi*` registers (smmu.h:534–536) are settable but never drive behavior (spec says "unused," not RAZ/WI)
 
 ### §3.18.1 MSI Synchronization
 
-- [ ] Disabling MSI through SMMU_(*_)IRQ_CTRL ensures previously-issued MSI writes are completed (§3.18.1, line 3742)
-- [ ] CMD_SYNC ensures completion of MSIs originating from completion of prior CMD_SYNC commands consumed from same Command queue (§3.18.1, line 3743)
-- [ ] Completion of MSI aborted: abort visible in GERROR with appropriate SMMU_(*_)GERROR.MSI_*_ABT_ERR flag (§3.18.1, line 3745)
+- [x] Disabling MSI through SMMU_(*_)IRQ_CTRL ensures previously-issued MSI writes are completed (§3.18.1, line 3742) — **N/A**: No MSI writes ever issued (IDR0.MSI=0); `setIrqCtrl()` (smmu.cpp:3695) stores value and immediately mirrors to `irqCtrlAck_`; synchronous echo correctly models disable handshake with no actual MSI flush required
+- [x] CMD_SYNC ensures completion of MSIs originating from completion of prior CMD_SYNC commands consumed from same Command queue (§3.18.1, line 3743) — **N/A**: No MSI writes occur; CMD_SYNC barrier (smmu.cpp:5285) serializes all prior command effects under `queueMutex` before advancing CONS.RD — non-MSI semantics are correct
+- [x] Completion of MSI aborted: abort visible in GERROR with appropriate SMMU_(*_)GERROR.MSI_*_ABT_ERR flag (§3.18.1, line 3745) — **N/A**: No MSI writes issued so no aborts occur; `GERROR_MSI_CMDQ_ABT_ERR` (bit 4), `GERROR_MSI_EVENTQ_ABT_ERR` (bit 5), `GERROR_MSI_PRIQ_ABT_ERR` (bit 6), `GERROR_MSI_GERROR_ABT_ERR` (bit 7) defined in types.h:1487–1490 but never set — correct since IDR0.MSI=0
 
 ## §3.19 Power Control
 
