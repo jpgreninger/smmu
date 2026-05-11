@@ -191,14 +191,14 @@ CURRENT_SECTION = §4.2
 
 | Section | Title | C++ | Rust | Bugs | Notes |
 |---------|-------|-----|------|------|-------|
-| §3.17 | TLB tagging, VMIDs, ASIDs overview | ⚠️ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅, BUG-AUDIT-144 ✅, BUG-AUDIT-146 ✅, **BUG-AUDIT-165-CPP** (nG/global absent), **BUG-AUDIT-166-CPP** (EL2/EL3 VMID not zeroed), **BUG-AUDIT-167-CPP** (S2P==0 VMID=0 missing in broadcast), **BUG-AUDIT-168-CPP** (CR2.E2H change no TLB flush), **BUG-AUDIT-169-CPP** (VMW not applied to NH commands) | Audited 2026-05-09: 35 items, 12 PASS, 12 N/A, 8 BUG, 3 Out-of-scope |
-| §3.17.1 | The Global flag in translation table descriptor | ⚠️ | N/A | **BUG-AUDIT-165-CPP** | nG not tracked in TLBEntry; global/non-global distinction absent; Secure-stream-from-NS-memory non-global override not enforced; cross-ASET isolation for global entries unimplemented |
+| §3.17 | TLB tagging, VMIDs, ASIDs overview | ✅ | ✅ | BUG-QA-14 ✅, BUG-NEW-20 ✅, BUG-AUDIT-131 ✅, BUG-AUDIT-144 ✅, BUG-AUDIT-146 ✅, BUG-AUDIT-165-CPP ✅, BUG-AUDIT-166-CPP ✅, BUG-AUDIT-167-CPP ✅, BUG-AUDIT-168-CPP ✅, BUG-AUDIT-169-CPP ✅ | All §3.17 bugs fixed 2026-05-10 |
+| §3.17.1 | The Global flag in translation table descriptor | ✅ | N/A | BUG-AUDIT-165-CPP ✅ | nG tracking added to TLBEntry; global entries evicted by ASID-targeted TLBIs regardless of ASID; Secure-from-NS override enforced |
 | §3.17.2 | Broadcast TLB maintenance from Armv8-A PEs (EL3/AArch64) | ⚠️ | ✅ | BUG-NEW-37–40 ✅, AUDIT-54 ✅ | TLBI scoping, VMID vs global; PTM polarity fixed; NH/EL3 commands correctly scope Secure/EL3 entries; re-verified conformant |
 | §3.17.2.1 | Broadcast TLB maintenance when Secure EL2 implemented | 🚫 | 🚫 | | Secure out of scope |
 | §3.17.3 | Broadcast TLB maintenance from ARMv7-A or AArch32 PEs | N/A | ✅ | | AArch32 TLBIs mapped to same NH commands by interconnect; NH scope handling correct |
 | §3.17.4 | Broadcast TLB maintenance in mixed AArch32/AArch64 | N/A | ✅ | | ASID16=1/VMID16=1 in IDR0; u16 fields; 16-bit direct comparison correct |
-| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ⚠️ | ✅ | BUG-NEW-A ✅, **BUG-AUDIT-168-CPP** | CR2.E2H change must trigger NS-EL2/EL2_E2H TLB flush; setCR2() (smmu.cpp:5475-5482) stores value only — no invalidation on E2H bit transition |
-| §3.17.6 | VMID Wildcards | ⚠️ | ✅ | BUG-AUDIT-146 ✅, **BUG-AUDIT-169-CPP** | VMW mask applied to S12/S2 commands only; NH guest-stage-1 VMID commands (TLBI_NH_ALL, TLBI_NH_VA, TLBI_NH_VAA, TLBI_NH_ASID) use exact VMID matching without wildcard |
+| §3.17.5 | EL2 ASIDs and TLB maintenance in E2H mode | ✅ | ✅ | BUG-NEW-A ✅, BUG-AUDIT-168-CPP ✅ | setCR2() now invalidates EL2/EL2_E2H TLB entries on E2H bit transition |
+| §3.17.6 | VMID Wildcards | ✅ | ✅ | BUG-AUDIT-146 ✅, BUG-AUDIT-169-CPP ✅ | VMW wildcard mask now applied to all NH TLBI commands (TLBI_NH_ALL, TLBI_NH_VA, TLBI_NH_VAA, TLBI_NH_ASID) |
 | §3.17.7 | Broadcast TLB maintenance for GPT information | 🚫 | 🚫 | | GPC/RME out of scope |
 | §3.17.8 | TLBInXS maintenance operations | N/A | N/A | | FEAT_XS not implemented; XS attribute implicitly 0 for all translations; TLBInXS ≡ TLBI; conformant by equivalence |
 
