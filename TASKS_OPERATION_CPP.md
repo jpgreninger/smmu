@@ -657,58 +657,58 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.21.1 Translation Tables and TLB Invalidation Completion Behavior
 
-- [ ] TLB invalidation operation is complete after: all targeted TLB entries invalidated; relevant HTTUs globally visible; all translation table walks that could have formed targeted TLB entries are complete and globally visible (§3.21.1, line 3876)
-- [ ] ATOS result cannot be based on addresses/attributes not described by translation configuration observable after invalidation (§3.21.1, line 3889)
-- [ ] Translation cache entries not inserted when SMMU_(*_)CR0.SMMUEN==0 (§3.21.1, line 3900)
+- [x] TLB invalidation operation is complete after: all targeted TLB entries invalidated; relevant HTTUs globally visible; all translation table walks that could have formed targeted TLB entries are complete and globally visible (§3.21.1, line 3876) — **PASS**: `invalidateTranslationCache()` (smmu.cpp:1773) calls `tlbCache->invalidateAll()` synchronously; all entries removed before call returns; no async walks (no page-table walker); AF updates (HTTU=0b01) inline in translate path — completion is immediate; all state in-process C++ with no memory-ordering delays
+- [x] ATOS result cannot be based on addresses/attributes not described by translation configuration observable after invalidation (§3.21.1, line 3889) — **PASS**: GATOS uses normal `translate()` path (`GatosTranslation` type, smmu.cpp:3809+) hitting same `tlbCache` at smmu.cpp:540; after synchronous invalidation completes, TLB is empty — ATOS cannot return a pre-invalidation result
+- [x] Translation cache entries not inserted when SMMU_(*_)CR0.SMMUEN==0 (§3.21.1, line 3900) — **PASS**: early return at smmu.cpp:272 `(cr0_.load(acquire) & CR0_SMMUEN)==0` exits before TLB lookup at line 408 or insertion at line 759; structurally impossible to insert when SMMUEN=0
 
 ### §3.21.1.1 Translation Tables Update Procedure
 
-- [ ] SMMUv3.2+: must support Level 1 or Level 2 BBM behavior as indicated by SMMU_IDR3.BBML (§3.21.1.1, line 3918)
-- [ ] Break-before-make required for (pre-v8.4/pre-SMMUv3.2): changes to memory type, Cacheability, output address, block/page size, creating global entry where non-global entries overlap (§3.21.1.1, line 3904)
+- [x] SMMUv3.2+: must support Level 1 or Level 2 BBM behavior as indicated by SMMU_IDR3.BBML (§3.21.1.1, line 3918) — **PASS**: IDR3 (smmu.cpp:3609) sets bit[11] → BBML=0b01 (Level 1); Level 1 is a valid SMMUv3.2 compliance level per spec; no descriptor-level implementation required for software model
+- [x] Break-before-make required for (pre-v8.4/pre-SMMUv3.2): changes to memory type, Cacheability, output address, block/page size, creating global entry where non-global entries overlap (§3.21.1.1, line 3904) — **N/A**: software obligation on entity updating translation tables; model has no page-table walker, no memory-mapped descriptor reads, no block/page descriptor parsing; BBM procedure has no SMMU enforcement surface
 
 ### §3.21.1.2 BBM Level 1 (SMMU_IDR3.BBML==1)
 
-- [ ] Level 1: nT bit must be used when changing translation size without break-before-make; F_TLB_CONFLICT may occur without nT or BBM (§3.21.1.2, line 3937)
-- [ ] Level 1: Setting nT==1 does NOT cause a fault (§3.21.1.2, line 3939)
-- [ ] Level 1: Block descriptor with nT==1 not cached in way that causes TLB conflict (§3.21.1.2, line 3942)
-- [ ] Level 1: Change to only Contiguous bit (bit 52) with other properties unchanged does not lead to TLB conflict fault (§3.21.1.2, line 3945)
+- [x] Level 1: nT bit must be used when changing translation size without break-before-make; F_TLB_CONFLICT may occur without nT or BBM (§3.21.1.2, line 3937) — **N/A**: no raw descriptor parsing in model; nT (descriptor bit[16]) never parsed or inspected; `generateEvent(F_TLB_CONFLICT)` never called — IMPL DEF detection not required; TLB multi-hit structurally impossible (deterministic `unordered_map` keyed TLB)
+- [x] Level 1: Setting nT==1 does NOT cause a fault (§3.21.1.2, line 3939) — **N/A**: nT bit never inspected; no fault path triggers on descriptor bits; vacuously satisfied
+- [x] Level 1: Block descriptor with nT==1 not cached in way that causes TLB conflict (§3.21.1.2, line 3942) — **N/A**: no block descriptors parsed or cached; TLB entries keyed on (StreamID, PASID, IOVA, SecurityState) at page granularity; no block-vs-page caching distinction
+- [x] Level 1: Change to only Contiguous bit (bit 52) with other properties unchanged does not lead to TLB conflict fault (§3.21.1.2, line 3945) — **N/A**: Contiguous bit (descriptor bit[52]) never parsed; no TLB conflict fault path exists in software model; vacuously satisfied
 
 ### §3.21.1.3 BBM Level 2 (SMMU_IDR3.BBML==2)
 
-- [ ] Level 2: implementation ignores nT bit in Block descriptor; change to translation size can be performed without BBM or nT (§3.21.1.3, line 3957)
-- [ ] Level 2: F_TLB_CONFLICT never reported (§3.21.1.3, line 3961)
-- [ ] Level 2: TLB multi-hit — translations use info from at most one matching entry; no faults that wouldn't otherwise be possible; no combination of info from multiple entries (§3.21.1.3, line 3962)
-- [ ] Level 2: TLB invalidation removes all matching TLB entries even if overlapping entries exist (§3.21.1.3, line 3972)
+- [x] Level 2: implementation ignores nT bit in Block descriptor; change to translation size can be performed without BBM or nT (§3.21.1.3, line 3957) — **N/A**: IDR3.BBML=0b01 (Level 1) advertised; §3.21.1.3 requirements apply only when BBML==2; not applicable
+- [x] Level 2: F_TLB_CONFLICT never reported (§3.21.1.3, line 3961) — **N/A**: BBML==2 requirement; not applicable at Level 1
+- [x] Level 2: TLB multi-hit — translations use info from at most one matching entry; no faults that wouldn't otherwise be possible; no combination of info from multiple entries (§3.21.1.3, line 3962) — **N/A**: BBML==2 requirement; not applicable
+- [x] Level 2: TLB invalidation removes all matching TLB entries even if overlapping entries exist (§3.21.1.3, line 3972) — **N/A**: BBML==2 requirement; not applicable
 
 ### §3.21.2 Queues
 
-- [ ] SMMU does not write to Command queue (§3.21.2, line 3985)
-- [ ] To issue commands: (1) determine space using PROD/CONS, (2) write commands, (3) DSB to ensure data observable, (4) update PROD index (§3.21.2, line 3986)
-- [ ] Software must not alter memory locations representing commands previously submitted until consumed (as indicated by CONS index) (§3.21.2, line 4002)
-- [ ] Software must only write CONS index of output queue (Event/PRI) in consistent manner with appropriate incrementing and wrapping (§3.21.2, line 4004)
-- [ ] Software must only write PROD index of Command queue in consistent manner (§3.21.2, line 4006)
-- [ ] ILLEGAL PROD index write: CONSTRAINED UNPREDICTABLE: SMMU executes unpredictable commands OR stops consuming until queue disabled and re-enabled (§3.21.2, line 4007)
+- [x] SMMU does not write to Command queue (§3.21.2, line 3985) — **PASS**: `writeCmdqConsErr()` (smmu.cpp:5651) uses atomic CAS on `cmdqCons` register (bits[30:24]) only — never writes queue buffer entries; `commandQueue.pop_front()` at smmu.cpp:4053 is the consumer dequeue (internal state), not a write to the command queue buffer; Event and PRI queues are written by `generateEvent()` / `submitPageRequest()` as per spec
+- [x] To issue commands: (1) determine space using PROD/CONS, (2) write commands, (3) DSB to ensure data observable, (4) update PROD index (§3.21.2, line 3986) — **N/A**: software obligation on the driver submitting commands to a hardware SMMU; PROD advanced atomically by `advanceQueueIndex()` inside `submitCommand()` (smmu.cpp:3968); barrier requirement N/A to in-process model
+- [x] Software must not alter memory locations representing commands previously submitted until consumed (as indicated by CONS index) (§3.21.2, line 4002) — **N/A**: software obligation; no external write path to queue buffer in the model
+- [x] Software must only write CONS index of output queue (Event/PRI) in consistent manner with appropriate incrementing and wrapping (§3.21.2, line 4004) — **N/A**: software obligation; internal CONS advancement handled atomically inside `processCommandQueue()`
+- [x] Software must only write PROD index of Command queue in consistent manner (§3.21.2, line 4006) — **N/A**: software obligation; internal PROD advancement via `advanceQueueIndex()` (smmu.cpp:3968) is internally consistent
+- [x] ILLEGAL PROD index write: CONSTRAINED UNPREDICTABLE: SMMU executes unpredictable commands OR stops consuming until queue disabled and re-enabled (§3.21.2, line 4007) — **N/A**: CONSTRAINED UNPREDICTABLE; no external raw PROD write path in model; `submitCommand()` always uses `advanceQueueIndex()` — arbitrary PROD writes are structurally prevented
 
 ### §3.21.3 Configuration Structures and Configuration Invalidation Completion
 
-- [ ] SMMU might read any entry at any time, for any reason (§3.21.3, line 4014)
-- [ ] Structure considered valid only when SMMU observes V==1 and no configuration inconsistency makes it ILLEGAL (§3.21.3, line 4016)
-- [ ] SMMU does not follow invalid pointers, whether speculatively or in response to incoming transaction (§3.21.3, line 4018)
-- [ ] STEs and L1STDs not fetched if SMMU_(*_)CR0.SMMUEN==0 (§3.21.3, line 4020)
-- [ ] CDs or L1CDs must never be fetched or prefetched unless indicated from a valid STE (§3.21.3, line 4022)
-- [ ] Implementation must not read any address outside configured range of any table (§3.21.3, line 4056)
-- [ ] Implementation permitted to fetch/prefetch any reachable structure at any time within bounds of containing table (§3.21.3, line 4035)
-- [ ] Any change to a structure must be followed by appropriate CMD_CFGI_* invalidation command, even if structure was initially invalid (§3.21.3, line 4042)
-- [ ] Configuration invalidation completion: all targeted cache entries invalidated; no accesses using old addresses/attributes; all client transactions using targeted entries globally visible; all configuration structure walks using targeted entries complete (§3.21.3, line 4061)
-- [ ] Single-copy atomicity size for configuration structure fetches: if system has FEAT_LSE2, must be 128-bit; otherwise at least 64-bit (§3.21.3, line 4077)
-- [ ] To change single field within aligned single-copy atomic span: can be altered directly without making structure invalid; then CMD_CFGI and CMD_SYNC required (§3.21.3, line 4084)
-- [ ] For fields requiring non-single-copy-atomic writes (spanning multiple atomic spans): must make structure invalid, modify, then make valid using procedures in §3.21.3.1 (§3.21.3, line 4084)
+- [x] SMMU might read any entry at any time, for any reason (§3.21.3, line 4014) — **PASS**: `streamMap` modeled as concurrent C++ `unordered_map`; `translate()` reads it via per-stripe mutex at smmu.cpp:406; concurrent reads from multiple threads possible; no mechanism prevents speculative read-at-any-time
+- [x] Structure considered valid only when SMMU observes V==1 and no configuration inconsistency makes it ILLEGAL (§3.21.3, line 4016) — **PASS**: `streamMap.find()` returning `end()` = STE.V=0 → C_BAD_STE (smmu.cpp:409–428); `configureStream()` runs full STE/CD ILLEGAL checks (smmu.cpp:1095–1327) before inserting; ILLEGAL inconsistencies (S2HD=1/HTTU mismatch, S2AA64=0, CD.HD=1) → C_BAD_STE/C_BAD_CD
+- [x] SMMU does not follow invalid pointers, whether speculatively or in response to incoming transaction (§3.21.3, line 4018) — **PASS**: `streamMap.find()` returning `end()` causes immediate C_BAD_STE return (smmu.cpp:409–428) with no further pointer dereference; shared_ptr `StreamContext` ensures no dangling pointer; no raw descriptor pointer path exists
+- [x] STEs and L1STDs not fetched if SMMU_(*_)CR0.SMMUEN==0 (§3.21.3, line 4020) — **PASS**: SMMUEN=0 early return at smmu.cpp:272 occurs before `streamMap.find()` at line 408; STE lookup structurally prevented when SMMUEN=0
+- [x] CDs or L1CDs must never be fetched or prefetched unless indicated from a valid STE (§3.21.3, line 4022) — **PASS**: CD data (StreamContext PASID fields) only accessed after `streamMap.find()` succeeds (valid STE, smmu.cpp:408–409) and after STE validity/config checks (smmu.cpp:439–466); invalid/absent STE causes early return before any CD access
+- [x] Implementation must not read any address outside configured range of any table (§3.21.3, line 4056) — **PASS**: single-level bounds check at smmu.cpp:365–368 rejects `streamID >= 2^log2sz` with C_BAD_STREAMID; two-level bounds via `validateStreamID2Level()` (smmu.cpp:5613–5641) holds `queueMutex` to prevent TOCTOU — validates L1 index `streamID >> split < 2^(log2sz-split)`
+- [x] Implementation permitted to fetch/prefetch any reachable structure at any time within bounds of containing table (§3.21.3, line 4035) — **PASS**: permission not requirement; all `streamMap` accesses bounded by `strtabLog2Size_`/`strtabSplit_` enforcement; no out-of-bounds access structurally possible
+- [x] Any change to a structure must be followed by appropriate CMD_CFGI_* invalidation command, even if structure was initially invalid (§3.21.3, line 4042) — **N/A**: software obligation on the driver programming the SMMU; smmu.cpp:1302 comment notes the requirement; model enforces correctness-by-rejection (`StreamAlreadyConfigured` at smmu.cpp:1304) requiring `removeStream()` + `configureStream()` cycle which passes through V=0 state
+- [x] Configuration invalidation completion: all targeted cache entries invalidated; no accesses using old addresses/attributes; all client transactions using targeted entries globally visible; all configuration structure walks using targeted entries complete (§3.21.3, line 4061) — **PASS**: CMD_CFGI_* commands call `invalidateStreamCache()` / `invalidateTranslationCache()` synchronously (smmu.cpp:4925+); CMD_SYNC (smmu.cpp:5284+) completes synchronously under `queueMutex`; all state in-process C++ — "globally visible" = immediately after function return; no asynchronous configuration walks
+- [x] Single-copy atomicity size for configuration structure fetches: if system has FEAT_LSE2, must be 128-bit; otherwise at least 64-bit (§3.21.3, line 4077) — **N/A**: FEAT_LSE2 not implemented; model performs no memory-mapped STE/CD fetches; configuration provided through `configureStream()` API not by SMMU reading memory-mapped descriptors; hardware atomicity requirement N/A to software model
+- [x] To change single field within aligned single-copy atomic span: can be altered directly without making structure invalid; then CMD_CFGI and CMD_SYNC required (§3.21.3, line 4084) — **PASS**: `configureStream()` and stream updates perform atomic full `StreamConfig` struct swap under per-stripe mutex (smmu.cpp:1298); single-field update requires `removeStream()` + `configureStream()` cycle, equivalent to the correct procedure; no partial-update API exposes inconsistent intermediate state
+- [x] For fields requiring non-single-copy-atomic writes (spanning multiple atomic spans): must make structure invalid, modify, then make valid using procedures in §3.21.3.1 (§3.21.3, line 4084) — **N/A**: software obligation; model's `removeStream()` + `configureStream()` API structurally enforces V=0 intermediate state before any modification — correct procedure satisfied as structural consequence
 
 ### §3.21.3.1 Configuration Structure Update Procedure
 
-- [ ] Initialize structure (V==0→V==1): (1) fill all fields with V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait, (5) set V=1, (6) DSB, (7) CMD_CFGI_STRUCT, (8) optionally CMD_SYNC (§3.21.3.1, line 4096)
-- [ ] Make structure invalid (V==1→V==0): (1) set V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait (§3.21.3.1, line 4104)
-- [ ] Software must not allow structure to enter invalid intermediate state while modifying a valid structure (§3.21.3.1, line 4111)
+- [x] Initialize structure (V==0→V==1): (1) fill all fields with V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait, (5) set V=1, (6) DSB, (7) CMD_CFGI_STRUCT, (8) optionally CMD_SYNC (§3.21.3.1, line 4096) — **N/A**: software procedure for programming a hardware SMMU; `configureStream()` atomically fills all fields and inserts into `streamMap` (V=1) in a single locked operation — equivalent V=0→V=1 transition in one atomic step; no external memory-mapped write path
+- [x] Make structure invalid (V==1→V==0): (1) set V==0, (2) DSB, (3) CMD_CFGI_STRUCT, (4) CMD_SYNC and wait (§3.21.3.1, line 4104) — **N/A**: software obligation; `removeStream()` atomically erases from `streamMap` (V→0) under stripe mutex; caller then issues CMD_CFGI_STE + CMD_SYNC through `submitCommand()`; procedure enforced externally per smmu.cpp:1302 comment
+- [x] Software must not allow structure to enter invalid intermediate state while modifying a valid structure (§3.21.3.1, line 4111) — **N/A**: software obligation; model prevents this structurally — `configureStream()` returns `StreamAlreadyConfigured` (smmu.cpp:1304) if stream exists, forcing `removeStream()` (full V=0 invalidation) before any modification; intermediate invalid states are structurally impossible through the model's API
 
 ## §3.22 Destructive Reads and Directed Cache Prefetch Transactions
 
