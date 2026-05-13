@@ -873,21 +873,23 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.27 Translation Hardening
 
+> **Audit date:** 2026-05-13 — 10 items checked: 0 PASS, 10 N/A, 0 bugs — IDR3.THE==0 advertised; VMSAv9-128, PnCH, AssuredOnly, and RCW not implemented; all §3.27 requirements gate on THE==1 and are N/A by design
+
 ### §3.27.1 Protected Attribute
 
-- [ ] If SMMU_IDR3.THE==1: Protected attribute in VMSAv9-128 descriptors always present (§3.27.1, line 4971)
-- [ ] If SMMU_IDR3.THE==1: Protected attribute in VMSAv8-64 descriptors only if CD.PnCH==1 (§3.27.1, line 4972)
-- [ ] If CD.PnCH==1: Contiguous bit NOT present in VMSAv8-64 descriptors; bit 52 no longer interpreted as Contiguous (§3.27.1, line 4973)
-- [ ] SMMU does NOT support Read-Check-Write (RCW) operations (§3.27.1, line 4975)
+- [x] If SMMU_IDR3.THE==1: Protected attribute in VMSAv9-128 descriptors always present (§3.27.1, line 4971) — **N/A**: IDR3.THE==0 (`getIDR3()` at smmu.cpp:3600-3609 does not set THE bit); VMSAv9-128 (128-bit descriptor format) not modeled; all THE==1 behaviors absent by design
+- [x] If SMMU_IDR3.THE==1: Protected attribute in VMSAv8-64 descriptors only if CD.PnCH==1 (§3.27.1, line 4972) — **N/A**: IDR3.THE==0; no PnCH field anywhere in ContextDescriptor (types.h); Protected attribute parsing not present
+- [x] If CD.PnCH==1: Contiguous bit NOT present in VMSAv8-64 descriptors; bit 52 no longer interpreted as Contiguous (§3.27.1, line 4973) — **N/A**: No PnCH field; no raw VMSAv8-64 descriptor bit-52 Contiguous parsing (all "bit 52" references in codebase are address-size, not descriptor field); reinterpretation path not present
+- [x] SMMU does NOT support Read-Check-Write (RCW) operations (§3.27.1, line 4975) — **N/A**: No RCW transaction types, fault paths, or configuration fields exist anywhere in cpp/ (grep confirms zero hits); spec note is informational; IDR3.THE==0
 
 ### §3.27.2 AssuredOnly Permission Checks
 
-- [ ] If SMMU_IDR3.THE==1: AssuredOnly behavior same as PE except configured via STE.AssuredOnly (§3.27.2, line 4981)
-- [ ] Stage 2 Permission fault with AssuredOnly: reported as stage 2 F_PERMISSION with AssuredOnly set to 1 (§3.27.2, line 4984)
-- [ ] If CD or L1CD fetched from memory NOT marked AssuredOnly at stage 2: access translated from TTB0 or TTB1 does NOT have Assured Translation property (§3.27.2, line 4985)
-- [ ] If stage 1 translation disabled (bypass due to STE.Config or STE.S1DSS): access to region marked AssuredOnly at stage 2 generates Permission fault (§3.27.2, line 4987)
-- [ ] For ATS TR: AssuredOnly check performed same as regular transaction; if fails → ATS Completion with Success and R==W==0 (§3.27.2, line 4989)
-- [ ] For ATS Translated transaction with STE.EATS==0b10 (Split-stage ATS): AssuredOnly is IGNORED for determining whether transaction permitted (§3.27.2, line 4991)
+- [x] If SMMU_IDR3.THE==1: AssuredOnly behavior same as PE except configured via STE.AssuredOnly (§3.27.2, line 4981) — **N/A**: IDR3.THE==0; no AssuredOnly field in StreamConfig/STE (types.h:1227-1309 confirmed); zero AssuredOnly references anywhere in cpp/
+- [x] Stage 2 Permission fault with AssuredOnly: reported as stage 2 F_PERMISSION with AssuredOnly set to 1 (§3.27.2, line 4984) — **N/A**: EventType::F_PERMISSION exists but no AssuredOnly bit in event record; STE.AssuredOnly not modeled; IDR3.THE==0
+- [x] If CD or L1CD fetched from memory NOT marked AssuredOnly at stage 2: access translated from TTB0 or TTB1 does NOT have Assured Translation property (§3.27.2, line 4985) — **N/A**: No AssuredOnly attribute tracked on stage-2 memory fetch results for CDs or L1CDs; Assured Translation property concept absent; IDR3.THE==0
+- [x] If stage 1 translation disabled (bypass due to STE.Config or STE.S1DSS): access to region marked AssuredOnly at stage 2 generates Permission fault (§3.27.2, line 4987) — **N/A**: S1DSS/bypass paths (smmu.cpp:708-748) have no AssuredOnly check; STE.AssuredOnly not implemented; IDR3.THE==0
+- [x] For ATS TR: AssuredOnly check performed same as regular transaction; if fails → ATS Completion with Success and R==W==0 (§3.27.2, line 4989) — **N/A**: ATS TR implemented (smmu.cpp:3144-3158 returns Success R==W==0 on faults); AssuredOnly-specific trigger for that path absent; IDR3.THE==0
+- [x] For ATS Translated transaction with STE.EATS==0b10 (Split-stage ATS): AssuredOnly is IGNORED for determining whether transaction permitted (§3.27.2, line 4991) — **N/A**: EATS==0b10 validated (smmu.cpp:1276-1291); AssuredOnly not implemented anywhere so trivially ignored; IDR3.THE==0
 
 ## Chapter 4 — Commands
 
