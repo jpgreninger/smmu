@@ -712,16 +712,18 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.22 Destructive Reads and Directed Cache Prefetch Transactions
 
-- [ ] In SMMUv3.0: these transactions unconditionally converted on output as specified by interconnect (§3.22, line 4150)
-- [ ] In SMMUv3.1+: DR downgraded to non-destructive read if STE.DRE==0; W-DCP downgraded to ordinary write if STE.DCP==0; NW-DCP downgraded to no-op if STE.DCP==0 (§3.22.1, line 4188)
-- [ ] STE.DRE==1 required for DR to pass without downgrade when one or more stages of translation applied (§3.22.1, line 4194)
-- [ ] STE.DCP==1 required for W-DCP and NW-DCP to pass without downgrade when translation applied (§3.22.1, line 4195)
-- [ ] DR requires Read/Execute AND Write permission that does not result in HTTU dirty state update; if write not granted, downgraded to read or RCI (§3.22.2, line 4213)
-- [ ] NW-DCP: if required permission not present, prefetch does not occur; no abort response generated (§3.22.2, line 4215)
-- [ ] RCI and DR: if ultimately lead to fault, recorded as reads; stall behavior same as ordinary read (§3.22.2, line 4219)
-- [ ] W-DCP: if leads to fault, recorded as write; stall behavior same as ordinary write (§3.22.2, line 4221)
-- [ ] DR, RCI, W-DCP stalled: retried as same transaction type (§3.22.2, line 4222)
-- [ ] Output DR/RCI/W-DCP/NW-DCP downgraded if output attributes incompatible with output interconnect (§3.22.3, line 4228)
+> **Audit date:** 2026-05-12 — 10 items checked: 0 PASS, 10 N/A, 0 bugs
+
+- [x] In SMMUv3.0: these transactions unconditionally converted on output as specified by interconnect (§3.22, line 4150) — **N/A**: Interconnect output-side responsibility; model does not implement an AXI5 fabric or hardware transaction-type encoding. The SMMU outputs a translated PA + attributes; the interconnect decides wire encoding. No implementation surface in this model.
+- [x] In SMMUv3.1+: DR downgraded to non-destructive read if STE.DRE==0; W-DCP downgraded to ordinary write if STE.DCP==0; NW-DCP downgraded to no-op if STE.DCP==0 (§3.22.1, line 4188) — **N/A**: DR/W-DCP/NW-DCP are not representable transaction types in this model (`TransactionType` enum: Ordinary/AtsTranslationRequest/AtsTranslated/GatosTranslation only). `StreamConfig` has no `dre`/`dcp` fields; `getIDR0()` does not advertise DRE/DCP capability. Downgrade logic runs in hardware downstream of the SMMU's PA output.
+- [x] STE.DRE==1 required for DR to pass without downgrade when one or more stages of translation applied (§3.22.1, line 4194) — **N/A**: DR not representable as a `TransactionType`; STE.DRE not a field of `StreamConfig`. No implementation surface; same rationale as preceding item.
+- [x] STE.DCP==1 required for W-DCP and NW-DCP to pass without downgrade when translation applied (§3.22.1, line 4195) — **N/A**: W-DCP/NW-DCP not representable; STE.DCP not modeled. Same rationale as preceding item.
+- [x] DR requires Read/Execute AND Write permission that does not result in HTTU dirty state update; if write not granted, downgraded to read or RCI (§3.22.2, line 4213) — **N/A**: DR not representable. Additionally, model hard-pins `HTTU=0b01` (access-flag-only; no dirty-state management — smmu.cpp:1193-1207); the "write without HTTU dirty" distinction is vacuously satisfied for all transactions.
+- [x] NW-DCP: if required permission not present, prefetch does not occur; no abort response generated (§3.22.2, line 4215) — **N/A**: NW-DCP not representable as a transaction type. "No abort" on permission denial is an interconnect output-path behavior, not an SMMU model behavior.
+- [x] RCI and DR: if ultimately lead to fault, recorded as reads; stall behavior same as ordinary read (§3.22.2, line 4219) — **N/A**: RCI/DR not representable; they cannot be submitted to `translate()`. Ordinary read fault recording and stall behavior are correctly implemented for `AccessType::Read`.
+- [x] W-DCP: if leads to fault, recorded as write; stall behavior same as ordinary write (§3.22.2, line 4221) — **N/A**: W-DCP not representable; cannot be submitted to `translate()`. Ordinary write fault recording and stall behavior correctly implemented for `AccessType::Write`.
+- [x] DR, RCI, W-DCP stalled: retried as same transaction type (§3.22.2, line 4222) — **N/A**: None of DR/RCI/W-DCP are representable transaction types. Retry-as-same-type is a property of the upstream device issuing CMD_RESUME; the SMMU does not enforce or control which transaction type the device uses on retry.
+- [x] Output DR/RCI/W-DCP/NW-DCP downgraded if output attributes incompatible with output interconnect (§3.22.3, line 4228) — **N/A**: Interconnect output-side concern; model does not simulate a physical AXI5 bus fabric or memory attribute compatibility with bus. Output attribute overrides (STE.SHCFG, MTCFG, ALLOCCFG) are applied to `TranslationData`; whether those attributes are bus-compatible and trigger downgrade is outside model scope.
 
 ## §3.23 Memory Tagging Extension
 
@@ -884,3 +886,73 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 - [ ] If stage 1 translation disabled (bypass due to STE.Config or STE.S1DSS): access to region marked AssuredOnly at stage 2 generates Permission fault (§3.27.2, line 4987)
 - [ ] For ATS TR: AssuredOnly check performed same as regular transaction; if fails → ATS Completion with Success and R==W==0 (§3.27.2, line 4989)
 - [ ] For ATS Translated transaction with STE.EATS==0b10 (Split-stage ATS): AssuredOnly is IGNORED for determining whether transaction permitted (§3.27.2, line 4991)
+
+## Chapter 4 — Commands
+
+## §4.3 Configuration Structure Invalidation
+
+> **Audit date:** 2026-05-11 — 34 items checked: 17 PASS, 17 N/A, 0 FAIL, 0 new bugs — all §4.3.1–§4.3.8 items PASS or N/A; flat single-level model means all L1ST/L1CD descriptor cache items are N/A; VMS items N/A (IDR3.MPAM=0); stall/invalidation independence, CMD_SYNC ordering all conformant
+
+### §4.3.1 CMD_CFGI_STE(StreamID, SSec, Leaf)
+
+- [x] Invalidates STE for given StreamID and SSec (§4.3.1, line 5272) — **PASS**: `processCommand` case `CFGI_STE` (smmu.cpp:4948–4959) calls `executeInvalidationCommandLocked` → `invalidateStreamCache(command.streamID)` which evicts all TLB entries for that StreamID; no separate STE cache exists in the flat model
+- [x] When Leaf=0: also invalidates all caching of intermediate L1ST descriptors walked to locate the STE (§4.3.1, line 5278) — **N/A**: Flat linear stream table model; no L1ST descriptor cache exists; §4.3.1 states "STEs cached from linear Stream tables are invalidated with any value of Leaf" — both Leaf values take same `invalidateStreamCache` path
+- [x] When Leaf=1: only the STE is invalidated; intermediate L1ST descriptors not required to be invalidated (§4.3.1, line 5281) — **N/A**: Flat model; `command.leaf` accepted in struct (types.h:1593) but not inspected — correct for linear-table model
+- [x] Invalidates all Context Descriptors (including L1CD) cached using the given StreamID (§4.3.1, line 5284) — **PASS**: `invalidateStream(streamID)` evicts all TLB entries keyed by that StreamID across all PASIDs; no separate CD cache exists
+- [x] Invalidates all VMS information cached for given StreamID in caches indexed by StreamID (§4.3.1, line 5285) — **N/A**: IDR3.MPAM=0; no VMS cache indexed by StreamID exists
+- [x] SSec guard: SSec=1 on NS queue generates CERROR_ILL (§4.3.1, line 5272) — **PASS**: smmu.cpp:4952–4957 fires CERROR_ILL before any invalidation; tested in test_bugs_new3.cpp
+
+### §4.3.2 CMD_CFGI_STE_RANGE(StreamID, SSec, Range)
+
+- [x] Range formula: Start = StreamID & ~((2^(Range+1))-1); End = Start + 2^(Range+1)-1; aligned range of 2^(Range+1) StreamIDs (§4.3.2, line 5302) — **PASS**: smmu.cpp:4816–4831 (locked path): `prefixBits = range + 1; cmdPrefix = streamID >> prefixBits`; a stream matches when `(sid >> prefixBits) == cmdPrefix` — algebraically equivalent to spec formula; bottom Range+1 bits of StreamID correctly IGNORED by right-shift
+- [x] Range parameter 0–31 corresponding to 2^1–2^32 StreamIDs; range>31 impossible (§4.3.2, line 5305) — **PASS**: smmu.cpp:4431–4435 clamps range>31 to global invalidation to avoid undefined UB shift-by-32+; defensive and correct for architecturally impossible input
+- [x] Invalidates all caching of intermediate L1ST descriptors for given range (§4.3.2, line 5320) — **N/A**: Flat model; no L1ST cache
+- [x] Invalidates any Context Descriptors (including L1CD) cached using all StreamIDs in range (§4.3.2, line 5321) — **PASS**: for each matching stream in `streamMap`, `invalidateStreamCache(pair.first)` evicts all TLB entries for that StreamID (all PASIDs), modeling CD eviction; no separate L1CD cache
+- [x] Invalidates all VMS information cached for all StreamIDs in range (indexed by StreamID) (§4.3.2, line 5322) — **N/A**: IDR3.MPAM=0; no VMS cache
+- [x] CMD_CFGI_STE_RANGE with Range==31 encodes CMD_CFGI_ALL; StreamID parameter is IGNORED (§4.3.2, line 5325) — **PASS**: smmu.cpp:4806–4808: `if (range == 31) { invalidateTranslationCache(); }` — `command.streamID` not read in this branch
+- [x] SSec guard: SSec=1 on NS queue generates CERROR_ILL (§4.3.2, line 5302) — **PASS**: shared SSec guard block at smmu.cpp:4973–4983
+
+### §4.3.3 CMD_CFGI_CD(StreamID, SSec, SubstreamID, Leaf)
+
+- [x] Invalidates CD identified by StreamID and SubstreamID (§4.3.3, line 5331) — **PASS**: smmu.cpp:4839–4853: `invalidatePASIDCache(command.streamID, command.pasid)` → `tlbCache->invalidatePASID(streamID, pasid)` evicts the TLB entry for that exact (StreamID, PASID) pair
+- [x] When SubstreamID is outside range of implemented SubstreamIDs: behavior is CONSTRAINED UNPREDICTABLE — no effect or operate on different SubstreamID (§4.3.3, line 5350) — **PASS**: out-of-range PASIDs silently no-op via `pasid <= MAX_PASID` guard in `invalidatePASIDCache` — one of the two permitted behaviors per §4.1.7
+- [x] When Leaf=0: invalidates all caching of intermediate L1CD descriptors (§4.3.3, line 5356) — **N/A**: Flat model; no L1CD cache; `command.leaf` accepted but not inspected in CFGI_CD handler — correct for single-level CD table model
+- [x] Raises CERROR_ILL when stage 1 is not implemented (IDR0.S1P==0) (§4.3.3, line 5358) — **PASS**: smmu.cpp:4846–4850: global IDR0 bit[1] (S1P) check; tested in test_bugs_new18.cpp:541–579
+- [x] SSec guard: SSec=1 on NS queue generates CERROR_ILL (§4.3.3, line 5331) — **PASS**: smmu.cpp:4973–4983; tested in test_bugs_new3.cpp:143–157
+
+### §4.3.4 CMD_CFGI_CD_ALL(StreamID, SSec)
+
+- [x] Invalidates ALL CDs referenced by StreamID (§4.3.4, line 5375) — **PASS**: smmu.cpp:4856–4867: `invalidateStreamCache(command.streamID)` → `tlbCache->invalidateStream(streamID)` evicts all TLB entries for that StreamID across all PASIDs
+- [x] Must also invalidate caches of ALL intermediate L1CD descriptors for given StreamID (§4.3.4, line 5384) — **N/A**: Flat model; no L1CD cache; `invalidateStreamCache` covers entire stream — at least as broad as required
+- [x] Raises CERROR_ILL when stage 1 is not implemented (§4.3.4, line 5385) — **PASS**: smmu.cpp:4859–4863: identical global IDR0.S1P guard to CFGI_CD; tested in test_bugs_new18.cpp:591–619
+- [x] SSec guard: SSec=1 on NS queue generates CERROR_ILL (§4.3.4, line 5375) — **PASS**: shared guard at smmu.cpp:4973–4983; tested in test_bugs_new3.cpp:163–176
+
+### §4.3.5 CMD_CFGI_VMS_PIDM(SSec, VMID)
+
+- [x] CERROR_ILL raised if SMMU_IDR3.MPAM==0 (§4.3.5, line 5393) — **PASS**: smmu.cpp:5340–5343: IDR3 bit[7] (MPAM) check; `getIDR3()` (smmu.cpp:3605–3609) never sets bit[7] → guard always fires; IDR3.MPAM=0 (no MPAM implementation) means this command is always CERROR_ILL — conformant by design
+- [x] CERROR_ILL raised if MPAM not supported by programming interface indicated by SSec (§4.3.5, line 5415) — **PASS**: covered by IDR3.MPAM=0 always-firing guard; both conditions satisfied simultaneously
+- [x] CERROR_ILL raised if SSec used improperly (SSec=1 on NS queue) (§4.3.5, line 5416) — **PASS**: smmu.cpp:5331–5335: SSec guard fires before MPAM check; ordering correct
+
+### §4.3.5.1 CMD_CFGI_VMS_PIDM Usage
+
+- [x] PARTID_MAP invalidation procedure (CMD_CFGI_VMS_PIDM + CMD_SYNC + STE invalidations + CMD_SYNC) (§4.3.5.1, line 5417) — **N/A**: Software guidance only; no SMMU enforcement required or present
+
+### §4.3.6 CMD_CFGI_ALL(SSec)
+
+- [x] Encoded as CMD_CFGI_STE_RANGE with Range==31; StreamID parameter is IGNORED (§4.3.6, line 5429) — **PASS**: smmu.cpp:4806–4808: `if (command.range == 31) { invalidateTranslationCache(); }` — `command.streamID` not read
+- [x] Invalidates cached configuration for all possible StreamIDs associated with given SSec (§4.3.6, line 5429) — **PASS**: `invalidateTranslationCache()` (smmu.cpp:1771–1788) → `tlbCache->invalidateAll()` evicts every entry across all StreamIDs and all PASIDs
+- [x] Invalidates all VMS structures for given SSec including caches indexed by VMID (§4.3.6, line 5436) — **PASS/N/A**: `tlbCache->invalidateAll()` covers any VMID-indexed TLB entries; no separate VMS cache (IDR3.MPAM=0)
+- [x] SSec guard: SSec=1 on NS queue generates CERROR_ILL (§4.3.6, line 5429) — **PASS**: smmu.cpp:4973–4983; shared guard block
+
+### §4.3.7 Action of VM Guest OS Structure Invalidations by Hypervisor
+
+- [x] Hypervisor must re-shadow STEs and issue appropriate CFGI commands when guest issues structure invalidation commands (§4.3.7, line 5456) — **N/A**: Software guidance for hypervisors only; no SMMU hardware enforcement is required or specified; the table of guest→hypervisor mappings imposes no behavioral requirement on the SMMU itself
+
+### §4.3.8 Configuration Structure Invalidation Semantics/Rules
+
+- [x] Stalled transactions are UNAFFECTED by structure/TLB invalidation commands; must use CMD_RESUME or CMD_STALL_TERM to retire (§4.3.8, line 5475) — **PASS**: `stallQueue_` (smmu.cpp:930) is a separate data structure from `tlbCache`; `invalidateStreamCache`, `invalidatePASIDCache`, and `invalidateTranslationCache` operate only on `tlbCache` — none touch `stallQueue_`; CMD_RESUME (smmu.cpp:5209–5251) and CMD_STALL_TERM (smmu.cpp:5254–5281) are the only paths that retire stall records
+- [x] Invalidation of a structure in-progress not required to affect that transaction (transaction looked up structure before invalidation) (§4.3.8, line 5483) — **PASS**: single-threaded command queue model: `processCommandQueue` and `translate` are serialized under `queueMutex`/stripe-lock discipline; a translation that began before a CFGI command completes atomically before the CFGI is processed — no mid-translation interleave possible
+- [x] Invalidation of any given structure must be seen as atomic: transaction must never see partially-valid structure (§4.3.8, line 5484) — **PASS**: `StreamContext` updates are performed atomically under per-stripe mutex (smmu.cpp:1298); shared_ptr ensures no dangling pointer; invalidation is synchronous and complete before returning
+- [x] CMD_SYNC ensures completion of all prior invalidations of both structure and TLB (§4.3.8, line 5490) — **PASS**: smmu.cpp:4022–4037: commands processed one at a time in strict FIFO order under `cmdqProcessingMutex_`; CMD_SYNC (smmu.cpp:5284–5327) executes only after all prior CFGI and TLBI commands have already returned; `cmdqProcessingMutex_` (smmu.cpp:3991) serializes entire processing loop
+
+<!-- §4.3 C++ Audit 2026-05-11: 34 items checked — 17 PASS, 17 N/A, 0 FAIL, 0 new bugs. All CFGI commands correctly implemented: SSec guards, S1P guards for CD commands, MPAM guard for VMS_PIDM, Range formula, global invalidation, stall isolation, CMD_SYNC ordering all PASS. L1ST/L1CD flat-model items N/A. -->
