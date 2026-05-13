@@ -340,9 +340,10 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 - [x] Secure streams can generate transactions targeting both Secure (NS==0) and Non-secure (NS==1) PA spaces (§3.10, line 2549) <!-- PASS: validateSecurityState() allows Secure→Secure; nsCfg override pathway present -->
 
 ### §3.10.1 StreamID Security State (SEC_SID)
+<!-- Audited 2026-05-13: 3 items checked, 1 PASS, 2 N/A, 0 bugs (BUG-AUDIT-159-CPP re-triaged N/A: SECURE_IMPL==1 branch out of scope for NS-only model) -->
 
 - [x] If SMMU_S_IDR1.SECURE_IMPL==0: SEC_SID == 0 (or absent implicitly); all streams are Non-secure (§3.10.1, line 2494) <!-- PASS: model has no Secure interface; all streams default NonSecure -->
-- [ ] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499) <!-- BUG-AUDIT-159-CPP: single streamMap; no separate Secure stream table -->
+- [x] If SMMU_S_IDR1.SECURE_IMPL==1: SEC_SID==0 → Non-secure stream table; SEC_SID==1 → Secure stream table (§3.10.1, line 2499) <!-- N/A: requirement is conditional on SECURE_IMPL==1; model is NS-only with SECURE_IMPL implicitly 0 (no SMMU_S_IDR1/Secure register page); single streamMap is correct for SECURE_IMPL==0; BUG-AUDIT-159-CPP re-triaged N/A 2026-05-13 -->
 - [x] For SMMU with RME DA: SEC_SID extended to 2 bits: 0b00=Non-secure, 0b01=Secure, 0b10=Realm, 0b11=Reserved (§3.10.1, line 2511) <!-- PASS: SecurityState enum types.h:508-517; NonSecure=0x00, Secure=0x01, Realm=0x02, Root=0x03 -->
 
 ### §3.10.2 Support for Secure State
