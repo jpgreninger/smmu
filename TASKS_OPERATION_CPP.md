@@ -308,28 +308,29 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 - [x] If translation for ATS TR with Source-CXL bit returns memory type other than Inner WB Cacheable/Outer WB Cacheable/Shareable: CXL.io bit set in ATS Translation Completion (§3.9.3, line 2343) — N/A: CXL out of scope
 
 ### §3.9.4 SMMU Interactions with PCIe T, TE and XT Fields
+<!-- Audited 2026-05-13: 21 items checked, 0 PASS, 21 N/A, 0 bugs — SMMU_R_IDR3 not implemented (RME_IMPL=0); no PCIe TLP wire-format processing; all T/TE/XT fields and Realm Command queue items out of scope -->
 
-- [ ] §3.9.4.1 applies only when SMMU_R_IDR3.XT is 0 (§3.9.4.1, line 2353)
-- [ ] Absence of IDE TLP prefix, or T=0: transaction associated with Non-secure state; SMMU does not distinguish absence from T=0 (§3.9.4.1, line 2365)
-- [ ] IDE TLP prefix with T=1: transaction associated with Realm state; input NS attribute is Realm (§3.9.4.1, line 2372)
-- [ ] Transactions with T bit in IDE TLP prefix set to 1: presented to SMMU with SEC_SID = Realm (§3.9.4.1, line 2374)
-- [ ] SMMU transmits ATS Translation Completions with T bit value matching the T bit in corresponding ATS Translation Request (§3.9.4.1, line 2376)
-- [ ] CMD_ATC_INV and CMD_PRI_RESP on Realm Command queue: issued to PCIe with T=1 (§3.9.4.1, line 2377)
-- [ ] §3.9.4.2 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.2, line 2386)
-- [ ] ATS Translation Completion for Non-secure stream: SMMU sets TE=0 (§3.9.4.2, line 2389)
-- [ ] ATS Translation Completion for Realm stream: TE=0 if not Success or R==W==0; if Realm PA: TE=1; if Non-secure PA: TE=0 (§3.9.4.2, line 2390)
-- [ ] §3.9.4.3 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.3, line 2403)
-- [ ] XT=0, T=0: Non-TEE request targeting non-TEE memory (§3.9.4.3, line 2408)
-- [ ] XT=0, T=1: TEE request targeting TEE or non-TEE memory (§3.9.4.3, line 2409)
-- [ ] XT=1, T=0: TEE request targeting non-TEE memory (§3.9.4.3, line 2410)
-- [ ] XT=1, T=1: TEE request targeting TEE memory (§3.9.4.3, line 2411)
-- [ ] SEC_SID determined from bitwise-OR of T and XT: 0 → Non-secure; 1 → Realm (§3.9.4.3, line 2413)
-- [ ] If SEC_SID is Realm: T=0 → input NS attribute Non-secure; T=1 → input NS attribute Realm (§3.9.4.3, line 2422)
-- [ ] NSCFG==0b01, XT=0 Translated transaction: terminated with abort and F_TRANSL_FORBIDDEN (§3.9.4.3, line 2455)
-- [ ] NSCFG==0b01, XT=1: SMMU computes expected output PA space; if does not match input NS attribute → F_PERMISSION for final enabled stage (§3.9.4.3, line 2456)
-- [ ] §3.9.4.4 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.4, line 2460)
-- [ ] SMMU ignores XT bit on PRI requests and ATS Invalidation completions (§3.9.4.4, line 2461)
-- [ ] SMMU transmits ATS Translation Completions with both T bit and XT bit matching corresponding ATS Translation Request (§3.9.4.4, line 2464)
+- [x] §3.9.4.1 applies only when SMMU_R_IDR3.XT is 0 (§3.9.4.1, line 2353) — N/A: SMMU_R_IDR3 not implemented; RME_IMPL=0; no XT capability in model
+- [x] Absence of IDE TLP prefix, or T=0: transaction associated with Non-secure state; SMMU does not distinguish absence from T=0 (§3.9.4.1, line 2365) — N/A: model receives SecurityState via C++ API, not PCIe TLP wire format; no IDE TLP prefix decoding
+- [x] IDE TLP prefix with T=1: transaction associated with Realm state; input NS attribute is Realm (§3.9.4.1, line 2372) — N/A: no PCIe IDE TLP prefix decoding; T-bit has no representation in model API
+- [x] Transactions with T bit in IDE TLP prefix set to 1: presented to SMMU with SEC_SID = Realm (§3.9.4.1, line 2374) — N/A: no PCIe T-bit-to-SEC_SID mapping path; SecurityState::Realm exists only for internal §3.10 access-control
+- [x] SMMU transmits ATS Translation Completions with T bit value matching the T bit in corresponding ATS Translation Request (§3.9.4.1, line 2376) — N/A: model emits no ATS Completion TLPs; results returned as C++ TranslationResult
+- [x] CMD_ATC_INV and CMD_PRI_RESP on Realm Command queue: issued to PCIe with T=1 (§3.9.4.1, line 2377) — N/A: no Realm Command queue; RME_IMPL=0; executeATCInvalidationCommand() does not issue outbound PCIe messages
+- [x] §3.9.4.2 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.2, line 2386) — N/A: SMMU_R_IDR3.XT=1 cannot be advertised; entire §3.9.4.2 out of scope
+- [x] ATS Translation Completion for Non-secure stream: SMMU sets TE=0 (§3.9.4.2, line 2389) — N/A: gated on SMMU_R_IDR3.XT=1; no ATS Completion TLP emission
+- [x] ATS Translation Completion for Realm stream: TE=0 if not Success or R==W==0; if Realm PA: TE=1; if Non-secure PA: TE=0 (§3.9.4.2, line 2390) — N/A: gated on SMMU_R_IDR3.XT=1; no Realm hardware front-end; no outbound TLP encoding
+- [x] §3.9.4.3 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.3, line 2403) — N/A: SMMU_R_IDR3.XT=1 cannot be advertised; entire §3.9.4.3 out of scope
+- [x] XT=0, T=0: Non-TEE request targeting non-TEE memory (§3.9.4.3, line 2408) — N/A: gated on SMMU_R_IDR3.XT=1; no PCIe XT/T encoding for Untranslated/Translated transactions
+- [x] XT=0, T=1: TEE request targeting TEE or non-TEE memory (§3.9.4.3, line 2409) — N/A: same gating
+- [x] XT=1, T=0: TEE request targeting non-TEE memory (§3.9.4.3, line 2410) — N/A: same gating
+- [x] XT=1, T=1: TEE request targeting TEE memory (§3.9.4.3, line 2411) — N/A: same gating
+- [x] SEC_SID determined from bitwise-OR of T and XT: 0 → Non-secure; 1 → Realm (§3.9.4.3, line 2413) — N/A: gated on SMMU_R_IDR3.XT=1; SecurityState passed directly by caller, not derived from PCIe TLP bits
+- [x] If SEC_SID is Realm: T=0 → input NS attribute Non-secure; T=1 → input NS attribute Realm (§3.9.4.3, line 2422) — N/A: gated on SMMU_R_IDR3.XT=1; no PCIe T-bit input path
+- [x] NSCFG==0b01, XT=0 Translated transaction: terminated with abort and F_TRANSL_FORBIDDEN (§3.9.4.3, line 2455) — N/A: gated on SMMU_R_IDR3.XT=1 being advertised to enable TDISP mode; existing F_TRANSL_FORBIDDEN covers §3.9.1 ATSCHK path only
+- [x] NSCFG==0b01, XT=1: SMMU computes expected output PA space; if does not match input NS attribute → F_PERMISSION for final enabled stage (§3.9.4.3, line 2456) — N/A: gated on SMMU_R_IDR3.XT=1; TDISP output-PA-space enforcement not implemented
+- [x] §3.9.4.4 applies only when SMMU_R_IDR3.XT is 1 (§3.9.4.4, line 2460) — N/A: SMMU_R_IDR3.XT=1 cannot be advertised; entire §3.9.4.4 out of scope
+- [x] SMMU ignores XT bit on PRI requests and ATS Invalidation completions (§3.9.4.4, line 2461) — N/A: gated on SMMU_R_IDR3.XT=1; no PCIe XT-bit field in model's PRI/ATS API
+- [x] SMMU transmits ATS Translation Completions with both T bit and XT bit matching corresponding ATS Translation Request (§3.9.4.4, line 2464) — N/A: gated on SMMU_R_IDR3.XT=1; model emits no ATS Completion TLPs
 
 ## §3.10 Security States Support
 <!-- Audited 2026-05-08: 25 items checked, 11 PASS, 9 N/A, 5 BUG (BUG-AUDIT-159..163-CPP) -->
