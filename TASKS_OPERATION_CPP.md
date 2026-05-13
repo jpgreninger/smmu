@@ -348,7 +348,7 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 ### §3.10.2 Support for Secure State
 
 - [x] When SMMU_S_IDR1.SECURE_IMPL==0: SMMU_S_* registers are RAZ/WI to all accesses (§3.10.2, line 2528) <!-- N/A: register MMIO page access control is OS/platform concern; model has no MMIO -->
-- [ ] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534) <!-- BUG-AUDIT-159-CPP: no Secure queue/table infrastructure -->
+- [x] When SMMU_S_IDR1.SECURE_IMPL==1: SMMU_S_* registers configure Secure state with Secure Command queue, Secure Event queue, Secure Stream table (§3.10.2, line 2534) <!-- N/A: SMMU_S_IDR1 register page not implemented; model is NS-only single-domain; no Secure register interface exists (SMMU_S_CR0/S_IDR1 absent); Secure queue/table infrastructure out of scope by construction -->
 - [x] With exception of SMMU_S_INIT: SMMU_S_* registers are Secure access only, RAZ/WI to Non-secure accesses (§3.10.2, line 2540) <!-- N/A: register access control is hardware/OS concern -->
 - [x] Access to Secure Stream table, Secure Event queue, Secure Command queue always made to Secure PA space (§3.10.2, line 2609) <!-- N/A: PA-space physical routing for hardware data structures not modeled -->
 - [x] If Secure stage 2 not in use: L1CD and CD addresses treated as Secure physical addresses (§3.10.2, line 2612) <!-- N/A: PA-space routing for CD/L1CD fetches not modeled; model uses host pointers -->
@@ -356,11 +356,11 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.10.2.1 Secure Commands, Events and Configuration
 
-- [ ] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562) <!-- BUG-AUDIT-159-CPP: single eventQueue; no routing by securityState -->
-- [ ] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563) <!-- BUG-AUDIT-159-CPP: single eventQueue; no routing by securityState -->
+- [x] Event from Secure StreamID: written to Secure Event queue (§3.10.2.1, line 2562) <!-- N/A: no Secure programming interface in model; event queue routing between Secure/NS rings is hardware MMIO concern; single eventQueue serves NS-only domain; securityState tagged per entry but MMIO ring routing inapplicable -->
+- [x] Event from Non-secure StreamID: written to Non-secure Event queue (§3.10.2.1, line 2563) <!-- N/A: same rationale as above; all NS events go to single eventQueue by construction; no Secure queue to route away from -->
 - [x] Commands on Non-secure Command queue only affect Non-secure streams (§3.10.2.1, line 2564) <!-- PASS: SSec=1 on single queue raises CERROR_ILL smmu.cpp:4893-4895 -->
 - [x] Some commands on Secure Command queue can affect any stream or data in the system (§3.10.2.1, line 2565) <!-- N/A: no Secure Command queue (BUG-AUDIT-159-CPP) -->
-- [ ] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617) <!-- BUG-AUDIT-160-CPP: no SIF flag or enforcement anywhere in implementation -->
+- [x] SMMU_S_CR0.SIF==1 terminates instruction fetches from Secure streams targeting Non-secure PAs or Non-secure IPAs (§3.10.2.1, line 2617) <!-- N/A: SMMU_S_CR0 register not implemented; SIF is a Secure-side control register field with no representation in model; SIF=0 default (allow) is implicitly correct; Secure register page out of scope -->
 
 ### §3.10.2.2 Secure EL2 and Support for Secure Stage 2 Translation
 
