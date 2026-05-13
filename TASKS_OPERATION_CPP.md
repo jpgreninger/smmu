@@ -805,54 +805,54 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.25 Granule Protection Checks
 
-- [ ] GPC enabled only when SMMU_ROOT_CR0.GPCEN==1 (§3.25, line 4757)
-- [ ] GPT format and meaning same in SMMU with RME as in FEAT_RME (§3.25, line 4753)
-- [ ] Client-originated access experiencing GPC fault: signaled to client device as External abort (§3.25.1, line 4762)
-- [ ] Client-originated access GPC fault on output address: NOT reported in Event queue (§3.25.1, line 4764)
+- [x] GPC enabled only when SMMU_ROOT_CR0.GPCEN==1 (§3.25, line 4757) — **N/A**: IDR0.RME_IMPL=0 (bit absent from `getIDR0()`, smmu.cpp:3547-3573); SMMU_ROOT_CR0 register not implemented; entire GPC/GPT subsystem absent
+- [x] GPT format and meaning same in SMMU with RME as in FEAT_RME (§3.25, line 4753) — **N/A**: IDR0.RME_IMPL=0; no GPT walk or descriptor parsing; RME not modeled
+- [x] Client-originated access experiencing GPC fault: signaled to client device as External abort (§3.25.1, line 4762) — **N/A**: IDR0.RME_IMPL=0; no GPC check exists; client GPC fault path unreachable
+- [x] Client-originated access GPC fault on output address: NOT reported in Event queue (§3.25.1, line 4764) — **N/A**: IDR0.RME_IMPL=0; no GPC infrastructure; fault path structurally impossible
 
 ### §3.25.1.1 GPC for Client Devices Without StreamID (NoStreamID)
 
-- [ ] NoStreamID device access with PA exceeding SMMU_IDR5.OAS: terminated with abort; no Event record or fault recorded (§3.25.1.1, line 4776)
+- [x] NoStreamID device access with PA exceeding SMMU_IDR5.OAS: terminated with abort; no Event record or fault recorded (§3.25.1.1, line 4776) — **N/A**: IDR0.RME_IMPL=0; no NoStreamID+GPC path; GPC infrastructure absent
 
 ### §3.25.1.2 Speculative and Hint Accesses
 
-- [ ] GPC fault during speculative translation request/translation/prefetch/NW-DCP/DH: no event record generated (§3.25.1.2, line 4786)
-- [ ] If SMMU_IDR0.RME_IMPL==1: GPC fault during speculative access is NOT reported (§3.25.1.2, line 4788)
+- [x] GPC fault during speculative translation request/translation/prefetch/NW-DCP/DH: no event record generated (§3.25.1.2, line 4786) — **N/A**: IDR0.RME_IMPL=0; no GPC infrastructure; speculative transaction types not modeled
+- [x] If SMMU_IDR0.RME_IMPL==1: GPC fault during speculative access is NOT reported (§3.25.1.2, line 4788) — **N/A**: IDR0.RME_IMPL=0; RME not implemented
 
 ### §3.25.2 Interactions with PCIe ATS
 
-- [ ] SMMU_CR0.ATSCHK has no effect on granule protection checks (§3.25.2, line 4799)
-- [ ] SMMU-originated access experiencing GPC fault while servicing ATS TR: SMMU responds with Completer Abort (§3.25.2, line 4800)
-- [ ] If ATS TR success with R==W==0: address not valid; not subject to GPC (§3.25.2, line 4802)
-- [ ] If SMMU_IDR0.RME_IMPL==1: GPC performed on output address for ATS TR result before sending completion (§3.25.2, line 4803)
-- [ ] SMMU returns translation region size in ATS Completion such that GPC passes for accesses anywhere in region (§3.25.2, line 4805)
-- [ ] ATS Translated transactions: subject to GPC; if GPC fails, terminated with abort (§3.25.2, line 4810)
+- [x] SMMU_CR0.ATSCHK has no effect on granule protection checks (§3.25.2, line 4799) — **N/A**: IDR0.RME_IMPL=0; no GPC implementation; interaction vacuously inapplicable
+- [x] SMMU-originated access experiencing GPC fault while servicing ATS TR: SMMU responds with Completer Abort (§3.25.2, line 4800) — **N/A**: IDR0.RME_IMPL=0; no GPC in ATS TR path
+- [x] If ATS TR success with R==W==0: address not valid; not subject to GPC (§3.25.2, line 4802) — **N/A**: IDR0.RME_IMPL=0; no GPC applied to any ATS output
+- [x] If SMMU_IDR0.RME_IMPL==1: GPC performed on output address for ATS TR result before sending completion (§3.25.2, line 4803) — **N/A**: IDR0.RME_IMPL=0; no post-ATS GPC step
+- [x] SMMU returns translation region size in ATS Completion such that GPC passes for accesses anywhere in region (§3.25.2, line 4805) — **N/A**: IDR0.RME_IMPL=0; no GPC; region-size/GPC interaction absent
+- [x] ATS Translated transactions: subject to GPC; if GPC fails, terminated with abort (§3.25.2, line 4810) — **N/A**: IDR0.RME_IMPL=0; no GPC applied to translated transaction path
 
 ### §3.25.3 SMMU-Originated Accesses
 
-- [ ] SMMU-originated access experiencing GPC fault: reported as External abort (§3.25.3, line 4815)
-- [ ] For SMMU_IDR0.RME_IMPL==1: F_STE_FETCH/F_CD_FETCH/F_VMS_FETCH/F_WALK_EABT arising from GPC fault reported with GPCF=1 (§3.25.3, line 4822)
+- [x] SMMU-originated access experiencing GPC fault: reported as External abort (§3.25.3, line 4815) — **N/A**: IDR0.RME_IMPL=0; no SMMU-originated GPC fault path; GPC absent
+- [x] For SMMU_IDR0.RME_IMPL==1: F_STE_FETCH/F_CD_FETCH/F_VMS_FETCH/F_WALK_EABT arising from GPC fault reported with GPCF=1 (§3.25.3, line 4822) — **N/A**: IDR0.RME_IMPL=0; no GPCF field in EventEntry (types.h:1695); fault events defined but GPCF indicator absent
 
 ### §3.25.4 Reporting of GPC Faults
 
-- [ ] GPF (Granule Protection Fault): reported in SMMU_ROOT_GPF_FAR (§3.25.4, line 4837)
-- [ ] GPT lookup error: reported in SMMU_ROOT_GPT_CFG_FAR (§3.25.4, line 4842)
-- [ ] GPF conditions: access to PA space other than NS with address exceeding PPS range; access to GPT-forbidden location (§3.25.4, line 4838)
-- [ ] GPT lookup error conditions: Reserved fields in SMMU_ROOT_GPT_BASE_CFG; PPS exceeding OAS; invalid SH/IRGN/ORGN combination; ADDR exceeding PPS; GPT Table Entry output exceeding PPS; invalid GPT Entry; External abort on GPT Entry fetch (§3.25.4, line 4843)
+- [x] GPF (Granule Protection Fault): reported in SMMU_ROOT_GPF_FAR (§3.25.4, line 4837) — **N/A**: IDR0.RME_IMPL=0; SMMU_ROOT_GPF_FAR register not implemented
+- [x] GPT lookup error: reported in SMMU_ROOT_GPT_CFG_FAR (§3.25.4, line 4842) — **N/A**: IDR0.RME_IMPL=0; SMMU_ROOT_GPT_CFG_FAR register not implemented
+- [x] GPF conditions: access to PA space other than NS with address exceeding PPS range; access to GPT-forbidden location (§3.25.4, line 4838) — **N/A**: IDR0.RME_IMPL=0; no GPC check; fault conditions never evaluated
+- [x] GPT lookup error conditions: Reserved fields in SMMU_ROOT_GPT_BASE_CFG; PPS exceeding OAS; invalid SH/IRGN/ORGN combination; ADDR exceeding PPS; GPT Table Entry output exceeding PPS; invalid GPT Entry; External abort on GPT Entry fetch (§3.25.4, line 4843) — **N/A**: IDR0.RME_IMPL=0; no GPT walk; error conditions never evaluated
 
 ### §3.25.5 SMMU Behavior If GPC Fault is Active
 
-- [ ] If GPF active in SMMU_ROOT_GPF_FAR: other accesses without GPF or GPT lookup error continue as specified (§3.25.5, line 4859)
-- [ ] GPF remains active until software writes 0 to SMMU_ROOT_GPF_FAR.FAULT (§3.25.5, line 4860)
-- [ ] GPT lookup error remains active until software writes 0 to SMMU_ROOT_GPT_CFG_FAR.FAULT (§3.25.5, line 4866)
-- [ ] SMMU with RME has two additional wired interrupts: GPF_FAR (error becomes active in SMMU_ROOT_GPF_FAR) and GPT_CFG_FAR (error becomes active in SMMU_ROOT_GPT_CFG_FAR) (§3.25.5, line 4868)
+- [x] If GPF active in SMMU_ROOT_GPF_FAR: other accesses without GPF or GPT lookup error continue as specified (§3.25.5, line 4859) — **N/A**: IDR0.RME_IMPL=0; SMMU_ROOT_GPF_FAR not implemented; GPC absent
+- [x] GPF remains active until software writes 0 to SMMU_ROOT_GPF_FAR.FAULT (§3.25.5, line 4860) — **N/A**: IDR0.RME_IMPL=0; SMMU_ROOT_GPF_FAR not implemented
+- [x] GPT lookup error remains active until software writes 0 to SMMU_ROOT_GPT_CFG_FAR.FAULT (§3.25.5, line 4866) — **N/A**: IDR0.RME_IMPL=0; SMMU_ROOT_GPT_CFG_FAR not implemented
+- [x] SMMU with RME has two additional wired interrupts: GPF_FAR (error becomes active in SMMU_ROOT_GPF_FAR) and GPT_CFG_FAR (error becomes active in SMMU_ROOT_GPT_CFG_FAR) (§3.25.5, line 4868) — **N/A**: IDR0.RME_IMPL=0; RME interrupt infrastructure absent; model uses wired-only non-RME interrupt model
 
 ### §3.25.6 Observability of GPC Faults
 
-- [ ] If client transaction termination due to GPC fault observable to client: if GPF_FAR/GPT_CFG_FAR did not contain active fault → syndrome info observable in appropriate register; if already active → not updated (§3.25.6, line 4877)
-- [ ] If GPC fault interrupt observable: syndrome info observable in SMMU_ROOT_GPF_FAR or SMMU_ROOT_GPT_CFG_FAR (§3.25.6, line 4882)
-- [ ] If client GPC fault termination visible to client: subsequent CMD_SYNC guarantees observability of related events in Event queue or that events discarded (§3.25.6, line 4884)
-- [ ] For SMMU with BGPTM==1: after broadcast TLBI *PA* and DSB, subsequent CMD_SYNC guarantees no events relating to invalidated GPT configuration later observable (§3.25.6, line 4886)
+- [x] If client transaction termination due to GPC fault observable to client: if GPF_FAR/GPT_CFG_FAR did not contain active fault → syndrome info observable in appropriate register; if already active → not updated (§3.25.6, line 4877) — **N/A**: IDR0.RME_IMPL=0; no GPC fault observability infrastructure
+- [x] If GPC fault interrupt observable: syndrome info observable in SMMU_ROOT_GPF_FAR or SMMU_ROOT_GPT_CFG_FAR (§3.25.6, line 4882) — **N/A**: IDR0.RME_IMPL=0; ROOT registers not implemented
+- [x] If client GPC fault termination visible to client: subsequent CMD_SYNC guarantees observability of related events in Event queue or that events discarded (§3.25.6, line 4884) — **N/A**: IDR0.RME_IMPL=0; GPC fault events never generated
+- [x] For SMMU with BGPTM==1: after broadcast TLBI *PA* and DSB, subsequent CMD_SYNC guarantees no events relating to invalidated GPT configuration later observable (§3.25.6, line 4886) — **N/A**: IDR0.RME_IMPL=0; no BGPTM bit, no GPT maintenance path
 
 ## §3.26 Permission Indirections
 
