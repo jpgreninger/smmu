@@ -858,18 +858,18 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.26.1 Stage 1 Permission Indirections
 
-- [ ] SMMU_IDR3.S1PI==0: stage 1 permission indirections not supported; STE.S1PIE and CD.PIE are RES0 (§3.26.1, line 4918)
-- [ ] SMMU_IDR3.S1PI==1, STE.S1PIE==1, CD.PIE==1: stage 1 permissions determined from CD.PIIP and CD.PIIU using PIIndex from descriptors (§3.26.1, line 4922)
-- [ ] STE.S1PIE==0: hypervisor can prevent guest use of stage 1 permission indirections (§3.26.1, line 4924)
-- [ ] SMMU does NOT support stage 1 permission overlay feature (§3.26.1, line 4926)
-- [ ] If stage 1 Indirect Permission Scheme enabled: CD.WXN is RES0 and has no effect (§3.26.1, line 4927)
+- [x] SMMU_IDR3.S1PI==0: stage 1 permission indirections not supported; STE.S1PIE and CD.PIE are RES0 (§3.26.1, line 4918) — **PASS**: `getIDR3()` never sets bit 12 (S1PI) at smmu.cpp:3605-3609; no S1PIE/CD.PIE/PIIP/PIIU/PIIndex fields exist in StreamConfig (types.h:1150-1318), satisfying the RES0 requirement structurally
+- [x] SMMU_IDR3.S1PI==1, STE.S1PIE==1, CD.PIE==1: stage 1 permissions determined from CD.PIIP and CD.PIIU using PIIndex from descriptors (§3.26.1, line 4922) — **N/A**: IDR3.S1PI=0; no S1PIE, PIE, PIIP, PIIU, or PIIndex fields implemented; feature code path is structurally unreachable
+- [x] STE.S1PIE==0: hypervisor can prevent guest use of stage 1 permission indirections (§3.26.1, line 4924) — **N/A**: IDR3.S1PI=0 globally disables the feature; STE.S1PIE field does not exist in StreamConfig (types.h:1150-1318); hypervisor gate is vacuous
+- [x] SMMU does NOT support stage 1 permission overlay feature (§3.26.1, line 4926) — **PASS**: no S1POE, S1POI, or overlay permission table fields exist anywhere in the implementation; absence is the correct spec-mandated state
+- [x] If stage 1 Indirect Permission Scheme enabled: CD.WXN is RES0 and has no effect (§3.26.1, line 4927) — **N/A**: IDR3.S1PI=0; indirection enable path is never reached; CD.WXN is implemented and enforced (types.h:1271, stream_context.cpp:1299-1327) but the "WXN→RES0 when indirection enabled" constraint is vacuously satisfied since indirection is globally disabled
 
 ### §3.26.2 Stage 2 Permission Indirections
 
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==0, STE.S2POE==1: ILLEGAL → generates C_BAD_STE (§3.26.2, line 4948)
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==0: stage 2 permissions from SMMU_S2PII using PIIndex (§3.26.2, line 4949)
-- [ ] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==1: stage 2 permissions from STE.S2POI (POIndex) combined with SMMU_S2PII (PIIndex) (§3.26.2, line 4950)
-- [ ] Stage 2 permission computation order: (1) AssuredOnly check for stage 2 of stage 1 output address, (2) Base and Overlay permissions, (3) STE.S2PTW for TT walk/CD fetch, (4) Dirty state permission check if indirection enabled, (5) STE.DRE/STE.DCP for directed prefetch and CMO (§3.26.2, line 4952)
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==0, STE.S2POE==1: ILLEGAL → generates C_BAD_STE (§3.26.2, line 4948) — **N/A**: IDR3.S2PI (bit 13) is never set in `getIDR3()` (smmu.cpp:3605-3609); no STE.S2PIE or STE.S2POE fields exist in StreamConfig; validation guard is structurally unreachable
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==0: stage 2 permissions from SMMU_S2PII using PIIndex (§3.26.2, line 4949) — **N/A**: IDR3.S2PI=0; no S2PIE, S2POE, SMMU_S2PII register, or stage-2 PIIndex fields implemented; feature is completely absent by design
+- [x] SMMU_IDR3.S2PI==1, STE.S2PIE==1, STE.S2POE==1: stage 2 permissions from STE.S2POI (POIndex) combined with SMMU_S2PII (PIIndex) (§3.26.2, line 4950) — **N/A**: IDR3.S2PI=0; no S2PIE, S2POE, S2POI, or S2PII fields anywhere in the implementation
+- [x] Stage 2 permission computation order: (1) AssuredOnly check for stage 2 of stage 1 output address, (2) Base and Overlay permissions, (3) STE.S2PTW for TT walk/CD fetch, (4) Dirty state permission check if indirection enabled, (5) STE.DRE/STE.DCP for directed prefetch and CMO (§3.26.2, line 4952) — **N/A**: full five-step ordering applies only when IDR3.S2PI=1; S2PTW (step 3) is implemented at stream_context.cpp:1382-1388 and tests a Device-memory property orthogonal to R/W/X bits; steps 1, 4, and 5 depend on indirection being enabled which is globally disabled
 
 ## §3.27 Translation Hardening
 
