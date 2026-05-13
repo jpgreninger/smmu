@@ -727,13 +727,15 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.23 Memory Tagging Extension
 
-- [ ] MAIR encoding 0xF0 is Reserved in SMMUv3 in CD.MAIR0 and CD.MAIR1 (§3.23, line 4240)
-- [ ] All SMMU-originated accesses are Tag Unchecked accesses; SMMU does not write Allocation Tags (§3.23, line 4242)
+> **Audit date:** 2026-05-12 — 4 items checked: 1 PASS, 3 N/A, 0 bugs
+
+- [x] MAIR encoding 0xF0 is Reserved in SMMUv3 in CD.MAIR0 and CD.MAIR1 (§3.23, line 4240) — **N/A**: "Reserved" in ARM specification language is a software programming constraint (behavior is UNPREDICTABLE if misused), not a hardware-side rejection requirement. The model contains a `MemoryAttributeRegister` struct (types.h:1847-1874) that stores attr0..attr7 bytes, but no code path in the translation pipeline (smmu.cpp, configuration.cpp, address_space.cpp, stream_context.cpp) reads or validates those attribute bytes. With MAIR bytes unconsumed by the translation engine, there is no incorrect-behavior surface specific to 0xF0, and no SMMU-side enforcement is required or expected.
+- [x] All SMMU-originated accesses are Tag Unchecked accesses; SMMU does not write Allocation Tags (§3.23, line 4242) — **PASS** (by construction): The model is a pure translation engine — it computes a physical address and permission bits. It performs no cache maintenance, no AXI5 bus signalling, and contains zero code paths that write allocation tags. The absence of any allocation-tag write infrastructure structurally guarantees compliance. No tag-checking logic exists anywhere in the model.
 
 ### §3.23.1 SMMU Support for FEAT_MTE_PERM
 
-- [ ] If SMMU_IDR3.MTEPERM==1: stage 2 MemAttr NoTagAccess encodings treated as without NoTagAccess in SMMU (§3.23.1, line 4247)
-- [ ] When STE.S2FWB==0 and stage 2 MemAttr[3:0]==0b0100: SMMU interprets as Normal Inner WB Cacheable, Outer WB Cacheable (§3.23.1, line 4256)
+- [x] If SMMU_IDR3.MTEPERM==1: stage 2 MemAttr NoTagAccess encodings treated as without NoTagAccess in SMMU (§3.23.1, line 4247) — **N/A**: This rule is gated on `SMMU_IDR3.MTEPERM==1`. `getIDR3()` (smmu.cpp:3600-3609) sets bits 2, 4, 8, 10, 11 (HAD, XNX, FWB, RIL, BBML[0]) but does NOT set bit 0 (MTEPERM). With MTEPERM=0, the conditional never triggers and no reinterpretation logic is required.
+- [x] When STE.S2FWB==0 and stage 2 MemAttr[3:0]==0b0100: SMMU interprets as Normal Inner WB Cacheable, Outer WB Cacheable (§3.23.1, line 4256) — **N/A**: This entry is part of the §3.23.1 reinterpretation table that activates only when MTEPERM==1 (same gate as preceding item, N/A on identical grounds). Additionally, the model carries no `s2fwb` field on `StreamTableEntry` or `StreamConfig`, and never decodes a 4-bit stage-2 MemAttr value — stage-2 memory attributes flow as a binary `pageAttr` byte (0x00 = Device-nGnRnE or 0xFF = Normal WB/WA) resolved by the AddressSpace API (stream_context.cpp:275-278). The rule's preconditions are structurally unreachable.
 
 ## §3.24 Device Permission Table
 
