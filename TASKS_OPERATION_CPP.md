@@ -739,69 +739,69 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.24 Device Permission Table
 
-- [ ] DPT use only supported for StreamIDs configured to use StreamWorld EL1; otherwise C_BAD_STE (§3.24, line 4269)
-- [ ] Independent DPT for each of Non-secure and Realm states (§3.24, line 4271)
-- [ ] DPT support for Non-secure state: SMMU_IDR3.DPT; for Realm state: SMMU_R_IDR3.DPT (§3.24, line 4282)
+- [x] DPT use only supported for StreamIDs configured to use StreamWorld EL1; otherwise C_BAD_STE (§3.24, line 4269) — **N/A**: IDR3.DPT=0 (bit 1 never set in `getIDR3()`, smmu.cpp:3605-3609); DPT feature not advertised; no DPT walk, registers (SMMU_DPT_BASE_CFG, SMMU_DPT_CFG_FAR), STE fields (DPT_VMATCH), or TLB infrastructure exist in the software model
+- [x] Independent DPT for each of Non-secure and Realm states (§3.24, line 4271) — **N/A**: IDR3.DPT=0; DPT not implemented; no per-security-state DPT structures exist
+- [x] DPT support for Non-secure state: SMMU_IDR3.DPT; for Realm state: SMMU_R_IDR3.DPT (§3.24, line 4282) — **N/A**: IDR3.DPT=0; neither Non-secure nor Realm DPT capability is advertised
 
 ### §3.24.1 DPT Check
 
-- [ ] If input address outside SMMU_(R_)DPT_BASE_CFG.DPTPS configured range: No Access → Device Access fault (§3.24.1, line 4295)
-- [ ] Level 0 No Access entry: DPT check fails as Device Access fault (§3.24.1, line 4296)
-- [ ] A[1:0]==No Access in Level 1 descriptor: DPT check fails as Device Access fault (§3.24.1, line 4298)
-- [ ] Region marked W=0 and incoming transaction is write: DPT check fails as Device Access fault (§3.24.1, line 4299)
-- [ ] STE.DPT_VMATCH==0b00: VMID checked when AC==0b00 or AC==0b01; if VMID required and does not match → Device Access fault (§3.24.1, line 4307)
-- [ ] STE.DPT_VMATCH==0b01: VMID checked only when AC==0b00 (§3.24.1, line 4308)
-- [ ] STE.DPT_VMATCH==0b10: VMID never checked (§3.24.1, line 4309)
-- [ ] For Realm STEs: DPT_VMATCH always 0b00 (§3.24.1, line 4314)
-- [ ] Non-secure DPT: output PA space is Non-secure (§3.24.1, line 4322)
-- [ ] Realm DPT: AC==0b01 or 0b10 → output PA space Non-secure; otherwise → output PA space Realm (§3.24.1, line 4323)
+- [x] If input address outside SMMU_(R_)DPT_BASE_CFG.DPTPS configured range: No Access → Device Access fault (§3.24.1, line 4295) — **N/A**: IDR3.DPT=0; no DPT walk or range-check logic exists
+- [x] Level 0 No Access entry: DPT check fails as Device Access fault (§3.24.1, line 4296) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] A[1:0]==No Access in Level 1 descriptor: DPT check fails as Device Access fault (§3.24.1, line 4298) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] Region marked W=0 and incoming transaction is write: DPT check fails as Device Access fault (§3.24.1, line 4299) — **N/A**: IDR3.DPT=0; no DPT permission check exists
+- [x] STE.DPT_VMATCH==0b00: VMID checked when AC==0b00 or AC==0b01; if VMID required and does not match → Device Access fault (§3.24.1, line 4307) — **N/A**: IDR3.DPT=0; no STE.DPT_VMATCH field or VMID-match logic exists
+- [x] STE.DPT_VMATCH==0b01: VMID checked only when AC==0b00 (§3.24.1, line 4308) — **N/A**: IDR3.DPT=0; STE.DPT_VMATCH not implemented
+- [x] STE.DPT_VMATCH==0b10: VMID never checked (§3.24.1, line 4309) — **N/A**: IDR3.DPT=0; STE.DPT_VMATCH not implemented
+- [x] For Realm STEs: DPT_VMATCH always 0b00 (§3.24.1, line 4314) — **N/A**: IDR3.DPT=0; Realm DPT not implemented
+- [x] Non-secure DPT: output PA space is Non-secure (§3.24.1, line 4322) — **N/A**: IDR3.DPT=0; no DPT output PA space logic exists
+- [x] Realm DPT: AC==0b01 or 0b10 → output PA space Non-secure; otherwise → output PA space Realm (§3.24.1, line 4323) — **N/A**: IDR3.DPT=0; Realm DPT not implemented
 
 ### §3.24.2 DPT Caching Behavior
 
-- [ ] DPT TLB entries never created from ATS TRs that bypass all stages of translation (§3.24.2, line 4342)
-- [ ] Level 0 No Access entry is NOT permitted to be cached in DPT TLB (§3.24.3.1.1, line 4484)
+- [x] DPT TLB entries never created from ATS TRs that bypass all stages of translation (§3.24.2, line 4342) — **N/A**: IDR3.DPT=0; no DPT TLB cache exists
+- [x] Level 0 No Access entry is NOT permitted to be cached in DPT TLB (§3.24.3.1.1, line 4484) — **N/A**: IDR3.DPT=0; no DPT TLB cache exists
 
 ### §3.24.3.1 DPT Descriptor Formats
 
-- [ ] Level 0: bits[1:0]==0b00 → No Access entry (§3.24.3.1.1, line 4483)
-- [ ] Level 0: bits[1:0]==0b01 → Block descriptor; AC and W fields valid (§3.24.3.1.2, line 4493)
-- [ ] Level 0: bits[1:0]==0b11 → Table descriptor; address field is next-level base (§3.24.3.1.3, line 4532)
-- [ ] Level 0 AC field: 0b00=VMID checked unless DPT_VMATCH==0b10; 0b01=VMID checked unless DPT_VMATCH==0b01 or 0b10; 0b10=VMID is RES0; 0b11=Reserved/invalid (§3.24.3.1.2, line 4503)
-- [ ] If SMMU_IDR0.VMID16==0: VMID[15:8] are RES0 in Level 0 Block entries (§3.24.3.1.2, line 4517)
-- [ ] Level 1 A[1:0]==0b00: No Access to both granules; all other fields RES0 (§3.24.3.1.4, line 4561)
-- [ ] Level 1 A[1:0]==0b01: No Access upper granule; lower granule governed by AC0, W0, VMID0 (§3.24.3.1.4, line 4562)
-- [ ] Level 1 A[1:0]==0b10: upper granule governed by AC1, W1, VMID1; No Access lower granule (§3.24.3.1.4, line 4563)
-- [ ] Level 1 A[1:0]==0b11, Contig==0: upper granule AC1/W1/VMID1; lower granule AC0/W0/VMID0 (§3.24.3.1.4, line 4564)
-- [ ] Level 1 A[1:0]==0b11, Contig!=0: contiguous region controlled by AC0, W0, VMID0 only; AC1/W1/VMID1 are RES0 (§3.24.3.1.4, line 4565)
-- [ ] If Contig selects Reserved encoding: descriptor is invalid (§3.24.3.1.4, line 4593)
-- [ ] Any RES0 bit non-zero or Reserved field value → descriptor is Invalid (§3.24.3.1.4, line 4549)
+- [x] Level 0: bits[1:0]==0b00 → No Access entry (§3.24.3.1.1, line 4483) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] Level 0: bits[1:0]==0b01 → Block descriptor; AC and W fields valid (§3.24.3.1.2, line 4493) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] Level 0: bits[1:0]==0b11 → Table descriptor; address field is next-level base (§3.24.3.1.3, line 4532) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] Level 0 AC field: 0b00=VMID checked unless DPT_VMATCH==0b10; 0b01=VMID checked unless DPT_VMATCH==0b01 or 0b10; 0b10=VMID is RES0; 0b11=Reserved/invalid (§3.24.3.1.2, line 4503) — **N/A**: IDR3.DPT=0; no DPT AC field decoding exists
+- [x] If SMMU_IDR0.VMID16==0: VMID[15:8] are RES0 in Level 0 Block entries (§3.24.3.1.2, line 4517) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] Level 1 A[1:0]==0b00: No Access to both granules; all other fields RES0 (§3.24.3.1.4, line 4561) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] Level 1 A[1:0]==0b01: No Access upper granule; lower granule governed by AC0, W0, VMID0 (§3.24.3.1.4, line 4562) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] Level 1 A[1:0]==0b10: upper granule governed by AC1, W1, VMID1; No Access lower granule (§3.24.3.1.4, line 4563) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] Level 1 A[1:0]==0b11, Contig==0: upper granule AC1/W1/VMID1; lower granule AC0/W0/VMID0 (§3.24.3.1.4, line 4564) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] Level 1 A[1:0]==0b11, Contig!=0: contiguous region controlled by AC0, W0, VMID0 only; AC1/W1/VMID1 are RES0 (§3.24.3.1.4, line 4565) — **N/A**: IDR3.DPT=0; no DPT Level-1 descriptor processing exists
+- [x] If Contig selects Reserved encoding: descriptor is invalid (§3.24.3.1.4, line 4593) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
+- [x] Any RES0 bit non-zero or Reserved field value → descriptor is Invalid (§3.24.3.1.4, line 4549) — **N/A**: IDR3.DPT=0; no DPT descriptor walk exists
 
 ### §3.24.4 DPT Lookup Errors
 
-- [ ] DPT lookup fault priority: (1) DPT_WALK_EN=0 → DPT_DISABLED at L0, (2) Invalid DPT register config → DPT_WALK_FAULT at L0, (3) GPC on L0 fetch → DPT_GPC_FAULT at L0, (4) External abort on L0 fetch → DPT_EABT at L0, (5) Invalid L0 descriptor → DPT_WALK_FAULT at L0, (6) GPC on L1 fetch → DPT_GPC_FAULT at L1, (7) External abort on L1 → DPT_EABT at L1, (8) Invalid L1 descriptor → DPT_WALK_FAULT at L1 (§3.24.4, line 4615)
-- [ ] If SMMU_(R_)DPT_CFG_FAR.FAULT==0: SMMU reports fault info in register and sets FAULT=1; if already 1, fault not reported (§3.24.4, line 4628)
-- [ ] When DPT_ERR made active in SMMU_(R_)GERROR: corresponding DPT_CFG_FAR has already been made observable (§3.24.4, line 4630)
-- [ ] Reserved DPTPS value (0b111) or exceeds SMMU_IDR5.OAS: treated as Invalid DPT register configuration (§3.24.4, line 4641)
+- [x] DPT lookup fault priority: (1) DPT_WALK_EN=0 → DPT_DISABLED at L0, (2) Invalid DPT register config → DPT_WALK_FAULT at L0, (3) GPC on L0 fetch → DPT_GPC_FAULT at L0, (4) External abort on L0 fetch → DPT_EABT at L0, (5) Invalid L0 descriptor → DPT_WALK_FAULT at L0, (6) GPC on L1 fetch → DPT_GPC_FAULT at L1, (7) External abort on L1 → DPT_EABT at L1, (8) Invalid L1 descriptor → DPT_WALK_FAULT at L1 (§3.24.4, line 4615) — **N/A**: IDR3.DPT=0; no DPT walk or fault path exists; no SMMU_DPT_CFG_FAR register implemented
+- [x] If SMMU_(R_)DPT_CFG_FAR.FAULT==0: SMMU reports fault info in register and sets FAULT=1; if already 1, fault not reported (§3.24.4, line 4628) — **N/A**: IDR3.DPT=0; SMMU_DPT_CFG_FAR register not implemented
+- [x] When DPT_ERR made active in SMMU_(R_)GERROR: corresponding DPT_CFG_FAR has already been made observable (§3.24.4, line 4630) — **N/A**: IDR3.DPT=0; GERROR_DPT_ERR bit constant exists in types.h:1494 for register layout completeness but DPT_CFG_FAR is not implemented and DPT errors never raised
+- [x] Reserved DPTPS value (0b111) or exceeds SMMU_IDR5.OAS: treated as Invalid DPT register configuration (§3.24.4, line 4641) — **N/A**: IDR3.DPT=0; SMMU_DPT_BASE_CFG register not implemented
 
 ### §3.24.5 DPT Maintenance Operations
 
-- [ ] CMD_DPTI_ALL and CMD_DPTI_PA: same consumption and completion behavior as CMD_TLBI_* commands (§3.24.5, line 4661)
-- [ ] Consumption of CMD_DPTI_* does not provide guarantees; CMD_SYNC after guarantees invalidation complete, events reported, client transactions complete (§3.24.5, line 4663)
-- [ ] CMD_TLBI_* commands and broadcast TLBI for stage 1/2 NOT required to invalidate DPT TLB entries (§3.24.5, line 4674)
+- [x] CMD_DPTI_ALL and CMD_DPTI_PA: same consumption and completion behavior as CMD_TLBI_* commands (§3.24.5, line 4661) — **N/A**: IDR3.DPT=0; CMD_DPTI_ALL (0x70) and CMD_DPTI_PA (0x73) are handled in smmu.cpp:5404-5411 but return CERROR_ILL+GERROR.CMDQ_ERR per §4.6.1 (unsupported command), not as full DPT invalidations
+- [x] Consumption of CMD_DPTI_* does not provide guarantees; CMD_SYNC after guarantees invalidation complete, events reported, client transactions complete (§3.24.5, line 4663) — **N/A**: IDR3.DPT=0; DPTI commands rejected with CERROR_ILL, no DPT TLB to invalidate
+- [x] CMD_TLBI_* commands and broadcast TLBI for stage 1/2 NOT required to invalidate DPT TLB entries (§3.24.5, line 4674) — **N/A**: IDR3.DPT=0; no DPT TLB exists; TLBI commands operate on translation TLB only
 
 ### §3.24.6 Software Guidance
 
 ### §3.24.6.2 Invalid to Valid Transition
 
-- [ ] Order for invalid→valid: (1) configure DPT to grant access, (2) cache maintenance and barriers, (3) configure final stage of translation to grant access; TLB maintenance NOT required (§3.24.6.2, line 4699)
+- [x] Order for invalid→valid: (1) configure DPT to grant access, (2) cache maintenance and barriers, (3) configure final stage of translation to grant access; TLB maintenance NOT required (§3.24.6.2, line 4699) — **N/A**: IDR3.DPT=0; software-model DPT ordering guidance not applicable when DPT is not implemented
 
 ### §3.24.6.3 Valid to Invalid Transition
 
-- [ ] Order for valid→invalid: (1) mark final stage descriptor as Invalid, (2) TLBI + sync, (3) CMD_ATC_INV + sync, (4) if fully-coherent device: issue CMOs, (5) mark DPT config as invalid, (6) CMD_DPTI_* + sync (§3.24.6.3, line 4709)
+- [x] Order for valid→invalid: (1) mark final stage descriptor as Invalid, (2) TLBI + sync, (3) CMD_ATC_INV + sync, (4) if fully-coherent device: issue CMOs, (5) mark DPT config as invalid, (6) CMD_DPTI_* + sync (§3.24.6.3, line 4709) — **N/A**: IDR3.DPT=0; DPT teardown sequence not applicable when DPT is not implemented
 
 ### §3.24.6.4 Clearing DPT Lookup Errors
 
-- [ ] Algorithm: (1) write 0 to SMMU_(R_)DPT_CFG_FAR.FAULT, (2) acknowledge SMMU_(R_)GERROR.DPT_ERR, (3) read FAULT again to check for new fault between steps 1 and 2 (§3.24.6.4, line 4722)
+- [x] Algorithm: (1) write 0 to SMMU_(R_)DPT_CFG_FAR.FAULT, (2) acknowledge SMMU_(R_)GERROR.DPT_ERR, (3) read FAULT again to check for new fault between steps 1 and 2 (§3.24.6.4, line 4722) — **N/A**: IDR3.DPT=0; SMMU_DPT_CFG_FAR register not implemented; DPT errors never raised
 
 ## §3.25 Granule Protection Checks
 
