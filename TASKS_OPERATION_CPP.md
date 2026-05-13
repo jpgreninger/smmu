@@ -374,14 +374,16 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.10.3 Support for Realm State
 
+> **Audit date:** 2026-05-13 — 4 items checked: 0 PASS, 4 N/A, 0 bugs. All requirements gated on IDR0.RME_IMPL=1 and SMMU_R_* Realm programming interface; model advertises RME_IMPL=0 (smmu.cpp:5354); structurally out of scope. BUG-AUDIT-161-CPP, BUG-AUDIT-162-CPP, BUG-AUDIT-163-CPP all re-triaged N/A.
+
 - [x] Realm translation regimes supported only with VMSAv8-64 or VMSAv9-128 translation tables (§3.10.3, line 2665) <!-- N/A: model globally enforces AArch64-only TTF; covered by construction -->
 - [x] Realm L1STD, STE, L1CD, and CD have same format as Non-secure equivalents except all pointers are Realm physical addresses (§3.10.3, line 2680) <!-- N/A: hardware table formats not modeled; single abstract streamMap used -->
-- [ ] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688) <!-- BUG-AUDIT-161-CPP: nsCfg applied unconditionally regardless of securityState==Realm smmu.cpp:1955 -->
-- [ ] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694) <!-- BUG-AUDIT-162-CPP: no Realm Command queue; Realm-specific SSec=1 rejection absent -->
+- [x] CD.NSCFG0 and CD.NSCFG1 are IGNORED for a Realm stream (§3.10.3, line 2688) <!-- N/A: requires IDR0.RME_IMPL=1 and SMMU_R_* Realm programming interface; model advertises RME_IMPL=0 (smmu.cpp:5354); no Realm stream can be configured → rule never applies; BUG-AUDIT-161-CPP re-triaged N/A 2026-05-13 -->
+- [x] For Realm Command queue commands: SSec==1 gives CERROR_ILL (§3.10.3, line 2694) <!-- N/A: Realm Command queue (SMMU_R_CMDQ_*) does not exist; model implements only NS queue (smmu.cpp:5354); structurally out of scope; BUG-AUDIT-162-CPP re-triaged N/A 2026-05-13 -->
 
 ### §3.10.3.1 Input NS Attribute
 
-- [ ] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702) <!-- BUG-AUDIT-162-CPP: determineContextSecurityState() returns NonSecure for unconfigured streams smmu.cpp:6425; no Realm defaulting -->
+- [x] For Realm stream: if client device does not provide input NS attribute, input NS attribute defaults to Realm (§3.10.3.1, line 2702) <!-- N/A: default-NS-attribute rule applies only within a Realm stream; requires SMMU_R_* interface absent in this NS-only model (RME_IMPL=0); no Realm stream is ever processed; BUG-AUDIT-162-CPP re-triaged N/A 2026-05-13 -->
 
 ### §3.10.3.2 Realm Stream Disabled
 
@@ -389,7 +391,7 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.10.3.3 Realm Stream Bypass
 
-- [ ] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716) <!-- BUG-AUDIT-163-CPP: nsCfgOut set smmu.cpp:1955 but never consumed downstream; inert dead field -->
+- [x] If SMMU_R_CR0.SMMUEN==1 and Realm STE.Config==0b100: stream bypass; output PA space derived by applying STE.NSCFG to input NS attribute (§3.10.3.3, line 2716) <!-- N/A: condition references SMMU_R_CR0.SMMUEN which does not exist; nsCfgOut (smmu.cpp:1985) is a dead field never consumed to derive output PA; Realm bypass path entirely absent from NS-only model; BUG-AUDIT-163-CPP re-triaged N/A 2026-05-13 -->
 - [x] Realm stream bypass can still result in: F_ADDR_SIZE, F_PERMISSION (instruction to Non-secure PA), F_BAD_ATS_TREQ, F_TRANSL_FORBIDDEN, GPC faults (§3.10.3.3, line 2721) <!-- PASS: fault types implemented generically for all streams including Realm; smmu.cpp:1917-1942 -->
 - [x] Realm stream bypass: client transactions still associated with MECID configured in STE.MECID (§3.10.3.3, line 2729) <!-- N/A: MECID is RME DA memory encryption context tag below SW model abstraction level -->
 
