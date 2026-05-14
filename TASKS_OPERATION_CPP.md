@@ -556,30 +556,30 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ## §3.17 TLB Tagging, VMIDs, ASIDs and Broadcast TLB Maintenance
 
-> **Audit date:** 2026-05-09 — 35 items checked: 12 PASS, 12 N/A, 8 BUG, 3 Out-of-scope (BUG-AUDIT-165-CPP through BUG-AUDIT-169-CPP filed)
+> **Audit date:** 2026-05-13 re-audit — 10 unchecked items resolved: 8 PASS, 1 N/A, 1 FIXED (BUG-AUDIT-166-CPP EL2_E2H entryVmid). BUG-AUDIT-165/166/167/168/169-CPP all resolved.
 
 - [x] Cached translations tagged with: translation regime (StreamWorld), ASID if regime supports ASIDs, VMID if S2 implemented and regime supports VMIDs (§3.17, line 3420) — **PASS**: TLBEntry carries `strw`, `asid`, `vmid` fields (types.h:1351-1361); insert path smmu.cpp:766-802 sets tags based on stage config and regime
-- [ ] NS-EL1 stage 1 VA translations: ASID-tagged if nG==1, VMID-tagged if S2P==1 (§3.17, line 3431) — **BUG-AUDIT-165-CPP**: nG bit not tracked in TLBEntry or TranslationData; ASID applied unconditionally regardless of global/non-global descriptor flag; VMID tagging for S2P==1 is correct (smmu.cpp:772-781)
-- [ ] any-EL2 translations: no ASID tag, no VMID tag (§3.17, line 3435) — **BUG-AUDIT-166-CPP**: ASID zeroed correctly (smmu.cpp:799-800) but `entryVmid` not zeroed for EL2 streams; EL2 stream with non-zero STE.S2VMID produces TLB entries incorrectly tagged with that VMID
-- [ ] any-EL2-E2H translations: ASID-tagged if nG==1, no VMID tag (§3.17, line 3436) — **BUG-AUDIT-165-CPP / BUG-AUDIT-166-CPP**: nG absent; `entryVmid` not zeroed for EL2_E2H streams (smmu.cpp:787-802)
-- [ ] EL3 translations: no ASID tag, no VMID tag (§3.17, line 3438) — **BUG-AUDIT-166-CPP**: ASID zeroed correctly (smmu.cpp:799-800) but `entryVmid` not zeroed for EL3 streams
+- [x] NS-EL1 stage 1 VA translations: ASID-tagged if nG==1, VMID-tagged if S2P==1 (§3.17, line 3431) — **PASS**: `globalTranslations`→`entryNonGlobal` at smmu.cpp:815; nonGlobal entries only evict on ASID match (tlb_cache.cpp:564); VMID retained via smmu.cpp:772-781; BUG-AUDIT-165-CPP FIXED
+- [x] any-EL2 translations: no ASID tag, no VMID tag (§3.17, line 3435) — **PASS**: smmu.cpp:804-806 zeroes both entryAsid and entryVmid for strw==EL2; BUG-AUDIT-166-CPP FIXED
+- [x] any-EL2-E2H translations: ASID-tagged if nG==1, no VMID tag (§3.17, line 3436) — **PASS**: ASID handled via CR2.E2H gate (smmu.cpp:792-794); entryVmid zeroed for EL2_E2H at smmu.cpp:809-811 (BUG-AUDIT-166-CPP FIXED — EL2_E2H case added); test: test_bug_audit166_el2_el3_vmid.cpp:EL2E2HStreamHasNoVmidTag
+- [x] EL3 translations: no ASID tag, no VMID tag (§3.17, line 3438) — **PASS**: smmu.cpp:804-806 zeroes both entryAsid and entryVmid for strw==EL3; BUG-AUDIT-166-CPP FIXED
 - [x] When SMMU_IDR0.S1P==1: SMMU supports 16-bit ASIDs if SMMU_IDR0.ASID16==1 (§3.17, line 3456) — **PASS**: IDR0 advertises S1P (gated on s1pSupported_) and ASID16=1 unconditional (smmu.cpp:3524-3533)
 - [x] When SMMU_IDR0.S2P==1: SMMU supports 16-bit VMIDs if SMMU_IDR0.VMID16==1 (§3.17, line 3457) — **PASS**: IDR0 advertises S2P (gated on s2pSupported_) and VMID16=1 unconditional (smmu.cpp:3524, 3540)
 - [x] All TLB entries inserted using NS-EL1 configurations are tagged with VMIDs when S2P==1, regardless of stage configuration (§3.17, line 3458) — **PASS**: smmu.cpp:772-781; NS-EL1 always retains STE.S2VMID as entryVmid for stage-1-only, stage-2-only, and both-stage configs
 - [x] SMMU support for broadcast TLB maintenance is optional; indicated by SMMU_IDR0.BTM (§3.17, line 3462) — **PASS**: IDR0 bit 5 set unconditionally (smmu.cpp:3528); receiveBroadcastTLBI() implemented (smmu.cpp:5806)
 - [x] If SMMU_IDR0.BTM==1 and SMMU_(*_)CR2.PTM==1: SMMU permitted but not required to ignore broadcast TLB invalidations for corresponding Security state (§3.17, line 3466) — **PASS**: smmu.cpp:5816-5817; CR2.PTM=1 causes early return for NS-targeted commands
 - [x] Broadcast TLB invalidations with illegal operations (e.g. affecting unimplemented stage): silently ignored (§3.17, line 3466) — **PASS**: receiveBroadcastTLBI() routes only to implemented NS/EL1/EL2 types; unimplemented-stage broadcasts produce no effect
-- [ ] When SMMU_IDR0.S2P==0: SMMU matches VMID 0 for incoming broadcast TLB invalidations for regimes using VMIDs (§3.17, line 3466) — **BUG-AUDIT-167-CPP**: receiveBroadcastTLBI() (smmu.cpp:5806-5820) has no VMID=0 substitution when s2pSupported_==false; broadcast VMID operand passed unchanged
+- [x] When SMMU_IDR0.S2P==0: SMMU matches VMID 0 for incoming broadcast TLB invalidations for regimes using VMIDs (§3.17, line 3466) — **PASS**: smmu.cpp:5863-5866 substitutes vmid=0 before executeTLBInvalidationCommand when !s2pSupported_; BUG-AUDIT-167-CPP FIXED
 - [x] CD.ASET==1: address space and ASID are non-shared; TLB entries not required to be invalidated by broadcast VA{L}ExIS and ASIDExIS operations (§3.17, line 3478) — **N/A**: ASET not tracked in TLBEntry; conservative over-invalidation is conformant (spec uses "not required")
 - [x] CD.ASET==0: ASID considered shared with PE processes; TLB entries required to be affected by all matching broadcast invalidations (§3.17, line 3478) — **N/A**: all entries effectively treated as ASET==0; requirement met by over-invalidation
 - [x] CMD_TLBI_* commands invalidate all matching TLB entries regardless of ASET value (§3.17, line 3480) — **PASS**: smmu.cpp:4566-4704; no ASET filtering anywhere in CMD_TLBI_* paths
 
 ### §3.17.1 The Global Flag in the Translation Table Descriptor
 
-- [ ] Translation performed for Secure stream from Non-secure memory is treated as non-global (nG==1) regardless of nG bit value in descriptor (§3.17.1, line 3504) — **BUG-AUDIT-165-CPP**: nG not tracked in TLBEntry (types.h:1342-1378) or TranslationData; no enforcement of non-global override for Secure-stream-from-NS-memory
+- [x] Translation performed for Secure stream from Non-secure memory is treated as non-global (nG==1) regardless of nG bit value in descriptor (§3.17.1, line 3504) — **PASS**: smmu.cpp:818-820 forces entryNonGlobal=true when securityState==Secure and tdata.securityState==NonSecure; BUG-AUDIT-165-CPP FIXED
 - [x] any-EL2 and EL3 StreamWorlds: nG bit has no effect (§3.17.1, line 3504) — **N/A**: nG not tracked in model; trivially satisfied — nG has no effect anywhere
-- [ ] Global TLB entry can match regardless of ASID; but can only match lookups from same StreamWorld as when TLB entry created (§3.17.1, line 3508) — **BUG-AUDIT-165-CPP**: no isGlobal/nG field in TLBEntry; global vs non-global distinction entirely absent; StreamWorld not part of TLBCache lookup key
-- [ ] Global TLB entries with ASET==0 do not match lookups through configurations with ASET==1 and vice versa (§3.17.1, line 3512) — **BUG-AUDIT-165-CPP**: neither ASET nor nG tracked; cross-ASET isolation for global entries unimplemented; vacuously N/A since global entries are never created
+- [x] Global TLB entry can match regardless of ASID; but can only match lookups from same StreamWorld as when TLB entry created (§3.17.1, line 3508) — **PASS**: tlb_cache.cpp:564 global entries (nonGlobal==false) evicted by any ASID-targeted TLBI regardless of ASID operand; StreamWorld isolation guaranteed by stream lifecycle: removeStream() invalidates all stream TLB entries before StreamWorld can change; BUG-AUDIT-165-CPP FIXED
+- [x] Global TLB entries with ASET==0 do not match lookups through configurations with ASET==1 and vice versa (§3.17.1, line 3512) — **N/A**: ASET not implemented anywhere in C++ model (absent from StreamConfig, TLBEntry, CacheKey); all streams implicitly operate at same ASET level; cross-ASET constraint cannot be violated; BUG-AUDIT-165-CPP N/A by absence
 
 ### §3.17.4 Broadcast TLB Maintenance in Mixed AArch32/AArch64 Systems
 
@@ -588,13 +588,13 @@ Every item is a concrete behavioral rule, encoding, fault condition, or procedur
 
 ### §3.17.5 EL2 ASIDs and TLB Maintenance in E2H Mode
 
-- [ ] Change to SMMU_CR2.E2H must be accompanied by invalidation of all TLB entries from NS-EL2 or NS-EL2-E2H STEs (§3.17.5, line 3635) — **BUG-AUDIT-168-CPP**: setCR2() (smmu.cpp:5475-5482) stores value only; no TLB invalidation on E2H bit transition
+- [x] Change to SMMU_CR2.E2H must be accompanied by invalidation of all TLB entries from NS-EL2 or NS-EL2-E2H STEs (§3.17.5, line 3635) — **PASS**: smmu.cpp:5515-5518 detects CR2_E2H bit change via XOR and calls tlbCache->invalidateEL2Entries() covering both EL2 and EL2_E2H; BUG-AUDIT-168-CPP FIXED
 - [x] Change to SMMU_S_CR2.E2H must be accompanied by invalidation of all TLB entries from S-EL2 or S-EL2-E2H STEs (§3.17.5, line 3636) — **N/A**: Secure EL2 (SMMU_S_CR2) not implemented in this model
 
 ### §3.17.6 VMID Wildcards
 
 - [x] SMMU_CR0.VMW controls Non-secure VMID wildcard function; configured number of VMID LSBs ignored during invalidation matching (§3.17.6, line 3654) — **PASS**: getVmidMask() lambda (smmu.cpp:4558-4563) reads CR0_VMW and computes (0xFFFFu << vmw) & 0xFFFF
-- [ ] Both broadcast TLB invalidation and explicit CMD_TLBI_* commands respect VMID wildcard when SMMU_CR0.VMW != 0 (§3.17.6, line 3658) — **BUG-AUDIT-169-CPP**: getVmidMask() applied only to TLBI_S12_VMALL and TLBI_S2_IPA (smmu.cpp:4683,4693-4700); TLBI_NH_ALL, TLBI_NH_VA, TLBI_NH_VAA, TLBI_NH_ASID use exact VMID matching without wildcard (smmu.cpp:4572-4625)
+- [x] Both broadcast TLB invalidation and explicit CMD_TLBI_* commands respect VMID wildcard when SMMU_CR0.VMW != 0 (§3.17.6, line 3658) — **PASS**: getVmidMask() applied to all VMID-scoped paths: NH_ALL (smmu.cpp:4596), NH_VA (4614-4617), NH_VAA (4637,4642), NH_ASID (4652), S12_VMALL (4710), S2_IPA; BUG-AUDIT-169-CPP FIXED
 - [x] VMID wildcard does not allow dissimilar VMID values to alias on TLB lookup (§3.17.6, line 3662) — **PASS**: TLBCache lookup keyed on {streamID,pasid,iova,secState}; VMID not in lookup key; no alias possible
 
 ### §3.17.7 Broadcast TLB Maintenance for GPT Information

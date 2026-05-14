@@ -37,9 +37,10 @@ static constexpr PASID  PASID_ZERO = 0;
 static constexpr IOVA   TEST_IOVA  = 0x1000;
 static constexpr PA     TEST_PA    = 0xB000;
 
-static constexpr StreamID SID_EL2_2S = 0x10;
-static constexpr StreamID SID_EL3_2S = 0x20;
-static constexpr StreamID SID_EL1_2S = 0x30;  // control: EL1_EL0 retains VMID
+static constexpr StreamID SID_EL2_2S    = 0x10;
+static constexpr StreamID SID_EL3_2S    = 0x20;
+static constexpr StreamID SID_EL1_2S    = 0x30;  // control: EL1_EL0 retains VMID
+static constexpr StreamID SID_EL2_E2H_2S = 0x40; // EL2_E2H: ASID valid, VMID must be 0
 
 static constexpr uint16_t VMID_TEST   = 0x99;
 static constexpr uint16_t VMID_CTRL   = 0xAB;
@@ -161,4 +162,42 @@ TEST_F(BugAudit166El2El3VmidTest, EL1TwoStageStreamRetainsVmidTag) {
     EXPECT_FALSE(result.isOk())
         << "BUG-AUDIT-166-CPP: EL1_EL0 two-stage stream TLB entry must retain VMID=0xAB. "
            "TLBI_S12_VMALL(0xAB) must evict it — re-translate should fault.";
+}
+
+// ============================================================================
+// Test 4: Two-stage EL2_E2H stream — TLB entry must have VMID=0 (§3.17 l.3436)
+// ============================================================================
+//
+// ARM §3.17 line 3436: any-EL2-E2H translations are ASID-tagged if TTD.nG==1,
+// but carry NO VMID tag.  TLBI_S12_VMALL(vmid=0x99) must NOT evict the entry
+// (entry has VMID=0); re-translate must succeed (cache hit).
+//
+// BEFORE FIX: entry VMID=0x99 → TLBI evicts it → re-translate faults → FAIL.
+// AFTER FIX:  entry VMID=0   → TLBI misses it → re-translate hits  → PASS.
+TEST_F(BugAudit166El2El3VmidTest, EL2E2HStreamHasNoVmidTag) {
+    // CR2.E2H=1 makes STRW=EL2_E2H valid and preserves the ASID for E2H.
+    smmu_.setCR2(SMMU::CR2_E2H);
+
+    setupTwoStageStream(smmu_, SID_EL2_E2H_2S, StreamWorld::EL2_E2H, VMID_TEST);
+
+    PagePermissions perms(true, true, false);
+    smmu_.mapPage(SID_EL2_E2H_2S, PASID_ZERO, TEST_IOVA, TEST_PA, perms);
+
+    auto warm = smmu_.translate(SID_EL2_E2H_2S, PASID_ZERO, TEST_IOVA,
+                                AccessType::Read, SecurityState::NonSecure);
+    ASSERT_TRUE(warm.isOk()) << "Initial translate must succeed to warm TLB.";
+
+    smmu_.unmapPage(SID_EL2_E2H_2S, PASID_ZERO, TEST_IOVA);
+
+    // TLBI targeting VMID=0x99.  If EL2_E2H entry is correctly tagged VMID=0,
+    // this TLBI does not match and the cached entry survives.
+    issueTlbiS12Vmall(smmu_, VMID_TEST);
+
+    auto result = smmu_.translate(SID_EL2_E2H_2S, PASID_ZERO, TEST_IOVA,
+                                  AccessType::Read, SecurityState::NonSecure);
+
+    EXPECT_TRUE(result.isOk())
+        << "BUG-AUDIT-166-CPP: Two-stage EL2_E2H stream TLB entry must have VMID=0 "
+           "(ARM §3.17 line 3436). TLBI_S12_VMALL(0x99) must NOT evict it — "
+           "re-translate should hit the cache.";
 }

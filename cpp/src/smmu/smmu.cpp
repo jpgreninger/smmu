@@ -800,8 +800,13 @@ TranslationResult SMMU::translate(StreamID streamID, PASID pasid, IOVA iova, Acc
             // translation regime and carry no VMID tag. Zero entryVmid for these regimes
             // regardless of whether stage 2 is enabled (entryVmid=streamCfg.vmid above
             // is only correct for EL1_EL0 two-stage streams).
+            // §3.17 line 3436: EL2_E2H streams also carry no VMID tag (ASID is valid).
             if (streamCfg.strw == StreamWorld::EL2 || streamCfg.strw == StreamWorld::EL3) {
                 entryAsid = 0;
+                entryVmid = 0;
+            }
+            // ARM §3.17 line 3436: any-EL2-E2H has no VMID tag (ASID is valid for E2H)
+            if (streamCfg.strw == StreamWorld::EL2_E2H) {
                 entryVmid = 0;
             }
             // BUG-AUDIT-165-CPP fix: ARM §3.17.1 — determine the nG (not-Global) bit.
