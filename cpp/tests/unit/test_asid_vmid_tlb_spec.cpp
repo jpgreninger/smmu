@@ -40,10 +40,12 @@ namespace test {
 
 // Stream 0x10: VMID=1, ASID=10
 static constexpr StreamID STREAM_VMID1_ASID10  = 0x10;
-// Stream 0x20: VMID=2, ASID=20
+// Stream 0x20: VMID=2, ASID=20 (EL2_E2H, stage-1 only — for TLBI_EL2_ASID test)
 static constexpr StreamID STREAM_VMID2_ASID20  = 0x20;
 // Stream 0x30: VMID=1, ASID=30 (shares VMID=1 with stream 0x10)
 static constexpr StreamID STREAM_VMID1_ASID30  = 0x30;
+// Stream 0x50: VMID=2, ASID=50 (EL1_EL0, stage1+stage2 — for TLBI_S2_IPA test)
+static constexpr StreamID STREAM_VMID2_ASID50  = 0x50;
 
 static constexpr uint16_t VMID_1 = 1;
 static constexpr uint16_t VMID_2 = 2;
@@ -149,11 +151,14 @@ protected:
         smmu_->processCommandQueue();
     }
 
-    // Helper: issue CMD_TLBI_S2_IPA targeted at the given VMID
-    void issueTlbiS2Ipa(uint16_t vmid) {
+    // Helper: issue CMD_TLBI_S2_IPA targeted at the given VMID and IPA.
+    // ARM §4.4.3.1: CMD_TLBI_S2_IPA invalidates stage-2 entries by VMID and IPA.
+    // The IPA operand is passed in cmd.startAddress (see executeTLBInvalidationCommand).
+    void issueTlbiS2Ipa(uint16_t vmid, IOVA iova = TEST_IOVA) {
         CommandEntry cmd;
         cmd.type = CommandType::TLBI_S2_IPA;
-        cmd.vmid = vmid;  // NEW field — triggers compile error
+        cmd.vmid = vmid;
+        cmd.startAddress = iova;
         smmu_->submitCommand(cmd);
         smmu_->processCommandQueue();
     }
@@ -243,13 +248,47 @@ TEST_F(ASIDVMIDTLBSpecTest, VMIDTargetedInvalidation_TLBI_S12_VMALL) {
            "CMD_TLBI_S12_VMALL targeting VMID=1; page is unmapped so walk must fault";
 }
 
-/// §4.3.8: CMD_TLBI_S2_IPA with vmid=2 must evict TLB entries for stream 0x20
-/// (VMID=2) and must NOT evict entries for streams 0x10 and 0x30 (VMID=1).
+/// §4.3.8: CMD_TLBI_S2_IPA with vmid=2 must evict TLB entries for stage-2
+/// streams with VMID=2, and must NOT evict entries for streams with VMID=1.
+///
+/// Stream 0x20 (EL2_E2H, stage-1-only) is intentionally NOT the target here:
+/// CMD_TLBI_S2_IPA is a stage-2 invalidation command (§4.4.3.1) inapplicable
+/// to stage-1-only EL2_E2H streams whose TLB entries carry no VMID tag
+/// (ARM §3.17 line 3436). Instead we create a dedicated EL1_EL0 two-stage
+/// stream (0x50) with VMID=2 as the correct target.
 TEST_F(ASIDVMIDTLBSpecTest, VMIDTargetedInvalidation_TLBI_S2_IPA) {
-    populateTlbThenUnmapAll();
+    PagePermissions perms(true, true, false);
 
-    // Invalidate VMID=2 — should evict stream 0x20, not 0x10 or 0x30
-    issueTlbiS2Ipa(VMID_2);
+    // Set up stream 0x50: EL1_EL0, stage1+stage2, VMID=2, ASID=50.
+    // This is the correct target for CMD_TLBI_S2_IPA (stage-2 stream with VMID=2).
+    static constexpr uint16_t ASID_50 = 50;
+    static constexpr PA PA_STREAM_50 = 0xD000;
+    StreamConfig cfg50;
+    cfg50.translationEnabled = true;
+    cfg50.stage1Enabled      = true;
+    cfg50.stage2Enabled      = true;
+    cfg50.faultMode          = FaultMode::Terminate;
+    cfg50.strw               = StreamWorld::EL1_EL0;
+    cfg50.vmid               = VMID_2;
+    cfg50.asid               = ASID_50;
+    smmu_->configureStream(STREAM_VMID2_ASID50, cfg50);
+    smmu_->enableStream(STREAM_VMID2_ASID50);
+    smmu_->createStreamPASID(STREAM_VMID2_ASID50, PASID_ZERO);
+    smmu_->mapPage(STREAM_VMID2_ASID50, PASID_ZERO, TEST_IOVA, PA_STREAM_50, perms);
+
+    // Warm TLBs for all 4 streams
+    populateTlbThenUnmapAll();
+    {
+        auto r50 = smmu_->translate(STREAM_VMID2_ASID50, PASID_ZERO, TEST_IOVA,
+                                    AccessType::Read, SecurityState::NonSecure);
+        ASSERT_TRUE(r50.isOk()) << "Stream 0x50 initial translate must succeed to warm TLB.";
+        smmu_->unmapPage(STREAM_VMID2_ASID50, PASID_ZERO, TEST_IOVA);
+    }
+
+    // Invalidate VMID=2 at IPA=TEST_IOVA — evicts stream 0x50 (EL1_EL0, VMID=2).
+    // Streams 0x10 and 0x30 (VMID=1) are unaffected.
+    // Stream 0x20 (EL2_E2H, VMID tag=0) is unaffected (no stage-2 entries).
+    issueTlbiS2Ipa(VMID_2, TEST_IOVA);
 
     // Stream 0x10 (VMID=1) must still be a TLB hit
     TranslationResult r10 = smmu_->translate(STREAM_VMID1_ASID10, PASID_ZERO,
@@ -267,12 +306,12 @@ TEST_F(ASIDVMIDTLBSpecTest, VMIDTargetedInvalidation_TLBI_S2_IPA) {
         << "FINDING-NEW-19: stream 0x30 (VMID=1) must be a TLB hit after "
            "CMD_TLBI_S2_IPA targeting VMID=2";
 
-    // Stream 0x20 (VMID=2) must be a TLB miss — page-table walk fails
-    TranslationResult r20 = smmu_->translate(STREAM_VMID2_ASID20, PASID_ZERO,
+    // Stream 0x50 (EL1_EL0, VMID=2) must be a TLB miss — page-table walk fails
+    TranslationResult r50 = smmu_->translate(STREAM_VMID2_ASID50, PASID_ZERO,
                                               TEST_IOVA, AccessType::Read,
                                               SecurityState::NonSecure);
-    EXPECT_FALSE(r20.isOk())
-        << "FINDING-NEW-19: stream 0x20 (VMID=2) must be a TLB miss after "
+    EXPECT_FALSE(r50.isOk())
+        << "FINDING-NEW-19: stream 0x50 (EL1_EL0, VMID=2) must be a TLB miss after "
            "CMD_TLBI_S2_IPA targeting VMID=2; page is unmapped so walk must fault";
 }
 
