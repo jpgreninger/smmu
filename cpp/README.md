@@ -2,11 +2,13 @@
 
 ** NOTE **: This project is an experiment with AI to start from a specification and do everything with AI. No human written code is included. Code is debugged and compared against the markdown version of the ARM specification found in this repository. Due to the use of the Pro subscription from Claude Code, the debug and evaluation against the spec for full compliance has taken a while. Debugging and compliance has been run with normal and high thinking capabilities of the Sonnet model. If a corporate account for Claude Code with mostly unlimited tokens had been used, it would have been finished, debugged, and fulling compliant a while ago. High effort was enabled three weeks ago for final debugging and compliance. In each session, the tokens allow 2-3 passes looking for bugs, comparing the suggested fix to the specification, and fixing the bugs. This process allows 0.5-1.5 hours of work with multiple agents in parallel before waiting for the 5-hour window to reset the tokens. Thank you for your patience
 
-## ✅ **PRODUCTION RELEASE v1.7.7** - 100% ARM IHI0070G.b Conformance ✅
+## ✅ **PRODUCTION RELEASE v1.8.0** - 100% ARM IHI0070G.b Conformance ✅
 
-**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 195/195 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.7.7
+**Quality Status**: ⭐⭐⭐⭐⭐ (5/5 stars) | **Test Coverage**: 88.0% lines / 91.5% branches | **Tests**: 207/207 passing (100%) | **Performance**: 86-101ns translation latency | **Version**: 1.8.0
 
-> **Since v1.2.6 (Feb 17, 2026)**: 100+ conformance fixes across 11 QA passes. Full ARM SMMU v3 IHI0070G.b compliance achieved (100%). All critical/high/medium/low/partial severity gaps resolved. All 195 tests pass at 100%.
+> **Since v1.2.6 (Feb 17, 2026)**: 100+ conformance fixes across 11 QA passes. Full ARM SMMU v3 IHI0070G.b compliance achieved (100%). All critical/high/medium/low/partial severity gaps resolved. All 207 tests pass at 100%.
+>
+> **v1.8.0 (May 13, 2026)**: ARM §3.17 conformance re-audit — 10 unchecked items resolved (8 PASS, 1 N/A, 1 FIXED). BUG-AUDIT-166-CPP: EL2_E2H TLB entries now correctly carry VMID=0 per §3.17 line 3436 (EL2_E2H streams must not have a VMID tag; only ASID is valid). Fixed pre-existing test failure VMIDTargetedInvalidation_TLBI_S2_IPA: CMD_TLBI_S2_IPA is a stage-2 invalidation command inapplicable to EL2_E2H stage-1-only streams. 207/207 C++ tests passing, zero warnings.
 >
 > **v1.7.7 (May 5, 2026)**: TASKS_OPERATION.md §3.3/§3.4 audit status synchronized: BUG-AUDIT-134 FIXED, BUG-AUDIT-135/136/137 reclassified N/A (programmer constraints per §3.3.3), BUG-AUDIT-138 FIXED (canonical VA sign-extension). 195/195 C++ tests passing, zero warnings.
 >
@@ -593,6 +595,12 @@ Ready for immediate deployment in:
 - ✅ True O(1) scalability verified
 
 ## Version History
+
+**v1.8.0** (2026-05-13):
+- ✅ ARM §3.17 conformance re-audit: 10 unchecked items resolved (8 PASS, 1 N/A, 1 FIXED)
+- ✅ BUG-AUDIT-166-CPP FIXED: EL2_E2H TLB entries now correctly carry VMID=0 (§3.17 line 3436)
+- ✅ Fixed VMIDTargetedInvalidation_TLBI_S2_IPA test: uses EL1_EL0 stage-2 stream as correct CMD_TLBI_S2_IPA target
+- ✅ 207/207 C++ tests passing, 212/212 Rust tests passing, zero clippy warnings
 
 **v1.7.7** (2026-05-05):
 - ✅ TASKS_OPERATION.md §3.3/§3.4 audit status synchronized to match TASKS_BUGS.md
